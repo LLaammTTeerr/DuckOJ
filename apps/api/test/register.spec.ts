@@ -1,8 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import { schema } from '@qhhoj/db';
 import { PasswordService } from '../src/authn/password.service.js';
+import { AuthService } from '../src/authn/auth.service.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
+
+/**
+ * `assertAvailable` is private; this widened type is only so the test below
+ * can stub it out to reach the racing-INSERT path. See the test's comment
+ * for why that's necessary.
+ */
+type AuthServiceWithPrivates = AuthService & {
+  assertAvailable(field: 'username' | 'email', value: string): Promise<void>;
+};
 
 describe('PasswordService', () => {
   const service = new PasswordService();
@@ -81,6 +92,48 @@ describe('POST /auth/register', () => {
       });
       expect(res.status).toBe(422);
       expect(res.body.fields.password).toBeDefined();
+      await app.close();
+    });
+  }, 120_000);
+
+  it('translates a racing unique-constraint violation into 409 username_taken', async () => {
+    // The pre-insert SELECT in `assertAvailable` closes the common,
+    // uncontended case cleanly. To exercise the INSERT-time backstop that
+    // catches the race it can't close (two concurrent callers both passing
+    // the SELECT before either commits), this test has to reach the INSERT
+    // with the username already taken *without* going through that SELECT
+    // — otherwise the SELECT itself would report the conflict and the
+    // backstop would never run. `withTestDb` gives the whole test one
+    // Postgres transaction, so two real concurrent connections aren't
+    // available here to reproduce the race directly. Instead,
+    // `assertAvailable` is stubbed out (the only stubbed part) so the
+    // request reaches the real `.insert(...).returning()` call against a
+    // row inserted directly beforehand — Postgres itself then raises a
+    // genuine 23505 on `users_username_lower_idx`, which is what
+    // `toRegistrationConflict` in auth.service.ts must translate.
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      const auth = app.get(AuthService) as AuthServiceWithPrivates;
+      const spy = vi.spyOn(auth, 'assertAvailable').mockResolvedValue(undefined);
+
+      await db.insert(schema.users).values({
+        username: 'gina',
+        email: 'gina@example.com',
+        displayName: 'Gina',
+        passwordHash: 'not-a-real-hash-this-row-is-only-here-to-collide',
+      });
+
+      const res = await request(app.getHttpServer()).post('/auth/register').send({
+        username: 'gina',
+        email: 'gina-two@example.com',
+        password: 'a-long-enough-password',
+        displayName: 'Gina Two',
+      });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('username_taken');
+
+      spy.mockRestore();
       await app.close();
     });
   }, 120_000);
