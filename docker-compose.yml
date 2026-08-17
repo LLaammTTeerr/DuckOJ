@@ -44,6 +44,15 @@ services:
       TOTP_ENC_KEY: ${TOTP_ENC_KEY:?set TOTP_ENC_KEY}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost}
       LOG_LEVEL: info
+    # This condition is correct per the Compose spec and is left in place for
+    # tools that honor it, but podman-compose 1.5 does NOT reliably enforce it:
+    # it pre-creates every service's container before starting any of them, and
+    # `podman wait --condition=stopped` on a container that was only ever
+    # *created* (never started) returns success immediately instead of
+    # blocking — so `api` can start before `migrate` has even run. Verified by
+    # timestamp (see docs/runbook.md). Under podman-compose, bring the stack up
+    # with the explicit sequence documented there — do not rely on `up -d`
+    # alone to gate `api` on `migrate`.
     depends_on:
       migrate: { condition: service_completed_successfully }
     healthcheck:
@@ -56,7 +65,10 @@ services:
     image: caddy:2-alpine
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
-    ports: ['80:80', '443:443']
+    # Rootless Podman cannot bind privileged host ports (<1024) without extra
+    # host configuration, so map to high ports instead of running as root.
+    # Caddy inside the container still listens on 80/443 (see Caddyfile).
+    ports: ['8080:80', '8443:443']
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./apps/web/dist:/srv/web:ro

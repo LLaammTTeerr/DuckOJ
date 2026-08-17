@@ -208,18 +208,67 @@ against carelessness, not a total guarantee.
 
 ## Deploying
 
+This machine has no Docker daemon; it runs rootless Podman with `podman-compose`
+1.5, not `docker compose`. Everything below was actually run on this stack with
+that tooling — see "What was actually verified" for the exact evidence.
+
+The web bundle imports `@qhhoj/sdk`, which is a workspace package with no
+prebuilt `dist/` checked in — build it (or run the repo-wide typecheck, which
+also emits it via `tsc -b`) before building the web bundle, or Vite fails with
+`Failed to resolve entry for package "@qhhoj/sdk"`:
+
+    corepack pnpm --filter @qhhoj/sdk typecheck
     corepack pnpm --filter @qhhoj/web exec vite build
-    docker compose up -d --build
 
 **Caddy bind-mounts `./apps/web/dist`.** If you skip the `vite build` step, Caddy
 starts fine but serves nothing (an empty or missing directory) — build the SPA
 before bringing the stack up, not after.
 
-Migrations run automatically via the `migrate` Compose service before `api`
-starts (`depends_on: condition: service_completed_successfully`).
+`podman-compose` needs a `.env` (copy `.env.example` and set real secrets):
 
-`docker compose` needs a `.env` (copy `.env.example` and set a real
-`TOTP_ENC_KEY`, e.g. `openssl rand -hex 32`).
+    cp .env.example .env
+    sed -i "s/^TOTP_ENC_KEY=.*/TOTP_ENC_KEY=$(openssl rand -hex 32)/" .env
+    sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 16)/" .env
+
+### Bringing the stack up under podman-compose — read this before `up -d`
+
+A plain `podman-compose up -d --build` **does not reliably run migrations
+before the API starts.** `api`'s `depends_on: migrate: { condition:
+service_completed_successfully }` is correct per the Compose spec, but
+podman-compose 1.5 pre-creates every service's container before starting any of
+them, and `podman wait --condition=stopped` on a container that was only ever
+*created* — never started — returns success **immediately** instead of
+blocking until it actually runs and exits. Measured directly: with a bare
+`up -d --build`, the `api` container's `StartedAt` was earlier than `migrate`'s
+`StartedAt` by 10+ seconds in every run tried; `api` happened to serve
+`/healthz` correctly regardless only because that probe doesn't touch the
+database, but a request that did would have raced an unmigrated schema. Naming
+`api` alongside `caddy` on a later `up -d` doesn't help either — podman-compose
+still treats `migrate` as a dependency to (re)start and re-triggers the same
+race, since it recreates and restarts the `migrate` container as part of
+resolving `api`'s dependency graph.
+
+The sequence that was verified, by timestamp, to guarantee `migrate` really
+starts, runs, and exits before `api`'s container is even created:
+
+    podman-compose up -d postgres
+    # wait for postgres to report healthy, e.g.:
+    #   podman inspect <postgres-container> --format '{{.State.Health.Status}}'
+    podman-compose up migrate          # foreground; blocks until migrate exits
+    podman-compose up -d --no-deps api caddy
+
+`--no-deps` on the last step is required — without it, podman-compose restarts
+`migrate` as part of bringing `api` up and reintroduces the race, even though
+migrations already applied cleanly. (Re-running `migrate` itself is harmless —
+drizzle's migrator is idempotent, confirmed by the "already exists, skipping"
+Postgres notices on a second run — the danger is only `api` starting before
+that repeat run finishes.)
+
+Rootless Podman also cannot bind ports below 1024 without extra host
+configuration (`ip_unprivileged_port_start` was `1024` on this machine), so
+`docker-compose.yml`'s `caddy` service maps `8080:80` and `8443:443` instead of
+`80:80`/`443:443` — the stack is not run as root to work around this. Caddy
+inside the container is unaffected; it still listens on 80/443 internally.
 
 ### Caddy and HTTPS locally
 
@@ -228,23 +277,42 @@ site address like `localhost` (the `.env.example` default for `SITE_ADDRESS`)
 turns on Caddy's automatic HTTP→HTTPS redirect — this is correct Caddy behaviour
 for what looks like a real domain, not a bug in this config. A plain
 `curl http://localhost/healthz` will therefore hit a redirect rather than the
-JSON body. Use:
+JSON body. Use (note the remapped port, per above):
 
-    curl -L -k https://localhost/healthz
+    curl -L -k https://localhost:8443/healthz
 
 `-L` follows the redirect, `-k` trusts Caddy's self-signed internal-CA
 certificate for local testing.
 
-### Honest status of this deployment path
+### What was actually verified
 
-**The end-to-end `docker compose up` stack has never been run in this
-environment.** No Docker daemon and no Compose provider (`podman compose`,
-`podman-compose`, `docker-compose`) exist here. What has been verified instead,
-command-by-command, on Podman directly: the API image builds cleanly
-(`podman build -f apps/api/Dockerfile`), the built image's `CMD` boots Nest and
-maps every route including `/healthz`, the `migrate` service's exact command
-resolves its imports and reaches a real connection attempt against a fake
-database, and `caddy validate` accepts the `Caddyfile`. None of that proves the
-Postgres healthcheck gating, the `depends_on` ordering, or Caddy's reverse proxy
-actually work together end-to-end under Compose — only a real `docker compose up`
-on a Docker-equipped host would.
+The full stack was brought up end-to-end under `podman-compose` 1.5 on this
+machine, using the sequence above, and torn down with `podman-compose down`.
+Observed directly:
+
+- `postgres` reported `healthy` via its `pg_isready` healthcheck.
+- `migrate` exited `0` and printed `migrations applied` — on a fresh volume
+  (schema created) and again on a pre-migrated one (idempotent no-ops via
+  Postgres "already exists, skipping" notices).
+- `api` reported `healthy` via its `node -e fetch(...)` healthcheck, with
+  `StartedAt` after `migrate`'s `FinishedAt` when brought up with the sequence
+  above.
+- `caddy` started clean, auto-provisioned its local-CA TLS certificate for
+  `localhost`, and both `curl -fsS -L -k https://localhost:8443/healthz` and
+  `.../readyz` returned `{"status":"ok"}` / `{"status":"ok","database":"ok"}`
+  through the reverse proxy — not hitting `api` directly.
+- `POST https://localhost:8443/api/v1/auth/register` through Caddy returned
+  `201` with the created user profile (`id`, `username`, `email`, etc.), proving
+  the reverse proxy, the API, and a migrated database all work together.
+- The static SPA (`GET https://localhost:8443/`) served the built
+  `apps/web/dist/index.html` through Caddy's `file_server`.
+- `podman-compose down` removed all four containers and the project network.
+  It reliably printed one warning first
+  (`rootless netns: kill network process: permission denied` while stopping
+  `api`'s network namespace) but still completed and left `podman ps -a` empty
+  afterwards — this appears to be a benign rootless-Podman teardown quirk, not
+  a failure to tear down.
+
+Not independently re-verified since: behavior under real `docker compose` (only
+podman-compose was available here), and behavior under a fresh Podman socket
+after a host reboot.
