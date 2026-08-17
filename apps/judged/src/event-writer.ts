@@ -99,6 +99,16 @@ export class EventWriter {
           .where(eq(submissions.id, submissionId)));
       case 'terminated':
         return void (await this.setState(submissionId, 'queued'));
+      default: {
+        // Exhaustiveness guard: `noImplicitReturns` is not part of the
+        // `strict` family, so without this, a new `GradingEvent` variant
+        // would fall off the end of the switch, compile cleanly, perform no
+        // write, and `apply` would still return true and still publish —
+        // announcing state that was never persisted. This turns that into a
+        // compile error at the switch instead.
+        const _exhaustive: never = event;
+        throw new Error(`unhandled grading event: ${JSON.stringify(_exhaustive)}`);
+      }
     }
   }
 
