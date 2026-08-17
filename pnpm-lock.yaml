@@ -27,6 +27,15 @@ importers:
         specifier: ^2
         version: 2.1.9(@types/node@22.20.1)
 
+  packages/contracts:
+    dependencies:
+      '@asteasolutions/zod-to-openapi':
+        specifier: ^9.1.0
+        version: 9.1.0(zod@4.4.3)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+
   packages/db:
     dependencies:
       drizzle-orm:
@@ -44,6 +53,11 @@ importers:
         version: 0.31.10
 
 packages:
+
+  '@asteasolutions/zod-to-openapi@9.1.0':
+    resolution: {integrity: sha512-pLMeRgRYS7/vZIgAAkOe2P6+XGTifR1MT9pqDoxZ11EmcJJ+DPmdPqLN8ZZF4U8R9KHCCQCS9c2wtuE8wSrfkw==}
+    peerDependencies:
+      zod: ^4.0.0
 
   '@balena/dockerignore@1.0.2':
     resolution: {integrity: sha512-wMue2Sy4GAVTk6Ic4tJVcnfdau+gx2EnG7S+uAEe+TWJFqE4YoWN4/H8MSLj4eYJKxGg26lZwboEniNiNwZQ6Q==}
@@ -1670,6 +1684,9 @@ packages:
   once@1.4.0:
     resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
 
+  openapi3-ts@4.6.1:
+    resolution: {integrity: sha512-XW9MOldkhoICNeXVzzmXzmOW5G73ppOEGmh7fLCqHjgfdEYCGGN+00MlVCeUZgovjjfC56j9tvtDt1zGabNjjA==}
+
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
     engines: {node: '>= 0.8.0'}
@@ -2089,7 +2106,15 @@ packages:
     resolution: {integrity: sha512-zK7YHHz4ZXpW89AHXUPbQVGKI7uvkd3hzusTdotCg1UxyaVtg0zFJSTfW/Dq5f7OBBVnq6cZIaC8Ti4hb6dtCA==}
     engines: {node: '>= 14'}
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
 snapshots:
+
+  '@asteasolutions/zod-to-openapi@9.1.0(zod@4.4.3)':
+    dependencies:
+      openapi3-ts: 4.6.1
+      zod: 4.4.3
 
   '@balena/dockerignore@1.0.2': {}
 
@@ -3411,6 +3436,10 @@ snapshots:
     dependencies:
       wrappy: 1.0.2
 
+  openapi3-ts@4.6.1:
+    dependencies:
+      yaml: 2.9.0
+
   optionator@0.9.4:
     dependencies:
       deep-is: 0.1.4
@@ -3902,3 +3931,5 @@ snapshots:
       archiver-utils: 5.0.2
       compress-commons: 6.0.2
       readable-stream: 4.7.0
+
+  zod@4.4.3: {}
