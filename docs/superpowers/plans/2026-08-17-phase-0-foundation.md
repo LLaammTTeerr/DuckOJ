@@ -960,7 +960,8 @@ git commit -m "feat(contracts): problem+json envelope, cursor pagination, auth s
 
 ```bash
 pnpm --filter @qhhoj/api add @nestjs/common @nestjs/core @nestjs/platform-express \
-  reflect-metadata rxjs pino pino-http zod @qhhoj/db@workspace:* @qhhoj/contracts@workspace:*
+  reflect-metadata rxjs pino pino-http zod drizzle-orm \
+  @qhhoj/db@workspace:* @qhhoj/contracts@workspace:*
 pnpm --filter @qhhoj/api add -D @nestjs/testing supertest @types/supertest tsx
 ```
 
@@ -1205,7 +1206,10 @@ export class HealthModule {}
 
 ```ts
 import { randomUUID } from 'node:crypto';
-import pinoHttp from 'pino-http';
+// Named import, not default: under NodeNext resolution a default import of
+// pino-http fails with TS2349 (no call signatures). Both names point at the
+// same function object at runtime.
+import { pinoHttp } from 'pino-http';
 
 export function requestLogger(level: string) {
   return pinoHttp({
