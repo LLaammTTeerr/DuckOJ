@@ -3,3 +3,7 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Tooling scratch — worktrees and subagent-driven-development ledgers
+.claude/worktrees/
+.superpowers/
