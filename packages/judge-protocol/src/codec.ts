@@ -29,17 +29,65 @@ export interface PacketDecoder {
 }
 
 export function createPacketDecoder(options: PacketDecoderOptions): PacketDecoder {
-  let buffered: Buffer = Buffer.alloc(0);
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
   let poisoned = false;
+
+  // Read N bytes from offset in the chunks array, materializing only what's needed
+  function readBytes(offset: number, length: number): Buffer {
+    const result: Buffer[] = [];
+    let currentPos = 0;
+
+    for (const chunk of chunks) {
+      if (currentPos + chunk.length <= offset) {
+        // This chunk is before our read range
+        currentPos += chunk.length;
+        continue;
+      }
+
+      if (currentPos >= offset + length) {
+        // We've read enough
+        break;
+      }
+
+      // This chunk overlaps with our read range
+      const chunkStart = Math.max(0, offset - currentPos);
+      const chunkEnd = Math.min(chunk.length, offset + length - currentPos);
+      result.push(chunk.subarray(chunkStart, chunkEnd));
+      currentPos += chunk.length;
+    }
+
+    return Buffer.concat(result);
+  }
+
+  // Consume N bytes from the front of the chunks array
+  function consumeBytes(count: number): void {
+    let remaining = count;
+    while (remaining > 0 && chunks.length > 0) {
+      const chunk = chunks[0]!;
+      if (chunk.length <= remaining) {
+        remaining -= chunk.length;
+        chunks.shift();
+      } else {
+        chunks[0] = chunk.subarray(remaining);
+        remaining = 0;
+      }
+    }
+    totalBytes -= count;
+  }
 
   return {
     push(chunk: Buffer): void {
       if (poisoned) return;
-      buffered = buffered.length === 0 ? chunk : (Buffer.concat([buffered, chunk]) as Buffer);
+
+      chunks.push(chunk);
+      totalBytes += chunk.length;
 
       for (;;) {
-        if (buffered.length < HEADER_BYTES) return;
-        const size = buffered.readUInt32BE(0);
+        if (totalBytes < HEADER_BYTES) return;
+
+        const headerBuf = readBytes(0, HEADER_BYTES);
+        const size = headerBuf.readUInt32BE(0);
 
         // Checked before allocating: a hostile or corrupt header must not be
         // able to make us reserve gigabytes waiting for a body that never comes.
@@ -49,10 +97,10 @@ export function createPacketDecoder(options: PacketDecoderOptions): PacketDecode
           return;
         }
 
-        if (buffered.length < HEADER_BYTES + size) return;
+        if (totalBytes < HEADER_BYTES + size) return;
 
-        const body = buffered.subarray(HEADER_BYTES, HEADER_BYTES + size);
-        buffered = buffered.subarray(HEADER_BYTES + size);
+        const body = readBytes(HEADER_BYTES, size);
+        consumeBytes(HEADER_BYTES + size);
 
         try {
           options.onPacket(JSON.parse(inflateSync(body).toString('utf8')));

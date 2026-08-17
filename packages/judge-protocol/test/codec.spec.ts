@@ -19,11 +19,10 @@ describe('packet codec', () => {
   it('uses a 4-byte big-endian length prefix over zlib-compressed JSON', () => {
     const frame = encodePacket({ name: 'ping', when: 1 });
     const declared = frame.readUInt32BE(0);
+    const expectedBody = deflateSync(Buffer.from(JSON.stringify({ name: 'ping', when: 1 }), 'utf8'));
 
     expect(frame.length).toBe(4 + declared);
-    expect(deflateSync(Buffer.from(JSON.stringify({ name: 'ping', when: 1 }), 'utf8')).length).toBe(
-      declared,
-    );
+    expect(frame.subarray(4)).toEqual(expectedBody);
   });
 
   it('decodes several packets arriving in one chunk', () => {
@@ -66,5 +65,22 @@ describe('packet codec', () => {
     decoder.push(header);
 
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('too large') }));
+  });
+
+  it('correctly decodes a large packet split into many small chunks', () => {
+    const onPacket = vi.fn();
+    const decoder = createPacketDecoder({ onPacket, onError: vi.fn() });
+
+    // Create a payload with repeated data to make it reasonably large when compressed
+    const payload = { name: 'large-test', data: 'x'.repeat(5000) };
+    const frame = encodePacket(payload);
+
+    // Split the frame into small chunks (64 bytes each) to simulate streaming
+    const chunkSize = 64;
+    for (let i = 0; i < frame.length; i += chunkSize) {
+      decoder.push(frame.subarray(i, Math.min(i + chunkSize, frame.length)));
+    }
+
+    expect(onPacket).toHaveBeenCalledWith(payload);
   });
 });
