@@ -226,7 +226,7 @@ The DMOJ wire protocol is a 4-byte big-endian length prefix wrapping zlib-compre
 
 The driver claims jobs on behalf of whichever connected judge is idle, uses DMOJ's existing `ping`/`ping-response` as the heartbeat, and maps its `on_timeout` onto lease expiry. The legacy driver is a *consumer* of the new contract rather than a special case beside it.
 
-**`judge-agent`** exists because `judge-server` reads problems from local disk (`judgeenv.py` walks `problem_dirs` for `init.yml`) and has no concept of fetching a package. The agent subscribes for published revisions, downloads packages by content hash, unpacks into the problem directory, and triggers a rescan. It belongs inside the DMOJ driver's boundary and disappears entirely with a native judge. No change to `judge-server` itself.
+**`judge-agent`** exists because `judge-server` reads problems from local disk (`judgeenv.py` walks `problem_dirs` for `init.yml`) and has no concept of fetching a package. The agent **long-polls the Judge API** for published revisions — the same HTTP boundary and bearer-token auth the workers use, never Redis or the database — then downloads packages by content hash, unpacks into the problem directory, and triggers a rescan. It belongs inside the DMOJ driver's boundary and disappears entirely with a native judge. No change to `judge-server` itself.
 
 Consequence: a DMOJ judge box holds exactly one revision per problem code — the published one. Preparation invocations use a separate code namespace (`prep/<id>`) so preparation traffic cannot clobber a live problem.
 
@@ -258,6 +258,7 @@ user               id, username, email, password_hash(argon2id), status,
                    rating, max_rating, global_role
 session            token_hash, user_id, expires_at, ip, user_agent
 totp_credential    user_id, secret_enc, confirmed_at
+access_token       id, user_id, name, token_hash, scopes, last_used_at, expires_at
 
 organization       id, slug, name, about, join_policy(open|request|invite)
 org_member         org_id, user_id, role(owner|admin|member), joined_at
@@ -326,6 +327,7 @@ contest_problem       contest_id, problem_id, revision_id, order, points,
                       partial, max_submissions
 contest_participation id, contest_id, user_id, virtual(0 = live), start_at, end_at,
                       score, cumtime, tiebreaker, format_data JSONB, disqualified
+contest_manager       contest_id, user_id
 rating_event          contest_id, user_id, rating_before, rating_after,
                       rd_before, rd_after, volatility_before, volatility_after,
                       rank, created_at
