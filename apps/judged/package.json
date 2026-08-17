@@ -12,6 +12,7 @@
     "@qhhoj/db": "workspace:^",
     "@qhhoj/judge-protocol": "workspace:^",
     "drizzle-orm": "^0.45.2",
+    "ioredis": "^6.0.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
