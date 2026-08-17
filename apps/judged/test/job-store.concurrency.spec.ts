@@ -8,8 +8,7 @@ import { testDbUrl } from './db.harness.js';
 
 /**
  * Exercises `claim()` from two independent connections against committed
- * data, so the concurrent claims are genuinely concurrent transactions
- * contending for the same rows.
+ * data.
  *
  * `withTestDb` hands every caller a transaction on one connection, so two
  * `claim()` calls through it never actually race at the database — the
@@ -24,27 +23,43 @@ import { testDbUrl } from './db.harness.js';
  * update skip locked` line in `job-store.ts` for why. They guard the claim
  * query's actual outcome guarantees under real concurrency instead.
  */
-async function seedJobs(db: Db, count: number): Promise<{ problemId: number; revisionId: number }> {
+
+/** Rows this file has committed so far, tracked as they're created so cleanup can run on a partial seed. */
+interface Seeded {
+  problemId?: number;
+  revisionId?: number;
+}
+
+async function seedJobs(db: Db, count: number, seeded: Seeded): Promise<void> {
   const store = new JobStore(db);
   const [problem] = await db
     .insert(problems)
     .values({ code: `concurrency-${randomUUID()}`, name: 'A+B', statement: 's' })
     .returning();
+  seeded.problemId = problem!.id;
   const [revision] = await db
     .insert(problemRevisions)
     .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })
     .returning();
+  seeded.revisionId = revision!.id;
   for (let i = 0; i < count; i++) {
     await store.enqueue({ revisionId: revision!.id, packageHash: 'h', submissionId: null });
   }
-  return { problemId: problem!.id, revisionId: revision!.id };
 }
 
-/** Children first: grading_jobs -> problem_revisions -> problems. */
-async function cleanup(db: Db, revisionId: number, problemId: number): Promise<void> {
-  await db.delete(schema.gradingJobs).where(eq(schema.gradingJobs.revisionId, revisionId));
-  await db.delete(problemRevisions).where(eq(problemRevisions.id, revisionId));
-  await db.delete(problems).where(eq(problems.id, problemId));
+/**
+ * Children first: grading_jobs -> problem_revisions -> problems. Tolerates a
+ * partial `seeded` (e.g. `seedJobs` threw after the problem but before the
+ * revision) by only deleting what was actually recorded.
+ */
+async function cleanup(db: Db, seeded: Seeded): Promise<void> {
+  if (seeded.revisionId !== undefined) {
+    await db.delete(schema.gradingJobs).where(eq(schema.gradingJobs.revisionId, seeded.revisionId));
+    await db.delete(problemRevisions).where(eq(problemRevisions.id, seeded.revisionId));
+  }
+  if (seeded.problemId !== undefined) {
+    await db.delete(problems).where(eq(problems.id, seeded.problemId));
+  }
 }
 
 describe('JobStore concurrency', () => {
@@ -52,9 +67,9 @@ describe('JobStore concurrency', () => {
     const url = await testDbUrl();
     const a = createDb(url);
     const b = createDb(url);
-    let seeded: { problemId: number; revisionId: number } | undefined;
+    const seeded: Seeded = {};
     try {
-      seeded = await seedJobs(a.db, 1);
+      await seedJobs(a.db, 1, seeded);
       const storeA = new JobStore(a.db);
       const storeB = new JobStore(b.db);
 
@@ -64,9 +79,14 @@ describe('JobStore concurrency', () => {
       expect(winners).toHaveLength(1);
       expect(winners[0]!.attempt).toBe(1);
     } finally {
-      if (seeded) await cleanup(a.db, seeded.revisionId, seeded.problemId);
-      await a.close();
-      await b.close();
+      // Nested so a.close()/b.close() run even if cleanup itself throws —
+      // an unclosed connection leaks past this test either way.
+      try {
+        await cleanup(a.db, seeded);
+      } finally {
+        await a.close();
+        await b.close();
+      }
     }
   }, 120_000);
 
@@ -74,9 +94,9 @@ describe('JobStore concurrency', () => {
     const url = await testDbUrl();
     const a = createDb(url);
     const b = createDb(url);
-    let seeded: { problemId: number; revisionId: number } | undefined;
+    const seeded: Seeded = {};
     try {
-      seeded = await seedJobs(a.db, 2);
+      await seedJobs(a.db, 2, seeded);
       const storeA = new JobStore(a.db);
       const storeB = new JobStore(b.db);
 
@@ -86,9 +106,12 @@ describe('JobStore concurrency', () => {
       expect(claimB).not.toBeNull();
       expect(claimA!.id).not.toBe(claimB!.id);
     } finally {
-      if (seeded) await cleanup(a.db, seeded.revisionId, seeded.problemId);
-      await a.close();
-      await b.close();
+      try {
+        await cleanup(a.db, seeded);
+      } finally {
+        await a.close();
+        await b.close();
+      }
     }
   }, 120_000);
 });

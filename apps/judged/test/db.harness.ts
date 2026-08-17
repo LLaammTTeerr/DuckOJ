@@ -26,10 +26,15 @@ async function ensureContainer(): Promise<string> {
 }
 
 /**
- * The shared container's connection URL, for tests that need real committed
- * data across independent connections — `withTestDb`'s rollback transaction
- * cannot provide that. See the concurrent-claim tests in
- * `job-store.concurrency.spec.ts` for why that distinction matters.
+ * This spec file's Postgres connection URL, for tests that need real
+ * committed data across independent connections — `withTestDb`'s rollback
+ * transaction cannot provide that. Vitest isolates by file, not by test: it
+ * gives each db-using spec file its own module graph and therefore its own
+ * container (a mid-run sample of `podman ps` during a full-suite run showed
+ * four concurrent `postgres:16-alpine` containers), but nothing here is
+ * shared *across* files. See the concurrent-claim tests in
+ * `job-store.concurrency.spec.ts` for why the rollback-transaction
+ * distinction still matters within one file.
  */
 export async function testDbUrl(): Promise<string> {
   return ensureContainer();
@@ -37,7 +42,8 @@ export async function testDbUrl(): Promise<string> {
 
 /**
  * Runs `fn` against a migrated database inside a transaction that is always
- * rolled back, so tests share one container without sharing state.
+ * rolled back, so every `it()` in this file reuses the one container Vitest
+ * gave this file without leaking state between tests.
  */
 export async function withTestDb(fn: (db: Db) => Promise<void>): Promise<void> {
   const connectionUrl = await ensureContainer();

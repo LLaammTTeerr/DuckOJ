@@ -3,6 +3,15 @@ import type { EventWriter } from './event-writer.js';
 import type { ClaimedJob, JobStore } from './job-store.js';
 
 export const HEARTBEAT_MS = 20_000;
+/**
+ * Ceiling on a single job's dispatch-to-terminal-event span. Without this, a
+ * collaborator that hangs (e.g. a Redis publish that never settles because
+ * the offline queue is buffering forever) wedges the entire worker loop
+ * silently — the lease keeps renewing, so the job never even re-leases.
+ * Rejecting here turns that into a logged, self-healing delay: A4's `catch`
+ * logs it and the loop moves on; the abandoned job's lease lapses normally.
+ */
+export const MAX_GRADING_MS = 300_000;
 const POLL_MS = 500;
 
 /**
@@ -24,6 +33,7 @@ export class Worker {
     private readonly writer: EventWriter,
     private readonly driver: JudgeDriver,
     private readonly workerId: string,
+    private readonly maxGradingMs: number = MAX_GRADING_MS,
   ) {}
 
   async start(): Promise<void> {
@@ -39,9 +49,18 @@ export class Worker {
       this.heartbeatTimer = setInterval(() => {
         void this.heartbeatOnce();
       }, HEARTBEAT_MS);
+      let watchdog: NodeJS.Timeout | null = null;
 
       try {
         await new Promise<void>((resolve, reject) => {
+          watchdog = setTimeout(() => {
+            reject(
+              new Error(
+                `grading exceeded ${this.maxGradingMs}ms for job ${claimed.id} attempt ${claimed.attempt}`,
+              ),
+            );
+          }, this.maxGradingMs);
+
           this.driver
             .dispatch(
               {
@@ -85,6 +104,7 @@ export class Worker {
           }),
         );
       } finally {
+        if (watchdog) clearTimeout(watchdog);
         if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = null;
         this.current = null;
@@ -102,6 +122,12 @@ export class Worker {
     if (!current) return;
     const held = await this.jobs.heartbeat(current.id, current.attempt);
     if (held) return;
+    // The awaited heartbeat round-trip is the race window: if this job
+    // finished (or was superseded and replaced) while we were waiting on
+    // `jobs.heartbeat`, `this.current` now points at whatever the loop
+    // claimed next. Touching `heartbeatTimer` or cancelling past this point
+    // would act on the successor's state, not this stale call's own job.
+    if (this.current !== current) return;
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;

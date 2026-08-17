@@ -12,7 +12,19 @@ import { Worker } from './worker.js';
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
   const { db } = createDb(config.databaseUrl);
-  const redis = new Redis(config.redisUrl);
+  // commandTimeout, not enableOfflineQueue: false — the latter would also
+  // fail commands issued during the initial connect, which is worse. A
+  // publish that cannot complete in 5s should fail (and get logged, and
+  // the job re-lease) rather than hang the worker loop forever.
+  const redis = new Redis(config.redisUrl, { commandTimeout: 5000 });
+  redis.on('error', (error: unknown) => {
+    // ioredis suppresses 'error' emissions entirely when nothing is
+    // listening, so without this a dead Redis fails silently: judged
+    // reports a clean startup while every publish quietly never lands.
+    console.error(
+      JSON.stringify({ msg: 'redis error', error: error instanceof Error ? error.message : String(error) }),
+    );
+  });
 
   const jobs = new JobStore(db);
   const writer = new EventWriter(db, jobs, new SubmissionEvents(redis));

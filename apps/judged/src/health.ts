@@ -10,6 +10,12 @@ export function startHealthServer(port: number): Server {
     }
     res.writeHead(404).end();
   });
+  // Without a listener, a startup failure (e.g. EADDRINUSE) surfaces as an
+  // uncaught 'error' with a raw stack instead of through main().catch's
+  // one-line message.
+  server.on('error', (error) => {
+    console.error(JSON.stringify({ msg: 'health server error', error: error.message }));
+  });
   server.listen(port, '0.0.0.0');
   return server;
 }
