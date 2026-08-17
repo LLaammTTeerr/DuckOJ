@@ -209,8 +209,11 @@ against carelessness, not a total guarantee.
 ## Deploying
 
 This machine has no Docker daemon; it runs rootless Podman with `podman-compose`
-1.5, not `docker compose`. Everything below was actually run on this stack with
-that tooling — see "What was actually verified" for the exact evidence.
+1.5, not `docker compose`. `scripts/compose-up.sh` (below) was run against this
+stack with that tooling, including a fresh (just-created) `pgdata` volume — see
+"What was actually verified" for the exact evidence. Nothing in this section
+describes untested behavior; anything not run is called out explicitly in that
+section's last paragraph.
 
 The web bundle imports `@qhhoj/sdk`, which is a workspace package with no
 prebuilt `dist/` checked in — build it (or run the repo-wide typecheck, which
@@ -230,57 +233,70 @@ before bringing the stack up, not after.
     sed -i "s/^TOTP_ENC_KEY=.*/TOTP_ENC_KEY=$(openssl rand -hex 32)/" .env
     sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 16)/" .env
 
-### Bringing the stack up under podman-compose — read this before `up -d`
+### Bringing the stack up under podman-compose — use `scripts/compose-up.sh`
 
 A plain `podman-compose up -d --build` **does not reliably run migrations
 before the API starts.** `api`'s `depends_on: migrate: { condition:
-service_completed_successfully }` is correct per the Compose spec, but
-podman-compose 1.5 pre-creates every service's container before starting any of
-them, and `podman wait --condition=stopped` on a container that was only ever
-*created* — never started — returns success **immediately** instead of
-blocking until it actually runs and exits. Measured directly: with a bare
-`up -d --build`, the `api` container's `StartedAt` was earlier than `migrate`'s
-`StartedAt` by 10+ seconds in every run tried; `api` happened to serve
-`/healthz` correctly regardless only because that probe doesn't touch the
-database, but a request that did would have raced an unmigrated schema. Naming
-`api` alongside `caddy` on a later `up -d` doesn't help either — podman-compose
-still treats `migrate` as a dependency to (re)start and re-triggers the same
-race, since it recreates and restarts the `migrate` container as part of
-resolving `api`'s dependency graph.
+service_completed_successfully }` is correct per the Compose spec, but under
+podman-compose 1.5 it does not reliably hold. What was confirmed directly, by
+timestamp: with a bare `up -d --build`, the `api` container's `StartedAt` was
+earlier than `migrate`'s `StartedAt` by 10+ seconds in every run tried; `api`
+happened to serve `/healthz` correctly regardless only because that probe
+doesn't touch the database, but a request that did would have raced an
+unmigrated schema. Naming `api` alongside `caddy` on a later `up -d` doesn't
+help either — podman-compose still treats `migrate` as a dependency to
+(re)start and re-triggers the same race, since it recreates and restarts the
+`migrate` container as part of resolving `api`'s dependency graph.
 
-The sequence that was verified, by timestamp, to guarantee `migrate` really
-starts, runs, and exits before `api`'s container is even created. Run
-`podman-compose build` first (or add `--build` to the `postgres`/`migrate`
-steps) whenever code has changed — unlike the old single-command form, nothing
-below rebuilds images for you, so a bare re-run of this sequence after editing
-source will silently start stale containers:
+The most likely mechanism, based on an isolated experiment (not a trace or
+source read of podman-compose's `up` code path, so treat this as the leading
+explanation rather than a proven fact): podman-compose pre-creates every
+service's container before starting any of them, and
+`podman wait --condition=stopped` on a container that was only ever *created*
+— never started — was observed to return success immediately instead of
+blocking until it actually runs and exits:
 
-    podman-compose build                # skip only if images are already current
-    podman-compose up -d postgres
-    # wait for postgres to report healthy, e.g.:
-    #   podman inspect <postgres-container> --format '{{.State.Health.Status}}'
-    podman-compose up migrate          # foreground; blocks until migrate exits
-    podman-compose up -d --no-deps api caddy
+```
+$ podman create --name t docker.io/library/postgres:16-alpine echo hi
+$ podman inspect t --format 'state={{.State.Status}}'
+state=created
+$ time podman wait --condition=stopped t
+0.105s, exit=0   # returns immediately — does not block
+```
 
-`--no-deps` on the last step is required — without it, podman-compose restarts
-`migrate` as part of bringing `api` up and reintroduces the race, even though
-migrations already applied cleanly. (Re-running `migrate` itself is harmless —
-drizzle's migrator is idempotent, confirmed by the "already exists, skipping"
-Postgres notices on a second run — the danger is only `api` starting before
-that repeat run finishes.)
+That would explain the observed race exactly, but the causal link between
+this isolated behavior and what podman-compose's dependency checker does
+internally during `up` was inferred from the timing correlation, not traced
+step by step.
 
-**`--no-deps` also removes `caddy`'s own `depends_on: api: service_healthy`
-gate**, since it's the same flag applied to the same command. In every run
-that used it, `caddy` came up immediately alongside `api` instead of waiting
-~10s for `api`'s healthcheck to pass — so for a short window right after this
-last command, `caddy` can return proxy errors on `/api/*` and the health
-probes before `api` finishes booting. This is transient and self-resolves
-(confirmed by the smoke tests below, which were run after waiting), not a
-data-safety issue like the migration race above — but it means the
-availability guarantee `caddy`'s `depends_on` was meant to provide does not
-hold under this sequence either. If that window matters, poll `api`'s health
-before treating the stack as ready, the same way the sequence already polls
-`postgres`.
+**Whatever the mechanism, the symptom is real and reproducible, so don't rely
+on `podman-compose up -d` (with or without `--build`) alone.** Use
+`scripts/compose-up.sh` instead — it encodes the sequence that was verified,
+by timestamp, to guarantee `migrate` really starts, runs, and exits before
+`api`'s container is even created, and it fails loudly (non-zero exit) if any
+step fails rather than plowing on:
+
+    ./scripts/compose-up.sh
+
+What the script does, in order: `podman-compose build`; `up -d postgres`;
+poll for `postgres` healthy; `up migrate` in the foreground (blocking until it
+exits) and check its container's real exit code, not just podman-compose's
+own return code; `up -d --no-deps api caddy`; poll for `api` healthy before
+exiting. `--no-deps` on the last step is required — without it,
+podman-compose restarts `migrate` as part of bringing `api` up and
+reintroduces the race, even though migrations already applied cleanly.
+(Re-running `migrate` itself is harmless — drizzle's migrator is idempotent,
+confirmed by the "already exists, skipping" Postgres notices on a second run
+— the danger is only `api` starting before that repeat run finishes.)
+
+`--no-deps` also removes `caddy`'s own `depends_on: api: service_healthy`
+gate, since it's the same flag applied to the same command — which is exactly
+why the script polls `api` itself before exiting, restoring that guarantee
+instead of leaving it to the (broken, under podman-compose) `depends_on`.
+
+Override `COMPOSE`, `POSTGRES_TIMEOUT`, or `API_TIMEOUT` (seconds) as
+environment variables if needed; see the comments at the top of
+`scripts/compose-up.sh`.
 
 Rootless Podman also cannot bind ports below 1024 without extra host
 configuration (`ip_unprivileged_port_start` was `1024` on this machine), so
@@ -305,16 +321,31 @@ certificate for local testing.
 ### What was actually verified
 
 The full stack was brought up end-to-end under `podman-compose` 1.5 on this
-machine, using the sequence above, and torn down with `podman-compose down`.
-Observed directly:
+machine, via `scripts/compose-up.sh`, and torn down with `podman-compose
+down`. Observed directly:
 
-- `postgres` reported `healthy` via its `pg_isready` healthcheck.
-- `migrate` exited `0` and printed `migrations applied` — on a fresh volume
-  (schema created) and again on a pre-migrated one (idempotent no-ops via
-  Postgres "already exists, skipping" notices).
-- `api` reported `healthy` via its `node -e fetch(...)` healthcheck, with
-  `StartedAt` after `migrate`'s `FinishedAt` when brought up with the sequence
-  above.
+- `./scripts/compose-up.sh` exited `0` on a **freshly created `pgdata` volume**
+  (verified empty via `podman volume ls` immediately beforehand) and printed
+  `postgres is healthy`, `migrate exited 0`, `api is healthy`, in that order,
+  followed by a `podman-compose ps` showing all four services in the expected
+  state.
+- On that same run, `podman inspect` showed `migrate`'s `FinishedAt` at
+  `18:54:00.622` and `api`'s `StartedAt` at `18:54:01.202` — `api` genuinely
+  started after `migrate` finished, not merely after it was created.
+- `migrate` printed `migrations applied` with no "already exists" notices on
+  that fresh volume (a real first-time schema creation, not an idempotent
+  no-op) — confirmed separately on a pre-migrated volume too, where it printed
+  the "already exists, skipping" notices and still exited `0`.
+- **Failure mode was also exercised**, not just the success path: with
+  `POSTGRES_PASSWORD` in `.env` deliberately changed to a value that did not
+  match the already-initialized database, `./scripts/compose-up.sh` printed
+  the real `password authentication failed for user "qhhoj"` error from
+  `migrate`, then `FATAL: migrate exited with code 1`, and exited `1` itself
+  (confirmed via `echo $?` on the un-piped invocation, not inferred from
+  output). `podman ps -a` afterward showed only `postgres` and the failed
+  `migrate` — `api` and `caddy` were never created. The script does not
+  proceed past a failed migration.
+- `api` reported `healthy` via its `node -e fetch(...)` healthcheck.
 - `caddy` started clean, auto-provisioned its local-CA TLS certificate for
   `localhost`, and both `curl -fsS -L -k https://localhost:8443/healthz` and
   `.../readyz` returned `{"status":"ok"}` / `{"status":"ok","database":"ok"}`
@@ -331,6 +362,8 @@ Observed directly:
   afterwards — this appears to be a benign rootless-Podman teardown quirk, not
   a failure to tear down.
 
-Not independently re-verified since: behavior under real `docker compose` (only
-podman-compose was available here), and behavior under a fresh Podman socket
-after a host reboot.
+Not independently verified: behavior under real `docker compose` (only
+podman-compose was available here); behavior under a fresh Podman socket after
+a host reboot; and the exact internal mechanism podman-compose uses when
+checking `service_completed_successfully` (see the hedge above — the symptom
+is confirmed, the internal cause is inferred, not traced).

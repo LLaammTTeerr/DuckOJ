@@ -46,13 +46,16 @@ services:
       LOG_LEVEL: info
     # This condition is correct per the Compose spec and is left in place for
     # tools that honor it, but podman-compose 1.5 does NOT reliably enforce it:
-    # it pre-creates every service's container before starting any of them, and
+    # `api` was observed, by container timestamp, to start before `migrate`
+    # had even run under a bare `up -d` (see docs/runbook.md for the
+    # measurements). The most likely mechanism — consistent with an isolated
+    # test but not traced through podman-compose's source — is that it
+    # pre-creates every service's container before starting any of them, and
     # `podman wait --condition=stopped` on a container that was only ever
     # *created* (never started) returns success immediately instead of
-    # blocking — so `api` can start before `migrate` has even run. Verified by
-    # timestamp (see docs/runbook.md). Under podman-compose, bring the stack up
-    # with the explicit sequence documented there — do not rely on `up -d`
-    # alone to gate `api` on `migrate`.
+    # blocking. Whatever the exact cause, don't rely on `up -d` alone to gate
+    # `api` on `migrate` under podman-compose — use `scripts/compose-up.sh`,
+    # documented in docs/runbook.md.
     depends_on:
       migrate: { condition: service_completed_successfully }
     healthcheck:
