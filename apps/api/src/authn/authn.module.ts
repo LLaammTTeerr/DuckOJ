@@ -15,6 +15,10 @@ import { AuthGuard } from './auth.guard.js';
  * `AuthGuard` is registered as an `APP_GUARD`, so every route in the
  * application is authenticated by default and a route only serves anonymous
  * callers when it says so with `@Public()`.
+ *
+ * The corollary: a test that assembles its own application without importing
+ * this module has no guard at all. Build HTTP tests on `test/app.harness.ts`
+ * so they exercise the same wiring `AppModule` ships.
  */
 @Module({
   imports: [ConfigModule],

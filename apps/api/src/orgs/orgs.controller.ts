@@ -16,11 +16,14 @@ import { OrgAccessService } from '../authz/org.access.js';
  * never in this controller.
  */
 @Controller('orgs')
-@Public()
 export class OrgsController {
   constructor(@Inject(OrgAccessService) private readonly orgs: OrgAccessService) {}
 
+  // `@Public()` is marked per handler, never on the class: `Public()` only ever
+  // sets true, so a class-level marker is a one-way door that would silently
+  // hand anonymous access to the next handler added here.
   @Get()
+  @Public()
   list(
     @MaybeActor() actor: Actor | null,
     @Query(new ZodValidationPipe(PaginationQuery)) query: PaginationQueryDto,
@@ -29,6 +32,7 @@ export class OrgsController {
   }
 
   @Get(':slug')
+  @Public()
   get(@MaybeActor() actor: Actor | null, @Param('slug') slug: string): Promise<OrgSummaryDto> {
     return this.orgs.getVisible(actor, slug);
   }

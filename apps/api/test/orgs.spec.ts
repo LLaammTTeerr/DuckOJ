@@ -70,6 +70,26 @@ describe('GET /orgs over HTTP', () => {
     });
   }, 120_000);
 
+  it('rejects an unresolvable bearer token instead of quietly serving the anonymous view', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const res = await request(app.getHttpServer())
+          .get('/orgs')
+          .set('Authorization', 'Bearer this-token-does-not-exist');
+
+        // Not 200-with-a-shorter-list: an SDK whose token expired must be told,
+        // not handed a plausible wrong answer. RFC 6750 §3.1.
+        expect(res.status).toBe(401);
+        expect(res.body.code).toBe('invalid_token');
+        expect(res.headers['www-authenticate']).toBe('Bearer');
+        expect(res.body.items).toBeUndefined();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('rejects an out-of-range limit and a non-numeric cursor rather than guessing', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);

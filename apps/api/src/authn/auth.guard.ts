@@ -62,11 +62,30 @@ export class AuthGuard implements CanActivate {
     return true;
   }
 
+  /**
+   * The two credential kinds are treated asymmetrically, and the asymmetry is
+   * load-bearing — do not "simplify" it into the symmetric form:
+   *
+   * - A **bearer token** is a machine client explicitly asserting an identity.
+   *   An expired, revoked or malformed one is a 401 `invalid_token` (RFC 6750
+   *   §3.1) even on a `@Public()` route: quietly serving it the anonymous view
+   *   would answer "your organizations" with a smaller list — a plausible,
+   *   silent, wrong answer, which is the worst diagnostic shape available.
+   * - A **stale session cookie** is a browser artefact, not an assertion, so it
+   *   degrades to anonymous. That is what keeps `POST /auth/logout` idempotent:
+   *   a caller whose session already expired still gets its cookie cleared.
+   *
+   * Both halves are pinned by `test/authz-default.spec.ts`.
+   */
   private async attachActor(req: AuthedRequest): Promise<void> {
     const header = req.get('authorization');
     if (header && BEARER_SCHEME.test(header)) {
       const actor = await this.tokens.resolve(header.replace(BEARER_SCHEME, ''));
-      if (actor) req.actor = actor;
+      if (!actor) {
+        req.res?.setHeader('WWW-Authenticate', 'Bearer');
+        throw new AppError(401, 'invalid_token', 'That access token is not valid.');
+      }
+      req.actor = actor;
       return;
     }
 
@@ -89,7 +108,16 @@ export const CurrentActor = createParamDecorator((_data, context: ExecutionConte
   return actor;
 });
 
-/** The actor, or `null` — for `@Public()` routes that legitimately serve anonymous callers. */
+/**
+ * The actor, or `null` — for `@Public()` routes that legitimately serve
+ * anonymous callers.
+ *
+ * Annotate the parameter `Actor | null`. `createParamDecorator` establishes no
+ * type relationship between the factory's return type and the parameter, so
+ * `@MaybeActor() actor: Actor` compiles and then hands the handler `null` at
+ * runtime. This is the one decorator that cannot protect you from that —
+ * `@CurrentActor()` throws instead, which is why it is the default choice.
+ */
 export const MaybeActor = createParamDecorator(
   (_data, context: ExecutionContext): Actor | null =>
     context.switchToHttp().getRequest<AuthedRequest>().actor ?? null,
