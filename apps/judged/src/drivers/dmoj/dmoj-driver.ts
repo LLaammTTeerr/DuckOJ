@@ -1,4 +1,5 @@
 import {
+  DMOJ_FLAG,
   interpretFlags,
   type DriverCapabilities,
   type EmitEvent,
@@ -11,9 +12,11 @@ import type { BridgeServer } from './bridge-server.js';
 interface LiveJob {
   job: GradingJob;
   emit: EmitEvent;
-  /** DMOJ numbers cases from 1 across the whole run; we report 0-based. */
+  /** Current batch number. DMOJ numbers cases from 1 across the whole run; we report 0-based. */
   batch: number;
   worstFlags: number;
+  /** Whether any case actually executed. An all-skipped run has no determinable verdict. */
+  ranAnyCase: boolean;
   points: number;
   maxPoints: number;
   timeMs: number;
@@ -60,12 +63,20 @@ export class DmojDriver implements JudgeDriver {
       emit,
       batch: 0,
       worstFlags: 0,
+      ranAnyCase: false,
       points: 0,
       maxPoints: 0,
       timeMs: 0,
       memoryKb: 0,
       queue: Promise.resolve(),
     });
+
+    // Emitted before the broadcast: a judge that replies fast enough could
+    // otherwise queue `grading-begin` -> `compiling` ahead of `dispatched`,
+    // putting the lifecycle out of order for the caller. This also means a
+    // failed emit never leaves an already-broadcast request orphaned at the
+    // judge.
+    await emit({ type: 'dispatched' });
 
     this.bridge.broadcast({
       name: 'submission-request',
@@ -79,8 +90,6 @@ export class DmojDriver implements JudgeDriver {
       'short-circuit': false,
       meta: {},
     });
-
-    await emit({ type: 'dispatched' });
   }
 
   async cancel(jobId: string, attempt: number): Promise<void> {
@@ -155,7 +164,13 @@ export class DmojDriver implements JudgeDriver {
       case 'test-case-status':
         for (const testCase of packet.cases) {
           const outcome = interpretFlags(testCase.status);
-          entry.worstFlags |= testCase.status;
+          // SC is stripped from the aggregate: interpretFlags checks SC first
+          // and would report `null` (-> IE) for the whole submission the
+          // moment any single case was skipped, even if another case failed
+          // outright. Per-case reporting below is unaffected — it still sees
+          // the raw status, so a skipped case still reports skipped: true.
+          entry.worstFlags |= testCase.status & ~DMOJ_FLAG.SC;
+          if (!outcome.skipped) entry.ranAnyCase = true;
           entry.points += testCase.points;
           entry.maxPoints += testCase['total-points'];
           entry.timeMs = Math.max(entry.timeMs, Math.round(testCase.time * 1000));
@@ -181,9 +196,11 @@ export class DmojDriver implements JudgeDriver {
         const overall = interpretFlags(entry.worstFlags);
         return entry.emit({
           type: 'finished',
-          // A skipped case cannot decide a submission; fall back to IE only if
-          // nothing else was observed, which would itself be a protocol gap.
-          verdict: overall.verdict ?? 'IE',
+          // `worstFlags` has the SC bit stripped, so a skipped case can no
+          // longer decide the submission. A run where nothing executed has
+          // no determinable verdict — report IE rather than AC, which mask 0
+          // would otherwise yield.
+          verdict: entry.ranAnyCase ? (overall.verdict ?? 'IE') : 'IE',
           points: entry.points,
           maxPoints: entry.maxPoints,
           timeMs: entry.timeMs,

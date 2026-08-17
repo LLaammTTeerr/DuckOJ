@@ -43,9 +43,14 @@ export class BridgeServer {
   }
 
   listen(port: number): Promise<number> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.server = createServer((socket) => this.accept(socket));
+      // Without this, a startup failure (e.g. EADDRINUSE) leaves the promise
+      // pending forever instead of surfacing the actual cause.
+      const onListenError = (error: Error): void => reject(error);
+      this.server.once('error', onListenError);
       this.server.listen(port, '0.0.0.0', () => {
+        this.server!.off('error', onListenError);
         const address = this.server!.address();
         resolve(typeof address === 'object' && address ? address.port : port);
       });
