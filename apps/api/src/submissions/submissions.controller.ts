@@ -1,6 +1,7 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
 import {
   CreateSubmissionRequest,
+  SubmissionIdParam,
   type CreateSubmissionRequestDto,
   type CreateSubmissionResponseDto,
   type SubmissionDetailDto,
@@ -28,7 +29,7 @@ export class SubmissionsController {
   @Get(':id')
   get(
     @CurrentActor() actor: Actor,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', new ZodValidationPipe(SubmissionIdParam)) id: number,
   ): Promise<SubmissionDetailDto> {
     return this.submissions.getVisible(actor, id);
   }

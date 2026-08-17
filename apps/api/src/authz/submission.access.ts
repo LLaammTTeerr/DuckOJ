@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { problems, problemRevisions, submissionCases, submissions } from '@qhhoj/db/guarded';
 import { schema, type Db } from '@qhhoj/db';
 import type { CreateSubmissionRequestDto, SubmissionDetailDto } from '@qhhoj/contracts';
@@ -18,34 +18,46 @@ export class SubmissionAccessService {
   async create(actor: Actor, input: CreateSubmissionRequestDto): Promise<{ id: number }> {
     const problem = (
       await this.db
-        .select({ id: problems.id, currentRevisionId: problems.currentRevisionId })
+        .select({ id: problems.id, currentRevisionId: problems.currentRevisionId, visibility: problems.visibility })
         .from(problems)
         .where(sql`lower(${problems.code}) = lower(${input.problemCode})`)
         .limit(1)
     )[0];
-    if (!problem?.currentRevisionId) {
+    // Answering `problem_not_found` for a private problem the actor may not
+    // see, rather than a distinct code, is deliberate: a distinct code (or a
+    // 403) would itself be an existence oracle — the same reasoning as the
+    // 404-over-403 rule in `getVisible` below. Deny-by-default is the safe
+    // direction to be wrong in; Phase 4 widens this with real visibility rules.
+    if (!problem?.currentRevisionId || (problem.visibility !== 'public' && !isAdmin(actor))) {
       throw new AppError(404, 'problem_not_found', 'No such problem.');
     }
 
     const language = (
       await this.db
-        .select({ id: schema.languages.id })
+        .select({ id: schema.languages.id, isActive: schema.languages.isActive })
         .from(schema.languages)
         .where(eq(schema.languages.key, input.languageKey))
         .limit(1)
     )[0];
-    if (!language) {
+    if (!language?.isActive) {
       throw new AppError(404, 'language_not_found', 'No such language.');
     }
 
     const revision = (
       await this.db
-        .select({ id: problemRevisions.id, packageHash: problemRevisions.packageHash })
+        .select({
+          id: problemRevisions.id,
+          packageHash: problemRevisions.packageHash,
+          state: problemRevisions.state,
+        })
         .from(problemRevisions)
         .where(eq(problemRevisions.id, problem.currentRevisionId))
         .limit(1)
     )[0];
-    if (!revision) {
+    // A revision that exists but is not published (e.g. mid-republish) is the
+    // same client-facing situation as no revision at all: there is nothing
+    // gradeable behind this problem code right now.
+    if (!revision || revision.state !== 'published') {
       throw new AppError(404, 'problem_not_found', 'No such problem.');
     }
 
@@ -109,11 +121,43 @@ export class SubmissionAccessService {
       throw new AppError(404, 'submission_not_found', 'No such submission.');
     }
 
-    const cases = await this.db
-      .select()
+    // `submission_cases` is keyed by (submissionId, attempt, groupIndex,
+    // caseIndex): `JobStore.claim` bumps `attempt` on every claim, so a
+    // submission whose lease lapsed and was re-claimed has rows for more than
+    // one attempt. Filtering on `submissionId` alone — as this used to — mixes
+    // a stale attempt's verdicts in with the current one. Restrict to the
+    // latest attempt actually present.
+    const maxAttemptRows = await this.db
+      .select({ max: sql<number | null>`max(${submissionCases.attempt})` })
       .from(submissionCases)
-      .where(eq(submissionCases.submissionId, id))
-      .orderBy(asc(submissionCases.groupIndex), asc(submissionCases.caseIndex));
+      .where(eq(submissionCases.submissionId, id));
+    const maxAttempt = maxAttemptRows[0]?.max ?? null;
+
+    // No case rows yet (still queued, or grading hasn't reported a case):
+    // `max()` over zero rows is NULL, which matches nothing — return `[]`
+    // directly rather than issuing a second query that can only come back empty.
+    const cases =
+      maxAttempt === null
+        ? []
+        : await this.db
+            .select({
+              groupIndex: submissionCases.groupIndex,
+              caseIndex: submissionCases.caseIndex,
+              verdict: submissionCases.verdict,
+              skipped: submissionCases.skipped,
+              timeMs: submissionCases.timeMs,
+              memoryKb: submissionCases.memoryKb,
+              points: submissionCases.points,
+              maxPoints: submissionCases.maxPoints,
+              feedback: submissionCases.feedback,
+            })
+            .from(submissionCases)
+            .where(and(eq(submissionCases.submissionId, id), eq(submissionCases.attempt, maxAttempt)))
+            .orderBy(
+              asc(submissionCases.groupIndex),
+              asc(submissionCases.caseIndex),
+              asc(submissionCases.attempt),
+            );
 
     return {
       id: row.id,

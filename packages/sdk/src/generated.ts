@@ -238,6 +238,66 @@ export interface paths {
                         };
                     };
                 };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such problem, or no such language */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request body failed validation */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
             };
         };
         delete?: never;
@@ -259,7 +319,7 @@ export interface paths {
                 query?: never;
                 header?: never;
                 path: {
-                    id: number | null;
+                    id: number;
                 };
                 cookie?: never;
             };
@@ -300,6 +360,66 @@ export interface paths {
                             createdAt: string;
                             /** Format: date-time */
                             judgedAt: string | null;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such submission, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The `id` path parameter is not a valid submission id */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
                         };
                     };
                 };

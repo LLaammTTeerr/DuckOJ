@@ -48,3 +48,39 @@ export async function registerAndLogin(agent: SupertestAgent, username: string):
   });
   await agent.post('/auth/login').send({ usernameOrEmail: username, password: PASSWORD });
 }
+
+/**
+ * Inserts a user directly (bypassing HTTP registration) for tests that call
+ * `SubmissionAccessService` in-process and need a real `users.id` to satisfy
+ * `submissions.user_id`'s foreign key — optionally with `globalRole: 'admin'`,
+ * which registration can never produce.
+ */
+export async function insertUser(
+  db: Db,
+  username: string,
+  globalRole: 'user' | 'admin' = 'user',
+): Promise<{ id: number }> {
+  const [user] = await db
+    .insert(schema.users)
+    .values({ username, email: `${username}@e.com`, passwordHash: 'x', displayName: username, globalRole })
+    .returning({ id: schema.users.id });
+  return user!;
+}
+
+/**
+ * A second problem, `hidden`, `visibility: 'private'`, with its own published
+ * revision — for the visibility-oracle regression test. Call after
+ * `seedProblemAndLanguage`, which provides the `cpp17` language this
+ * problem's submissions also need.
+ */
+export async function seedPrivateProblem(db: Db): Promise<void> {
+  const [problem] = await db
+    .insert(problems)
+    .values({ code: 'hidden', name: 'Hidden Problem', statement: 's', visibility: 'private' })
+    .returning();
+  const [revision] = await db
+    .insert(problemRevisions)
+    .values({ problemId: problem!.id, version: 1, packageHash: 'phase1-hidden', state: 'published' })
+    .returning();
+  await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problem!.id));
+}
