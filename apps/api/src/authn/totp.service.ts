@@ -32,11 +32,7 @@ export class TotpService {
   async confirmEnrolment(userId: number, code: string): Promise<void> {
     const secret = await this.secretFor(userId);
     if (!secret || !authenticator.verify({ token: code, secret })) {
-      // AppError's message is `detail ?? code` (see common/app.error.ts). No
-      // `detail` is passed here so the thrown message *is* the stable code
-      // `invalid_totp_code` — the brief's own test asserts on that via
-      // `.rejects.toThrow(/invalid_totp_code/)`, which checks `.message`.
-      throw new AppError(422, 'invalid_totp_code');
+      throw new AppError(422, 'invalid_totp_code', 'That code is not valid.');
     }
     await this.db
       .update(schema.totpCredentials)
@@ -57,6 +53,13 @@ export class TotpService {
     return rows[0]?.confirmedAt != null;
   }
 
+  /**
+   * Returns `true` when the user has no confirmed TOTP credential — this is
+   * NOT a standalone authorization check. Callers must confirm `isEnabled`
+   * first (as `AuthController.login` does) before treating a `true` result
+   * as "the code was correct"; called bare, an unenrolled user's request
+   * would fail open.
+   */
   async verify(userId: number, code: string): Promise<boolean> {
     if (!(await this.isEnabled(userId))) return true;
     const secret = await this.secretFor(userId);

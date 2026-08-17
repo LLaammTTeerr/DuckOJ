@@ -45,7 +45,9 @@ describe('TotpService', () => {
       const userId = await makeUser(db, 'omar');
       const service = new TotpService(db, config);
       await service.beginEnrolment(userId);
-      await expect(service.confirmEnrolment(userId, '000000')).rejects.toThrow(/invalid_totp_code/);
+      await expect(service.confirmEnrolment(userId, '000000')).rejects.toMatchObject({
+        code: 'invalid_totp_code',
+      });
     });
   }, 120_000);
 
