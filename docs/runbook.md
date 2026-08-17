@@ -249,8 +249,13 @@ race, since it recreates and restarts the `migrate` container as part of
 resolving `api`'s dependency graph.
 
 The sequence that was verified, by timestamp, to guarantee `migrate` really
-starts, runs, and exits before `api`'s container is even created:
+starts, runs, and exits before `api`'s container is even created. Run
+`podman-compose build` first (or add `--build` to the `postgres`/`migrate`
+steps) whenever code has changed — unlike the old single-command form, nothing
+below rebuilds images for you, so a bare re-run of this sequence after editing
+source will silently start stale containers:
 
+    podman-compose build                # skip only if images are already current
     podman-compose up -d postgres
     # wait for postgres to report healthy, e.g.:
     #   podman inspect <postgres-container> --format '{{.State.Health.Status}}'
@@ -263,6 +268,19 @@ migrations already applied cleanly. (Re-running `migrate` itself is harmless —
 drizzle's migrator is idempotent, confirmed by the "already exists, skipping"
 Postgres notices on a second run — the danger is only `api` starting before
 that repeat run finishes.)
+
+**`--no-deps` also removes `caddy`'s own `depends_on: api: service_healthy`
+gate**, since it's the same flag applied to the same command. In every run
+that used it, `caddy` came up immediately alongside `api` instead of waiting
+~10s for `api`'s healthcheck to pass — so for a short window right after this
+last command, `caddy` can return proxy errors on `/api/*` and the health
+probes before `api` finishes booting. This is transient and self-resolves
+(confirmed by the smoke tests below, which were run after waiting), not a
+data-safety issue like the migration race above — but it means the
+availability guarantee `caddy`'s `depends_on` was meant to provide does not
+hold under this sequence either. If that window matters, poll `api`'s health
+before treating the stack as ready, the same way the sequence already polls
+`postgres`.
 
 Rootless Podman also cannot bind ports below 1024 without extra host
 configuration (`ip_unprivileged_port_start` was `1024` on this machine), so
