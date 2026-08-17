@@ -1,0 +1,21 @@
+{
+  "name": "@qhhoj/judged",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -b",
+    "lint": "eslint src test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@qhhoj/db": "workspace:^",
+    "@qhhoj/judge-protocol": "workspace:^",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^12.1.0",
+    "tsx": "^4.23.12"
+  }
+}
