@@ -1,0 +1,218 @@
+import { connect, type Socket } from 'node:net';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createPacketDecoder, encodePacket, type GradingEvent, type GradingJob } from '@qhhoj/judge-protocol';
+import { BridgeServer } from '../src/drivers/dmoj/bridge-server.js';
+import { DmojDriver } from '../src/drivers/dmoj/dmoj-driver.js';
+
+const job: GradingJob = {
+  id: '7',
+  attempt: 1,
+  kind: 'submission',
+  packageHash: 'hash-of-aplusb',
+  revisionId: '1',
+  language: 'cpp17',
+  source: 'int main(){}',
+  limits: { timeMs: 1000, memoryKb: 65536 },
+};
+
+/** A minimal judge: speaks the real wire format, runs no sandbox. */
+function fakeJudge(port: number) {
+  const received: Record<string, unknown>[] = [];
+  let socket: Socket;
+  const ready = new Promise<void>((resolve) => {
+    socket = connect(port, '127.0.0.1', () => {
+      socket.write(
+        encodePacket({ name: 'handshake', problems: [['aplusb', 0]], executors: { CPP17: {} }, id: 'j1', key: 'k' }),
+      );
+      resolve();
+    });
+    const decoder = createPacketDecoder({
+      onPacket: (p) => received.push(p as Record<string, unknown>),
+      onError: () => {},
+    });
+    socket.on('data', (c) => decoder.push(c));
+  });
+  return {
+    ready,
+    received,
+    send: (p: unknown) => socket!.write(encodePacket(p)),
+    /**
+     * Writes several packets concatenated into a single `socket.write()`
+     * call, forcing them to arrive in one TCP chunk instead of leaving the
+     * OS free to deliver them separately. This is how `judge-server` itself
+     * behaves in practice — it flushes the test-case queue and immediately
+     * sends `grading-end` — so a test that relies on the OS coalescing
+     * writes on its own is exercising an accident, not the real timing.
+     */
+    sendBatch: (packets: unknown[]) => socket!.write(Buffer.concat(packets.map((p) => encodePacket(p)))),
+    close: () => socket!.destroy(),
+  };
+}
+
+describe('DmojDriver', () => {
+  let server: BridgeServer | undefined;
+  afterEach(async () => { await server?.close(); server = undefined; });
+
+  it('accepts a handshake and answers handshake-success', async () => {
+    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    const port = await server.listen(0);
+    const judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(judge.received.map((p) => p.name)).toContain('handshake-success'));
+    judge.close();
+  });
+
+  it('translates a submission into a submission-request carrying the mapped problem code', async () => {
+    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    const port = await server.listen(0);
+    const driver = new DmojDriver(server);
+    const judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+
+    await driver.dispatch(job, async () => {});
+
+    await vi.waitFor(() => {
+      const request = judge.received.find((p) => p.name === 'submission-request');
+      expect(request).toMatchObject({
+        'problem-id': 'aplusb',
+        language: 'CPP17',
+        source: 'int main(){}',
+        'time-limit': 1,
+        'memory-limit': 65536,
+      });
+    });
+    judge.close();
+  });
+
+  it('translates a full grading run into our events', async () => {
+    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    const port = await server.listen(0);
+    const driver = new DmojDriver(server);
+    const judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+
+    const seen: GradingEvent[] = [];
+    await driver.dispatch(job, async (e) => void seen.push(e));
+    await vi.waitFor(() => expect(judge.received.some((p) => p.name === 'submission-request')).toBe(true));
+
+    const id = Number((judge.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })['submission-id']);
+    judge.send({ name: 'grading-begin', 'submission-id': id, pretested: false });
+    judge.send({
+      name: 'test-case-status',
+      'submission-id': id,
+      cases: [
+        { position: 1, status: 0, time: 0.004, points: 1, 'total-points': 1, memory: 900, output: '', feedback: '', 'extended-feedback': '' },
+        { position: 2, status: 1 << 2, time: 1.0, points: 0, 'total-points': 1, memory: 900, output: '', feedback: '', 'extended-feedback': '' },
+      ],
+    });
+    judge.send({ name: 'grading-end', 'submission-id': id });
+
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true));
+
+    const cases = seen.filter((e) => e.type === 'caseResult');
+    expect(cases).toHaveLength(2);
+    expect(cases[0]).toMatchObject({ verdict: 'AC', caseIndex: 0 });
+    expect(cases[1]).toMatchObject({ verdict: 'TLE', caseIndex: 1 });
+    // Worst case wins the submission verdict.
+    expect(seen.find((e) => e.type === 'finished')).toMatchObject({ verdict: 'TLE' });
+    judge.close();
+  });
+
+  it('computes the correct verdict when test-case-status and grading-end arrive in the same TCP chunk', async () => {
+    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    const port = await server.listen(0);
+    const driver = new DmojDriver(server);
+    const judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+
+    const seen: GradingEvent[] = [];
+    await driver.dispatch(job, async (e) => void seen.push(e));
+    await vi.waitFor(() => expect(judge.received.some((p) => p.name === 'submission-request')).toBe(true));
+    const id = Number((judge.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })['submission-id']);
+
+    judge.send({ name: 'grading-begin', 'submission-id': id, pretested: false });
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'compiling')).toBe(true));
+
+    // A single write, not two: this forces the decoder to hand both packets
+    // to the driver from the same synchronous `push()` pass, which is what
+    // exposed the ordering bug — `grading-end` must not be translated until
+    // every case in the preceding `test-case-status` has been.
+    judge.sendBatch([
+      {
+        name: 'test-case-status',
+        'submission-id': id,
+        cases: [
+          { position: 1, status: 0, time: 0.004, points: 1, 'total-points': 1, memory: 900, output: '', feedback: '', 'extended-feedback': '' },
+          { position: 2, status: 1 << 2, time: 1.0, points: 0, 'total-points': 1, memory: 900, output: '', feedback: '', 'extended-feedback': '' },
+        ],
+      },
+      { name: 'grading-end', 'submission-id': id },
+    ]);
+
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true));
+
+    const relevant = seen.filter((e) => e.type === 'caseResult' || e.type === 'finished');
+    expect(relevant.map((e) => e.type)).toEqual(['caseResult', 'caseResult', 'finished']);
+    expect(seen.find((e) => e.type === 'finished')).toMatchObject({ verdict: 'TLE' });
+    judge.close();
+  });
+
+  it('surfaces a compile error', async () => {
+    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    const port = await server.listen(0);
+    const driver = new DmojDriver(server);
+    const judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+
+    const seen: GradingEvent[] = [];
+    await driver.dispatch(job, async (e) => void seen.push(e));
+    await vi.waitFor(() => expect(judge.received.some((p) => p.name === 'submission-request')).toBe(true));
+    const id = Number((judge.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })['submission-id']);
+
+    judge.send({ name: 'compile-error', 'submission-id': id, log: 'error: expected ;' });
+
+    await vi.waitFor(() =>
+      expect(seen).toContainEqual({ type: 'compileError', message: 'error: expected ;' }),
+    );
+    judge.close();
+  });
+
+  it('sends terminate-submission when a job is cancelled', async () => {
+    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    const port = await server.listen(0);
+    const driver = new DmojDriver(server);
+    const judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+
+    await driver.dispatch(job, async () => {});
+    await vi.waitFor(() => expect(judge.received.some((p) => p.name === 'submission-request')).toBe(true));
+
+    await driver.cancel('7', 1);
+
+    await vi.waitFor(() => expect(judge.received.some((p) => p.name === 'terminate-submission')).toBe(true));
+    judge.close();
+  });
+
+  it('terminates an orphan a reconnecting judge reports that we hold no job for', async () => {
+    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    const port = await server.listen(0);
+    const driver = new DmojDriver(server);
+    const judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+
+    // A judge that restarted mid-grade announces its in-flight submission.
+    // We have no live lease for it, so it must be told to stop rather than
+    // left grading forever.
+    judge.send({ name: 'current-submission-id', 'submission-id': 999999 });
+
+    await vi.waitFor(() => expect(judge.received.some((p) => p.name === 'terminate-submission')).toBe(true));
+    void driver;
+    judge.close();
+  });
+});
