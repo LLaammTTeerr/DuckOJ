@@ -5,6 +5,19 @@
 		reverse_proxy api:3000
 	}
 
+	# The WebSocket upgrade endpoint SubmissionsGateway listens on
+	# (apps/api/src/realtime/submissions.gateway.ts). Without this handle,
+	# a request to /ws falls through to the SPA catch-all below, which
+	# answers `try_files ... /index.html` — a plain 200 with an HTML body,
+	# not a 101 Switching Protocols. That silently breaks the live-update
+	# path for every real browser (which only ever reaches the API through
+	# Caddy) while a client talking to the API container directly still
+	# works, masking the break. Caddy's reverse_proxy handles the WebSocket
+	# upgrade natively; no extra directives are needed beyond routing here.
+	handle /ws {
+		reverse_proxy api:3000
+	}
+
 	# Both probes must be listed. Anything not matched here falls through to the
 	# SPA catch-all below, which answers `try_files ... /index.html` — so while
 	# /readyz was missing it returned 200 with an HTML page no matter how sick

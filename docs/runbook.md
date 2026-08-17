@@ -367,3 +367,184 @@ podman-compose was available here); behavior under a fresh Podman socket after
 a host reboot; and the exact internal mechanism podman-compose uses when
 checking `service_completed_successfully` (see the hedge above — the symptom
 is confirmed, the internal cause is inferred, not traced).
+
+## End-to-end acceptance against the real judge — `scripts/e2e-submit.ts`
+
+This is the only check in the whole phase that submits real C++ through the
+full path (browser API → database → `judged` → bridge → judge → sandbox →
+back) instead of against a mock or a fake. Nothing here can be trusted from
+reasoning alone; it has to actually run.
+
+### Seed the problem before submitting
+
+`scripts/compose-up.sh` brings the stack up but does **not** seed the
+`aplusb` problem — the first end-to-end run against a freshly-brought-up
+stack fails with `404 problem_not_found`. `scripts/seed-problem.ts` needs
+`DATABASE_URL`, and `postgres` has no host port mapping (see "Local
+development" above), so run it as a one-off container on the Compose
+network, reusing the already-built `migrate` image rather than building a
+new one:
+
+    podman run --rm --network <project>_default --env-file .env \
+      localhost/<project>_migrate:latest \
+      sh -c 'DATABASE_URL="postgres://qhhoj:$POSTGRES_PASSWORD@postgres:5432/qhhoj" packages/db/node_modules/.bin/tsx scripts/seed-problem.ts'
+
+(`<project>` is the Compose project name, e.g. `phase-1-skeleton` — check
+`podman network ls` / `podman-compose ps` if unsure.) This only needs to run
+once per fresh `pgdata` volume; the script is idempotent (`onConflictDoNothing`
+throughout).
+
+### Running the script
+
+    corepack pnpm exec tsx scripts/e2e-submit.ts
+
+It registers a throwaway user, submits three fixed C++ sources against
+`aplusb` (correct, wrong, and uncompilable) against `https://localhost:8443`
+by default (`E2E_BASE_URL` overrides), and asserts verdict *and* points on
+each. It exits non-zero and prints a `FAILED:` list if anything doesn't
+match — see task-15-report.md for a real run's output.
+
+### The `IE`-for-compile-error wart — expected, not a bug to chase
+
+`EventWriter` (`apps/judged/src/event-writer.ts`) writes `verdict: 'IE'` for
+every `compileError` event, because `case_verdict`
+(`packages/db/src/schema/guarded.ts`) has no `CE` member — a per-case verdict
+can never be `CE`, and the enum is shared between submission-level outcomes
+and case verdicts. So an ordinary syntax error comes back labelled an
+*internal* error, which reads as "our judge broke" rather than "your code
+doesn't compile." This is a real modelling defect, confirmed, and
+**deliberately left alone**: the correct fix is separating submission-level
+outcomes from case verdicts, which is Phase 2 data-model work, not a Phase 1
+patch. `scripts/e2e-submit.ts` does not assert `verdict === 'CE'`; it
+distinguishes a compile failure solely by `compileOutput` being non-empty.
+If you see `IE` on a submission whose `compileOutput` clearly shows a syntax
+error, this is why — check `compileOutput` before assuming the judge itself
+is broken.
+
+### Diagnosing a submission stuck in `queued`/`compiling`
+
+A worker is never "dead", only "out of lease" — `apps/judged/src/worker.ts`
+renews (`heartbeat`s) the lease on `grading_jobs` every 20s while a job is in
+flight, and a job whose lease has lapsed is eligible for another worker to
+reclaim. Check, in order:
+
+1. **`grading_jobs.state` and `lease_until` vs. `now()`:**
+
+       podman exec <project>_postgres_1 psql -U qhhoj -d qhhoj \
+         -c "select id, submission_id, state, lease_until, now(), attempt from grading_jobs order by id desc limit 5;"
+
+   `lease_until` still advancing on repeated queries means a worker is
+   actively heartbeating it — it hasn't been abandoned, whatever the
+   submission's own `state` says. `apps/judged/src/worker.ts`'s
+   `MAX_GRADING_MS` (300s) watchdog eventually rejects a job that never
+   reaches a terminal driver event, logs `job failed`, and lets it re-lease
+   on the next `attempt`.
+2. **`judged` logs** (`podman logs <project>_judged_1`): look for a `job
+   failed` line (which attempt, which error) and, in normal operation, the
+   state transitions `EventWriter` writes as events arrive.
+3. **`judge` logs** (`podman logs <project>_judge_1`): look for `Accept
+   submission: <id>: executor: ..., code: ...` — its absence, with no error
+   either, means the `submission-request` packet never reached the judge's
+   read loop at all, which is the two-attempt incident described below.
+
+### A real incident hit while writing this: a submission-request silently lost, twice
+
+The first `scripts/e2e-submit.ts` run against this stack's original `judged`
+process (the one Task 14 left running) hung: `correct` never left `queued`.
+`grading_jobs` showed the job `leased` with `lease_until` advancing —
+genuinely in flight, not abandoned — but `judge`'s logs never showed an
+`Accept submission` line, nor any error. The connection had been established
+long before (handshake logged clean) and stayed up through the whole
+dispatch window with no reconnect in between, by `judge`'s own logs. After
+`worker.ts`'s 300s watchdog rejected attempt 1 (`job failed: grading
+exceeded 300000ms`), the job re-leased as attempt 2 on the *same*
+long-lived `judged` process — and was lost the same way, again with no
+error on either side.
+
+**Root cause not established.** Temporary debug logging was added to
+`BridgeServer.broadcast`/`accept` (then reverted — see the diff-free
+`apps/judged` in this commit) to check `this.connections.size` at dispatch
+time, but by the time that was in place, `podman stop`/`rm` had already been
+used to recreate the `judged` container for an unrelated reason, destroying
+the original process's state before it could be inspected mid-failure. Under
+the rebuilt process, two immediate fresh submissions and the re-leased
+attempt 3 of the original stuck job all dispatched and graded correctly on
+the first try (`Accept submission` logged within ~1s each time), and stayed
+reliable across everything else run for this task. So this was not
+reproduced against a fresh process — only against whatever state the
+original long-lived one had accumulated.
+
+One suspicious, independently-confirmed fact worth recording even though it
+wasn't tied conclusively to the incident above: `judge`'s own client
+(`/judge/dmoj/packet.py`) sets a 300-second socket read timeout
+(`self.conn.settimeout(300)`) and reconnects whenever that fires with no
+data received — confirmed by `judge`'s logs showing `Attempting
+reconnection` at almost exactly 300s intervals while idle. Real DMOJ's
+protocol has a `ping`/`ping-response` packet pair for exactly this (both
+directions are defined in `packages/judge-protocol/src/dmoj-packets.ts`),
+but nothing in `BridgeServer` or `DmojDriver` ever sends a `ping` — the
+bridge never proactively keeps the connection warm. That reconnect cycle is
+real and reproducible; whether it, or something else, caused the two lost
+dispatches is not proven. **Not fixed here** — deliberately, since it wasn't
+pinned down and Task 15's job is to prove the path works and report defects
+honestly, not to patch an unconfirmed one. The self-healing path (watchdog →
+re-lease → next attempt succeeds) worked exactly as designed and is what
+actually recovered the stuck submission; if this recurs, that same recovery
+should be expected to work again, just costing up to `MAX_GRADING_MS`.
+
+### The live-update path (`/ws`) was broken through Caddy — fixed
+
+Step 3 of task-15-brief.md asks for the WebSocket verdict-panel path to be
+checked by hand in a browser; no browser was available in this environment,
+so the authorized fallback (per the brief's Controller addendum, F7) was
+used instead: open `wss://.../ws` with the session cookie, subscribe to a
+submission, and confirm push frames arrive and correspond to real state
+transitions.
+
+The first attempt, against `wss://localhost:8443/ws` (the real path a
+browser uses, through Caddy), failed immediately with `Unexpected server
+response: 200` — not a WebSocket upgrade at all. The `Caddyfile` had no
+route for `/ws`; it fell through to the SPA catch-all
+(`try_files {path} /index.html`), which happily answers any unmatched path
+with `index.html` and a 200. A direct check against the `api` container's
+own port 3000 (bypassing Caddy entirely) worked correctly — 7 push frames
+for one submission, each followed by a re-fetch showing genuine progression
+(`queued` → `compiling` → `compiling` → `done`/`AC`) — proving the API's
+`SubmissionsGateway` itself was never the problem. **Every real browser
+reaches the API only through Caddy**, so this was a live defect in the
+walking skeleton's actual live-update path, not a theoretical one.
+
+Fixed by adding a `handle /ws { reverse_proxy api:3000 }` block to the
+`Caddyfile`, alongside the existing `/api/*` and probe handles — Caddy's
+`reverse_proxy` handles the WebSocket upgrade natively, no extra directives
+needed. **Caveat when editing the `Caddyfile` while the stack is up:** it is
+bind-mounted into the `caddy` container as a single file; if the edit
+replaces the file's inode (as a normal file write typically does) rather
+than writing in place, the running container keeps serving the *old*
+content — `podman exec <project>_caddy_1 cat /etc/caddy/Caddyfile` will show
+you which. Confirmed exactly that: `caddy validate` against the host file
+passed, but the mounted copy inside the container was still the pre-edit
+version until the container was recreated the same way as `judged` above
+(`podman stop`/`rm` + `podman-compose up -d --no-deps caddy`). After that,
+the same check through `wss://localhost:8443/ws` succeeded: 7 push frames,
+real `queued` → `compiling` → `done`/`AC` progression, matching the direct
+check exactly.
+
+### Rebuilding and recreating a single service without touching the rest
+
+`podman-compose up -d --no-deps <service>` does **not** reliably pick up a
+freshly-built image if the container is still running — `podman-compose ps`
+kept showing the old container ID and age after a `build` + `up -d
+--no-deps`. What worked, for both `judged` (after code changes) and `caddy`
+(after the `Caddyfile` edit above):
+
+    podman-compose build <service>          # only if the image needs rebuilding
+    podman stop <project>_<service>_1
+    podman rm <project>_<service>_1
+    podman-compose up -d --no-deps <service>
+
+This does not touch `postgres`, `redis`, `api`, `migrate`, or the other
+running services — it is safe mid-session and does not require tearing down
+the stack or going through `scripts/compose-up.sh` again (that script's
+migration-ordering guarantee is irrelevant to recreating a single already-
+migrated-against service).
