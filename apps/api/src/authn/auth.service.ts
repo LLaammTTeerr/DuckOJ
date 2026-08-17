@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { schema, type Db } from '@qhhoj/db';
 import type { MeResponseDto, RegisterRequestDto } from '@qhhoj/contracts';
 import { DB } from '../config/config.module.js';
@@ -49,6 +49,37 @@ export class AuthService {
     }
 
     return toMe(user!, false);
+  }
+
+  async login(usernameOrEmail: string, password: string): Promise<typeof schema.users.$inferSelect> {
+    const rows = await this.db
+      .select()
+      .from(schema.users)
+      .where(
+        sql`lower(${schema.users.username}) = lower(${usernameOrEmail})
+            or lower(${schema.users.email}) = lower(${usernameOrEmail})`,
+      )
+      .limit(1);
+
+    const user = rows[0];
+    if (!user) {
+      // Burn comparable time when the account does not exist, so response
+      // latency does not disclose which usernames are registered.
+      await this.passwords.hash(password);
+      throw new AppError(401, 'invalid_credentials', 'Incorrect username or password.');
+    }
+    const ok = await this.passwords.verify(user.passwordHash, password);
+    if (!ok || user.status !== 'active') {
+      throw new AppError(401, 'invalid_credentials', 'Incorrect username or password.');
+    }
+    return user;
+  }
+
+  async loadUser(userId: number): Promise<typeof schema.users.$inferSelect> {
+    const rows = await this.db.select().from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    const user = rows[0];
+    if (!user) throw new AppError(401, 'authentication_required', 'You must be signed in.');
+    return user;
   }
 
   private async assertAvailable(field: 'username' | 'email', value: string): Promise<void> {
