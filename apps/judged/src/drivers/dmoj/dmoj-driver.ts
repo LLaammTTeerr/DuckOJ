@@ -12,7 +12,7 @@ import type { BridgeServer } from './bridge-server.js';
 interface LiveJob {
   job: GradingJob;
   emit: EmitEvent;
-  /** Current batch number. DMOJ numbers cases from 1 across the whole run; we report 0-based. */
+  /** Current batch number, advanced on batch-begin; reported to the caller as groupIndex. */
   batch: number;
   worstFlags: number;
   /** Whether any case actually executed. An all-skipped run has no determinable verdict. */
@@ -178,6 +178,7 @@ export class DmojDriver implements JudgeDriver {
           await entry.emit({
             type: 'caseResult',
             groupIndex: entry.batch,
+            // DMOJ numbers cases from 1 across the whole run; we report 0-based.
             caseIndex: testCase.position - 1,
             verdict: outcome.verdict,
             skipped: outcome.skipped,
