@@ -5,7 +5,13 @@
 		reverse_proxy api:3000
 	}
 
-	handle /healthz {
+	# Both probes must be listed. Anything not matched here falls through to the
+	# SPA catch-all below, which answers `try_files ... /index.html` — so while
+	# /readyz was missing it returned 200 with an HTML page no matter how sick
+	# the database was, which is worse than having no readiness probe at all.
+	# A named `path` matcher, because `handle` takes exactly one matcher token.
+	@probes path /healthz /readyz
+	handle @probes {
 		reverse_proxy api:3000
 	}
 

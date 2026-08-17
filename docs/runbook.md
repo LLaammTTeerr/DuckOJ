@@ -127,6 +127,17 @@ Two ways to read the actor inside a handler:
 
 This is the single most important thing to understand before adding an endpoint.
 
+**Credential-management routes take a second guard.**
+`@UseGuards(SessionOnlyGuard)` (`apps/api/src/authn/session-only.guard.ts`)
+rejects callers whose `Actor.via` is `'token'` with a 403 `session_required`.
+`TokensController` and `TotpController` carry it at class level. Add it to
+anything that mints, revokes or rewrites a credential: without it, a leaked
+personal access token can disable its owner's TOTP (`POST /auth/totp/begin`
+upserts a new secret with `confirmedAt: null`) and mint its own replacements, so
+revoking the leaked token stops ending the compromise. This is *not* step-up
+re-authentication and it does not check `scopes` — `Actor.scopes` is still read
+by nothing, and what it should mean is a Phase 1 decision.
+
 ## Adding a database table
 
 1. Add it to `packages/db/src/schema/identity.ts` (or another non-guarded schema
@@ -141,12 +152,33 @@ This is the single most important thing to understand before adding an endpoint.
 
 ## Adding an endpoint
 
-1. Add the Zod schema to `packages/contracts`, and register the path in
-   `packages/contracts/src/registry.ts`.
+1. Add the Zod schema to the **domain module** it belongs to —
+   `packages/contracts/src/auth.ts`, `orgs.ts`, `tokens.ts`, or a new sibling —
+   and put the `registry.registerPath({ ... })` call in that same file, next to
+   the schema. `packages/contracts/src/registry.ts` only *constructs* the shared
+   `OpenAPIRegistry`; it contains no paths and must not grow any. A new sibling
+   file has to be re-exported from `src/index.ts`, because `registerPath` runs as
+   an import side effect and `scripts/emit-openapi.ts` reaches the registry
+   through `index.js` — a module nobody imports registers nothing, and emits
+   nothing, silently.
 2. Implement the controller in `apps/api`, validating input with
    `ZodValidationPipe`. Decide `@Public()` vs. authenticated, and
    `@CurrentActor()` vs. `@MaybeActor()`, per the authentication section above.
-3. Regenerate the OpenAPI document and the SDK's generated types (see next
+   If the route manages credentials, add `@UseGuards(SessionOnlyGuard)` — see
+   the authentication section above.
+3. Pick the `code` for each error the route can return. `code` is contract:
+   `packages/contracts/src/common.ts` promises it is "stable across wording
+   changes", so it is chosen deliberately, never derived from a display string.
+   Conventions in use:
+   - **404 → `<resource>_not_found`**, singular and spelled out, matching the
+     table/domain name rather than the URL segment: `organization_not_found`,
+     and by extension `problem_not_found`, `submission_not_found`,
+     `contest_not_found`. Phases 1–4 add all of those; pick this shape, not
+     `org_not_found` or `not_found_problem`.
+   - **409 → `<field>_taken`** for uniqueness conflicts (`username_taken`).
+   - Anything raised without an `AppError` falls back to the explicit
+     status→code table in `apps/api/src/common/problem.filter.ts`.
+4. Regenerate the OpenAPI document and the SDK's generated types (see next
    section). CI fails if either is stale.
 
 ## Regenerating contracts — do this after any change under `packages/contracts`

@@ -9,6 +9,35 @@ import { AppError } from '../common/app.error.js';
 
 const ISSUER = 'QHH Online Judge';
 
+/**
+ * RFC 4226 §4 R6 requires a shared secret of at least 128 bits and recommends
+ * 160; Google Authenticator uses 160. `@otplib`'s own default is 10 bytes (80
+ * bits), which is below the floor. Secret length cannot be raised
+ * retroactively — every enrolled authenticator would have to be re-enrolled —
+ * so it is pinned here, in bytes, at the recommended 160 bits.
+ */
+const SECRET_BYTES = 20;
+
+/**
+ * The verification window, in 30-second steps, as `[past, future]`.
+ *
+ * `@otplib/core@12`'s `authenticatorDefaultOptions()` sets `window: 0`, so only
+ * the step that is current *at the moment the server checks* is accepted. That
+ * is not merely strict, it is wrong in two ways: a user whose clock is a few
+ * seconds slow can never sign in at all, and even a perfectly synced user fails
+ * whenever the step rolls over between typing the code and the server reaching
+ * the check — which happens after an argon2id verify at 19 MiB, so the race is
+ * real rather than theoretical.
+ *
+ * RFC 6238 §5.2 recommends accepting exactly one step back. No future steps are
+ * accepted: a code the user cannot have seen yet buys nothing and only widens
+ * the guessing surface.
+ *
+ * `clone()` rather than mutating `authenticator.options` — the preset exports a
+ * process-wide singleton, and tests import the same object to *generate* codes.
+ */
+const totp = authenticator.clone({ window: [1, 0] });
+
 @Injectable()
 export class TotpService {
   constructor(
@@ -17,7 +46,7 @@ export class TotpService {
   ) {}
 
   async beginEnrolment(userId: number): Promise<{ secret: string; otpauthUrl: string }> {
-    const secret = authenticator.generateSecret();
+    const secret = totp.generateSecret(SECRET_BYTES);
     const secretEnc = this.encrypt(secret);
     await this.db
       .insert(schema.totpCredentials)
@@ -26,13 +55,16 @@ export class TotpService {
         target: schema.totpCredentials.userId,
         set: { secretEnc, confirmedAt: null },
       });
-    return { secret, otpauthUrl: authenticator.keyuri(String(userId), ISSUER, secret) };
+    return { secret, otpauthUrl: totp.keyuri(String(userId), ISSUER, secret) };
   }
 
   async confirmEnrolment(userId: number, code: string): Promise<void> {
     const secret = await this.secretFor(userId);
-    if (!secret || !authenticator.verify({ token: code, secret })) {
-      throw new AppError(422, 'invalid_totp_code', 'That code is not valid.');
+    if (!secret || !totp.verify({ token: code, secret })) {
+      // Distinct from the login-time `invalid_totp_code` (401): this one means
+      // "the code you typed while proving enrolment was wrong", which a client
+      // must be able to tell apart from "your second factor was wrong".
+      throw new AppError(422, 'invalid_totp_enrolment_code', 'That code is not valid.');
     }
     await this.db
       .update(schema.totpCredentials)
@@ -63,7 +95,7 @@ export class TotpService {
   async verify(userId: number, code: string): Promise<boolean> {
     if (!(await this.isEnabled(userId))) return true;
     const secret = await this.secretFor(userId);
-    return secret ? authenticator.verify({ token: code, secret }) : false;
+    return secret ? totp.verify({ token: code, secret }) : false;
   }
 
   private async secretFor(userId: number): Promise<string | null> {

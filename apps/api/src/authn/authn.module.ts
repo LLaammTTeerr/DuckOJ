@@ -10,6 +10,7 @@ import { TokensController } from './tokens.controller.js';
 import { TotpController } from './totp.controller.js';
 import { TotpService } from './totp.service.js';
 import { AuthGuard } from './auth.guard.js';
+import { SessionOnlyGuard } from './session-only.guard.js';
 
 /**
  * `AuthGuard` is registered as an `APP_GUARD`, so every route in the
@@ -30,6 +31,7 @@ import { AuthGuard } from './auth.guard.js';
     TokenService,
     TotpService,
     AuthGuard,
+    SessionOnlyGuard,
     { provide: APP_GUARD, useExisting: AuthGuard },
   ],
   exports: [AuthService, PasswordService, SessionService, TokenService, TotpService, AuthGuard],

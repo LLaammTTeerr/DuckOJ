@@ -1,0 +1,51 @@
+import { Injectable } from '@nestjs/common';
+import type { CanActivate, ExecutionContext } from '@nestjs/common';
+import { AppError } from '../common/app.error.js';
+import type { AuthedRequest } from './auth.guard.js';
+
+/**
+ * Restricts a route to callers authenticated by an interactive **session
+ * cookie**, rejecting personal access tokens.
+ *
+ * Why this exists. `Actor.via` records how a caller authenticated, and until
+ * now nothing read it — so a bearer token carried its owner's entire authority,
+ * `scopes` included nothing that constrained it, and the credential-management
+ * endpoints were reachable with one. Composed, that turns a single leaked token
+ * into a permanent account takeover: `POST /auth/totp/begin` upserts a fresh
+ * secret with `confirmedAt: null`, which *disables* the victim's second factor
+ * without ever looking like a disable operation, and `POST /auth/tokens` then
+ * mints replacements, so revoking the leaked token no longer ends the
+ * compromise. A machine credential must not be able to rewrite the credentials
+ * that govern it.
+ *
+ * What this is not. It is not step-up re-authentication, and it is not a scope
+ * check — both are Phase 1 decisions. It is the narrow, mechanical half:
+ * token-authenticated callers cannot manage credentials at all.
+ *
+ * Ordering. Nest runs global guards before controller guards, so `AuthGuard`
+ * has already resolved and attached `req.actor` by the time this runs. The
+ * missing-actor branch below is therefore unreachable in the assembled app and
+ * exists so this guard is still fail-closed if it is ever used somewhere the
+ * global guard is not.
+ *
+ * No constructor parameters, deliberately — see the runbook's `@Inject`
+ * convention; a dependency-free guard sidesteps it entirely and can be named
+ * directly in `@UseGuards()`.
+ */
+@Injectable()
+export class SessionOnlyGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean {
+    const actor = context.switchToHttp().getRequest<AuthedRequest>().actor;
+    if (!actor) {
+      throw new AppError(401, 'authentication_required', 'You must be signed in.');
+    }
+    if (actor.via !== 'session') {
+      throw new AppError(
+        403,
+        'session_required',
+        'This action requires an interactive session; an access token cannot manage credentials.',
+      );
+    }
+    return true;
+  }
+}
