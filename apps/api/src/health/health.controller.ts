@@ -2,8 +2,11 @@ import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/co
 import { sql } from 'drizzle-orm';
 import type { Db } from '@qhhoj/db';
 import { DB } from '../config/config.module.js';
+import { Public } from '../authn/auth.guard.js';
 
+// Liveness and readiness are probed by infrastructure that holds no credentials.
 @Controller()
+@Public()
 export class HealthController {
   constructor(@Inject(DB) private readonly db: Db) {}
 

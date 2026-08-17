@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import {
   LoginRequest,
@@ -15,10 +15,9 @@ import type { Actor } from '../authz/actor.js';
 import { AuthService, toMe } from './auth.service.js';
 import { SessionService } from './session.service.js';
 import { TotpService } from './totp.service.js';
-import { AuthGuard, CurrentActor, requireActor } from './auth.guard.js';
+import { CurrentActor, Public } from './auth.guard.js';
 
 @Controller('auth')
-@UseGuards(AuthGuard)
 export class AuthController {
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
@@ -28,6 +27,7 @@ export class AuthController {
   ) {}
 
   @Post('register')
+  @Public()
   @HttpCode(201)
   register(
     @Body(new ZodValidationPipe(RegisterRequest)) body: RegisterRequestDto,
@@ -36,6 +36,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Public()
   @HttpCode(200)
   async login(
     @Body(new ZodValidationPipe(LoginRequest)) body: LoginRequestDto,
@@ -66,7 +67,10 @@ export class AuthController {
     return { user: toMe(user, totpEnabled) };
   }
 
+  // Public because logging out is idempotent: a caller whose session has
+  // already expired should still get its cookie cleared, not a 401.
   @Post('logout')
+  @Public()
   @HttpCode(204)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
     const token = req.cookies?.[this.config.sessionCookieName] as string | undefined;
@@ -75,8 +79,8 @@ export class AuthController {
   }
 
   @Get('me')
-  async me(@CurrentActor() actor: Actor | null): Promise<MeResponseDto> {
-    const user = await this.auth.loadUser(requireActor(actor).userId);
+  async me(@CurrentActor() actor: Actor): Promise<MeResponseDto> {
+    const user = await this.auth.loadUser(actor.userId);
     return toMe(user, await this.totp.isEnabled(user.id));
   }
 }
