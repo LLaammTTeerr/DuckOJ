@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
 import { MAX_PACKET_SIZE, createPacketDecoder, encodePacket } from '../src/index.js';
@@ -71,12 +72,19 @@ describe('packet codec', () => {
     const onPacket = vi.fn();
     const decoder = createPacketDecoder({ onPacket, onError: vi.fn() });
 
-    // Create a payload with repeated data to make it reasonably large when compressed
-    const payload = { name: 'large-test', data: 'x'.repeat(5000) };
+    // Create a payload with incompressible data (random bytes as base64)
+    // so the compressed frame stays large enough to be split across chunks
+    const payload = { name: 'large-test', data: randomBytes(4000).toString('base64') };
     const frame = encodePacket(payload);
 
-    // Split the frame into small chunks (64 bytes each) to simulate streaming
-    const chunkSize = 64;
+    // Split the frame into small chunks (128 bytes each) to simulate streaming
+    const chunkSize = 128;
+    const chunkCount = Math.ceil(frame.length / chunkSize);
+
+    // Assert we actually split into multiple chunks; this guards against
+    // payload changes that recompress too well and collapse the test to one push
+    expect(chunkCount).toBeGreaterThan(1);
+
     for (let i = 0; i < frame.length; i += chunkSize) {
       decoder.push(frame.subarray(i, Math.min(i + chunkSize, frame.length)));
     }
