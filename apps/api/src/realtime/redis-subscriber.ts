@@ -48,7 +48,11 @@ export class RedisSubscriber implements OnModuleInit, OnModuleDestroy {
     this.redis.on('message', (channel: string, message: string) => {
       if (channel !== SUBMISSION_CHANNEL) return;
       const submissionId = Number(message);
-      if (Number.isFinite(submissionId)) this.gateway.notify(submissionId);
+      // `Number('')` is `0`, which is finite — an empty message would
+      // otherwise call `notify(0)`. Harmless today (`submissions.id` is a
+      // `bigserial`, which never issues `0`), but nothing here should rely
+      // on that fact holding forever; require an actual positive id.
+      if (Number.isFinite(submissionId) && submissionId > 0) this.gateway.notify(submissionId);
     });
 
     this.ready = this.redis.subscribe(SUBMISSION_CHANNEL).then(() => undefined);

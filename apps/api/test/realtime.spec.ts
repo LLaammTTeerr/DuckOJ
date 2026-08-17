@@ -1,9 +1,10 @@
 import { WebSocket } from 'ws';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { buildAppWithRealtime } from './app.harness.js';
+import { buildApp, buildAppWithRealtime } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import { registerAndLogin, seedProblemAndLanguage } from './submissions.fixtures.js';
+import { SessionService } from '../src/authn/session.service.js';
 
 function open(url: string, headers: Record<string, string>): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
@@ -179,6 +180,60 @@ describe('submission realtime', () => {
         const agent = request.agent(app.getHttpServer());
         const cookie = await registerAndLogin(agent, 'dave');
         const socket = await open(`${url}/ws`, { cookie });
+        expect(socket.readyState).toBe(WebSocket.OPEN);
+        socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  // --- Fix round 1, ruling R45: the malformed-cookie input B1's test sends
+  // no longer reaches a throw at all once the parser is total, so that test
+  // alone cannot tell whether the upgrade handler's `.catch()` is still
+  // there. Pin it against the `.catch()`'s one remaining live trigger — a
+  // database error inside `sessions.resolve` / `tokens.resolve` — with a
+  // fault-injection seam instead. ---
+
+  it('answers 500 rather than crashing when authenticate itself fails (R45)', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+
+      // Minted through an ordinary, unbroken app sharing the same `db`, so
+      // the second connection below has a working bearer token without ever
+      // making an HTTP call against the app whose `SessionService` is about
+      // to be replaced with one that always throws (which would break
+      // *every* cookie-authenticated HTTP route on that app too, including
+      // the one `POST /auth/tokens` needs — `SessionOnlyGuard` requires a
+      // session, not a bearer token, to mint one).
+      const setupApp = await buildApp(db);
+      let token: string;
+      try {
+        const agent = request.agent(setupApp.getHttpServer());
+        await registerAndLogin(agent, 'frank');
+        const minted = await agent.post('/auth/tokens').send({ name: 'cli', scopes: [] });
+        token = minted.body.token as string;
+      } finally {
+        await setupApp.close();
+      }
+
+      const failingSessions = {
+        resolve: async (): Promise<null> => {
+          throw new Error('boom');
+        },
+      };
+      const { app, url } = await buildAppWithRealtime(db, {
+        overrides: [{ provide: SessionService, useValue: failingSessions }],
+      });
+      try {
+        // Any cookie routes through the now-broken `SessionService`.
+        await expect(open(`${url}/ws`, { cookie: 'qhhoj_session=whatever' })).rejects.toThrow(/500/);
+
+        // The assertion that actually catches a regression: prove the
+        // SERVER survived — not just that this one connection was rejected
+        // — with a second connection on the same server over a path that
+        // never touches the broken `SessionService` at all.
+        const socket = await open(`${url}/ws`, { authorization: `Bearer ${token}` });
         expect(socket.readyState).toBe(WebSocket.OPEN);
         socket.close();
       } finally {

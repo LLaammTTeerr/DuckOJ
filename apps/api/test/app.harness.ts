@@ -78,23 +78,43 @@ export interface RealtimeAppHandle {
 }
 
 /**
+ * A provider substitution applied on top of the usual `DB`/`APP_CONFIG`
+ * overrides — the seam a fault-injection test uses to make e.g.
+ * `SessionService.resolve` throw, to pin the gateway's upgrade-handler
+ * `.catch()` against a real database-error shape rather than only the
+ * malformed-cookie input the parser now handles without ever throwing.
+ */
+export interface RealtimeOverride {
+  provide: unknown;
+  useValue: unknown;
+}
+
+/**
  * Like `buildApp`, but with `RealtimeModule` wired in exactly as `main.ts`
  * wires it: a real, listening HTTP server (a raw `ws` upgrade needs an actual
  * socket to dial, not `supertest`'s in-memory dispatch) with the gateway
  * `attach`ed to it, backed by a real — `testcontainers` — Redis so the
  * subscriber's pub/sub round-trip is genuine rather than mocked.
  */
-export async function buildAppWithRealtime(db: Db): Promise<RealtimeAppHandle> {
+export async function buildAppWithRealtime(
+  db: Db,
+  options: { overrides?: RealtimeOverride[] } = {},
+): Promise<RealtimeAppHandle> {
   const redisUrl = await ensureRedisUrl();
 
-  const moduleRef = await Test.createTestingModule({
+  let builder = Test.createTestingModule({
     imports: [AuthnModule, OrgsModule, SubmissionsModule, RealtimeModule],
   })
     .overrideProvider(DB)
     .useValue(db)
     .overrideProvider(APP_CONFIG)
-    .useValue({ ...TEST_CONFIG, redisUrl })
-    .compile();
+    .useValue({ ...TEST_CONFIG, redisUrl });
+
+  for (const override of options.overrides ?? []) {
+    builder = builder.overrideProvider(override.provide).useValue(override.useValue);
+  }
+
+  const moduleRef = await builder.compile();
 
   const app = moduleRef.createNestApplication();
   app.use(cookieParser());
