@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { Timestamp } from './common.js';
+import { ProblemDetails, Timestamp } from './common.js';
+import { registry } from './registry.js';
 
 export const Username = z
   .string()
@@ -38,3 +39,30 @@ export const MeResponse = z.object({
 export type MeResponseDto = z.infer<typeof MeResponse>;
 
 export const LoginResponse = z.object({ user: MeResponse });
+
+registry.registerPath({
+  method: 'post',
+  path: '/auth/login',
+  summary: 'Sign in and receive a session cookie',
+  request: { body: { content: { 'application/json': { schema: LoginRequest } } } },
+  responses: {
+    200: { description: 'Signed in', content: { 'application/json': { schema: LoginResponse } } },
+    401: {
+      description: 'Invalid credentials or a TOTP code is required',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/auth/me',
+  summary: 'The signed-in user',
+  responses: {
+    200: { description: 'Profile', content: { 'application/json': { schema: MeResponse } } },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});

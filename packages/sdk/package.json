@@ -1,5 +1,5 @@
 {
-  "name": "@qhhoj/contracts",
+  "name": "@qhhoj/sdk",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,13 +12,12 @@
     "typecheck": "tsc -b",
     "lint": "eslint src test",
     "test": "vitest run",
-    "openapi": "tsx scripts/emit-openapi.ts"
+    "generate": "openapi-typescript ../../openapi.json -o src/generated.ts"
   },
   "dependencies": {
-    "@asteasolutions/zod-to-openapi": "^9.1.0",
-    "zod": "^4.4.3"
+    "openapi-fetch": "^0.17.0"
   },
   "devDependencies": {
-    "tsx": "^4.23.12"
+    "openapi-typescript": "^7.13.0"
   }
 }
