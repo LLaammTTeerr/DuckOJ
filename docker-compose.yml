@@ -21,7 +21,14 @@ services:
 
   migrate:
     build: { context: ., dockerfile: apps/api/Dockerfile }
-    command: ['pnpm', '--filter', '@qhhoj/db', 'migrate']
+    # Invoke the already-installed tsx binary directly, bypassing pnpm/corepack.
+    # The `deps`/`build` stages run as root, so any corepack cache they populate
+    # lives under /root and is never carried into the runtime image; the `node`
+    # user has a different $HOME regardless. Going through `pnpm` here would make
+    # every migrate-container start reach out to the npm registry to re-fetch the
+    # pinned pnpm version. This path has no such dependency — verified with
+    # `podman run --network none` (see task-15-report.md).
+    command: ['packages/db/node_modules/.bin/tsx', 'scripts/migrate.ts']
     environment:
       DATABASE_URL: postgres://qhhoj:${POSTGRES_PASSWORD}@postgres:5432/qhhoj
     depends_on:
