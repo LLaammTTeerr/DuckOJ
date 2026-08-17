@@ -10,6 +10,9 @@
     "format": "prettier --write .",
     "test": "pnpm -r test"
   },
+  "dependencies": {
+    "@qhhoj/db": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^22",
     "eslint": "^9",

@@ -1,0 +1,17 @@
+{$SITE_ADDRESS:localhost} {
+	encode gzip zstd
+
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle /healthz {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}

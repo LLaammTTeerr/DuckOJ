@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@qhhoj/db':
+        specifier: workspace:*
+        version: link:packages/db
     devDependencies:
       '@types/node':
         specifier: ^22
@@ -165,6 +169,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
 
   packages/sdk:
     dependencies:
