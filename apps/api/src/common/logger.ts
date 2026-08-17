@@ -18,11 +18,12 @@ import type { DestinationStream } from 'pino';
  * blast radius than the database does.
  *
  * Node lowercases incoming request header names, and `res.getHeaders()` returns
- * lowercase keys, so these paths are written lowercase. `set-cookie` needs
- * bracket syntax because of the hyphen — a redact path that matches nothing
- * fails *silently* and looks exactly like a working one, so the bracket form was
- * checked against this pino version by asserting on real output before being
- * relied on, and `test/logging.spec.ts` keeps it honest.
+ * lowercase keys, so these paths are written lowercase. `set-cookie` uses
+ * bracket syntax, pino's documented form for a key that is not a bare
+ * identifier. A redact path that matches nothing fails *silently* and produces
+ * output indistinguishable from a working config, so none of this was assumed:
+ * the paths were checked against real emitted output for this pino version, and
+ * `test/logging.spec.ts` keeps them honest as the app grows.
  */
 const REDACTED_HEADERS = [
   'req.headers.cookie',
