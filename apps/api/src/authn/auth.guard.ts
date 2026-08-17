@@ -6,6 +6,7 @@ import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import type { Actor } from '../authz/actor.js';
 import { SessionService } from './session.service.js';
+import { TokenService } from './token.service.js';
 
 export interface AuthedRequest extends Request {
   actor?: Actor;
@@ -16,11 +17,20 @@ export interface AuthedRequest extends Request {
 export class AuthGuard implements CanActivate {
   constructor(
     @Inject(SessionService) private readonly sessions: SessionService,
+    @Inject(TokenService) private readonly tokens: TokenService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
+
+    const header = req.get('authorization');
+    if (header?.startsWith('Bearer ')) {
+      const actor = await this.tokens.resolve(header.slice('Bearer '.length));
+      if (actor) req.actor = actor;
+      return true;
+    }
+
     const cookie = req.cookies?.[this.config.sessionCookieName] as string | undefined;
     if (cookie) {
       const actor = await this.sessions.resolve(cookie);
