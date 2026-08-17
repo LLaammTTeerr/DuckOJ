@@ -28,6 +28,10 @@
 
 The spec lists the SDK as Phase 5 and does not mention the frontend before Phase 1. Tasks 12 and 13 nevertheless build a **minimal** SDK and SPA, for two reasons that are load-bearing rather than convenient: the deploy shape (Task 15) has Caddy serving a static bundle, which requires a bundle to exist; and spec §11's contracts-as-single-source-of-truth is unverifiable without a generated client to drift-check in CI. Phase 5 then becomes the SDK's *ergonomics and CLI*, not its existence. Nothing beyond `createClient` and two screens is built here.
 
+### The dependency install lists are not authoritative
+
+Execution found two cases where a task's `pnpm add` list omitted a package that the same task's own code imports (`drizzle-orm` in Task 5, `@types/express` in Task 6). Both are corrected above, but treat every install list as a starting point rather than a complete specification: if brief-mandated code fails to resolve an import, add the dependency, keep it type-only where the runtime package already arrives transitively, and say so in your report.
+
 ### Deferred out of Phase 0 (do not build)
 
 Idempotency-key middleware (Phase 1, when duplicate submission POSTs make it meaningful) · Redis and BullMQ (Phase 1) · MinIO and blob storage (Phase 2) · organization *management* endpoints beyond what the leakage suite needs (Phase 3) · i18n and any component library (open questions in spec §15) · rate limiting (Phase 1).
@@ -960,8 +964,9 @@ git commit -m "feat(contracts): problem+json envelope, cursor pagination, auth s
 
 ```bash
 pnpm --filter @qhhoj/api add @nestjs/common @nestjs/core @nestjs/platform-express \
-  reflect-metadata rxjs pino pino-http zod @qhhoj/db@workspace:* @qhhoj/contracts@workspace:*
-pnpm --filter @qhhoj/api add -D @nestjs/testing supertest @types/supertest tsx
+  reflect-metadata rxjs pino pino-http zod drizzle-orm \
+  @qhhoj/db@workspace:* @qhhoj/contracts@workspace:*
+pnpm --filter @qhhoj/api add -D @nestjs/testing supertest @types/supertest @types/express tsx
 ```
 
 - [ ] **Step 2: Create the package manifest**
@@ -1205,7 +1210,10 @@ export class HealthModule {}
 
 ```ts
 import { randomUUID } from 'node:crypto';
-import pinoHttp from 'pino-http';
+// Named import, not default: under NodeNext resolution a default import of
+// pino-http fails with TS2349 (no call signatures). Both names point at the
+// same function object at runtime.
+import { pinoHttp } from 'pino-http';
 
 export function requestLogger(level: string) {
   return pinoHttp({

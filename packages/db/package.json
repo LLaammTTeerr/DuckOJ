@@ -1,0 +1,27 @@
+{
+  "name": "@qhhoj/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./guarded": "./dist/schema/guarded.js"
+  },
+  "scripts": {
+    "typecheck": "tsc -b",
+    "lint": "eslint src test",
+    "test": "vitest run",
+    "migrate": "tsx ../../scripts/migrate.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^12.1.0",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.12"
+  }
+}

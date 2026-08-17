@@ -1,0 +1,23 @@
+{
+  "name": "@qhhoj/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "typecheck": "tsc -b",
+    "lint": "eslint src test",
+    "test": "vitest run",
+    "generate": "openapi-typescript ../../openapi.json -o src/generated.ts"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
+  }
+}
