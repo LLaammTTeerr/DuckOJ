@@ -12,6 +12,9 @@ export interface AuthedRequest extends Request {
   actor?: Actor;
 }
 
+// RFC 6750: the "Bearer" auth-scheme token is case-insensitive.
+const BEARER_SCHEME = /^Bearer\s+/i;
+
 /** Attaches `req.actor` when credentials are present. Does not itself reject. */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -25,8 +28,8 @@ export class AuthGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
 
     const header = req.get('authorization');
-    if (header?.startsWith('Bearer ')) {
-      const actor = await this.tokens.resolve(header.slice('Bearer '.length));
+    if (header && BEARER_SCHEME.test(header)) {
+      const actor = await this.tokens.resolve(header.replace(BEARER_SCHEME, ''));
       if (actor) req.actor = actor;
       return true;
     }

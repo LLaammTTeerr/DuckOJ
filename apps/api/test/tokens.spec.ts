@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import request from 'supertest';
 import { schema, type Db } from '@qhhoj/db';
 import { TokenService } from '../src/authn/token.service.js';
+import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 
 async function makeUser(db: Db, username: string): Promise<number> {
@@ -62,6 +64,68 @@ describe('TokenService', () => {
       const { id, token } = await service.issue(owner, 'cli', []);
       await service.revoke(other, id);
       expect(await service.resolve(token)).not.toBeNull();
+    });
+  }, 120_000);
+});
+
+describe('personal access tokens (HTTP)', () => {
+  it('authenticates a guarded route via bearer token (case-insensitively), stops working once revoked, and list() never leaks the secret', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await agent.post('/auth/register').send({
+          username: 'wren',
+          email: 'wren@example.com',
+          password: 'a-long-enough-password',
+          displayName: 'Wren',
+        });
+        await agent
+          .post('/auth/login')
+          .send({ usernameOrEmail: 'wren', password: 'a-long-enough-password' });
+
+        const create = await agent
+          .post('/auth/tokens')
+          .send({ name: 'cli', scopes: ['submissions:write'] });
+        expect(create.status).toBe(201);
+        const { id, token } = create.body as { id: number; token: string };
+        expect(typeof token).toBe('string');
+
+        // A fresh, cookie-less client authenticates purely off the bearer token.
+        const me = await request(app.getHttpServer())
+          .get('/auth/me')
+          .set('Authorization', `Bearer ${token}`);
+        expect(me.status).toBe(200);
+        expect(me.body.username).toBe('wren');
+
+        // RFC 6750: the scheme token is case-insensitive.
+        const meLowerScheme = await request(app.getHttpServer())
+          .get('/auth/me')
+          .set('Authorization', `bearer ${token}`);
+        expect(meLowerScheme.status).toBe(200);
+        expect(meLowerScheme.body.username).toBe('wren');
+
+        // list() returns metadata only — never the raw token or its hash.
+        const list = await agent.get('/auth/tokens');
+        expect(list.status).toBe(200);
+        expect(list.body).toHaveLength(1);
+        expect(list.body[0].id).toBe(id);
+        expect(list.body[0].name).toBe('cli');
+        expect(list.body[0]).not.toHaveProperty('token');
+        expect(list.body[0]).not.toHaveProperty('tokenHash');
+        expect(JSON.stringify(list.body)).not.toContain(token);
+
+        const revoke = await agent.delete(`/auth/tokens/${id}`);
+        expect(revoke.status).toBe(204);
+
+        // A revoked bearer token no longer authenticates anything.
+        const afterRevoke = await request(app.getHttpServer())
+          .get('/auth/me')
+          .set('Authorization', `Bearer ${token}`);
+        expect(afterRevoke.status).toBe(401);
+      } finally {
+        await app.close();
+      }
     });
   }, 120_000);
 });

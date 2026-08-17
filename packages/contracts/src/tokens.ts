@@ -13,6 +13,7 @@ export const CreateTokenResponse = z.object({
   /** Returned exactly once, at creation. */
   token: z.string(),
 });
+export type CreateTokenResponseDto = z.infer<typeof CreateTokenResponse>;
 
 export const TokenSummary = z.object({
   id: z.number().int(),
@@ -22,3 +23,4 @@ export const TokenSummary = z.object({
   expiresAt: Timestamp.nullable(),
   createdAt: Timestamp,
 });
+export type TokenSummaryDto = z.infer<typeof TokenSummary>;

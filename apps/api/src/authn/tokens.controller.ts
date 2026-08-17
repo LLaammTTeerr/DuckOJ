@@ -1,5 +1,10 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
-import { CreateTokenRequest, type CreateTokenRequestDto } from '@qhhoj/contracts';
+import {
+  CreateTokenRequest,
+  type CreateTokenRequestDto,
+  type CreateTokenResponseDto,
+  type TokenSummaryDto,
+} from '@qhhoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import type { Actor } from '../authz/actor.js';
 import { AuthGuard, CurrentActor, requireActor } from './auth.guard.js';
@@ -15,7 +20,7 @@ export class TokensController {
   create(
     @CurrentActor() actor: Actor | null,
     @Body(new ZodValidationPipe(CreateTokenRequest)) body: CreateTokenRequestDto,
-  ): Promise<{ id: number; token: string }> {
+  ): Promise<CreateTokenResponseDto> {
     return this.tokens.issue(
       requireActor(actor).userId,
       body.name,
@@ -25,7 +30,7 @@ export class TokensController {
   }
 
   @Get()
-  list(@CurrentActor() actor: Actor | null) {
+  list(@CurrentActor() actor: Actor | null): Promise<TokenSummaryDto[]> {
     return this.tokens.list(requireActor(actor).userId);
   }
 

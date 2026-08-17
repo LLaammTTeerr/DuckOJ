@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import { schema, type Db } from '@qhhoj/db';
+import type { CreateTokenResponseDto, TokenSummaryDto } from '@qhhoj/contracts';
 import { DB } from '../config/config.module.js';
 import type { Actor } from '../authz/actor.js';
 import { hashToken } from './session.service.js';
@@ -17,7 +18,7 @@ export class TokenService {
     name: string,
     scopes: string[],
     expiresAt?: Date,
-  ): Promise<{ id: number; token: string }> {
+  ): Promise<CreateTokenResponseDto> {
     const token = TOKEN_PREFIX + randomBytes(24).toString('base64url');
     const [row] = await this.db
       .insert(schema.accessTokens)
@@ -54,8 +55,8 @@ export class TokenService {
     return { userId: row.userId, globalRole: row.globalRole, via: 'token', scopes: row.scopes };
   }
 
-  list(userId: number) {
-    return this.db
+  async list(userId: number): Promise<TokenSummaryDto[]> {
+    const rows = await this.db
       .select({
         id: schema.accessTokens.id,
         name: schema.accessTokens.name,
@@ -66,6 +67,17 @@ export class TokenService {
       })
       .from(schema.accessTokens)
       .where(eq(schema.accessTokens.userId, userId));
+
+    // `timestamp` columns come back as `Date`; the contract's `Timestamp` is an
+    // RFC 3339 string (same convention as `toMe()` in auth.service.ts).
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      scopes: row.scopes,
+      lastUsedAt: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
+      expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+      createdAt: row.createdAt.toISOString(),
+    }));
   }
 
   async revoke(userId: number, id: number): Promise<void> {
