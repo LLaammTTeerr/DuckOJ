@@ -7,12 +7,14 @@ import {
   type MeResponseDto,
   type RegisterRequestDto,
 } from '@qhhoj/contracts';
+import { AppError } from '../common/app.error.js';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { APP_CONFIG } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import type { Actor } from '../authz/actor.js';
 import { AuthService, toMe } from './auth.service.js';
 import { SessionService } from './session.service.js';
+import { TotpService } from './totp.service.js';
 import { AuthGuard, CurrentActor, requireActor } from './auth.guard.js';
 
 @Controller('auth')
@@ -21,6 +23,7 @@ export class AuthController {
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(SessionService) private readonly sessions: SessionService,
+    @Inject(TotpService) private readonly totp: TotpService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -40,6 +43,15 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ user: MeResponseDto }> {
     const user = await this.auth.login(body.usernameOrEmail, body.password);
+    const totpEnabled = await this.totp.isEnabled(user.id);
+    if (totpEnabled) {
+      if (!body.totpCode) {
+        throw new AppError(401, 'totp_required', 'A two-factor code is required.');
+      }
+      if (!(await this.totp.verify(user.id, body.totpCode))) {
+        throw new AppError(401, 'invalid_totp_code', 'That code is not valid.');
+      }
+    }
     const { token, expiresAt } = await this.sessions.issue(user.id, {
       ip: req.ip,
       userAgent: req.get('user-agent') ?? undefined,
@@ -51,7 +63,7 @@ export class AuthController {
       path: '/',
       expires: expiresAt,
     });
-    return { user: toMe(user, false) };
+    return { user: toMe(user, totpEnabled) };
   }
 
   @Post('logout')
@@ -65,6 +77,6 @@ export class AuthController {
   @Get('me')
   async me(@CurrentActor() actor: Actor | null): Promise<MeResponseDto> {
     const user = await this.auth.loadUser(requireActor(actor).userId);
-    return toMe(user, false);
+    return toMe(user, await this.totp.isEnabled(user.id));
   }
 }
