@@ -1,0 +1,5 @@
+archive: null
+test_cases:
+  - {in: tests/01.in, out: tests/01.out, points: 1}
+  - {in: tests/02.in, out: tests/02.out, points: 1}
+  - {in: tests/03.in, out: tests/03.out, points: 1}

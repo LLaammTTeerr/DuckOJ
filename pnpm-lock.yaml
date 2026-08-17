@@ -11,6 +11,9 @@ importers:
       '@qhhoj/db':
         specifier: workspace:*
         version: link:packages/db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(postgres@3.4.9)
     devDependencies:
       '@types/node':
         specifier: ^22
@@ -21,6 +24,9 @@ importers:
       prettier:
         specifier: ^3
         version: 3.9.6
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
       typescript:
         specifier: ^5.6
         version: 5.9.3
