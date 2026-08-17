@@ -5,6 +5,7 @@ import type { DestinationStream } from 'pino';
 import type { Db } from '@qhhoj/db';
 import { AuthnModule } from '../src/authn/authn.module.js';
 import { OrgsModule } from '../src/orgs/orgs.module.js';
+import { SubmissionsModule } from '../src/submissions/submissions.module.js';
 import { APP_CONFIG, DB } from '../src/config/config.module.js';
 import { ProblemFilter } from '../src/common/problem.filter.js';
 import { requestLogger } from '../src/common/logger.js';
@@ -31,7 +32,7 @@ export interface BuildAppOptions {
 }
 
 export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<INestApplication> {
-  const moduleRef = await Test.createTestingModule({ imports: [AuthnModule, OrgsModule] })
+  const moduleRef = await Test.createTestingModule({ imports: [AuthnModule, OrgsModule, SubmissionsModule] })
     .overrideProvider(DB)
     .useValue(db)
     .overrideProvider(APP_CONFIG)

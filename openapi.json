@@ -344,6 +344,249 @@
           }
         }
       }
+    },
+    "/submissions": {
+      "post": {
+        "summary": "Submit a solution for grading",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "problemCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "languageKey": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  },
+                  "source": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 65536
+                  }
+                },
+                "required": [
+                  "problemCode",
+                  "languageKey",
+                  "source"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The submission was accepted and queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/submissions/{id}": {
+      "get": {
+        "summary": "A submission visible to the caller",
+        "parameters": [
+          {
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "required": false,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The submission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "problemCode": {
+                      "type": "string"
+                    },
+                    "languageKey": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "compiling",
+                        "grading",
+                        "done",
+                        "errored"
+                      ]
+                    },
+                    "verdict": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "AC",
+                        "WA",
+                        "TLE",
+                        "MLE",
+                        "OLE",
+                        "RTE",
+                        "IR",
+                        "IE",
+                        null
+                      ]
+                    },
+                    "points": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "maxPoints": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "timeMs": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "memoryKb": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "compileOutput": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "cases": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "groupIndex": {
+                            "type": "integer"
+                          },
+                          "caseIndex": {
+                            "type": "integer"
+                          },
+                          "verdict": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              "AC",
+                              "WA",
+                              "TLE",
+                              "MLE",
+                              "OLE",
+                              "RTE",
+                              "IR",
+                              "IE",
+                              null
+                            ]
+                          },
+                          "skipped": {
+                            "type": "boolean"
+                          },
+                          "timeMs": {
+                            "type": "integer"
+                          },
+                          "memoryKb": {
+                            "type": "integer"
+                          },
+                          "points": {
+                            "type": "number"
+                          },
+                          "maxPoints": {
+                            "type": "number"
+                          },
+                          "feedback": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "groupIndex",
+                          "caseIndex",
+                          "verdict",
+                          "skipped",
+                          "timeMs",
+                          "memoryKb",
+                          "points",
+                          "maxPoints",
+                          "feedback"
+                        ]
+                      }
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "judgedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "problemCode",
+                    "languageKey",
+                    "state",
+                    "verdict",
+                    "points",
+                    "maxPoints",
+                    "timeMs",
+                    "memoryKb",
+                    "compileOutput",
+                    "cases",
+                    "createdAt",
+                    "judgedAt"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "webhooks": {}

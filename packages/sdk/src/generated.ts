@@ -200,6 +200,119 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a solution for grading */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        problemCode: string;
+                        languageKey: string;
+                        source: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The submission was accepted and queued */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/submissions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A submission visible to the caller */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number | null;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The submission */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            problemCode: string;
+                            languageKey: string;
+                            /** @enum {string} */
+                            state: "queued" | "compiling" | "grading" | "done" | "errored";
+                            /** @enum {string|null} */
+                            verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "IE" | null;
+                            points: number | null;
+                            maxPoints: number | null;
+                            timeMs: number | null;
+                            memoryKb: number | null;
+                            compileOutput: string | null;
+                            cases: {
+                                groupIndex: number;
+                                caseIndex: number;
+                                /** @enum {string|null} */
+                                verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "IE" | null;
+                                skipped: boolean;
+                                timeMs: number;
+                                memoryKb: number;
+                                points: number;
+                                maxPoints: number;
+                                feedback: string | null;
+                            }[];
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            judgedAt: string | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
