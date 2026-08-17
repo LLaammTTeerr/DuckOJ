@@ -260,7 +260,8 @@ session            token_hash, user_id, expires_at, ip, user_agent
 totp_credential    user_id, secret_enc, confirmed_at
 access_token       id, user_id, name, token_hash, scopes, last_used_at, expires_at
 
-organization       id, slug, name, about, join_policy(open|request|invite)
+organization       id, slug, name, about, visibility(public|private),
+                   join_policy(open|request|invite)
 org_member         org_id, user_id, role(owner|admin|member), joined_at
 org_join_request   org_id, user_id, state, decided_by
 ```
@@ -356,7 +357,13 @@ Three axes, kept deliberately small:
 
 - **Global role** — `user | setter | admin`
 - **Organization role** — `member | admin | owner`
-- **Per-resource grant** — `problem_collaborator`, contest manager
+- **Per-resource grant** — `problem_collaborator`, `contest_manager`
+
+### Organization visibility
+
+A `public` organization is listable and viewable by anyone; its member list follows the same rule. A `private` organization is visible only to its members and to admins — it does not appear in listings, and its slug returns 404 rather than 403, so existence is not disclosed.
+
+`join_policy` is orthogonal: it governs how one *becomes* a member, not who can *see* the organization.
 
 ### Problem visibility
 
