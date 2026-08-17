@@ -69,14 +69,30 @@ function caseLabel(c: SubmissionCase): string {
  */
 export function VerdictPanel(props: { submission: SubmissionDetail }) {
   const { submission } = props;
-  // The `case_verdict` enum has no CE member, so a compile error is reported
-  // as the misleading `verdict: 'IE'`. Distinguish it by `compileOutput`
-  // being non-empty instead, and never show the raw `IE` to a human.
-  // Deliberately not fixed here — see task-13-brief.md's "two things that
-  // will bite you" and task-15's F3: the real fix is a Phase 2 data-model
-  // change (submission-level outcomes need to stop sharing an enum with
-  // per-case verdicts).
-  const isCompileError = Boolean(submission.compileOutput);
+  // `compileOutput` is NOT a compile-failure flag — it's a free-text channel
+  // written by three different events (see apps/judged/src/event-writer.ts):
+  // a non-fatal `compileMessage` (compiler *warnings*, submission keeps
+  // grading normally), a fatal `compileError`, and an unrelated
+  // `internalError` (judge-side failure, nothing to do with the user's code).
+  // Only the second is an actual compile failure. The `case_verdict` enum
+  // has no CE member, so `compileError` is written as the misleading
+  // `verdict: 'IE'` — the same value `internalError` uses — so `state`
+  // must be checked too: `compileError` always finishes in `state: 'done'`,
+  // while `internalError` finishes in `state: 'errored'`. That's what
+  // distinguishes the three:
+  //   - compileMessage (warning):  compileOutput set, verdict likely AC/WA/…
+  //   - compileError:              state 'done',    verdict 'IE'
+  //   - internalError:             state 'errored', verdict 'IE'
+  // Deliberately not fixed at the data model here — see task-13-brief.md's
+  // "two things that will bite you" and task-15's F3: the real fix is a
+  // Phase 2 change (submission-level outcomes need to stop sharing an enum
+  // with per-case verdicts). One residual edge this predicate cannot
+  // separate with data currently on the wire: a submission that emits a
+  // compiler warning and *then* finishes 'IE' from a genuine case-level
+  // internal error also reads as a compile error here — rare, and not
+  // resolvable without more data than the API currently exposes.
+  const isCompileError =
+    submission.state === 'done' && submission.verdict === 'IE' && Boolean(submission.compileOutput);
   const stateLabel = STATE_LABELS[submission.state];
 
   return (
@@ -94,7 +110,15 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
             : null}
         </p>
       ) : null}
-      {isCompileError ? <pre>{submission.compileOutput}</pre> : null}
+      {submission.compileOutput ? (
+        // Rendered whenever there's compiler/judge output at all — including
+        // a warning on an otherwise-passing submission, where it must sit
+        // *alongside* the real verdict above, never replace it.
+        <div>
+          <p>Compiler output:</p>
+          <pre>{submission.compileOutput}</pre>
+        </div>
+      ) : null}
       {submission.cases.length > 0 ? (
         <ul>
           {submission.cases.map((c) => (
@@ -133,20 +157,21 @@ const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10_000];
  *
  * Owns the actual WebSocket lifecycle for one submission id. Extracted out
  * of `SubmitPage` so its <StrictMode> cleanup behaviour (D3) can be exercised
- * directly in a test, independent of the click-driven flow that normally
- * activates it — `submissionId` starts `null` in `SubmitPage`, so under the
- * real app's usual flow this effect only ever becomes active *after* the
- * initial mount/unmount/remount cycle React's StrictMode performs at mount,
- * which is a real, verified property of React (double-invoking an effect
- * happens around a component's own initial mount, not around a later
- * dependency change) but not a substitute for the cleanup being correct in
- * general — a future caller could easily pass an id that is already known at
- * first render.
+ * directly in `test/submission-socket.spec.tsx`, independent of the
+ * click-driven flow that normally activates it — `submissionId` starts
+ * `null` in `SubmitPage`, so under the real app's usual flow this effect
+ * only ever becomes active *after* the initial mount/unmount/remount cycle
+ * React's StrictMode performs at mount, which is a real, verified property
+ * of React (double-invoking an effect happens around a component's own
+ * initial mount, not around a later dependency change) but not a substitute
+ * for the cleanup being correct in general — a future caller could easily
+ * pass an id that is already known at first render.
  */
 export function useSubmissionSocket(
   submissionId: number | null,
   fetchSubmission: (id: number) => Promise<void>,
   terminalRef: { current: boolean },
+  onSubscriptionError?: (code: string) => void,
 ): void {
   useEffect(() => {
     if (submissionId === null) return;
@@ -166,9 +191,27 @@ export function useSubmissionSocket(
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
 
+    // openapi-fetch has no `onError` middleware registered, so a
+    // network-level failure (not an HTTP error response — an actual refused
+    // connection, a DNS failure, the API restarting mid-request) rethrows
+    // out of `fetchSubmission` instead of resolving to `{ error }`. Called
+    // via `void`, that would otherwise be an unhandled rejection every time
+    // it happens. It's transient — the reconnect loop or the next signal
+    // frame will prompt another attempt — so it's logged, not surfaced.
+    function safeFetch(fetchId: number): void {
+      fetchSubmission(fetchId).catch((err: unknown) => {
+        console.error('submission re-fetch failed', err);
+      });
+    }
+
     function connect(): void {
       if (disposed) return;
       const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      // Same-origin only, and never a credential in the URL — the gateway
+      // authenticates from the session cookie, sent automatically. A
+      // `?token=` here would leak into access logs, proxy logs and browser
+      // history, and Task 11's gateway rejects a query-string credential on
+      // purpose (see D1).
       const ws = new WebSocket(`${proto}://${window.location.host}/ws`);
       socket = ws;
 
@@ -176,7 +219,7 @@ export function useSubmissionSocket(
         if (disposed) return;
         attempt = 0;
         ws.send(JSON.stringify({ type: 'subscribe', submissionId: id }));
-        void fetchSubmission(id);
+        safeFetch(id);
       });
 
       ws.addEventListener('message', (event) => {
@@ -188,11 +231,21 @@ export function useSubmissionSocket(
           return;
         }
         if (typeof parsed !== 'object' || parsed === null) return;
-        const frame = parsed as { type?: unknown; id?: unknown };
+        const frame = parsed as { type?: unknown; id?: unknown; code?: unknown };
         // The frame is a signal only and carries no grading data — only its
         // `id` is read. A frame for a different submission is ignored.
         if (frame.type === 'submission' && frame.id === id) {
-          void fetchSubmission(id);
+          safeFetch(id);
+          return;
+        }
+        if (frame.type === 'error') {
+          // The gateway sends this only when the subscribe was rejected
+          // (the caller may not watch this submission). Not reachable today
+          // — a caller only ever subscribes to a submission it just created
+          // and owns — but if that ever changed, silently dropping this
+          // would leave the page sitting on its last fetch forever: nothing
+          // else will ever prompt another re-fetch for a rejected id.
+          onSubscriptionError?.(typeof frame.code === 'string' ? frame.code : 'subscription_error');
         }
       });
 
@@ -211,7 +264,7 @@ export function useSubmissionSocket(
       if (reconnectTimer) clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [submissionId, fetchSubmission, terminalRef]);
+  }, [submissionId, fetchSubmission, terminalRef, onSubscriptionError]);
 }
 
 export function SubmitPage() {
@@ -240,7 +293,11 @@ export function SubmitPage() {
     }
   }, []);
 
-  useSubmissionSocket(submissionId, fetchSubmission, terminalRef);
+  const handleSubscriptionError = useCallback((code: string) => {
+    setSubmitError(`Live updates unavailable (${code}). Refresh to see the latest state.`);
+  }, []);
+
+  useSubmissionSocket(submissionId, fetchSubmission, terminalRef, handleSubscriptionError);
 
   async function handleSubmit(values: SubmitValues): Promise<void> {
     setBusy(true);
@@ -255,6 +312,14 @@ export function SubmitPage() {
       }
       setSubmission(null);
       setSubmissionId(data.id);
+    } catch {
+      // openapi-fetch rethrows network-level failures (no `onError`
+      // middleware registered) rather than returning them as `{ error }` —
+      // a refused connection, a DNS failure, or the API restarting
+      // mid-request all land here instead of the `error` branch above.
+      // Without this, busy still resets via `finally`, but the click
+      // otherwise does nothing visible.
+      setSubmitError('Could not reach the server. Check your connection and try again.');
     } finally {
       setBusy(false);
     }
