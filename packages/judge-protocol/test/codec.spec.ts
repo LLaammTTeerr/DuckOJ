@@ -81,9 +81,10 @@ describe('packet codec', () => {
     const chunkSize = 128;
     const chunkCount = Math.ceil(frame.length / chunkSize);
 
-    // Assert we actually split into multiple chunks; this guards against
-    // payload changes that recompress too well and collapse the test to one push
-    expect(chunkCount).toBeGreaterThan(1);
+    // Assert we actually split into many chunks; this guards against payload changes
+    // that recompress too well. Current value ~32; threshold of 20 leaves headroom for
+    // random-content variance while catching any serious regression.
+    expect(chunkCount).toBeGreaterThanOrEqual(20);
 
     for (let i = 0; i < frame.length; i += chunkSize) {
       decoder.push(frame.subarray(i, Math.min(i + chunkSize, frame.length)));
