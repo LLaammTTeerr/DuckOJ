@@ -30,7 +30,8 @@ CREATE TABLE "judge_nodes" (
 CREATE TABLE "language_driver_keys" (
 	"language_id" bigint NOT NULL,
 	"driver" text NOT NULL,
-	"executor_key" text NOT NULL
+	"executor_key" text NOT NULL,
+	CONSTRAINT "language_driver_keys_language_id_driver_pk" PRIMARY KEY("language_id","driver")
 );
 --> statement-breakpoint
 CREATE TABLE "languages" (
@@ -38,7 +39,7 @@ CREATE TABLE "languages" (
 	"key" text NOT NULL,
 	"name" text NOT NULL,
 	"extension" text NOT NULL,
-	"is_active" text DEFAULT 'true' NOT NULL,
+	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -95,6 +96,8 @@ CREATE TABLE "submissions" (
 	"judged_at" timestamp with time zone
 );
 --> statement-breakpoint
+ALTER TABLE "grading_jobs" ADD CONSTRAINT "grading_jobs_submission_id_submissions_id_fk" FOREIGN KEY ("submission_id") REFERENCES "public"."submissions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "grading_jobs" ADD CONSTRAINT "grading_jobs_revision_id_problem_revisions_id_fk" FOREIGN KEY ("revision_id") REFERENCES "public"."problem_revisions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "language_driver_keys" ADD CONSTRAINT "language_driver_keys_language_id_languages_id_fk" FOREIGN KEY ("language_id") REFERENCES "public"."languages"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "problem_revisions" ADD CONSTRAINT "problem_revisions_problem_id_problems_id_fk" FOREIGN KEY ("problem_id") REFERENCES "public"."problems"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "submission_cases" ADD CONSTRAINT "submission_cases_submission_id_submissions_id_fk" FOREIGN KEY ("submission_id") REFERENCES "public"."submissions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -104,7 +107,6 @@ ALTER TABLE "submissions" ADD CONSTRAINT "submissions_revision_id_problem_revisi
 ALTER TABLE "submissions" ADD CONSTRAINT "submissions_language_id_languages_id_fk" FOREIGN KEY ("language_id") REFERENCES "public"."languages"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "judge_nodes_name_idx" ON "judge_nodes" USING btree ("name");--> statement-breakpoint
 CREATE UNIQUE INDEX "judge_nodes_token_idx" ON "judge_nodes" USING btree ("token_hash");--> statement-breakpoint
-CREATE UNIQUE INDEX "language_driver_keys_idx" ON "language_driver_keys" USING btree ("language_id","driver");--> statement-breakpoint
 CREATE UNIQUE INDEX "languages_key_idx" ON "languages" USING btree ("key");--> statement-breakpoint
 CREATE UNIQUE INDEX "problems_code_lower_idx" ON "problems" USING btree (lower("code"));--> statement-breakpoint
 CREATE UNIQUE INDEX "submission_cases_identity_idx" ON "submission_cases" USING btree ("submission_id","attempt","group_index","case_index");

@@ -1,14 +1,17 @@
 import {
   bigint,
   bigserial,
+  boolean,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { problemRevisions, submissions } from './guarded.js';
 
 export const gradingJobState = pgEnum('grading_job_state', ['queued', 'leased', 'done', 'failed']);
 export const gradingJobKind = pgEnum('grading_job_kind', ['submission']);
@@ -20,7 +23,7 @@ export const languages = pgTable(
     key: text('key').notNull(),
     name: text('name').notNull(),
     extension: text('extension').notNull(),
-    isActive: text('is_active').notNull().default('true'),
+    isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('languages_key_idx').on(t.key)],
@@ -39,7 +42,7 @@ export const languageDriverKeys = pgTable(
     driver: text('driver').notNull(),
     executorKey: text('executor_key').notNull(),
   },
-  (t) => [uniqueIndex('language_driver_keys_idx').on(t.languageId, t.driver)],
+  (t) => [primaryKey({ columns: [t.languageId, t.driver] })],
 );
 
 export const judgeNodes = pgTable(
@@ -61,8 +64,13 @@ export const gradingJobs = pgTable(
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     kind: gradingJobKind('kind').notNull().default('submission'),
-    submissionId: bigint('submission_id', { mode: 'number' }),
-    revisionId: bigint('revision_id', { mode: 'number' }).notNull(),
+    /** Nullable: later job kinds (invocations) will have no submission. */
+    submissionId: bigint('submission_id', { mode: 'number' }).references(() => submissions.id, {
+      onDelete: 'cascade',
+    }),
+    revisionId: bigint('revision_id', { mode: 'number' })
+      .notNull()
+      .references(() => problemRevisions.id),
     packageHash: text('package_hash').notNull(),
     state: gradingJobState('state').notNull().default('queued'),
     /** Fencing token. Incremented on every claim; stale events are rejected. */

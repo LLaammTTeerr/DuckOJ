@@ -1,5 +1,5 @@
 {
-  "id": "7efc17a0-1b58-4e9d-a10b-a0e09b0dc6fd",
+  "id": "ed1acc50-0d10-4185-9088-8bcfc2a7df60",
   "prevId": "3565b711-b4d4-4668-b390-06498b858c04",
   "version": "7",
   "dialect": "postgresql",
@@ -455,7 +455,34 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "grading_jobs_submission_id_submissions_id_fk": {
+          "name": "grading_jobs_submission_id_submissions_id_fk",
+          "tableFrom": "grading_jobs",
+          "tableTo": "submissions",
+          "columnsFrom": [
+            "submission_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "grading_jobs_revision_id_problem_revisions_id_fk": {
+          "name": "grading_jobs_revision_id_problem_revisions_id_fk",
+          "tableFrom": "grading_jobs",
+          "tableTo": "problem_revisions",
+          "columnsFrom": [
+            "revision_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -572,29 +599,7 @@
           "notNull": true
         }
       },
-      "indexes": {
-        "language_driver_keys_idx": {
-          "name": "language_driver_keys_idx",
-          "columns": [
-            {
-              "expression": "language_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "driver",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "language_driver_keys_language_id_languages_id_fk": {
           "name": "language_driver_keys_language_id_languages_id_fk",
@@ -610,7 +615,15 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
+      "compositePrimaryKeys": {
+        "language_driver_keys_language_id_driver_pk": {
+          "name": "language_driver_keys_language_id_driver_pk",
+          "columns": [
+            "language_id",
+            "driver"
+          ]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -646,10 +659,10 @@
         },
         "is_active": {
           "name": "is_active",
-          "type": "text",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": "'true'"
+          "default": true
         },
         "created_at": {
           "name": "created_at",
