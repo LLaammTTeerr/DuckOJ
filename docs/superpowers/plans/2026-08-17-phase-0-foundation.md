@@ -1521,7 +1521,7 @@ git commit -m "feat(api): rfc 9457 problem+json filter and zod validation pipe"
 
 **Files:**
 - Create: `apps/api/src/authn/password.service.ts`, `apps/api/src/authn/auth.service.ts`, `apps/api/src/authn/auth.controller.ts`, `apps/api/src/authn/authn.module.ts`
-- Create: `apps/api/test/register.spec.ts`
+- Create: `apps/api/test/register.spec.ts`, `apps/api/test/db.harness.ts`, `apps/api/test/app.harness.ts`
 - Modify: `apps/api/src/app.module.ts`
 
 **Interfaces:**
@@ -1530,6 +1530,8 @@ git commit -m "feat(api): rfc 9457 problem+json filter and zod validation pipe"
   - `PasswordService.hash(plain: string): Promise<string>` and `.verify(hash: string, plain: string): Promise<boolean>`
   - `AuthService.register(input: RegisterRequestDto): Promise<MeResponseDto>`
   - `POST /api/v1/auth/register` → 201 `MeResponse`
+  - `buildApp(db: Db): Promise<INestApplication>` and `TEST_CONFIG: AppConfig` from `test/app.harness.ts` — used by Tasks 8, 9 and 10
+  - `withTestDb` from `test/db.harness.ts` — used by every later API test
 
 - [ ] **Step 1: Install argon2**
 
