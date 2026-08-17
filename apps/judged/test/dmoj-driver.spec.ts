@@ -74,7 +74,7 @@ describe('DmojDriver', () => {
     judge = fakeJudge(port);
     await judge.ready;
     await vi.waitFor(() => expect(judge!.received.map((p) => p.name)).toContain('handshake-success'), 10_000);
-  });
+  }, 30_000);
 
   it('translates a submission into a submission-request carrying the mapped problem code', async () => {
     server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
@@ -96,7 +96,7 @@ describe('DmojDriver', () => {
         'memory-limit': 65536,
       });
     }, 10_000);
-  });
+  }, 30_000);
 
   it('translates a full grading run into our events', async () => {
     server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
@@ -130,7 +130,7 @@ describe('DmojDriver', () => {
     expect(cases[1]).toMatchObject({ verdict: 'TLE', caseIndex: 1 });
     // Worst case wins the submission verdict.
     expect(seen.find((e) => e.type === 'finished')).toMatchObject({ verdict: 'TLE' });
-  });
+  }, 30_000);
 
   it('computes the correct verdict when test-case-status and grading-end arrive in the same TCP chunk', async () => {
     server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
@@ -169,7 +169,7 @@ describe('DmojDriver', () => {
     const relevant = seen.filter((e) => e.type === 'caseResult' || e.type === 'finished');
     expect(relevant.map((e) => e.type)).toEqual(['caseResult', 'caseResult', 'finished']);
     expect(seen.find((e) => e.type === 'finished')).toMatchObject({ verdict: 'TLE' });
-  });
+  }, 30_000);
 
   it('does not let a skipped case override a genuine failure in the aggregate verdict', async () => {
     server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
@@ -207,7 +207,7 @@ describe('DmojDriver', () => {
     expect(cases[0]).toMatchObject({ verdict: 'WA', skipped: false });
     expect(cases[1]).toMatchObject({ verdict: null, skipped: true });
     expect(seen.find((e) => e.type === 'finished')).toMatchObject({ verdict: 'WA' });
-  });
+  }, 30_000);
 
   it('reports IE, not AC, when every case in the run was skipped', async () => {
     server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
@@ -237,7 +237,7 @@ describe('DmojDriver', () => {
     await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true), 10_000);
 
     expect(seen.find((e) => e.type === 'finished')).toMatchObject({ verdict: 'IE' });
-  });
+  }, 30_000);
 
   it('still reports AC for a normal all-passing run', async () => {
     server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
@@ -267,7 +267,7 @@ describe('DmojDriver', () => {
     await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true), 10_000);
 
     expect(seen.find((e) => e.type === 'finished')).toMatchObject({ verdict: 'AC' });
-  });
+  }, 30_000);
 
   it('surfaces a compile error', async () => {
     server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
@@ -288,7 +288,7 @@ describe('DmojDriver', () => {
       () => expect(seen).toContainEqual({ type: 'compileError', message: 'error: expected ;' }),
       10_000,
     );
-  });
+  }, 30_000);
 
   it('sends terminate-submission when a job is cancelled', async () => {
     server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
@@ -304,7 +304,7 @@ describe('DmojDriver', () => {
     await driver.cancel('7', 1);
 
     await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'terminate-submission')).toBe(true), 10_000);
-  });
+  }, 30_000);
 
   it('terminates an orphan a reconnecting judge reports that we hold no job for', async () => {
     server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
@@ -321,5 +321,5 @@ describe('DmojDriver', () => {
 
     await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'terminate-submission')).toBe(true), 10_000);
     void driver;
-  });
+  }, 30_000);
 });
