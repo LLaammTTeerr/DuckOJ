@@ -4,6 +4,7 @@ const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().url(),
+  REDIS_URL: z.string().url(),
   SESSION_COOKIE_NAME: z.string().default('qhhoj_session'),
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).default(720),
   TOTP_ENC_KEY: z.string().regex(/^[0-9a-f]{64}$/, 'must be 32 bytes of lowercase hex'),
@@ -15,6 +16,7 @@ export interface AppConfig {
   nodeEnv: 'development' | 'test' | 'production';
   port: number;
   databaseUrl: string;
+  redisUrl: string;
   sessionCookieName: string;
   sessionTtlHours: number;
   totpEncKey: Buffer;
@@ -35,6 +37,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     nodeEnv: e.NODE_ENV,
     port: e.PORT,
     databaseUrl: e.DATABASE_URL,
+    redisUrl: e.REDIS_URL,
     sessionCookieName: e.SESSION_COOKIE_NAME,
     sessionTtlHours: e.SESSION_TTL_HOURS,
     totpEncKey: Buffer.from(e.TOTP_ENC_KEY, 'hex'),

@@ -38,15 +38,24 @@ export async function seedProblemAndLanguage(db: Db): Promise<void> {
   await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problem!.id));
 }
 
-/** Registers `username` then logs it in on `agent`, so it carries a session cookie. */
-export async function registerAndLogin(agent: SupertestAgent, username: string): Promise<void> {
+/**
+ * Registers `username` then logs it in on `agent`, so it carries a session
+ * cookie for its own subsequent requests, and returns that cookie as a
+ * `name=value` string for callers — the WebSocket tests — that need to set it
+ * as a header by hand on a client `supertest`'s agent doesn't drive.
+ */
+export async function registerAndLogin(agent: SupertestAgent, username: string): Promise<string> {
   await agent.post('/auth/register').send({
     username,
     email: `${username}@example.com`,
     password: PASSWORD,
     displayName: username,
   });
-  await agent.post('/auth/login').send({ usernameOrEmail: username, password: PASSWORD });
+  const res = await agent.post('/auth/login').send({ usernameOrEmail: username, password: PASSWORD });
+  const setCookie: unknown = res.headers['set-cookie'];
+  const raw = Array.isArray(setCookie) ? (setCookie[0] as string | undefined) : (setCookie as string | undefined);
+  if (!raw) throw new Error(`login for ${username} did not set a session cookie`);
+  return raw.split(';')[0]!;
 }
 
 /**

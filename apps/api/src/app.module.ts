@@ -5,6 +5,9 @@ import { AuthnModule } from './authn/authn.module.js';
 import { AuthzModule } from './authz/authz.module.js';
 import { OrgsModule } from './orgs/orgs.module.js';
 import { SubmissionsModule } from './submissions/submissions.module.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
 
-@Module({ imports: [ConfigModule, HealthModule, AuthnModule, AuthzModule, OrgsModule, SubmissionsModule] })
+@Module({
+  imports: [ConfigModule, HealthModule, AuthnModule, AuthzModule, OrgsModule, SubmissionsModule, RealtimeModule],
+})
 export class AppModule {}

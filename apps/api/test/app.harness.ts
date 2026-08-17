@@ -1,20 +1,40 @@
+import type { AddressInfo } from 'node:net';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
+import { Redis } from 'ioredis';
 import type { DestinationStream } from 'pino';
 import type { Db } from '@qhhoj/db';
 import { AuthnModule } from '../src/authn/authn.module.js';
 import { OrgsModule } from '../src/orgs/orgs.module.js';
 import { SubmissionsModule } from '../src/submissions/submissions.module.js';
+import { RealtimeModule } from '../src/realtime/realtime.module.js';
+import { RedisSubscriber } from '../src/realtime/redis-subscriber.js';
+import { SubmissionsGateway } from '../src/realtime/submissions.gateway.js';
 import { APP_CONFIG, DB } from '../src/config/config.module.js';
 import { ProblemFilter } from '../src/common/problem.filter.js';
 import { requestLogger } from '../src/common/logger.js';
 import type { AppConfig } from '../src/config/config.schema.js';
+import { ensureRedisUrl } from './redis.harness.js';
+
+// Mirrors `SUBMISSION_CHANNEL` in `apps/judged/src/submission-events.ts` and
+// `apps/api/src/realtime/redis-subscriber.ts` — see the latter for why this
+// value is copied by hand rather than imported from a shared package.
+const SUBMISSION_CHANNEL = 'submission';
 
 export const TEST_CONFIG: AppConfig = {
   nodeEnv: 'test',
   port: 0,
   databaseUrl: 'postgres://unused',
+  // `AppModule` (only instantiated whole by `app.smoke.spec.ts`) now includes
+  // `RealtimeModule`, whose `RedisSubscriber` dials this address. It is
+  // deliberately unreachable rather than a real container: `buildApp` never
+  // awaits the subscription, so a refused connection just logs and retries
+  // in the background exactly as it would against a real, temporarily-down
+  // Redis — it must never block `app.init()`. Tests that need a live
+  // subscriber use `buildAppWithRealtime`, which overrides this with a real
+  // container's URL.
+  redisUrl: 'redis://127.0.0.1:1',
   sessionCookieName: 'qhhoj_session',
   sessionTtlHours: 720,
   totpEncKey: Buffer.alloc(32, 1),
@@ -47,4 +67,67 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
   app.useGlobalFilters(new ProblemFilter());
   await app.init();
   return app;
+}
+
+export interface RealtimeAppHandle {
+  app: INestApplication;
+  /** The `ws://` origin of a *listening* server, e.g. `${url}/ws`. */
+  url: string;
+  /** Publishes `submissionId` on the same Redis channel the subscriber listens to. */
+  publish: (submissionId: number) => Promise<void>;
+}
+
+/**
+ * Like `buildApp`, but with `RealtimeModule` wired in exactly as `main.ts`
+ * wires it: a real, listening HTTP server (a raw `ws` upgrade needs an actual
+ * socket to dial, not `supertest`'s in-memory dispatch) with the gateway
+ * `attach`ed to it, backed by a real — `testcontainers` — Redis so the
+ * subscriber's pub/sub round-trip is genuine rather than mocked.
+ */
+export async function buildAppWithRealtime(db: Db): Promise<RealtimeAppHandle> {
+  const redisUrl = await ensureRedisUrl();
+
+  const moduleRef = await Test.createTestingModule({
+    imports: [AuthnModule, OrgsModule, SubmissionsModule, RealtimeModule],
+  })
+    .overrideProvider(DB)
+    .useValue(db)
+    .overrideProvider(APP_CONFIG)
+    .useValue({ ...TEST_CONFIG, redisUrl })
+    .compile();
+
+  const app = moduleRef.createNestApplication();
+  app.use(cookieParser());
+  app.useGlobalFilters(new ProblemFilter());
+  await app.init();
+
+  // Wait for the dedicated subscriber connection to actually be subscribed
+  // before this handle is usable: `main.ts` never waits on this (a Redis
+  // outage at boot must not block startup), but a test that publishes right
+  // after boot would otherwise race "connected" against "published" and lose
+  // the message — flaking rather than failing honestly.
+  await app.get(RedisSubscriber).ready;
+
+  await app.listen(0);
+  app.get(SubmissionsGateway).attach(app.getHttpServer());
+
+  const address = app.getHttpServer().address() as AddressInfo;
+  const url = `ws://127.0.0.1:${address.port}`;
+
+  return {
+    app,
+    url,
+    // A short-lived connection per call, not a connection held for the whole
+    // handle's lifetime: this is a test helper called once or twice per
+    // test, so the extra connect/quit round trip costs nothing and needs no
+    // cleanup wired into `app.close()`.
+    publish: async (submissionId: number) => {
+      const publisher = new Redis(redisUrl);
+      try {
+        await publisher.publish(SUBMISSION_CHANNEL, String(submissionId));
+      } finally {
+        publisher.disconnect();
+      }
+    },
+  };
 }

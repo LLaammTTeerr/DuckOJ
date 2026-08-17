@@ -5,6 +5,7 @@ const valid = {
   NODE_ENV: 'test',
   PORT: '3000',
   DATABASE_URL: 'postgres://u:p@localhost:5432/db',
+  REDIS_URL: 'redis://localhost:6379',
   SESSION_TTL_HOURS: '720',
   TOTP_ENC_KEY: 'a'.repeat(64),
   PUBLIC_ORIGIN: 'http://localhost:5173',
