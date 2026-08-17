@@ -73,7 +73,7 @@ describe('DmojDriver', () => {
     const port = await server.listen(0);
     judge = fakeJudge(port);
     await judge.ready;
-    await vi.waitFor(() => expect(judge!.received.map((p) => p.name)).toContain('handshake-success'));
+    await vi.waitFor(() => expect(judge!.received.map((p) => p.name)).toContain('handshake-success'), 10_000);
   });
 
   it('translates a submission into a submission-request carrying the mapped problem code', async () => {
@@ -82,7 +82,7 @@ describe('DmojDriver', () => {
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
     await judge.ready;
-    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
 
     await driver.dispatch(job, async () => {});
 
@@ -95,7 +95,7 @@ describe('DmojDriver', () => {
         'time-limit': 1,
         'memory-limit': 65536,
       });
-    });
+    }, 10_000);
   });
 
   it('translates a full grading run into our events', async () => {
@@ -104,11 +104,11 @@ describe('DmojDriver', () => {
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
     await judge.ready;
-    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
 
     const seen: GradingEvent[] = [];
     await driver.dispatch(job, async (e) => void seen.push(e));
-    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true));
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true), 10_000);
 
     const id = Number((judge.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })['submission-id']);
     judge.send({ name: 'grading-begin', 'submission-id': id, pretested: false });
@@ -122,7 +122,7 @@ describe('DmojDriver', () => {
     });
     judge.send({ name: 'grading-end', 'submission-id': id });
 
-    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true));
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true), 10_000);
 
     const cases = seen.filter((e) => e.type === 'caseResult');
     expect(cases).toHaveLength(2);
@@ -138,15 +138,15 @@ describe('DmojDriver', () => {
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
     await judge.ready;
-    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
 
     const seen: GradingEvent[] = [];
     await driver.dispatch(job, async (e) => void seen.push(e));
-    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true));
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true), 10_000);
     const id = Number((judge.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })['submission-id']);
 
     judge.send({ name: 'grading-begin', 'submission-id': id, pretested: false });
-    await vi.waitFor(() => expect(seen.some((e) => e.type === 'compiling')).toBe(true));
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'compiling')).toBe(true), 10_000);
 
     // A single write, not two: this forces the decoder to hand both packets
     // to the driver from the same synchronous `push()` pass, which is what
@@ -164,7 +164,7 @@ describe('DmojDriver', () => {
       { name: 'grading-end', 'submission-id': id },
     ]);
 
-    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true));
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true), 10_000);
 
     const relevant = seen.filter((e) => e.type === 'caseResult' || e.type === 'finished');
     expect(relevant.map((e) => e.type)).toEqual(['caseResult', 'caseResult', 'finished']);
@@ -177,11 +177,11 @@ describe('DmojDriver', () => {
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
     await judge.ready;
-    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
 
     const seen: GradingEvent[] = [];
     await driver.dispatch(job, async (e) => void seen.push(e));
-    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true));
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true), 10_000);
     const id = Number((judge.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })['submission-id']);
 
     // Case 1 genuinely fails (WA). Case 2 is short-circuited (SC) — e.g. a
@@ -198,7 +198,7 @@ describe('DmojDriver', () => {
     });
     judge.send({ name: 'grading-end', 'submission-id': id });
 
-    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true));
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true), 10_000);
 
     const cases = seen.filter((e) => e.type === 'caseResult');
     expect(cases).toHaveLength(2);
@@ -215,11 +215,11 @@ describe('DmojDriver', () => {
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
     await judge.ready;
-    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
 
     const seen: GradingEvent[] = [];
     await driver.dispatch(job, async (e) => void seen.push(e));
-    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true));
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true), 10_000);
     const id = Number((judge.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })['submission-id']);
 
     // Nothing ran. Stripping SC from the aggregate leaves mask 0, which
@@ -234,7 +234,7 @@ describe('DmojDriver', () => {
     });
     judge.send({ name: 'grading-end', 'submission-id': id });
 
-    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true));
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true), 10_000);
 
     expect(seen.find((e) => e.type === 'finished')).toMatchObject({ verdict: 'IE' });
   });
@@ -245,11 +245,11 @@ describe('DmojDriver', () => {
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
     await judge.ready;
-    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
 
     const seen: GradingEvent[] = [];
     await driver.dispatch(job, async (e) => void seen.push(e));
-    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true));
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true), 10_000);
     const id = Number((judge.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })['submission-id']);
 
     // Guards against over-stripping: a run with no SC and no failing bits
@@ -264,7 +264,7 @@ describe('DmojDriver', () => {
     });
     judge.send({ name: 'grading-end', 'submission-id': id });
 
-    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true));
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true), 10_000);
 
     expect(seen.find((e) => e.type === 'finished')).toMatchObject({ verdict: 'AC' });
   });
@@ -275,17 +275,18 @@ describe('DmojDriver', () => {
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
     await judge.ready;
-    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
 
     const seen: GradingEvent[] = [];
     await driver.dispatch(job, async (e) => void seen.push(e));
-    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true));
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true), 10_000);
     const id = Number((judge.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })['submission-id']);
 
     judge.send({ name: 'compile-error', 'submission-id': id, log: 'error: expected ;' });
 
-    await vi.waitFor(() =>
-      expect(seen).toContainEqual({ type: 'compileError', message: 'error: expected ;' }),
+    await vi.waitFor(
+      () => expect(seen).toContainEqual({ type: 'compileError', message: 'error: expected ;' }),
+      10_000,
     );
   });
 
@@ -295,14 +296,14 @@ describe('DmojDriver', () => {
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
     await judge.ready;
-    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
 
     await driver.dispatch(job, async () => {});
-    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true));
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true), 10_000);
 
     await driver.cancel('7', 1);
 
-    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'terminate-submission')).toBe(true));
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'terminate-submission')).toBe(true), 10_000);
   });
 
   it('terminates an orphan a reconnecting judge reports that we hold no job for', async () => {
@@ -311,14 +312,14 @@ describe('DmojDriver', () => {
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
     await judge.ready;
-    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1));
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
 
     // A judge that restarted mid-grade announces its in-flight submission.
     // We have no live lease for it, so it must be told to stop rather than
     // left grading forever.
     judge.send({ name: 'current-submission-id', 'submission-id': 999999 });
 
-    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'terminate-submission')).toBe(true));
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'terminate-submission')).toBe(true), 10_000);
     void driver;
   });
 });

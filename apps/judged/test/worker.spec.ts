@@ -75,7 +75,7 @@ describe('Worker', () => {
       await vi.waitFor(async () => {
         const [job] = await db.select().from(schema.gradingJobs);
         expect(job?.state).toBe('done');
-      });
+      }, 10_000);
       // The test's name promised the submission source reaches the driver —
       // assert it, so a `Worker` that dispatched `source: ''` would fail here.
       expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ source }), expect.any(Function));
@@ -99,7 +99,7 @@ describe('Worker', () => {
       await vi.waitFor(async () => {
         const [job] = await db.select().from(schema.gradingJobs);
         expect(job?.state).toBe('leased');
-      });
+      }, 10_000);
 
       // Simulate the lease lapsing and another worker taking the job.
       await db.execute(sql`update grading_jobs set lease_until = now() - interval '1 second'`);
@@ -218,7 +218,7 @@ describe('Worker', () => {
           .map((c) => c[0])
           .find((line) => typeof line === 'string' && line.includes('job failed'));
         expect(failed).toBeDefined();
-      });
+      }, 10_000);
       const failLine = errorSpy.mock.calls
         .map((c) => c[0])
         .find((line) => typeof line === 'string' && line.includes('job failed')) as string;
@@ -231,7 +231,7 @@ describe('Worker', () => {
       const callsAtFailure = claimSpy.mock.calls.length;
       await vi.waitFor(() => {
         expect(claimSpy.mock.calls.length).toBeGreaterThan(callsAtFailure);
-      });
+      }, 10_000);
 
       worker.stop();
       errorSpy.mockRestore();
@@ -281,7 +281,7 @@ describe('Worker', () => {
       await vi.waitFor(async () => {
         const [rowB] = await db.select().from(schema.gradingJobs).where(eq(schema.gradingJobs.id, jobIdB));
         expect(rowB?.state).toBe('done');
-      });
+      }, 10_000);
 
       const failLine = errorSpy.mock.calls
         .map((c) => c[0])

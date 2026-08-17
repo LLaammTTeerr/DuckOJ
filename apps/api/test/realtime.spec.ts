@@ -226,8 +226,20 @@ describe('submission realtime', () => {
         overrides: [{ provide: SessionService, useValue: failingSessions }],
       });
       try {
-        // Any cookie routes through the now-broken `SessionService`.
-        await expect(open(`${url}/ws`, { cookie: 'qhhoj_session=whatever' })).rejects.toThrow(/500/);
+        // Any cookie routes through the now-broken `SessionService`. Race the
+        // upgrade against an explicit 2s timeout rather than relying on the
+        // implicit rejection to arrive on its own: if the upgrade handler's
+        // `.catch()` is ever removed, `open()` never settles at all (same
+        // hang shape `raceOpen` exists to catch below for B2), and without
+        // this race that would surface as a generic 120s per-test timeout
+        // instead of a fast, legible assertion failure.
+        const openOrTimeout = Promise.race([
+          open(`${url}/ws`, { cookie: 'qhhoj_session=whatever' }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('open() did not settle within 2000ms')), 2_000),
+          ),
+        ]);
+        await expect(openOrTimeout).rejects.toThrow(/500/);
 
         // The assertion that actually catches a regression: prove the
         // SERVER survived — not just that this one connection was rejected
@@ -237,7 +249,19 @@ describe('submission realtime', () => {
         expect(socket.readyState).toBe(WebSocket.OPEN);
         socket.close();
       } finally {
-        await app.close();
+        // Bounded for the same reason as the race above: in the broken-code
+        // scenario it guards against, the first connection's raw socket is
+        // handed to the upgrade listener and then never `end()`ed or
+        // `destroy()`ed, so it sits half-open with nothing to notice the
+        // client going away — confirmed against a minimal repro that not
+        // even `getHttpServer().closeAllConnections()` reaches a socket in
+        // that state, since Node stops tracking it once an `'upgrade'`
+        // listener claims it. `http.Server#close()` waits for every
+        // connection to end, so without this bound it would hang here for
+        // the rest of the outer 120s test timeout, same as `open()` did
+        // above pre-fix — silently turning a fast, legible failure back into
+        // a slow, generic one.
+        await Promise.race([app.close(), new Promise((resolve) => setTimeout(resolve, 2_000))]);
       }
     });
   }, 120_000);
