@@ -32,8 +32,21 @@ jobs:
       - name: Typecheck
         run: pnpm -r typecheck
 
+      # `pnpm -r` only iterates workspace packages under apps/* and
+      # packages/* (pnpm-workspace.yaml) — it never reaches scripts/, which
+      # has no package.json of its own but holds migrate.ts and
+      # seed-problem.ts, both load-bearing for deployment. Run after the
+      # recursive typecheck above so @qhhoj/db's dist/ (which scripts/
+      # imports) has already been built.
+      - name: Typecheck scripts/
+        run: pnpm run typecheck:scripts
+
       - name: Lint
         run: pnpm -r lint
+
+      # Same gap as above, for lint: `pnpm -r lint` never reaches scripts/.
+      - name: Lint scripts/
+        run: pnpm run lint:scripts
 
       - name: Test
         run: pnpm -r test

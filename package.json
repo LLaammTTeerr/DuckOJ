@@ -6,7 +6,9 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "typecheck": "pnpm -r typecheck",
+    "typecheck:scripts": "tsc -p scripts/tsconfig.json",
     "lint": "pnpm -r lint",
+    "lint:scripts": "eslint scripts",
     "format": "prettier --write .",
     "test": "pnpm -r test",
     "seed": "tsx scripts/seed-problem.ts"
