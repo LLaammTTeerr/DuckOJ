@@ -1238,7 +1238,7 @@ git commit -m "feat(db): judging schema — problems, submissions, cases, gradin
 - Consumes: `schema.gradingJobs`.
 - Produces:
   - `class JobStore` with `enqueue(input): Promise<number>`, `claim(workerId): Promise<ClaimedJob | null>`, `heartbeat(jobId, attempt): Promise<boolean>`, `complete(jobId, attempt): Promise<boolean>`, `isCurrentAttempt(jobId, attempt): Promise<boolean>`, `reclaimExpired(): Promise<number[]>`
-  - `interface ClaimedJob { id, attempt, submissionId, revisionId, packageHash }`
+  - `interface ClaimedJob { id: number; attempt: number; submissionId: number | null; revisionId: number; packageHash: string; source: string; languageKey: string; timeMs: number; memoryKb: number }` — a claim is self-sufficient: Task 9's worker dispatches straight from it without a second query
   - `LEASE_SECONDS = 60`
 
 The safety properties of the whole phase live here.
@@ -1934,8 +1934,9 @@ git commit -m "feat(judged): event writer with fencing and post-commit publishin
 **Interfaces:**
 - Consumes: codec, packet types, `JudgeDriver`, `interpretFlags`.
 - Produces:
-  - `class BridgeServer` — `listen(port)`, `on('judge', handler)`, per-connection `send(packet)`
-  - `class DmojDriver implements JudgeDriver`
+  - `class BridgeServer` — `constructor(options: BridgeOptions)`, `listen(port: number): Promise<number>` (returns the bound port, so `0` works in tests), `onPacket(handler: (conn, packet) => void)`, `broadcast(packet)`, `judgeCount(): number`, `close(): Promise<void>`, and a public `options` field the driver reads
+  - `interface BridgeOptions { hashToProblemCode(packageHash: string): string; languageToExecutor(languageKey: string): string }`
+  - `class DmojDriver implements JudgeDriver` — `constructor(bridge: BridgeServer)`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2673,15 +2674,120 @@ main().catch((error: unknown) => {
 });
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 4: Test the worker loop — it holds a safety property and must not ship untested**
+
+`apps/judged/test/worker.spec.ts`. The `Worker` is where a lapsed lease turns into a `driver.cancel`, and that path is the reason abandoned grading does not burn judge capacity. Use `FakeDriver` and a real database; no containers beyond the Postgres the harness already starts.
+
+```ts
+import { sql } from 'drizzle-orm';
+import { describe, expect, it, vi } from 'vitest';
+import { FakeDriver } from '@qhhoj/judge-protocol';
+import { schema, type Db } from '@qhhoj/db';
+import { problems, problemRevisions, submissions } from '@qhhoj/db/guarded';
+import { EventWriter } from '../src/event-writer.js';
+import { JobStore } from '../src/job-store.js';
+import { Worker } from '../src/worker.js';
+import { withTestDb } from './db.harness.js';
+
+async function seed(db: Db, store: JobStore, source: string): Promise<number> {
+  const [user] = await db
+    .insert(schema.users)
+    .values({ username: 'wk', email: 'wk@e.com', passwordHash: 'x', displayName: 'W' })
+    .returning();
+  const [language] = await db
+    .insert(schema.languages)
+    .values({ key: 'cpp17', name: 'C++17', extension: 'cpp' })
+    .returning();
+  const [problem] = await db
+    .insert(problems)
+    .values({ code: 'aplusb', name: 'A+B', statement: 's' })
+    .returning();
+  const [revision] = await db
+    .insert(problemRevisions)
+    .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })
+    .returning();
+  const [submission] = await db
+    .insert(submissions)
+    .values({
+      userId: user!.id,
+      problemId: problem!.id,
+      revisionId: revision!.id,
+      languageId: language!.id,
+      source,
+    })
+    .returning();
+  await store.enqueue({ revisionId: revision!.id, packageHash: 'h', submissionId: submission!.id });
+  return submission!.id;
+}
+
+describe('Worker', () => {
+  it('claims a job, dispatches it with the submission source, and marks it done', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const driver = new FakeDriver();
+      await seed(db, store, 'int main(){ return 0; }');
+
+      // The job id is 1 in a fresh rolled-back transaction.
+      driver.script('1', [
+        { type: 'finished', verdict: 'AC', points: 1, maxPoints: 1, timeMs: 3, memoryKb: 900 },
+      ]);
+
+      const worker = new Worker(store, writer, driver, 'worker-a');
+      const run = worker.start();
+      await vi.waitFor(async () => {
+        const [job] = await db.select().from(schema.gradingJobs);
+        expect(job?.state).toBe('done');
+      });
+      worker.stop();
+      await Promise.race([run, new Promise((r) => setTimeout(r, 1000))]);
+    });
+  }, 120_000);
+
+  it('cancels the driver when its lease lapses, so an abandoned grade stops', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const driver = new FakeDriver();
+      const cancel = vi.spyOn(driver, 'cancel');
+      await seed(db, store, 'int main(){}');
+      // Script nothing terminal, so the job stays in flight.
+      driver.script('1', [{ type: 'compiling' }]);
+
+      const worker = new Worker(store, writer, driver, 'worker-a');
+      const run = worker.start();
+      await vi.waitFor(async () => {
+        const [job] = await db.select().from(schema.gradingJobs);
+        expect(job?.state).toBe('leased');
+      });
+
+      // Simulate the lease lapsing and another worker taking the job.
+      await db.execute(sql`update grading_jobs set lease_until = now() - interval '1 second'`);
+      await store.claim('worker-b');
+
+      // The heartbeat interval is 20s in production; drive it directly rather
+      // than waiting, so the test asserts the logic and not the clock.
+      await worker.heartbeatOnce();
+
+      expect(cancel).toHaveBeenCalledWith('1', 1);
+      worker.stop();
+      await Promise.race([run, new Promise((r) => setTimeout(r, 1000))]);
+    });
+  }, 120_000);
+});
+```
+
+**This requires a small change to `Worker`:** extract the heartbeat body into a public `heartbeatOnce(): Promise<void>` that the `setInterval` calls, so the test drives the logic directly instead of waiting 20 seconds. Keep the interval; only the body moves.
+
+- [ ] **Step 5: Run the tests**
 
 ```bash
 corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/judged test
 ```
 
-Expected: PASS (22 tests).
+Expected: PASS (24 tests).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add -A
