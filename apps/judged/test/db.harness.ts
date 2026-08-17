@@ -26,6 +26,16 @@ async function ensureContainer(): Promise<string> {
 }
 
 /**
+ * The shared container's connection URL, for tests that need real committed
+ * data across independent connections — `withTestDb`'s rollback transaction
+ * cannot provide that. See the concurrent-claim tests in
+ * `job-store.concurrency.spec.ts` for why that distinction matters.
+ */
+export async function testDbUrl(): Promise<string> {
+  return ensureContainer();
+}
+
+/**
  * Runs `fn` against a migrated database inside a transaction that is always
  * rolled back, so tests share one container without sharing state.
  */

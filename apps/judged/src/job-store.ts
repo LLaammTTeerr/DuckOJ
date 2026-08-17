@@ -76,6 +76,9 @@ export class JobStore {
                or (state = 'leased' and lease_until < now())
             order by created_at
             limit 1
+            -- Throughput only: removing this clause was checked empirically
+            -- and left every asserted outcome unchanged (a blocked claimant
+            -- just waits, then gets the next row). Not covered by any test.
             for update skip locked
          )
         returning id, attempt, submission_id, revision_id, package_hash

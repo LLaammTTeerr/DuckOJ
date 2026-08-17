@@ -6,7 +6,9 @@
   "scripts": {
     "typecheck": "tsc -b",
     "lint": "eslint src test",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "tsc -b",
+    "dev": "tsx watch src/main.ts"
   },
   "dependencies": {
     "@qhhoj/db": "workspace:^",
