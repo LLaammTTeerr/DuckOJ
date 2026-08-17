@@ -10,6 +10,6 @@ import { AuthGuard } from './auth.guard.js';
   imports: [ConfigModule],
   controllers: [AuthController],
   providers: [AuthService, PasswordService, SessionService, AuthGuard],
-  exports: [AuthService, PasswordService, SessionService],
+  exports: [AuthService, PasswordService, SessionService, AuthGuard],
 })
 export class AuthnModule {}
