@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "name": "A plus B",
+  "checker": { "kind": "standard" },
+  "limits": { "timeMs": 1000, "memoryKb": 65536 },
+  "tests": [
+    { "input": "tests/01.in", "answer": "tests/01.out", "points": 1, "group": 0 },
+    { "input": "tests/02.in", "answer": "tests/02.out", "points": 1, "group": 0 },
+    { "input": "tests/03.in", "answer": "tests/03.out", "points": 1, "group": 0 }
+  ]
+}

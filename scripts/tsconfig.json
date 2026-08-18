@@ -5,5 +5,5 @@
     "composite": false,
     "declaration": false
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "lib/**/*.ts"]
 }

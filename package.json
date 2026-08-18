@@ -11,10 +11,12 @@
     "lint:scripts": "eslint scripts",
     "format": "prettier --write .",
     "test": "pnpm -r test",
-    "seed": "tsx scripts/seed-problem.ts"
+    "seed": "tsx scripts/seed-problem.ts",
+    "package:build": "tsx scripts/package-build.ts"
   },
   "dependencies": {
     "@qhhoj/db": "workspace:*",
+    "@qhhoj/package-format": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {

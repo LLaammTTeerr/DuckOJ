@@ -11,6 +11,9 @@ importers:
       '@qhhoj/db':
         specifier: workspace:*
         version: link:packages/db
+      '@qhhoj/package-format':
+        specifier: workspace:*
+        version: link:packages/package-format
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(postgres@3.4.9)
