@@ -2,11 +2,25 @@ import { createServer, type Server, type Socket } from 'node:net';
 import { createPacketDecoder, encodePacket } from '@qhhoj/judge-protocol';
 import type { BridgeToJudgePacket, JudgeToBridgePacket } from '@qhhoj/judge-protocol';
 
+// judge-server sets a 300s read timeout on its end of this socket
+// (dmoj/packet.py:104) and expects *us* to send `ping` so it has traffic to
+// read. 30s keeps us well under that with plenty of margin for jitter.
+export const PING_INTERVAL_MS = 30_000;
+
+// A connection silent for this many ping intervals is presumed dead: the
+// judge either crashed or already reconnected on a fresh socket, and this
+// old one is a zombie we must stop broadcasting into. Multiple missed
+// intervals (not one) tolerates a slow judge under load without either
+// side's liveness check racing the other's.
+const MISSED_PING_LIMIT = 3;
+
 export interface BridgeOptions {
   /** Content hash → on-disk problem code. This is where the DMOJ-ism stops. */
   hashToProblemCode(packageHash: string): string;
   /** Our language key → judge-server executor key. */
   languageToExecutor(languageKey: string): string;
+  /** Overrides `PING_INTERVAL_MS`. Tests inject a short value; production uses the default. */
+  pingIntervalMs?: number;
 }
 
 export interface JudgeConnection {
@@ -25,9 +39,15 @@ type PacketHandler = (connection: JudgeConnection, packet: JudgeToBridgePacket) 
 export class BridgeServer {
   private server: Server | undefined;
   private readonly connections = new Map<string, JudgeConnection>();
+  /** Last time each connection produced a decoded packet — any packet, not just `ping-response`. */
+  private readonly lastSeenAt = new Map<string, number>();
   private handler: PacketHandler = () => {};
+  private pingTimer: ReturnType<typeof setInterval> | undefined;
+  private readonly pingIntervalMs: number;
 
-  constructor(readonly options: BridgeOptions) {}
+  constructor(readonly options: BridgeOptions) {
+    this.pingIntervalMs = options.pingIntervalMs ?? PING_INTERVAL_MS;
+  }
 
   onPacket(handler: PacketHandler): void {
     this.handler = handler;
@@ -52,9 +72,32 @@ export class BridgeServer {
       this.server.listen(port, '0.0.0.0', () => {
         this.server!.off('error', onListenError);
         const address = this.server!.address();
+        this.pingTimer = setInterval(() => this.sweep(), this.pingIntervalMs);
         resolve(typeof address === 'object' && address ? address.port : port);
       });
     });
+  }
+
+  /**
+   * Pings every live connection and drops whichever ones have gone silent
+   * for `MISSED_PING_LIMIT` intervals. This is the check that actually
+   * prevents a lost dispatch: without it, a connection the judge has
+   * already abandoned (its 300s read timeout fired, it reconnected on a
+   * fresh socket) stays in `this.connections` forever, and `broadcast()`
+   * keeps writing into a socket nobody on the other end is reading.
+   */
+  private sweep(): void {
+    const now = Date.now();
+    for (const [id, connection] of this.connections) {
+      const lastSeen = this.lastSeenAt.get(id) ?? now;
+      if (now - lastSeen > this.pingIntervalMs * MISSED_PING_LIMIT) {
+        connection.close();
+        this.connections.delete(id);
+        this.lastSeenAt.delete(id);
+        continue;
+      }
+      connection.send({ name: 'ping', when: Math.floor(Date.now() / 1000) });
+    }
   }
 
   private accept(socket: Socket): void {
@@ -75,6 +118,11 @@ export class BridgeServer {
           this.connections.set(id, connection);
           connection.send({ name: 'handshake-success' });
         }
+        // Any decoded packet is proof the judge on the other end is still
+        // reading and writing — not just `ping-response`. Recorded after
+        // `id` is assigned above, so a handshake and a packet that follows
+        // it in the same TCP chunk both land against the right id.
+        if (id) this.lastSeenAt.set(id, Date.now());
         this.handler(connection, packet);
       },
       // A malformed frame means we can no longer trust the stream position,
@@ -84,14 +132,23 @@ export class BridgeServer {
 
     socket.on('data', (chunk) => decoder.push(chunk));
     socket.on('close', () => {
-      if (id) this.connections.delete(id);
+      if (id) {
+        this.connections.delete(id);
+        this.lastSeenAt.delete(id);
+      }
     });
     socket.on('error', () => socket.destroy());
   }
 
   async close(): Promise<void> {
+    // An uncleared interval holds the event loop open — without this,
+    // `judged` would refuse to exit even after every connection and the
+    // server socket itself are gone.
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.pingTimer = undefined;
     for (const connection of this.connections.values()) connection.close();
     this.connections.clear();
+    this.lastSeenAt.clear();
     await new Promise<void>((resolve) => {
       if (!this.server) return resolve();
       this.server.close(() => resolve());

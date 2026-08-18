@@ -322,4 +322,46 @@ describe('DmojDriver', () => {
     await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'terminate-submission')).toBe(true), 10_000);
     void driver;
   }, 30_000);
+
+  it('sends periodic ping frames to a connected judge on the configured interval', async () => {
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      // A short injected interval so the test doesn't wait out the real 30s default.
+      pingIntervalMs: 20,
+    });
+    const port = await server.listen(0);
+    judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'ping')).toBe(true), 10_000);
+  }, 30_000);
+
+  it('drops a judge connection that stops answering, and no longer broadcasts to it', async () => {
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      pingIntervalMs: 20,
+    });
+    const port = await server.listen(0);
+    judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+
+    // fakeJudge never answers a ping — no `ping-response`, no traffic of any
+    // kind after the handshake — so once several ping intervals have passed
+    // in silence the bridge must consider the connection dead and remove it
+    // from `connections`. This is the property that actually prevents a
+    // dispatch from being lost: a socket the judge has abandoned must never
+    // stay reachable via `broadcast()`.
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(0), 10_000);
+
+    const receivedBeforeBroadcast = judge!.received.length;
+    server!.broadcast({ name: 'terminate-submission' });
+    // Removal already happened above; this confirms removal is what stops
+    // delivery, not merely that a ping was sent at some point.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(judge!.received.length).toBe(receivedBeforeBroadcast);
+  }, 30_000);
 });

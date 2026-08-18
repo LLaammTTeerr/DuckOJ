@@ -94,9 +94,11 @@ wait_running() {
   service="$1"
   timeout="$2"
   elapsed=0
+  found=""
   while true; do
     cid=$(container_for_service "$service")
     if [ -n "$cid" ]; then
+      found=1
       status=$(podman inspect "$cid" --format '{{.State.Status}}' 2>/dev/null || true)
       if [ "$status" = "exited" ]; then
         echo "FATAL: $service exited unexpectedly within ${elapsed}s of starting" >&2
@@ -105,6 +107,15 @@ wait_running() {
       fi
     fi
     if [ "$elapsed" -ge "$timeout" ]; then
+      # Mirrors wait_healthy's shape: the timeout branch fails unconditionally
+      # unless a container was actually found and observed still running. A
+      # service whose container name never resolved for the whole window is
+      # not "running" — it never started at all — so this must not return 0.
+      if [ -z "$found" ]; then
+        echo "FATAL: $service's container was never found within ${timeout}s" >&2
+        "$COMPOSE" logs "$service" >&2 || true
+        exit 1
+      fi
       echo "==> $service still running after ${timeout}s (no healthcheck exists for this service)"
       return 0
     fi

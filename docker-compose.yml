@@ -109,7 +109,18 @@ services:
     # (its ENTRYPOINT is bare `tini --`). The port is a flag (`-p`), not a
     # positional — `dmoj judged 9999` would parse "9999" as judge_name, not
     # the port.
-    command: ['dmoj', 'judged', '-p', '9999', '-c', '/judge.yml']
+    #
+    # --only-executors CPP17: phase 1 is C++-only by decision — the web UI
+    # offers only ['cpp17'], DmojDriver.capabilities() declares only
+    # ['cpp17'], and the only language mapping that reaches a real dmoj
+    # executor is cpp17 -> CPP17. Without this flag the judge self-tests
+    # every executor it ships, including OBJC, whose self-test throws
+    # (objc_flags is unconfigured, so judge-server's own OBJC.py does
+    # `None + list`) — harmless (the judge still comes online) but it reads
+    # exactly like a broken judge in the startup log. Loading only the
+    # executor we actually dispatch to removes that noise instead of
+    # explaining it away.
+    command: ['dmoj', 'judged', '-p', '9999', '-c', '/judge.yml', '--only-executors', 'CPP17']
     volumes:
       - ./problems:/problems:ro
       - ./judge/judge.yml:/judge.yml:ro
