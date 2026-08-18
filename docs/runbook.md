@@ -523,17 +523,33 @@ registers are the same across runs).
 `problem_revisions` row still holds the literal `package_hash =
 'phase1-aplusb'` Phase 1 shipped, which satisfies no row in `packages` —
 and, as of Task 12, `problem_revisions.package_hash` has a foreign key to
-`packages.hash` (migration `0004_tiny_professor_monster.sql`). `migrate`
-applies every pending migration in one pass, so on this volume it now fails
-on 0004 before `api` or anything else can come up: `compose-up.sh`'s normal
-migrate-then-seed order is backwards here. Run the new `scripts/seed-problem.ts`
-(the command above) against the volume's Postgres *before* running `migrate`
-against it — the seed only needs the pre-0004 schema, which is already
-present — so it can repoint the existing revision off `phase1-aplusb` first.
-Only then does `0004`'s constraint find a database it can apply to. This is
-not automated (migrations are forward-only and generated, not hand-edited),
-so it takes an operator doing the two steps in this non-default order once,
-by hand, per pre-existing volume.
+`packages.hash` (migration `0004_tiny_professor_monster.sql`). Drizzle's
+Postgres migrator runs every pending migration inside **one transaction**
+(`pg-core/dialect.js`'s `migrate()`), so `migrate` cannot partially land —
+it's all pending migrations or none.
+
+- **If the volume is already at migration `0003`** (has `packages` and
+  `package_files` — i.e. it was already redeployed at some commit between
+  `a8e7e05` and this task's), the case actually verified above applies
+  directly: run the new `scripts/seed-problem.ts` against it *before*
+  running `migrate`, so it repoints `phase1-aplusb` first; only then does
+  `0004` find a database it can apply to.
+- **If the volume genuinely predates `0003`** (a true original Phase 1
+  skeleton, never redeployed since), the seed cannot run first — it needs
+  `packages`/`package_files` to exist, and a plain `migrate` on this commit
+  would try to apply `0003` and `0004` in the same transaction, rolling both
+  back when `0004` hits the pre-existing row. Reaching the "already at 0003"
+  case from here means landing `0003` without `0004` in the same pass —
+  e.g. temporarily moving `0004_tiny_professor_monster.sql` and its
+  `meta/0004_snapshot.json` and journal entry out of `migrations/` for one
+  `migrate` run, then restoring them for a second `migrate` run after
+  seeding. **Not independently verified** — no volume in this state was
+  available to test the workaround against; flagging it rather than
+  asserting it works.
+
+Either way this is not automated (migrations are forward-only and
+generated, not hand-edited): it takes an operator doing the steps in this
+non-default order once, by hand, per pre-existing volume.
 
 ### Running the script
 

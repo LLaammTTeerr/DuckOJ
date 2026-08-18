@@ -29,8 +29,32 @@ const JUDGE_TOKEN = 'test-judge-token';
 
 let container: StartedPostgreSqlContainer | undefined;
 
+// Same retry as harness.ts's `stopWithRetry` (see its comment): rootless
+// Podman occasionally fails to remove a container's network namespace when
+// several are torn down within the same second, which this file — a fifth
+// container alongside harness.ts's shared one — makes more likely, not
+// less. A throwing `afterAll` would red this whole spec file over a stopped
+// container the next sweep can still reap; retry, then warn and move on.
+const STOP_RETRY_DELAYS_MS = [500, 1000, 2000];
+
+async function stopWithRetry(target: { stop(): Promise<unknown> }): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await target.stop();
+      return;
+    } catch (error) {
+      if (attempt >= STOP_RETRY_DELAYS_MS.length) {
+        console.warn('[packages/db seed-script.spec] failed to stop Testcontainers container after retries:', error);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, STOP_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
 afterAll(async () => {
-  await container?.stop();
+  if (!container) return;
+  await stopWithRetry(container);
 }, 30_000);
 
 async function runSeed(url: string): Promise<void> {
