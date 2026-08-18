@@ -739,7 +739,7 @@ git commit -m "feat(package-format): DMOJ init.yml renderer"
 - Consumes: `parseManifest`, `packDirectory`, `packageHash` from Tasks 1–3.
 - Produces: a CLI printing `{ hash, files, bytes }` as JSON and writing the archive.
 
-**Do not delete `problems/aplusb/init.yml` in this task.** The running stack still mounts that directory and judge-server still reads it; `init.yml` becomes a generated artifact only when Task 13 switches dispatch over. Removing it here breaks the stack for eight tasks with no benefit.
+**Do not delete `problems/aplusb/init.yml` in this task.** The running stack still mounts that directory and judge-server still reads it; `init.yml` becomes a generated artifact only once Task 11 switches dispatch to the package hash and Task 13 deletes the checked-in copy. Removing it here breaks the stack for eight tasks with no benefit.
 
 - [ ] **Step 1: Write the manifest for the existing fixture**
 
@@ -842,7 +842,7 @@ git commit -m "feat(scripts): build a content-addressed package from a directory
 - Consumes: nothing.
 - Produces: `packages`, `packageFiles` Drizzle tables, exported from `@qhhoj/db`'s schema barrel.
 
-**Do not add the foreign key from `problem_revisions.package_hash` in this task.** That row currently holds the literal string `phase1-aplusb`, which satisfies no key, and the migration would fail to apply. Task 13 does the repoint and the constraint together, in that order.
+**Do not add the foreign key from `problem_revisions.package_hash` in this task.** That row currently holds the literal string `phase1-aplusb`, which satisfies no key, and the migration would fail to apply. Task 12 does the repoint and the constraint together, in that order.
 
 - [ ] **Step 1: Write the failing test**
 
