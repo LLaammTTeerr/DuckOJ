@@ -16,6 +16,19 @@ import type { PackageManifestDto } from './manifest.js';
  * `memory_limit` as arguments from the submission packet, so anything written
  * here would be ignored and would drift.
  */
+type StandardTestCase = { in: string; out: string; points: number };
+type BatchedTestCase = {
+  points: number;
+  batched: Array<{ in: string; out: string }>;
+};
+type TestCase = StandardTestCase | BatchedTestCase;
+
+type InitYmlDoc = {
+  archive: null;
+  checker: string;
+  test_cases: TestCase[];
+};
+
 export function renderInitYml(manifest: PackageManifestDto): string {
   const groups = new Map<number, PackageManifestDto['tests']>();
   for (const test of manifest.tests) {
@@ -24,25 +37,25 @@ export function renderInitYml(manifest: PackageManifestDto): string {
     groups.set(test.group, bucket);
   }
 
-  // Build test cases with type assertion to work around strict type checking
+  // Build test cases by grouping and transforming
   const entries = [...groups.entries()].sort(([a], [b]) => a - b);
-  const testCasesArr: Array<Record<string, any>> = [];
+  const testCases: TestCase[] = [];
 
   for (const [group, tests] of entries) {
     if (group === 0) {
-      testCasesArr.push(...tests.map((t) => ({ in: t.input, out: t.answer, points: t.points })));
+      testCases.push(...tests.map((t) => ({ in: t.input, out: t.answer, points: t.points })));
     } else {
-      testCasesArr.push({
+      testCases.push({
         points: tests.reduce((sum, t) => sum + t.points, 0),
         batched: tests.map((t) => ({ in: t.input, out: t.answer })),
       });
     }
   }
 
-  const doc: any = {
+  const doc: InitYmlDoc = {
     archive: null,
     checker: manifest.checker.kind === 'standard' ? 'standard' : manifest.checker.path,
-    test_cases: testCasesArr,
+    test_cases: testCases,
   };
 
   return stringify(doc);
