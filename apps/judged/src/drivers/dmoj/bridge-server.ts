@@ -1,4 +1,5 @@
 import { createServer, type Server, type Socket } from 'node:net';
+import { describeError } from '@qhhoj/observability';
 import { createPacketDecoder, encodePacket } from '@qhhoj/judge-protocol';
 import type { BridgeToJudgePacket, JudgeToBridgePacket } from '@qhhoj/judge-protocol';
 
@@ -129,13 +130,15 @@ export class BridgeServer {
           // an IIFE rather than blocking decode of whatever follows it.
           void (async () => {
             let verified: boolean;
+            let verificationError: unknown;
             try {
               verified = await this.options.verifyJudge(handshake.id, handshake.key);
-            } catch {
+            } catch (error) {
               // A verification failure (e.g. a database blip) must fail
               // closed: an unverifiable judge is an unauthenticated judge,
               // never an admitted one.
               verified = false;
+              verificationError = error;
             }
             // The socket may have been destroyed (by teardown, or the
             // remote end dropping) while verification was in flight;
@@ -143,9 +146,36 @@ export class BridgeServer {
             // a connection `broadcast()` can never actually reach.
             if (socket.destroyed) return;
             if (!verified) {
-              // Send nothing — no `handshake-success`, no error packet —
-              // just a closed connection, and `this.connections` is never
-              // touched.
+              // Send nothing on the wire — no `handshake-success`, no error
+              // packet — just a closed connection, and `this.connections`
+              // is never touched. But say *something* on the operator side:
+              // without this, a `judge_nodes` seeding gap or a mistyped key
+              // produces a connect/reject/retry loop with no line anywhere
+              // explaining why, and "the judge never connects" is not
+              // greppable.
+              //
+              // One line, not two, and it never distinguishes "unknown
+              // judge" from "wrong key" — that distinction is exactly what
+              // would let someone probing judge names learn which ones are
+              // registered. `id` is safe to log: it is already the value
+              // the caller sent in cleartext, so echoing it back tells an
+              // operator (or an attacker) nothing new. The key never
+              // appears here. A thrown verifier, though, *is* worth telling
+              // apart from a plain rejection — it is an outage, not a bad
+              // credential — so `reason` and a redacted `describeError`
+              // (constructor name, driver code, stack frames only — no
+              // query text, no bind parameters) cover that case without
+              // ever touching the raw error message, which could echo the
+              // key back if a verifier's own error text embedded it.
+              console.error(
+                JSON.stringify({
+                  msg: 'judge handshake rejected',
+                  id: handshake.id,
+                  ...(verificationError
+                    ? { reason: 'verification error', error: describeError(verificationError) }
+                    : { reason: 'credential rejected' }),
+                }),
+              );
               socket.destroy();
               return;
             }

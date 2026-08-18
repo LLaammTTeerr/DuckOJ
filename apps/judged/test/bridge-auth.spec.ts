@@ -125,4 +125,38 @@ describe('BridgeServer authentication', () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(judge.received.length).toBe(receivedBeforeBroadcast);
   }, 30_000);
+
+  it('logs the rejection with the judge id, and never the key', async () => {
+    // Distinctive enough that an accidental substring match (e.g. inside a
+    // stack frame path) would be implausible.
+    const secretKey = 'super-secret-do-not-log-me';
+    const verifyJudge = vi.fn(async () => false);
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge,
+    });
+    const port = await server.listen(0);
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      judge = fakeJudge(port, 'judge-1', secretKey);
+      await judge.ready;
+      await vi.waitFor(() => expect(judge!.isClosed()).toBe(true), 10_000);
+
+      const lines = errorSpy.mock.calls.map((call) => String(call[0]));
+      const rejectionLine = lines.find((line) => line.includes('judge handshake rejected'));
+
+      // Presence: an operator staring at a silent connect/reject loop has
+      // something to grep for, naming which judge was rejected.
+      expect(rejectionLine).toBeDefined();
+      expect(rejectionLine).toContain('judge-1');
+
+      // Absence: across every line this test produced, not just the
+      // rejection one — the key must never reach a log line at all.
+      expect(lines.join('\n')).not.toContain(secretKey);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  }, 30_000);
 });
