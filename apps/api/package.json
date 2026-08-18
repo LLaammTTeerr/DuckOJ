@@ -6,7 +6,7 @@
   "scripts": {
     "typecheck": "tsc -b",
     "lint": "eslint src test",
-    "test": "vitest run",
+    "test": "tsc -b && vitest run",
     "build": "tsc -b",
     "dev": "tsx watch src/main.ts"
   },
