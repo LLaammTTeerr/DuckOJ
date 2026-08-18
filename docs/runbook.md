@@ -84,6 +84,126 @@ returned `{"status":"ok"}`.
 All three must be green before anything ships. `pnpm -r test` needs the container
 runtime above.
 
+## Phase 1: how the judging pipeline fits together
+
+A submission's journey, `POST /submissions` to a verdict in the browser:
+
+1. **`apps/api`** validates the submission and, in the same request, writes a
+   `submissions` row and a `grading_jobs` row (state `queued`, `lease_until`
+   null, `attempt` 0), then returns.
+2. **`apps/judged`**'s `Worker` (`apps/judged/src/worker.ts`) polls
+   `JobStore.claim`, which atomically claims one queued-or-lease-expired job
+   and stamps a `lease_until` ~60s out. It renews (`heartbeat`s) that lease
+   every 20s (`HEARTBEAT_MS`) while the job is in flight, and bounds its own
+   dispatch with a 300s ceiling (`MAX_GRADING_MS`) so a hung collaborator
+   can't wedge the whole worker loop silently.
+3. The claimed job is handed to `DmojDriver.dispatch`, which talks to the
+   real DMOJ `judge` container over `BridgeServer`
+   (`apps/judged/src/drivers/dmoj/bridge-server.ts`) — a raw TCP server
+   speaking DMOJ's length-prefixed, zlib-compressed packet protocol
+   (`packages/judge-protocol`).
+4. As the judge reports compile/case/finish events, `EventWriter.apply`
+   (`apps/judged/src/event-writer.ts`) writes each one to `submissions` /
+   `submission_cases` and publishes a wake-up signal over Redis
+   (`apps/judged/src/submission-events.ts`).
+5. **`apps/api`**'s `SubmissionsGateway`
+   (`apps/api/src/realtime/submissions.gateway.ts`) subscribes to that Redis
+   channel and pushes the signal to every browser WebSocket subscribed to
+   that submission id; the browser re-fetches the submission over the normal
+   REST endpoint and updates the UI. No polling anywhere in this path.
+
+### `judged` importing guarded tables directly is legitimate, not a lapse
+
+`apps/api/src/**` may not import `@qhhoj/db/guarded` outside `authz/**`
+(ESLint's `no-restricted-imports`, scoped to `files: ['apps/api/src/**/*.ts']`
+in `eslint.config.js`), because guarded tables are visibility-filtered and
+only `authz/**` is allowed to decide who sees what. `apps/judged/src/event-writer.ts`
+imports `@qhhoj/db/guarded` directly (`submissions`, `submissionCases`) and
+sits entirely outside that rule's file scope. This is correct, not a hole:
+`judged` serves no user request and makes no visibility decision — it writes
+grading results as the system, not on behalf of any particular actor. The
+rule exists to stop a *handler* from filtering visibility by hand instead of
+going through `authz/**`; `judged` never has a caller to filter for in the
+first place.
+
+### The realtime WebSocket: auth on upgrade, authorization per subscription
+
+`SubmissionsGateway` sits outside the API's global `AuthGuard` — a WebSocket
+upgrade never passes through NestJS's HTTP pipeline (`APP_GUARD` guards
+routes, not raw `'upgrade'` events on the HTTP server) — so this class's own
+checks are the *only* security here, not defense in depth on top of something
+else:
+
+- **Authenticates on the upgrade, before the socket opens.** `onUpgrade`
+  calls `authenticate()` and only calls `wss.handleUpgrade` if it resolves an
+  actor; an unauthenticated request gets a `401` status line and the raw
+  socket is closed — an unauthenticated caller never holds an open
+  WebSocket at all.
+- **Never reads credentials from the query string.** `authenticate()` reads a
+  bearer token from the `Authorization` header, or a session cookie —
+  deliberately never `?token=`, because a query-string credential ends up in
+  access logs, proxy logs and browser history, the exact leak Phase 0 closed
+  for HTTP. Browsers can't set headers on a WebSocket handshake, so the
+  browser path is the cookie; programmatic clients (e.g.
+  `scripts/e2e-submit.ts`) use the header.
+- **Authorizes per subscription, not just per connection.** A `subscribe`
+  message calls `SubmissionAccessService.getVisible(actor, submissionId)`
+  before adding it to that client's subscription set — being authenticated
+  is not being authorized to watch any particular submission's grading.
+- **The topic carries a signal, never data.** `notify()` publishes only
+  `{ type: 'submission', id }` — never source, verdict, or anything else that
+  would need its own per-message authorization check. The client re-fetches
+  over the normal (authorized) REST endpoint to learn what actually changed.
+
+### `EventWriter.apply`'s publish is not transaction-safe — read this before wrapping it in one
+
+`apply()` calls `write()`, then — only once `write()` has resolved
+successfully — `publish()` (`apps/judged/src/event-writer.ts`). What that
+actually guarantees: **a write that fails publishes nothing** — a constraint
+violation inside `write()` throws before `publish()` is ever reached, and
+this is tested (`event-writer.spec.ts`, "does not publish when the write
+itself fails"). What it does **not** guarantee is the stronger property that
+a publish inside a *rolled-back transaction* gets undone. `apply` is always
+called today with a non-transactional `Db`, so each `write()` is a single
+auto-committed statement, and "after write resolves" already means "after
+commit" — but that equivalence is a property of how `apply` happens to be
+called, not something the code enforces. **Never call `apply` from inside a
+caller-managed transaction**: a later rollback would undo the write after the
+publish has already fired, and nothing here would know to take it back. A
+transactional outbox is the real fix and is deferred to Phase 2. If you find
+yourself wrapping a transaction around code that calls `apply`, stop and
+re-read this first.
+
+### Three known, deliberate warts
+
+All three are deferred on purpose, not overlooked. Each is the kind of thing
+that costs someone an afternoon if it isn't written down.
+
+1. **A compile error is reported as verdict `IE`, not `CE`.** `case_verdict`
+   has no `CE` member, so a compile failure writes `IE`. Details, and how the
+   submit page and `scripts/e2e-submit.ts` actually distinguish it (by
+   `compileOutput` being non-empty, not by verdict), are in "The `IE`-for-
+   compile-error wart" section below.
+2. **The bridge does not verify the judge key.** `BridgeServer.accept`
+   (`apps/judged/src/drivers/dmoj/bridge-server.ts`) replies
+   `handshake-success` unconditionally on any `handshake` packet — the `key`
+   configured in `judge/judge.yml` is decorative, nothing on the bridge side
+   ever checks it. Anything that can open a TCP connection to `judged`'s
+   bridge port (9999) can register as a judge and be handed submissions,
+   including their source. **Network isolation is the only control**:
+   `docker-compose.yml`'s `judged` service deliberately publishes no ports to
+   the host, and that must stay true — don't "fix" a need to reach 9999 by
+   publishing it. Authenticating the handshake belongs with Phase 2's
+   multi-judge work.
+3. **There is no scheduling policy and no attempt cap.** `Worker` takes jobs
+   in creation order, one judge, first-come-first-served (see the comment
+   above the `Worker` class in `apps/judged/src/worker.ts`). A job that fails
+   to dispatch is logged and the loop moves on to the next job, but the
+   failed job simply re-leases once its 60s lease lapses and may fail again
+   — indefinitely. A poison-pill submission degrades itself forever rather
+   than being parked or capped. Priority, fairness and bounded retries all
+   arrive with Phase 4's scheduling work.
+
 ## The `@Inject` convention — read this before writing a NestJS constructor
 
 Every constructor parameter in `apps/api` carries an explicit `@Inject(...)`
@@ -447,7 +567,7 @@ reclaim. Check, in order:
    either, means the `submission-request` packet never reached the judge's
    read loop at all, which is the two-attempt incident described below.
 
-### A real incident hit while writing this: a submission-request silently lost, twice
+### A real incident hit while writing this: a submission-request silently lost, twice — fixed
 
 The first `scripts/e2e-submit.ts` run against this stack's original `judged`
 process (the one Task 14 left running) hung: `correct` never left `queued`.
@@ -482,15 +602,33 @@ data received — confirmed by `judge`'s logs showing `Attempting
 reconnection` at almost exactly 300s intervals while idle. Real DMOJ's
 protocol has a `ping`/`ping-response` packet pair for exactly this (both
 directions are defined in `packages/judge-protocol/src/dmoj-packets.ts`),
-but nothing in `BridgeServer` or `DmojDriver` ever sends a `ping` — the
-bridge never proactively keeps the connection warm. That reconnect cycle is
-real and reproducible; whether it, or something else, caused the two lost
-dispatches is not proven. **Not fixed here** — deliberately, since it wasn't
-pinned down and Task 15's job is to prove the path works and report defects
-honestly, not to patch an unconfirmed one. The self-healing path (watchdog →
-re-lease → next attempt succeeds) worked exactly as designed and is what
-actually recovered the stuck submission; if this recurs, that same recovery
-should be expected to work again, just costing up to `MAX_GRADING_MS`.
+but at the time nothing in `BridgeServer` or `DmojDriver` ever sent a
+`ping` — the bridge never proactively kept the connection warm. That
+reconnect cycle was real and reproducible; whether it, or something else,
+caused the original two lost dispatches was never proven at the time (Task
+15 deliberately reported it without patching an unconfirmed cause). The
+self-healing path (watchdog → re-lease → next attempt succeeds) worked
+exactly as designed in the meantime and is what actually recovered the
+stuck submission on that run.
+
+**Fixed since, whether or not it was the root cause of the original
+incident:** `BridgeServer` now pings every judge connection on an interval
+(`PING_INTERVAL_MS`, 30s in production — well under the judge's 300s read
+timeout) and tracks the last time each connection produced *any* inbound
+packet. A connection silent for several missed intervals is presumed dead
+(the judge has already reconnected on a fresh socket) and is closed and
+dropped from `this.connections`, so `broadcast()` can no longer write
+dispatches into a socket nobody on the other end is reading. Covered by two
+tests in `apps/judged/test/dmoj-driver.spec.ts` (`sends periodic ping frames
+to a connected judge on the configured interval`, `drops a judge connection
+that stops answering, and no longer broadcasts to it`) using an injected
+short interval, and by two live end-to-end runs against the real containerized
+judge after the fix (both `AC 3/3`, `WA 1/3`, `IE` with real compiler output
+— no hangs). The real 300s-idle boundary against a live judge container was
+**not** separately re-exercised in this session — the injected-short-interval
+unit tests plus the live e2e passes were judged sufficient evidence; if a
+stuck-dispatch incident recurs, re-check this fix first before assuming a new
+cause.
 
 ### The live-update path (`/ws`) was broken through Caddy — fixed
 
