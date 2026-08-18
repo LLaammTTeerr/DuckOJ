@@ -196,4 +196,35 @@ describe('EventWriter', () => {
       expect(publish).not.toHaveBeenCalled();
     });
   }, 120_000);
+
+  it('writes a generic message for internalError, keeping the judge traceback only in the log', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const traceback =
+        'Traceback (most recent call last):\n  File "/judge/executors/CPP17.py", line 42, in grade\nRuntimeError: sandbox exec failed';
+
+      await writer.apply(job, { type: 'internalError', message: traceback });
+
+      const [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      expect(row?.state).toBe('errored');
+      expect(row?.verdict).toBe('IE');
+      // The client-facing field must never carry judge-internal detail.
+      expect(row?.compileOutput).not.toContain('Traceback');
+      expect(row?.compileOutput).not.toContain('CPP17.py');
+      expect(row?.compileOutput).toBe(
+        'Grading failed due to an internal judge error. This has been logged for investigation.',
+      );
+
+      // The raw detail must still reach an operator, just not the client.
+      const logged = errorSpy.mock.calls.map((c) => c[0]).find((line) => typeof line === 'string');
+      expect(logged).toBeDefined();
+      expect(logged as string).toContain('Traceback');
+
+      errorSpy.mockRestore();
+    });
+  }, 120_000);
 });

@@ -338,6 +338,60 @@ describe('DmojDriver', () => {
     await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'ping')).toBe(true), 10_000);
   }, 30_000);
 
+  it('closes the displaced connection and keeps exactly one live entry when a judge reconnects with the same id', async () => {
+    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    const port = await server.listen(0);
+
+    const first = connect(port, '127.0.0.1');
+    first.on('error', () => {});
+    // A socket with no 'data' listener stays paused: Node buffers the
+    // incoming `handshake-success` unread, and — empirically — 'close' then
+    // never fires even after the remote end destroys its side. Real judge
+    // connections always have traffic flowing (see `fakeJudge` above); drain
+    // this one the same way so the test observes what a real reconnect does.
+    first.resume();
+    await new Promise<void>((resolve) => first.once('connect', resolve));
+    first.write(encodePacket({ name: 'handshake', problems: [], executors: {}, id: 'dup', key: 'k' }));
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+
+    let firstClosed = false;
+    first.on('close', () => {
+      firstClosed = true;
+    });
+
+    // A second judge handshakes with the SAME id, as if the first socket
+    // dropped and the judge redialed before we noticed.
+    const second = connect(port, '127.0.0.1');
+    second.on('error', () => {});
+    await new Promise<void>((resolve) => second.once('connect', resolve));
+    second.write(encodePacket({ name: 'handshake', problems: [], executors: {}, id: 'dup', key: 'k' }));
+
+    const secondReceived: Record<string, unknown>[] = [];
+    const decoder = createPacketDecoder({
+      onPacket: (p) => secondReceived.push(p as Record<string, unknown>),
+      onError: () => {},
+    });
+    second.on('data', (c) => decoder.push(c));
+
+    // The bridge must proactively close the displaced socket, not merely
+    // overwrite the map entry and leave it to time out on its own.
+    await vi.waitFor(() => expect(firstClosed).toBe(true), 10_000);
+
+    // Once the old socket's `close` handler has run, exactly one connection
+    // must remain — the new one. The bug this guards against is the close
+    // handler deleting by the shared id and evicting the *new* connection,
+    // leaving `broadcast()` iterating an empty map.
+    expect(server!.judgeCount()).toBe(1);
+
+    server!.broadcast({ name: 'terminate-submission' });
+    await vi.waitFor(
+      () => expect(secondReceived.some((p) => p.name === 'terminate-submission')).toBe(true),
+      10_000,
+    );
+
+    second.destroy();
+  }, 30_000);
+
   it('drops a judge connection that stops answering, and no longer broadcasts to it', async () => {
     server = new BridgeServer({
       hashToProblemCode: () => 'aplusb',

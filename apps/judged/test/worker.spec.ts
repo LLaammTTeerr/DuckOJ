@@ -210,6 +210,7 @@ describe('Worker', () => {
 
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const claimSpy = vi.spyOn(store, 'claim');
+      const cancelSpy = vi.spyOn(driver, 'cancel');
       const worker = new Worker(store, writer, driver, 'worker-a', 50);
       const run = worker.start();
 
@@ -225,6 +226,12 @@ describe('Worker', () => {
       const logged = JSON.parse(failLine) as { jobId: number; error: string };
       expect(logged.jobId).toBe(jobId);
       expect(logged.error).toContain('50ms');
+
+      // The watchdog abandoning a job must cancel the driver's in-flight
+      // attempt — otherwise the judge keeps grading it while a retry
+      // re-dispatches, and DMOJ's reused submission-id lets the abandoned
+      // attempt's late packets be mistaken for the retry's own.
+      expect(cancelSpy).toHaveBeenCalledWith(String(jobId), 1);
 
       // The loop must have gone around to try another claim, not wedged
       // forever on the failed job's promise.
@@ -291,6 +298,88 @@ describe('Worker', () => {
 
       worker.stop();
       errorSpy.mockRestore();
+      await Promise.race([run, new Promise((r) => setTimeout(r, 1000))]);
+    });
+  }, 120_000);
+
+  it('survives a transient jobs.claim() rejection and goes on to claim the next job', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const driver = new FakeDriver();
+      const { jobId } = await seed(db, store, 'int main(){}');
+      driver.script(String(jobId), [
+        { type: 'finished', verdict: 'AC', points: 1, maxPoints: 1, timeMs: 1, memoryKb: 1 },
+      ]);
+
+      // The exact path never exercised before: `claim()` itself rejects
+      // (a dropped connection, Postgres restarting mid-poll) — not the
+      // driver, not the watchdog, both of which land inside the try that
+      // begins after the claim. Pre-fix, `claim()` sat outside that try, so
+      // this rejection propagated out of `start()` and killed the whole
+      // worker; every submission from then on would sit at `queued` forever.
+      const realClaim = store.claim.bind(store);
+      let claimCalls = 0;
+      const claimSpy = vi.spyOn(store, 'claim').mockImplementation(async (workerId: string) => {
+        claimCalls += 1;
+        if (claimCalls === 1) throw new Error('connection terminated unexpectedly');
+        return realClaim(workerId);
+      });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const worker = new Worker(store, writer, driver, 'worker-a');
+      const run = worker.start();
+      // If `start()` rejects (the pre-fix behaviour), this attaches a
+      // handler immediately so the failure surfaces as a normal assertion
+      // below instead of an unhandled-rejection crash mid-wait.
+      let runError: unknown;
+      run.catch((error: unknown) => {
+        runError = error;
+      });
+
+      await vi.waitFor(async () => {
+        const [job] = await db.select().from(schema.gradingJobs).where(eq(schema.gradingJobs.id, jobId));
+        expect(job?.state).toBe('done');
+      }, 10_000);
+
+      expect(runError).toBeUndefined();
+      expect(claimCalls).toBeGreaterThan(1);
+      const failLine = errorSpy.mock.calls
+        .map((c) => c[0])
+        .find((line) => typeof line === 'string' && line.includes('claim failed'));
+      expect(failLine).toBeDefined();
+
+      worker.stop();
+      claimSpy.mockRestore();
+      errorSpy.mockRestore();
+      await Promise.race([run, new Promise((r) => setTimeout(r, 1000))]);
+    });
+  }, 120_000);
+
+  it('a terminated event leaves the submission and the grading job in mutually consistent states', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const driver = new FakeDriver();
+      const { jobId, submissionId } = await seed(db, store, 'int main(){}');
+      driver.script(String(jobId), [{ type: 'terminated' }]);
+
+      const worker = new Worker(store, writer, driver, 'worker-a');
+      const run = worker.start();
+
+      await vi.waitFor(async () => {
+        const [job] = await db.select().from(schema.gradingJobs).where(eq(schema.gradingJobs.id, jobId));
+        expect(job?.state).toBe('done');
+      }, 10_000);
+
+      // The job is done — so the submission must not be left at `queued`,
+      // which nothing would ever claim again. It must land on a terminal
+      // state a user can understand.
+      const [submission] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      expect(submission?.state).not.toBe('queued');
+      expect(submission?.state).toBe('errored');
+
+      worker.stop();
       await Promise.race([run, new Promise((r) => setTimeout(r, 1000))]);
     });
   }, 120_000);

@@ -115,6 +115,17 @@ export class BridgeServer {
         const packet = value as JudgeToBridgePacket;
         if (packet.name === 'handshake') {
           id = packet.id;
+          // A judge reconnecting with an id already in the map (e.g. it
+          // dropped the old socket and redialed before we noticed) must not
+          // silently evict the live connection: `set()` alone leaves the old
+          // socket open and out of `connections`, so `sweep()` never pings or
+          // reaps it, and its eventual FIN — landing on a `close` handler
+          // captured with this same `id` — would delete whatever now sits at
+          // `id`, which by then is the new, live connection. Closing the old
+          // socket here retires it immediately and deterministically, rather
+          // than leaving that eviction to race an unrelated close event.
+          const displaced = this.connections.get(id);
+          if (displaced && displaced !== connection) displaced.close();
           this.connections.set(id, connection);
           connection.send({ name: 'handshake-success' });
         }
@@ -132,7 +143,13 @@ export class BridgeServer {
 
     socket.on('data', (chunk) => decoder.push(chunk));
     socket.on('close', () => {
-      if (id) {
+      // Identity check, not just presence: this handler is captured per
+      // connection, so a socket that was displaced by a same-id reconnect
+      // (see the handshake handler above) must only remove itself from the
+      // map — never the connection that replaced it, which is what an
+      // unguarded `delete(id)` would do if this stale socket's FIN arrives
+      // after the new one has already taken `id`'s slot.
+      if (id && this.connections.get(id) === connection) {
         this.connections.delete(id);
         this.lastSeenAt.delete(id);
       }

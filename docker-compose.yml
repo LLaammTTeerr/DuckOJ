@@ -6,6 +6,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: qhhoj
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
@@ -20,6 +21,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
@@ -44,6 +46,7 @@ services:
 
   api:
     build: { context: ., dockerfile: apps/api/Dockerfile }
+    restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: '3000'
@@ -77,6 +80,7 @@ services:
 
   judged:
     build: { context: ., dockerfile: apps/judged/Dockerfile }
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgres://qhhoj:${POSTGRES_PASSWORD}@postgres:5432/qhhoj
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
@@ -99,6 +103,7 @@ services:
 
   judge:
     build: { context: ., dockerfile: judge/Dockerfile }
+    restart: unless-stopped
     # The judge dials out to judged; judged never dials in. judge-server
     # tolerates judged being briefly unreachable at boot (exponential
     # backoff: 4s, then 6s, then retry) so no service_healthy dependency is
@@ -127,6 +132,7 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    restart: unless-stopped
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
     # Rootless Podman cannot bind privileged host ports (<1024) without extra

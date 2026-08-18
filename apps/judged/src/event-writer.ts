@@ -6,6 +6,16 @@ import type { ClaimedJob } from './job-store.js';
 import type { JobStore } from './job-store.js';
 import type { SubmissionEvents } from './submission-events.js';
 
+/**
+ * Written to `compileOutput` for `internalError` instead of the judge's own
+ * message. judge-server populates that field with its own Python traceback —
+ * file paths, module names, internal state — none of which is fit to hand to
+ * the submitting user. The raw message is still logged (see `write` below)
+ * where an operator can reach it; only the client-facing payload is generic.
+ */
+const GENERIC_INTERNAL_ERROR_MESSAGE =
+  'Grading failed due to an internal judge error. This has been logged for investigation.';
+
 export class EventWriter {
   constructor(
     private readonly db: Db,
@@ -93,12 +103,34 @@ export class EventWriter {
           })
           .where(eq(submissions.id, submissionId)));
       case 'internalError':
+        // The raw message (judge-internal traceback) is operator-only: log
+        // it here, and never let it reach `compileOutput`, which `submission
+        // .access.ts` returns verbatim to whoever owns the submission.
+        console.error(
+          JSON.stringify({ msg: 'judge internal error', submissionId, attempt, error: event.message }),
+        );
         return void (await this.db
           .update(submissions)
-          .set({ state: 'errored', verdict: 'IE', compileOutput: event.message, judgedAt: new Date() })
+          .set({
+            state: 'errored',
+            verdict: 'IE',
+            compileOutput: GENERIC_INTERNAL_ERROR_MESSAGE,
+            judgedAt: new Date(),
+          })
           .where(eq(submissions.id, submissionId)));
       case 'terminated':
-        return void (await this.setState(submissionId, 'queued'));
+        // Not a requeue: `worker.ts` already treats `terminated` as terminal
+        // — it resolves the dispatch promise and calls `jobs.complete`, so
+        // the grading job ends up `done` regardless of what this writes. If
+        // this set the submission back to `queued`, nothing would ever claim
+        // it again (the job is already done) and the UI would show "Queued"
+        // forever. `errored`/`IE` mirrors `internalError`'s precedent: an
+        // abnormal halt is not a real graded outcome, but it must still land
+        // on a state a user can understand.
+        return void (await this.db
+          .update(submissions)
+          .set({ state: 'errored', verdict: 'IE', judgedAt: new Date() })
+          .where(eq(submissions.id, submissionId)));
       default: {
         // Exhaustiveness guard: `noImplicitReturns` is not part of the
         // `strict` family, so without this, a new `GradingEvent` variant

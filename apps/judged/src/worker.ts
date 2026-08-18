@@ -39,7 +39,26 @@ export class Worker {
   async start(): Promise<void> {
     this.running = true;
     while (this.running) {
-      const claimed = await this.jobs.claim(this.workerId);
+      let claimed: ClaimedJob | null;
+      try {
+        claimed = await this.jobs.claim(this.workerId);
+      } catch (error: unknown) {
+        // A transient database error here (a dropped connection, Postgres
+        // restarting) must not end the loop: `claim()` used to sit outside
+        // any try, so a rejection propagated out of `start()` and killed the
+        // whole worker — every submission from then on sits at `queued`
+        // forever with nothing to claim it, and no alarm anywhere. Logging
+        // and retrying after the same poll delay used for "no job available"
+        // makes this self-healing instead.
+        console.error(
+          JSON.stringify({
+            msg: 'claim failed',
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        await new Promise((r) => setTimeout(r, POLL_MS));
+        continue;
+      }
       if (!claimed) {
         await new Promise((r) => setTimeout(r, POLL_MS));
         continue;
@@ -47,7 +66,19 @@ export class Worker {
 
       this.current = claimed;
       this.heartbeatTimer = setInterval(() => {
-        void this.heartbeatOnce();
+        // `heartbeatOnce` awaits a DB round-trip; an unguarded rejection here
+        // is an unhandled rejection that terminates the Node 22 process, same
+        // failure mode as the unguarded `claim()` above.
+        void this.heartbeatOnce().catch((error: unknown) => {
+          console.error(
+            JSON.stringify({
+              msg: 'heartbeat failed',
+              jobId: claimed.id,
+              attempt: claimed.attempt,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        });
       }, HEARTBEAT_MS);
       let watchdog: NodeJS.Timeout | null = null;
 
@@ -103,6 +134,28 @@ export class Worker {
             error: error instanceof Error ? error.message : String(error),
           }),
         );
+        // Whatever ended the try block without the dispatch promise
+        // resolving — the watchdog firing chief among them — must not leave
+        // the driver still grading this attempt: DmojDriver reuses DMOJ's
+        // submission-id across retries on the precondition that the previous
+        // attempt was sent `terminate-submission` first (dmoj-driver.ts:49-58).
+        // Cancelling here is what makes that precondition hold on this path
+        // too, not only the lease-lapsed one in `heartbeatOnce`. `cancel`
+        // itself is fenced by (job id, attempt) in every driver, so calling
+        // it here is a safe no-op when there is nothing live to cancel (e.g.
+        // `dispatch` rejected before ever registering a live entry).
+        try {
+          await this.driver.cancel(String(claimed.id), claimed.attempt);
+        } catch (cancelError: unknown) {
+          console.error(
+            JSON.stringify({
+              msg: 'cancel after job failure also failed',
+              jobId: claimed.id,
+              attempt: claimed.attempt,
+              error: cancelError instanceof Error ? cancelError.message : String(cancelError),
+            }),
+          );
+        }
       } finally {
         if (watchdog) clearTimeout(watchdog);
         if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
