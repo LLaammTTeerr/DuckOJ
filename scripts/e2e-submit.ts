@@ -33,9 +33,9 @@ const UNCOMPILABLE = `int main(){ this is not c++ }`;
 // `aplusb` — string I/O instead of arithmetic — seeded separately by
 // `scripts/seed-problem.ts hello`. Submitting against it exercises a
 // package the judge has never seen materialise before this run: see
-// docs/runbook.md's "A second problem: hello" for the before/after
-// `/problems/<hash>/` check that proves the fetch actually happened, not
-// just that the grading path works.
+// docs/runbook.md's "A second problem: building, uploading, and diagnosing
+// a package" for the before/after `/problems/<hash>/` check that proves
+// the fetch actually happened, not just that the grading path works.
 const HELLO_CORRECT = `#include <iostream>
 #include <string>
 int main(){std::string name;std::cin>>name;std::cout<<"Hello, "<<name<<"!\\n";}`;

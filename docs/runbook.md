@@ -866,3 +866,94 @@ running services — it is safe mid-session and does not require tearing down
 the stack or going through `scripts/compose-up.sh` again (that script's
 migration-ordering guarantee is irrelevant to recreating a single already-
 migrated-against service).
+
+## Known issues carried into Phase 2b
+
+Three things found while building the package pipeline, judged out of scope
+for Phase 2a, and recorded here so they are not lost.
+
+### The Dockerfile COPY manifest is a recurring trap
+
+**Symptom:** a real `podman-compose build` fails typecheck (or, worse,
+succeeds against a stale set of packages) after a new workspace package is
+added under `packages/*` or `apps/*`, even though `pnpm -r typecheck` is
+green. Nothing in the test suite can see this — it is purely a property of
+`apps/api/Dockerfile` and `judge/Dockerfile`'s deps stages, each of which
+copies workspace `package.json` files by an **explicit, hand-maintained
+list**. A package left off the list breaks the build the moment anything
+imports it.
+
+This has now happened **twice**: once in Phase 1 (fixed in that phase's
+final cleanup, commit `0d5e326`), and again in Phase 2a's Task 13 (latent
+since Task 9, fixed in `df56c95`). Both times the fix was the same one-line
+patch to the same kind of list. That repetition is the signal: this needs a
+structural fix, not a third patch next phase. Two candidates, either of
+which removes the failure mode rather than narrowing it: glob the `COPY`
+instead of listing packages by name, or add a build-time check that fails
+loudly when a workspace package is missing from the list. Left for whoever
+picks up Phase 2b's Docker work.
+
+### A stale image silently seeds the wrong thing
+
+**Symptom:** you edit `scripts/seed-problem.ts` (or any script the seed
+step runs), re-run the seed against the running stack, and it silently
+re-runs the **previous** version of the script — no error, no warning, just
+the old behaviour. This happened in Task 14: editing the seed script to
+seed `hello` and re-running it re-seeded `aplusb` instead, with nothing on
+screen to say so.
+
+**Cause:** the `migrate`/`api` image is built as a `COPY . .` snapshot of
+the repo at build time. Editing a script on the host does not touch the
+running container's filesystem — it is still running whatever was baked in
+at the last `podman-compose build`.
+
+**Fix:** rebuild and force-recreate before re-running anything that depends
+on a script or source change reaching a container:
+
+    podman-compose build <service>
+    podman stop <project>_<service>_1
+    podman rm <project>_<service>_1
+    podman-compose up -d --no-deps <service>
+
+(the same sequence documented above for `judged`/`caddy`). If a seed or
+migration step ran and did something unexpected, check the image's build
+timestamp against your last edit before chasing the script's logic — the
+script may be correct and simply not the one that ran.
+
+### The OpenAPI `servers` URL is a fourth, unenforced copy of the API prefix
+
+`packages/contracts/src/registry.ts:9` hardcodes `servers: [{ url: '/api/v1' }]`
+rather than importing `API_PREFIX` from `@qhhoj/api-prefix` — the package
+that exists specifically so the real routing prefix has exactly one source
+(see that package's own doc comment for why it was created: a prefix once
+silently missing from `apps/judge-agent/src/materializer.ts` broke every
+real archive fetch behind a fully green test suite). This one is
+documentation metadata inside the generated `openapi.json`, not a routing
+path — nothing breaks at runtime if it drifts from the real prefix, which
+is why it was left alone rather than fixed under time pressure. But it
+means "the prefix is single-sourced" is not literally true of the codebase
+as a whole. A one-line import-and-substitute fix whenever someone is next
+in this file.
+
+### A recurring test flake in `apps/judged` — unreproduced and unexplained
+
+`apps/judged`'s suite has flaked three times across two phases, always
+under full-workspace `pnpm -r test` parallelism, always passing in
+isolation immediately after, and always on a diff touching nothing in
+`apps/judged`:
+
+1. Phase 1: `worker.spec.ts`.
+2. Phase 2a, Task 6: `job-store.spec.ts`.
+3. Phase 2a, Task 14: `dmoj-driver.spec.ts` (a `vi.waitFor` timing
+   assertion, under heavy concurrent load).
+
+Testcontainer/Podman contention under full-workspace parallelism is the
+leading **hypothesis** for the pattern — not a diagnosis. It has not been
+reproduced deliberately, root-caused, or fixed, and no attempt was made to
+fix it as part of Phase 2a's acceptance: an unreproduced flake "fixed" by
+guessing would be worse than leaving it documented. If it recurs, the
+useful first move is confirming it is this same pattern (full-workspace
+run, fails once, green in isolation, unrelated diff) rather than a real
+regression, and — if it needs a real fix eventually — explicit per-test
+timeouts rather than inherited defaults is the direction Phase 1's notes
+already point at, though that has not been tried.
