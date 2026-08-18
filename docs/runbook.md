@@ -500,19 +500,40 @@ reasoning alone; it has to actually run.
 `scripts/compose-up.sh` brings the stack up but does **not** seed the
 `aplusb` problem — the first end-to-end run against a freshly-brought-up
 stack fails with `404 problem_not_found`. `scripts/seed-problem.ts` needs
-`DATABASE_URL`, and `postgres` has no host port mapping (see "Local
-development" above), so run it as a one-off container on the Compose
-network, reusing the already-built `migrate` image rather than building a
-new one:
+`DATABASE_URL` and `JUDGE_TOKEN` (the latter must match `judge/judge.yml`'s
+`key` — `phase1-judge-key` by default, see `.env.example` — or the compose
+`judge` service authenticates nowhere and retries its handshake forever), and
+`postgres` has no host port mapping (see "Local development" above), so run
+it as a one-off container on the Compose network, reusing the already-built
+`migrate` image rather than building a new one:
 
     podman run --rm --network <project>_default --env-file .env \
       localhost/<project>_migrate:latest \
       sh -c 'DATABASE_URL="postgres://qhhoj:$POSTGRES_PASSWORD@postgres:5432/qhhoj" packages/db/node_modules/.bin/tsx scripts/seed-problem.ts'
 
-(`<project>` is the Compose project name, e.g. `phase-1-skeleton` — check
-`podman network ls` / `podman-compose ps` if unsure.) This only needs to run
-once per fresh `pgdata` volume; the script is idempotent (`onConflictDoNothing`
-throughout).
+`--env-file .env` is what carries `JUDGE_TOKEN` into the container — make
+sure it's set in `.env` (copied from `.env.example`), not just exported in
+your shell. (`<project>` is the Compose project name, e.g. `phase-1-skeleton`
+— check `podman network ls` / `podman-compose ps` if unsure.) This only needs
+to run once per fresh `pgdata` volume; the script is idempotent
+(`onConflictDoNothing` throughout, and the package/judge-node rows it
+registers are the same across runs).
+
+**Upgrading an existing Phase 1 `pgdata` volume:** that volume's
+`problem_revisions` row still holds the literal `package_hash =
+'phase1-aplusb'` Phase 1 shipped, which satisfies no row in `packages` —
+and, as of Task 12, `problem_revisions.package_hash` has a foreign key to
+`packages.hash` (migration `0004_tiny_professor_monster.sql`). `migrate`
+applies every pending migration in one pass, so on this volume it now fails
+on 0004 before `api` or anything else can come up: `compose-up.sh`'s normal
+migrate-then-seed order is backwards here. Run the new `scripts/seed-problem.ts`
+(the command above) against the volume's Postgres *before* running `migrate`
+against it — the seed only needs the pre-0004 schema, which is already
+present — so it can repoint the existing revision off `phase1-aplusb` first.
+Only then does `0004`'s constraint find a database it can apply to. This is
+not automated (migrations are forward-only and generated, not hand-edited),
+so it takes an operator doing the two steps in this non-default order once,
+by hand, per pre-existing volume.
 
 ### Running the script
 

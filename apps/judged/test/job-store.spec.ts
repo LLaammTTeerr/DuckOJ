@@ -20,6 +20,7 @@ async function seedJob(db: Db): Promise<JobStore> {
     .insert(problems)
     .values({ code: 'aplusb', name: 'A+B', statement: 's' })
     .returning();
+  await db.insert(schema.packages).values({ hash: 'h', sizeBytes: 1, fileCount: 1 });
   const [revision] = await db
     .insert(problemRevisions)
     .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })

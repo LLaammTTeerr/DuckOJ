@@ -26,6 +26,7 @@ export async function seedProblemAndLanguage(db: Db): Promise<void> {
     .insert(problems)
     .values({ code: 'aplusb', name: 'A+B', statement: 'Add two integers.' })
     .returning();
+  await db.insert(schema.packages).values({ hash: 'phase1-aplusb', sizeBytes: 1, fileCount: 1 });
   const [revision] = await db
     .insert(problemRevisions)
     .values({
@@ -87,6 +88,7 @@ export async function seedPrivateProblem(db: Db): Promise<void> {
     .insert(problems)
     .values({ code: 'hidden', name: 'Hidden Problem', statement: 's', visibility: 'private' })
     .returning();
+  await db.insert(schema.packages).values({ hash: 'phase1-hidden', sizeBytes: 1, fileCount: 1 });
   const [revision] = await db
     .insert(problemRevisions)
     .values({ problemId: problem!.id, version: 1, packageHash: 'phase1-hidden', state: 'published' })

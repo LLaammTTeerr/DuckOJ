@@ -19,6 +19,7 @@ describe('judging schema', () => {
         .insert(problems)
         .values({ code: 'aplusb', name: 'A+B', statement: 'Add two numbers.' })
         .returning();
+      await db.insert(schema.packages).values({ hash: 'deadbeef', sizeBytes: 1, fileCount: 1 });
       const [revision] = await db
         .insert(problemRevisions)
         .values({ problemId: problem!.id, version: 1, packageHash: 'deadbeef', state: 'published' })
@@ -73,6 +74,7 @@ describe('judging schema', () => {
         .insert(problems)
         .values({ code: 'p', name: 'P', statement: 's' })
         .returning();
+      await db.insert(schema.packages).values({ hash: 'h', sizeBytes: 1, fileCount: 1 });
       const [revision] = await db
         .insert(problemRevisions)
         .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })
@@ -123,6 +125,7 @@ describe('judging schema', () => {
         .insert(problems)
         .values({ code: 'q', name: 'Q', statement: 's' })
         .returning();
+      await db.insert(schema.packages).values({ hash: 'h2', sizeBytes: 1, fileCount: 1 });
       const [revision] = await db
         .insert(problemRevisions)
         .values({ problemId: problem!.id, version: 1, packageHash: 'h2', state: 'published' })
@@ -181,6 +184,26 @@ describe('judging schema', () => {
 
       expect(rows[0]?.driver).toBe('dmoj');
       expect(rows[0]?.executorKey).toBe('CPP17');
+    });
+  }, 120_000);
+
+  // Task 12: `problem_revisions.package_hash` gained a foreign key to
+  // `packages.hash` once `scripts/seed-problem.ts` proved it could repoint
+  // an existing revision off a hash satisfying no such row (see
+  // `packages/db/test/seed-script.spec.ts`). This is the other half — the
+  // constraint itself must actually reject what it claims to.
+  it('rejects a problem_revisions row whose package_hash matches no package', async () => {
+    await withTestDb(async (db) => {
+      const [problem] = await db
+        .insert(problems)
+        .values({ code: 'r', name: 'R', statement: 's' })
+        .returning();
+
+      await expect(
+        db
+          .insert(problemRevisions)
+          .values({ problemId: problem!.id, version: 1, packageHash: 'no-such-package', state: 'published' }),
+      ).rejects.toThrow();
     });
   }, 120_000);
 });

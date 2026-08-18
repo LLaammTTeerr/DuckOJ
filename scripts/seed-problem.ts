@@ -1,14 +1,31 @@
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { problems, problemRevisions } from '@qhhoj/db/guarded';
-import { createDb, schema } from '@qhhoj/db';
+import { createDb, hashJudgeToken, schema } from '@qhhoj/db';
+import { buildPackage } from './lib/build-package.js';
 
 /**
- * The problem's content hash. Phase 1 has no package system, so this is a
- * fixed label rather than a digest — but the GradingJob carries it, and the
- * DMOJ driver maps it to an on-disk code. That keeps the seam the spec
- * requires: nothing above the driver ever learns a problem directory name.
+ * Resolved relative to this file, not `process.cwd()` — the script is
+ * invoked from different working directories (a plain `tsx` run from the
+ * repo root, a one-off container built from `apps/api`'s image per
+ * `docs/runbook.md`) and only the former is guaranteed to have `problems/`
+ * directly under the cwd.
  */
-const PACKAGE_HASH = 'phase1-aplusb';
+const PROBLEM_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'problems', 'aplusb');
+
+/**
+ * The compose `judge` service's identity (`judge/judge.yml`'s `id: judge-1`).
+ * `judged`'s bridge handshake and the API's archive-fetch guard both verify
+ * `(name, token)` against this row — see `@qhhoj/db`'s `verifyJudgeCredential`
+ * — so without it a fresh database leaves the judge authenticating nowhere,
+ * retrying forever. No default: a hardcoded token here is a backdoor with a
+ * changelog entry, so the operator must supply the credential that matches
+ * whatever `judge/judge.yml`'s `key` actually is (`phase1-judge-key` by
+ * default — see `.env.example`).
+ */
+const JUDGE_NODE_NAME = 'judge-1';
+const JUDGE_DRIVER = 'dmoj';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -16,9 +33,17 @@ if (!url) {
   process.exit(1);
 }
 
+const judgeToken = process.env.JUDGE_TOKEN;
+if (!judgeToken) {
+  console.error('JUDGE_TOKEN is required');
+  process.exit(1);
+}
+
 const { db, close } = createDb(url);
 
 try {
+  const built = await buildPackage(PROBLEM_DIR);
+
   const insertedLanguage = await db
     .insert(schema.languages)
     .values({ key: 'cpp17', name: 'C++17', extension: 'cpp' })
@@ -49,20 +74,66 @@ try {
     await db.select().from(problems).where(sql`lower(${problems.code}) = 'aplusb'`).limit(1)
   )[0]!;
 
+  // Register the package before anything can reference its hash — the
+  // revision insert/update below is a foreign key against `packages.hash`
+  // once Task 12's migration lands.
+  const insertedPackage = await db
+    .insert(schema.packages)
+    .values({ hash: built.hash, sizeBytes: built.archive.length, fileCount: built.files.length })
+    .onConflictDoNothing()
+    .returning();
+
+  if (built.files.length > 0) {
+    await db
+      .insert(schema.packageFiles)
+      .values(
+        built.files.map((f) => ({
+          packageHash: built.hash,
+          path: f.path,
+          sizeBytes: f.size,
+          sha256: f.sha256,
+        })),
+      )
+      .onConflictDoNothing();
+  }
+
   const existingRevision = (
     await db.select().from(problemRevisions).where(eq(problemRevisions.problemId, problem.id)).limit(1)
   )[0];
 
-  const revision =
-    existingRevision ??
-    (
+  let revision;
+  let revisionRepointed = false;
+  if (!existingRevision) {
+    revision = (
       await db
         .insert(problemRevisions)
-        .values({ problemId: problem.id, version: 1, packageHash: PACKAGE_HASH, state: 'published' })
+        .values({ problemId: problem.id, version: 1, packageHash: built.hash, state: 'published' })
         .returning()
     )[0]!;
+  } else if (existingRevision.packageHash !== built.hash) {
+    // The upgrade path: an older run (or Phase 1's fixture) left this
+    // revision pointing at a label that satisfies no package row —
+    // `phase1-aplusb`, most plausibly. Repoint it at the real hash rather
+    // than inserting a second revision.
+    revision = (
+      await db
+        .update(problemRevisions)
+        .set({ packageHash: built.hash })
+        .where(eq(problemRevisions.id, existingRevision.id))
+        .returning()
+    )[0]!;
+    revisionRepointed = true;
+  } else {
+    revision = existingRevision;
+  }
 
   await db.update(problems).set({ currentRevisionId: revision.id }).where(eq(problems.id, problem.id));
+
+  const insertedJudgeNode = await db
+    .insert(schema.judgeNodes)
+    .values({ name: JUDGE_NODE_NAME, tokenHash: hashJudgeToken(judgeToken), driver: JUDGE_DRIVER })
+    .onConflictDoNothing()
+    .returning();
 
   // Report what each step actually did rather than a single derived flag —
   // a run can create the language/driver key while finding an existing
@@ -72,7 +143,10 @@ try {
       languageCreated: insertedLanguage.length > 0,
       driverKeyCreated: insertedDriverKey.length > 0,
       problemCreated: insertedProblem.length > 0,
+      packageCreated: insertedPackage.length > 0,
       revisionCreated: existingRevision === undefined,
+      revisionRepointed,
+      judgeNodeCreated: insertedJudgeNode.length > 0,
       problemCode: problem.code,
       revisionId: revision.id,
       packageHash: revision.packageHash,

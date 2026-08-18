@@ -35,6 +35,7 @@ async function seed(
     .insert(problems)
     .values({ code: 'aplusb', name: 'A+B', statement: 's' })
     .returning();
+  await db.insert(schema.packages).values({ hash: 'h', sizeBytes: 1, fileCount: 1 }).onConflictDoNothing();
   const [revision] = await db
     .insert(problemRevisions)
     .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })

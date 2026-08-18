@@ -37,6 +37,11 @@ async function seedJobs(db: Db, count: number, seeded: Seeded): Promise<void> {
     .values({ code: `concurrency-${randomUUID()}`, name: 'A+B', statement: 's' })
     .returning();
   seeded.problemId = problem!.id;
+  // Not cleaned up by `cleanup()` below — a shared, idempotent 'h' package
+  // row is fine to leave committed across both `it`s in this file (see
+  // `onConflictDoNothing`), unlike `problems`/`problem_revisions`, which are
+  // unique per test run and must be torn down.
+  await db.insert(schema.packages).values({ hash: 'h', sizeBytes: 1, fileCount: 1 }).onConflictDoNothing();
   const [revision] = await db
     .insert(problemRevisions)
     .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })

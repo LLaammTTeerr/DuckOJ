@@ -1,0 +1,1 @@
+ALTER TABLE "problem_revisions" ADD CONSTRAINT "problem_revisions_package_hash_packages_hash_fk" FOREIGN KEY ("package_hash") REFERENCES "public"."packages"("hash") ON DELETE no action ON UPDATE no action;

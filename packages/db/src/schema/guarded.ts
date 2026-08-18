@@ -14,6 +14,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { users } from './identity.js';
 import { languages } from './judging.js';
+import { packages } from './packages.js';
 
 export const orgVisibility = pgEnum('org_visibility', ['public', 'private']);
 export const orgJoinPolicy = pgEnum('org_join_policy', ['open', 'request', 'invite']);
@@ -94,7 +95,9 @@ export const problemRevisions = pgTable('problem_revisions', {
     .notNull()
     .references(() => problems.id, { onDelete: 'cascade' }),
   version: integer('version').notNull(),
-  packageHash: text('package_hash').notNull(),
+  packageHash: text('package_hash')
+    .notNull()
+    .references(() => packages.hash),
   state: revisionState('state').notNull().default('draft'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
