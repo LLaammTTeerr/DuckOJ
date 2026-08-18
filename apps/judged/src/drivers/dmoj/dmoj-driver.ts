@@ -8,6 +8,7 @@ import {
   type JudgeToBridgePacket,
 } from '@qhhoj/judge-protocol';
 import { describeError } from '@qhhoj/observability';
+import type { AgentClient } from './agent-client.js';
 import type { BridgeServer } from './bridge-server.js';
 
 interface LiveJob {
@@ -37,7 +38,10 @@ interface LiveJob {
 export class DmojDriver implements JudgeDriver {
   private readonly live = new Map<number, LiveJob>();
 
-  constructor(private readonly bridge: BridgeServer) {
+  constructor(
+    private readonly bridge: BridgeServer,
+    private readonly agent: AgentClient,
+  ) {
     this.bridge.onPacket((_connection, packet) => this.handle(packet));
   }
 
@@ -71,6 +75,15 @@ export class DmojDriver implements JudgeDriver {
    */
   async dispatch(job: GradingJob, emit: EmitEvent): Promise<void> {
     const submissionId = Number(job.id);
+
+    // Before anything else is touched: a judge dispatched to without its
+    // package grades as a mystery internal error, not a clean failure. A
+    // rejection here must leave no live entry (so a subsequent `cancel` is a
+    // harmless no-op) and no `dispatched` event for a job that was never
+    // actually sent — which is exactly what happens by rejecting before
+    // `live.set` and `emit` below run at all.
+    await this.agent.ensure(job.packageHash);
+
     this.live.set(submissionId, {
       job,
       emit,
@@ -94,7 +107,10 @@ export class DmojDriver implements JudgeDriver {
     this.bridge.broadcast({
       name: 'submission-request',
       'submission-id': submissionId,
-      'problem-id': this.bridge.options.hashToProblemCode(job.packageHash),
+      // Packages materialise at /problems/<hash>/, and judge-server takes a
+      // problem's id from the directory basename — so the id *is* the hash.
+      // No lookup, no mapping, nothing to keep in sync with the store.
+      'problem-id': job.packageHash,
       language: this.bridge.options.languageToExecutor(job.language),
       source: job.source,
       // judge-server takes seconds, we carry milliseconds.
@@ -119,6 +135,10 @@ export class DmojDriver implements JudgeDriver {
   private handle(packet: JudgeToBridgePacket): void {
     if (packet.name === 'ping-response' || packet.name === 'handshake') return;
 
+    // BridgeServer already records the announced set (from both this packet
+    // and the handshake) against the connection, exposed via
+    // `bridge.problemsFor()`. The driver itself has nothing to do with it —
+    // concurrency is 1, so nothing schedules on it yet.
     if (packet.name === 'supported-problems') return;
 
     if (packet.name === 'current-submission-id') {

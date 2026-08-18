@@ -56,7 +56,6 @@ describe('BridgeServer authentication', () => {
   it('answers handshake-success when the key verifies', async () => {
     const verifyJudge = vi.fn(async () => true);
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge,
     });
@@ -74,7 +73,6 @@ describe('BridgeServer authentication', () => {
   it('closes the connection when the key does not verify, and registers nothing', async () => {
     const verifyJudge = vi.fn(async () => false);
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge,
     });
@@ -104,7 +102,6 @@ describe('BridgeServer authentication', () => {
       throw new Error('db blip');
     });
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge,
     });
@@ -132,7 +129,6 @@ describe('BridgeServer authentication', () => {
     const secretKey = 'super-secret-do-not-log-me';
     const verifyJudge = vi.fn(async () => false);
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge,
     });

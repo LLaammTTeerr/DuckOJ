@@ -6,11 +6,8 @@ const EnvSchema = z.object({
   BRIDGE_PORT: z.coerce.number().int().min(1).max(65535).default(9999),
   HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   WORKER_ID: z.string().min(1).default('judged-1'),
-  /**
-   * Phase 1 serves exactly one seeded problem, so the hash → code mapping is a
-   * constant. Phase 2 replaces this with judge-agent's fetch-by-hash.
-   */
-  PROBLEM_CODE: z.string().min(1).default('aplusb'),
+  /** Where judge-agent's `POST /packages/ensure` lives, dialled before every dispatch. */
+  AGENT_ORIGIN: z.string().url().default('http://judge-agent:3002'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 
@@ -20,7 +17,7 @@ export interface JudgedConfig {
   bridgePort: number;
   healthPort: number;
   workerId: string;
-  problemCode: string;
+  agentOrigin: string;
   logLevel: string;
 }
 
@@ -37,7 +34,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): JudgedConfig {
     bridgePort: e.BRIDGE_PORT,
     healthPort: e.HEALTH_PORT,
     workerId: e.WORKER_ID,
-    problemCode: e.PROBLEM_CODE,
+    agentOrigin: e.AGENT_ORIGIN,
     logLevel: e.LOG_LEVEL,
   };
 }

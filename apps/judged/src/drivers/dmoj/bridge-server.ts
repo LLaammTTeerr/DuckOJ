@@ -16,8 +16,6 @@ export const PING_INTERVAL_MS = 30_000;
 const MISSED_PING_LIMIT = 3;
 
 export interface BridgeOptions {
-  /** Content hash → on-disk problem code. This is where the DMOJ-ism stops. */
-  hashToProblemCode(packageHash: string): string;
   /** Our language key → judge-server executor key. */
   languageToExecutor(languageKey: string): string;
   /**
@@ -50,6 +48,15 @@ export class BridgeServer {
   private readonly connections = new Map<string, JudgeConnection>();
   /** Last time each connection produced a decoded packet — any packet, not just `ping-response`. */
   private readonly lastSeenAt = new Map<string, number>();
+  /**
+   * The problem set each judge last announced, from its `handshake` and any
+   * later `supported-problems` packet. Replaced wholesale on each
+   * announcement, never merged — a judge that dropped a package must not
+   * appear to still have it. Nothing schedules on this yet (concurrency is
+   * 1), but it is what lets a later phase verify a dispatch against what the
+   * judge believes, rather than merely trusting it.
+   */
+  private readonly problemSets = new Map<string, Set<string>>();
   private handler: PacketHandler = () => {};
   private pingTimer: ReturnType<typeof setInterval> | undefined;
   private readonly pingIntervalMs: number;
@@ -64,6 +71,11 @@ export class BridgeServer {
 
   judgeCount(): number {
     return this.connections.size;
+  }
+
+  /** The problem set the given judge id last announced. Empty for an unknown or silent judge. */
+  problemsFor(id: string): ReadonlySet<string> {
+    return this.problemSets.get(id) ?? new Set();
   }
 
   /** Sends to any connected judge. Phase 1 has exactly one. */
@@ -103,6 +115,7 @@ export class BridgeServer {
         connection.close();
         this.connections.delete(id);
         this.lastSeenAt.delete(id);
+        this.problemSets.delete(id);
         continue;
       }
       connection.send({ name: 'ping', when: Math.floor(Date.now() / 1000) });
@@ -180,6 +193,7 @@ export class BridgeServer {
               return;
             }
             id = handshake.id;
+            this.problemSets.set(id, new Set(handshake.problems.map(([problemId]) => problemId)));
             // A judge reconnecting with an id already in the map (e.g. it
             // dropped the old socket and redialed before we noticed) must not
             // silently evict the live connection: `set()` alone leaves the old
@@ -209,6 +223,9 @@ export class BridgeServer {
         // Any decoded packet is proof the judge on the other end is still
         // reading and writing — not just `ping-response`.
         this.lastSeenAt.set(id, Date.now());
+        if (packet.name === 'supported-problems') {
+          this.problemSets.set(id, new Set(packet.problems.map(([problemId]) => problemId)));
+        }
         this.handler(connection, packet);
       },
       // A malformed frame means we can no longer trust the stream position,
@@ -227,6 +244,7 @@ export class BridgeServer {
       if (id && this.connections.get(id) === connection) {
         this.connections.delete(id);
         this.lastSeenAt.delete(id);
+        this.problemSets.delete(id);
       }
     });
     socket.on('error', () => socket.destroy());
@@ -241,6 +259,7 @@ export class BridgeServer {
     for (const connection of this.connections.values()) connection.close();
     this.connections.clear();
     this.lastSeenAt.clear();
+    this.problemSets.clear();
     await new Promise<void>((resolve) => {
       if (!this.server) return resolve();
       this.server.close(() => resolve());

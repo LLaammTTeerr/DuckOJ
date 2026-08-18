@@ -6,6 +6,7 @@ import { startHealthServer } from './health.js';
 import { JobStore } from './job-store.js';
 import { EventWriter } from './event-writer.js';
 import { SubmissionEvents } from './submission-events.js';
+import { HttpAgentClient } from './drivers/dmoj/agent-client.js';
 import { BridgeServer } from './drivers/dmoj/bridge-server.js';
 import { DmojDriver } from './drivers/dmoj/dmoj-driver.js';
 import { Worker } from './worker.js';
@@ -31,15 +32,13 @@ async function main(): Promise<void> {
   const writer = new EventWriter(db, jobs, new SubmissionEvents(redis));
 
   const bridge = new BridgeServer({
-    // Phase 1 serves exactly one seeded problem, so the mapping is a constant.
-    // Phase 2 replaces this with judge-agent's fetch-by-hash.
-    hashToProblemCode: () => config.problemCode,
     languageToExecutor: (key) => (key === 'cpp17' ? 'CPP17' : key.toUpperCase()),
     // Same check, same table, as the API's `JudgeGuard` — see
     // `verifyJudgeCredential`'s doc comment in `@qhhoj/db`.
     verifyJudge: (id, key) => verifyJudgeCredential(db, id, key),
   });
-  const driver = new DmojDriver(bridge);
+  const agent = new HttpAgentClient({ agentOrigin: config.agentOrigin });
+  const driver = new DmojDriver(bridge, agent);
 
   const port = await bridge.listen(config.bridgePort);
   startHealthServer(config.healthPort);

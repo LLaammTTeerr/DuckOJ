@@ -55,6 +55,11 @@ function fakeJudge(port: number) {
   };
 }
 
+/** An `AgentClient` that always ensures successfully. Sufficient for every test not about `ensure` itself. */
+function fakeAgent() {
+  return { ensure: vi.fn(async () => {}) };
+}
+
 describe('DmojDriver', () => {
   let server: BridgeServer | undefined;
   let judge: ReturnType<typeof fakeJudge> | undefined;
@@ -70,7 +75,6 @@ describe('DmojDriver', () => {
 
   it('accepts a handshake and answers handshake-success', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
@@ -80,14 +84,13 @@ describe('DmojDriver', () => {
     await vi.waitFor(() => expect(judge!.received.map((p) => p.name)).toContain('handshake-success'), 10_000);
   }, 30_000);
 
-  it('translates a submission into a submission-request carrying the mapped problem code', async () => {
+  it('translates a submission into a submission-request', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
-    const driver = new DmojDriver(server);
+    const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
     await judge.ready;
     await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
@@ -97,7 +100,7 @@ describe('DmojDriver', () => {
     await vi.waitFor(() => {
       const request = judge!.received.find((p) => p.name === 'submission-request');
       expect(request).toMatchObject({
-        'problem-id': 'aplusb',
+        'problem-id': job.packageHash,
         language: 'CPP17',
         source: 'int main(){}',
         'time-limit': 1,
@@ -106,14 +109,123 @@ describe('DmojDriver', () => {
     }, 10_000);
   }, 30_000);
 
-  it('translates a full grading run into our events', async () => {
+  it('ensures the package before broadcasting a submission-request', async () => {
+    // Assert ordering, not co-occurrence: record ensure and the socket write
+    // into one array and assert the array, exactly as the web socket tests do.
+    // A dispatch that broadcasts first would still "call ensure".
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
-    const driver = new DmojDriver(server);
+    const order: string[] = [];
+    const originalBroadcast = server.broadcast.bind(server);
+    vi.spyOn(server, 'broadcast').mockImplementation((packet) => {
+      order.push('broadcast');
+      originalBroadcast(packet);
+    });
+    const agent = {
+      ensure: vi.fn(async () => {
+        order.push('ensure');
+      }),
+    };
+    const driver = new DmojDriver(server, agent);
+    judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+
+    await driver.dispatch(job, async () => {});
+
+    expect(agent.ensure).toHaveBeenCalledWith(job.packageHash);
+    expect(order).toEqual(['ensure', 'broadcast']);
+  }, 30_000);
+
+  it('does not broadcast when ensure fails, and rejects so the worker can log it', async () => {
+    // The judge must receive nothing. A submission dispatched to a judge that
+    // lacks the package grades as a mystery internal error.
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
+    const port = await server.listen(0);
+    const broadcastSpy = vi.spyOn(server, 'broadcast');
+    const agent = {
+      ensure: vi.fn(async () => {
+        throw new Error('agent unreachable');
+      }),
+    };
+    const driver = new DmojDriver(server, agent);
+    judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+
+    await expect(driver.dispatch(job, async () => {})).rejects.toThrow('agent unreachable');
+
+    expect(broadcastSpy).not.toHaveBeenCalled();
+    const receivedBeforeWait = judge!.received.length;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(judge!.received.length).toBe(receivedBeforeWait);
+  }, 30_000);
+
+  it('sends the package hash as the DMOJ problem-id', async () => {
+    // Guards the identity mapping. If someone reintroduces a lookup, this fails.
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
+    const port = await server.listen(0);
+    const driver = new DmojDriver(server, fakeAgent());
+    judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+
+    await driver.dispatch(job, async () => {});
+
+    await vi.waitFor(() => {
+      const request = judge!.received.find((p) => p.name === 'submission-request');
+      expect(request).toMatchObject({ 'problem-id': 'hash-of-aplusb' });
+    }, 10_000);
+  }, 30_000);
+
+  it('records the problems announced at handshake', async () => {
+    // fakeJudge already sends a handshake with a problems array.
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
+    const port = await server.listen(0);
+    judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+
+    expect(server!.problemsFor('j1')).toEqual(new Set(['aplusb']));
+  }, 30_000);
+
+  it('records problems announced later by a supported-problems packet', async () => {
+    // The set must reflect the latest announcement, replacing not merging —
+    // a judge that dropped a package must not appear to still have it.
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
+    const port = await server.listen(0);
+    judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+    expect(server!.problemsFor('j1')).toEqual(new Set(['aplusb']));
+
+    judge.send({ name: 'supported-problems', problems: [['other-problem', 0]] });
+
+    await vi.waitFor(() => expect(server!.problemsFor('j1')).toEqual(new Set(['other-problem'])), 10_000);
+  }, 30_000);
+
+  it('translates a full grading run into our events', async () => {
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
+    const port = await server.listen(0);
+    const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
     await judge.ready;
     await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
@@ -146,12 +258,11 @@ describe('DmojDriver', () => {
 
   it('computes the correct verdict when test-case-status and grading-end arrive in the same TCP chunk', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
-    const driver = new DmojDriver(server);
+    const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
     await judge.ready;
     await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
@@ -189,12 +300,11 @@ describe('DmojDriver', () => {
 
   it('does not let a skipped case override a genuine failure in the aggregate verdict', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
-    const driver = new DmojDriver(server);
+    const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
     await judge.ready;
     await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
@@ -231,12 +341,11 @@ describe('DmojDriver', () => {
 
   it('reports IE, not AC, when every case in the run was skipped', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
-    const driver = new DmojDriver(server);
+    const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
     await judge.ready;
     await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
@@ -265,12 +374,11 @@ describe('DmojDriver', () => {
 
   it('still reports AC for a normal all-passing run', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
-    const driver = new DmojDriver(server);
+    const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
     await judge.ready;
     await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
@@ -299,12 +407,11 @@ describe('DmojDriver', () => {
 
   it('surfaces a compile error', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
-    const driver = new DmojDriver(server);
+    const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
     await judge.ready;
     await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
@@ -324,12 +431,11 @@ describe('DmojDriver', () => {
 
   it('sends terminate-submission when a job is cancelled', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
-    const driver = new DmojDriver(server);
+    const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
     await judge.ready;
     await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
@@ -344,12 +450,11 @@ describe('DmojDriver', () => {
 
   it('terminates an orphan a reconnecting judge reports that we hold no job for', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
-    const driver = new DmojDriver(server);
+    const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
     await judge.ready;
     await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
@@ -365,7 +470,6 @@ describe('DmojDriver', () => {
 
   it('sends periodic ping frames to a connected judge on the configured interval', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
       // A short injected interval so the test doesn't wait out the real 30s default.
@@ -381,7 +485,6 @@ describe('DmojDriver', () => {
 
   it('closes the displaced connection and keeps exactly one live entry when a judge reconnects with the same id', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
@@ -439,7 +542,6 @@ describe('DmojDriver', () => {
 
   it('drops a judge connection that stops answering, and no longer broadcasts to it', async () => {
     server = new BridgeServer({
-      hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
       pingIntervalMs: 20,

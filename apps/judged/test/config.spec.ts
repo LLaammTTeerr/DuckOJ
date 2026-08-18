@@ -7,7 +7,6 @@ const valid = {
   BRIDGE_PORT: '9999',
   HEALTH_PORT: '3001',
   WORKER_ID: 'judged-1',
-  PROBLEM_CODE: 'aplusb',
 };
 
 describe('loadConfig', () => {
