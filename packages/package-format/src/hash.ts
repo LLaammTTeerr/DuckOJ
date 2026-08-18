@@ -24,9 +24,19 @@ export function hashFile(bytes: Uint8Array): string {
  */
 export function canonicalForm(files: PackageFile[]): string {
   const seen = new Set<string>();
+  const sha256Regex = /^[0-9a-f]{64}$/;
+
   for (const file of files) {
     if (seen.has(file.path)) throw new Error(`duplicate path in package: ${file.path}`);
     seen.add(file.path);
+
+    if (file.path.includes('\0')) {
+      throw new Error(`path contains NUL byte: ${file.path}`);
+    }
+
+    if (!sha256Regex.test(file.sha256)) {
+      throw new Error(`invalid sha256 for path '${file.path}': '${file.sha256}'`);
+    }
   }
   return [...files]
     .sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0))
