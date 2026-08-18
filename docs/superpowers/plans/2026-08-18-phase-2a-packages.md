@@ -808,7 +808,7 @@ Note `scripts/` is covered by `typecheck:scripts` and `lint:scripts` — add `@q
 corepack pnpm package:build problems/aplusb /tmp/aplusb.tar.zst
 ```
 
-Expected: JSON with a 64-hex `hash`, `files` of 7 (manifest, 3 inputs, 3 answers — `init.yml` is still present and counts, so confirm the number against what is actually on disk rather than against this sentence).
+Expected: JSON with a 64-hex `hash` and `files` of **8** — `manifest.json`, `init.yml` (still present at this point, and it counts), and six test files. Verified against the directory: it holds 7 files today, and this task adds the manifest.
 
 **Paste the hash into your report.** Later tasks reference it and the end-to-end run must produce the same value.
 
@@ -1515,6 +1515,14 @@ Run the seed against a database that still holds the Phase 1 row and confirm it 
 - [ ] **Step 1: Extend the seed to register a real package**
 
 The seed already inserts the language, driver key, problem and revision idempotently. Add: build the package from `problems/aplusb`, insert `packages` and `package_files` rows if absent, and `update` the revision's `package_hash` to the computed hash. Keep it idempotent — the seed runs on every bring-up.
+
+**Do not re-implement Task 5's build logic here.** Extract the shared part —
+parse the manifest, pack the directory, cross-check that every declared test
+file is present, return `{ hash, files, archive }` — into
+`scripts/lib/build-package.ts`, and have both `scripts/package-build.ts` and
+the seed call it. Two hand-rolled copies of a hash computation is the failure
+mode where a subtle divergence makes the seed register one hash while the CLI
+prints another, and the symptom appears on a judge two tasks later.
 
 - [ ] **Step 2: Verify against a real database, twice**
 
