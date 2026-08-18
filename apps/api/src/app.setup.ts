@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import { API_PREFIX } from '@qhhoj/api-prefix';
 import cookieParser from 'cookie-parser';
 import type { DestinationStream } from 'pino';
 import type { AppConfig } from './config/config.schema.js';
@@ -8,7 +9,7 @@ import { ProblemFilter } from './common/problem.filter.js';
 /**
  * Everything that turns a bare `AppModule` into the application this project
  * actually serves: request logging, cookie parsing, problem+json errors, the
- * `/api/v1` prefix with its health-probe exclusions, and CORS.
+ * `API_PREFIX` (`@qhhoj/api-prefix`) with its health-probe exclusions, and CORS.
  *
  * This lives beside `main.ts` rather than inside it so that `main.ts` stays a
  * pure entrypoint — importing it runs `bootstrap()` as a side effect, which a
@@ -35,6 +36,6 @@ export function configureApp(
   // The probes stay off the versioned prefix: they are infrastructure contracts
   // (the Compose healthcheck, the Caddyfile) rather than API surface, so they
   // must not move when the API version does.
-  app.setGlobalPrefix('api/v1', { exclude: ['healthz', 'readyz'] });
+  app.setGlobalPrefix(API_PREFIX, { exclude: ['healthz', 'readyz'] });
   app.enableCors({ origin: config.publicOrigin, credentials: true });
 }

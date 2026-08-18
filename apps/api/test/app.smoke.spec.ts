@@ -70,4 +70,29 @@ describe('AppModule composition root', () => {
     const res = await request(app.getHttpServer()).get('/auth/me');
     expect(res.status).toBe(404);
   });
+
+  // Task 13 review, Important finding: apps/judge-agent's materializer.ts
+  // once built its archive-fetch URL without this prefix at all, and
+  // nothing caught it — materializer.spec.ts mocks fetch (so a hardcoded
+  // expected URL and a hardcoded implementation URL can drift together and
+  // still agree with each other), and packages.spec.ts's own test harness
+  // never calls setGlobalPrefix at all, so it exercises the unprefixed
+  // shape the agent was wrongly using. This is the one place InternalPackagesController
+  // is reachable behind the REAL setGlobalPrefix('api/v1', ...) that
+  // production actually runs.
+  //
+  // 401, not 404, is the whole point: 401 means the route exists at this
+  // prefix and JudgeGuard rejected the anonymous caller. 404 would mean the
+  // route isn't mounted here at all — which is exactly the silent failure
+  // mode a bare `${apiOrigin}/internal/packages/...` produced. A test
+  // expecting 404 would pass whether the route existed or not; this one
+  // fails if `app.setup.ts`'s prefix (or InternalPackagesController's own
+  // path) ever diverges from what apps/judge-agent's materializer.ts
+  // requests.
+  it('requires judge credentials on the internal archive route, at the real /api/v1 prefix', async () => {
+    const res = await request(app.getHttpServer()).get(
+      `/api/v1/internal/packages/${'a'.repeat(64)}/archive`,
+    );
+    expect(res.status).toBe(401);
+  });
 });

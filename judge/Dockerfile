@@ -45,11 +45,13 @@ FROM node:22-bookworm-slim AS agent-build
 RUN corepack enable
 WORKDIR /app
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY packages/api-prefix/package.json packages/api-prefix/
 COPY packages/package-format/package.json packages/package-format/
 COPY packages/observability/package.json packages/observability/
 COPY apps/judge-agent/package.json apps/judge-agent/
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.base.json ./
+COPY packages/api-prefix packages/api-prefix
 COPY packages/package-format packages/package-format
 COPY packages/observability packages/observability
 COPY apps/judge-agent apps/judge-agent

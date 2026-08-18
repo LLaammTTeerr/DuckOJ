@@ -9,6 +9,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../packages/db" },
+    { "path": "../../packages/api-prefix" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/observability" },
     { "path": "../../packages/package-format" },

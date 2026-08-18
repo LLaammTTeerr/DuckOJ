@@ -3,6 +3,7 @@
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
   "include": ["src"],
   "references": [
+    { "path": "../../packages/api-prefix" },
     { "path": "../../packages/observability" },
     { "path": "../../packages/package-format" }
   ]

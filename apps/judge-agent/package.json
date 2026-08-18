@@ -11,6 +11,7 @@
     "dev": "tsx watch src/main.ts"
   },
   "dependencies": {
+    "@qhhoj/api-prefix": "workspace:^",
     "@qhhoj/observability": "workspace:^",
     "@qhhoj/package-format": "workspace:^",
     "zod": "^4.4.3"

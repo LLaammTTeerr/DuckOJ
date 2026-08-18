@@ -1,5 +1,6 @@
 import { readFile, writeFile, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { API_PREFIX } from '@qhhoj/api-prefix';
 import { unpackArchive, parseManifest, renderInitYml } from '@qhhoj/package-format';
 
 /**
@@ -86,14 +87,19 @@ export class Materializer {
       const fetchImpl = this.options.fetchImpl ?? globalThis.fetch;
       // `apiOrigin` is a bare origin (e.g. `http://api:3000`), not
       // API-prefixed — every route in apps/api sits behind NestJS's global
-      // `api/v1` prefix (`apps/api/src/app.setup.ts`'s `setGlobalPrefix`,
-      // which excludes only `healthz`/`readyz`), including this
-      // judge-only archive route. Same convention `apps/web/src/api.ts`
-      // follows for its own base URL. Discovered missing at Task 13's
-      // integration bring-up: every unit test here mocks `fetch` and never
-      // asserted the exact path against a real Nest app, so a 404 here was
-      // silent until an actual `podman-compose` stack proved it.
-      const url = `${this.options.apiOrigin}/api/v1/internal/packages/${hash}/archive`;
+      // `API_PREFIX` (`apps/api/src/app.setup.ts`'s `setGlobalPrefix`,
+      // which excludes only `healthz`/`readyz`), including this judge-only
+      // archive route. `@qhhoj/api-prefix` is the single shared source for
+      // that literal — `apps/web/src/api.ts` builds its base URL from the
+      // same constant. Discovered missing here (a bare `/internal/packages/
+      // ...` with no prefix at all) at Task 13's integration bring-up: every
+      // unit test in this file mocks `fetch` and never asserted the exact
+      // path against a real Nest app, so a 404 here was silent until an
+      // actual `podman-compose` stack proved it. `apps/api/test/
+      // app.smoke.spec.ts` now asserts the real route answers at this real
+      // prefix, so a divergence here or in `app.setup.ts` fails a test
+      // instead of only a live judge.
+      const url = `${this.options.apiOrigin}/${API_PREFIX}/internal/packages/${hash}/archive`;
       const res = await fetchImpl(url, {
         headers: { authorization: `Judge ${this.options.judgeName}:${this.options.judgeToken}` },
       });
