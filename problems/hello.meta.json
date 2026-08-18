@@ -1,0 +1,5 @@
+{
+  "code": "hello",
+  "name": "Hello, Name!",
+  "statement": "Read a single name from standard input. Print \"Hello, <name>!\"."
+}

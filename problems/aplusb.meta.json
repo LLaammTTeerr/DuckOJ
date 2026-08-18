@@ -1,0 +1,5 @@
+{
+  "code": "aplusb",
+  "name": "A plus B",
+  "statement": "Read two integers a and b from standard input. Print a + b."
+}

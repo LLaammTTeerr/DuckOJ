@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
@@ -7,13 +8,50 @@ import { buildPackage } from './lib/build-package.js';
 import { putPackageArchive } from './lib/package-store.js';
 
 /**
- * Resolved relative to this file, not `process.cwd()` — the script is
- * invoked from different working directories (a plain `tsx` run from the
- * repo root, a one-off container built from `apps/api`'s image per
+ * `problems/` resolved relative to this file, not `process.cwd()` — the
+ * script is invoked from different working directories (a plain `tsx` run
+ * from the repo root, a one-off container built from `apps/api`'s image per
  * `docs/runbook.md`) and only the former is guaranteed to have `problems/`
  * directly under the cwd.
  */
-const PROBLEM_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'problems', 'aplusb');
+const PROBLEMS_ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'problems');
+
+/**
+ * Which problem to seed — the directory name under `problems/`. Defaults to
+ * `aplusb` so every existing invocation (`pnpm seed` with no args, the
+ * one-off container command in docs/runbook.md, `seed-script.spec.ts`'s
+ * `execFileAsync(TSX_BIN, [SEED_SCRIPT], ...)`) keeps seeding exactly what
+ * it always has, unchanged.
+ */
+const PROBLEM_TARGET = process.argv[2] ?? 'aplusb';
+const PROBLEM_DIR = join(PROBLEMS_ROOT, PROBLEM_TARGET);
+
+/**
+ * Presentational metadata (problem code, display name, statement text) is
+ * deliberately kept *outside* `PROBLEM_DIR` — in a `<target>.meta.json`
+ * sibling under `problems/` — rather than inside the package directory
+ * itself. `buildPackage` hashes every file under `PROBLEM_DIR`
+ * (`packDirectory` walks the whole tree), so anything placed inside it
+ * becomes part of the package's content-addressed identity. A problem
+ * statement is not test data a judge needs to grade against; it must not be
+ * able to change the hash a submission is graded against.
+ */
+interface ProblemMeta {
+  code: string;
+  name: string;
+  statement: string;
+}
+
+async function readProblemMeta(target: string): Promise<ProblemMeta> {
+  const raw = await readFile(join(PROBLEMS_ROOT, `${target}.meta.json`), 'utf8');
+  const parsed = JSON.parse(raw) as Partial<ProblemMeta>;
+  if (!parsed.code || !parsed.name || !parsed.statement) {
+    throw new Error(`problems/${target}.meta.json must have string 'code', 'name', and 'statement' fields`);
+  }
+  return { code: parsed.code, name: parsed.name, statement: parsed.statement };
+}
+
+const problemMeta = await readProblemMeta(PROBLEM_TARGET);
 
 /**
  * The compose `judge` service's identity (`judge/judge.yml`'s `id: judge-1`).
@@ -83,15 +121,19 @@ try {
   const insertedProblem = await db
     .insert(problems)
     .values({
-      code: 'aplusb',
-      name: 'A plus B',
-      statement: 'Read two integers a and b from standard input. Print a + b.',
+      code: problemMeta.code,
+      name: problemMeta.name,
+      statement: problemMeta.statement,
     })
     .onConflictDoNothing()
     .returning();
 
   const problem = (
-    await db.select().from(problems).where(sql`lower(${problems.code}) = 'aplusb'`).limit(1)
+    await db
+      .select()
+      .from(problems)
+      .where(sql`lower(${problems.code}) = lower(${problemMeta.code})`)
+      .limit(1)
   )[0]!;
 
   // Register the package before anything can reference its hash — the

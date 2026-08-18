@@ -565,10 +565,144 @@ migrating (already-at-`0003` case) or discarding and recreating the volume
     corepack pnpm exec tsx scripts/e2e-submit.ts
 
 It registers a throwaway user, submits three fixed C++ sources against
-`aplusb` (correct, wrong, and uncompilable) against `https://localhost:8443`
-by default (`E2E_BASE_URL` overrides), and asserts verdict *and* points on
-each. It exits non-zero and prints a `FAILED:` list if anything doesn't
-match — see task-15-report.md for a real run's output.
+`aplusb` (correct, wrong, and uncompilable) plus a correct solution against
+`hello` (Task 14's second problem, seeded separately — see below) against
+`https://localhost:8443` by default (`E2E_BASE_URL` overrides), and asserts
+verdict *and* points on each. It exits non-zero and prints a `FAILED:` list
+if anything doesn't match — see task-15-report.md for a real run's output of
+the original three-path version.
+
+### A second problem: building, uploading, and diagnosing a package
+
+`problems/hello/` (`task-14-brief.md`) is the second problem this stack
+grades — read a name, print `Hello, <name>!`, genuinely different from
+`aplusb`'s arithmetic, not a copy of it. It exists to prove the package
+pipeline *fetches* a problem the judge has never seen, not just that the one
+problem the stack was built around still grades.
+
+**Building and uploading a package.**
+
+    corepack pnpm run package:build problems/hello /tmp/hello.tar.zst
+
+`scripts/package-build.ts` packs a problem directory (`packDirectory` in
+`packages/package-format`) into a deterministic, zstd-compressed tar and
+prints `{ hash, files, bytes }`. On its own this does not register anything
+— it is a standalone CLI, useful for inspecting a build or for uploading
+through the real HTTP endpoint directly: `POST /api/v1/packages?hash=<hash>`
+with the raw archive bytes as the body, callable by any authenticated
+session. `PackagesService.upload` re-derives the hash from the files it
+actually unpacks and rejects a mismatch, so a stale or hand-edited archive
+is caught there, not silently accepted.
+
+The one-off seed script does both build and upload in a single step, plus
+the database rows a raw upload alone does not create (`problems`,
+`problem_revisions`) — this is what actually seeded `hello` against the
+running stack:
+
+    podman run --rm --network <project>_default --env-file .env \
+      -v <project>_package_store:/var/lib/qhhoj/packages \
+      -e PACKAGE_STORE_DIR=/var/lib/qhhoj/packages \
+      localhost/<project>_migrate:latest \
+      sh -c 'DATABASE_URL="postgres://qhhoj:$POSTGRES_PASSWORD@postgres:5432/qhhoj" packages/db/node_modules/.bin/tsx scripts/seed-problem.ts hello'
+
+Identical to "Seed the problem before submitting" above, with one added
+argument: the directory name under `problems/` to seed (defaults to
+`aplusb` when omitted, so every existing zero-arg invocation — including
+`packages/db/test/seed-script.spec.ts`'s — is unaffected). **If you changed
+`scripts/seed-problem.ts` or added a new problem directory, rebuild the
+`migrate`/`api` image first** (`podman-compose build migrate`): this
+one-off container runs whatever `COPY . .` baked into the image at its last
+build, not the live worktree. Passing `hello` against a stale image seeds
+`aplusb` again instead, silently — no error, no hint anything was ignored,
+just a `problemCode: "aplusb"` in the printed summary where you expected
+`"hello"`.
+
+A problem's display name and statement (`problems/<code>.meta.json`, e.g.
+`problems/hello.meta.json` — `{ code, name, statement }`) live *outside*
+`problems/<code>/` deliberately; see hash stability below for why.
+
+**What the hash means, and why it's stable.**
+
+`packageHash` (`packages/package-format/src/hash.ts`) hashes the sorted list
+of `{ path, size, sha256 }` for every file under the problem directory — not
+the compressed archive's own bytes. Two independently-built archives of the
+same file tree (different zstd settings, a different build machine, rebuilt
+a year later) hash identically; only a file's contents, its path, or the set
+of files present changes the hash. That is why `scripts/seed-problem.ts`
+overwrites the store unconditionally on every run
+(`scripts/lib/package-store.ts`'s `putPackageArchive` doc comment) — the
+bytes it writes are always the same for the same tree — and why
+`problems/aplusb/` was not touched while adding `hello`: touching it would
+change the hash Task 13 already seeded
+(`73d40a7e62d7019346f137048ee1f251e07cad9e4e34b8593f28a2f42f12e406`),
+which would have made "the e2e result is unchanged" evidence of nothing.
+It is also why `<code>.meta.json` sits *outside* the package directory: a
+problem's statement is not test data a judge grades against, and editing a
+typo in it must never change the hash a submission is graded against —
+i.e. must never silently regrade every existing submission against what
+the system would otherwise treat as a "new" problem.
+
+**Diagnosing a package that will not materialise**, in order:
+
+1. **judge-agent's own logs.** Its stdout is interleaved with `judged`'s
+   dmoj process inside the same `judge` container (Task 13's Controller
+   addendum C2: judge-agent runs alongside `dmoj judged`, not in a separate
+   container):
+
+       podman logs <project>_judge_1
+
+   Look for the materialiser's own errors — a non-2xx fetching
+   `GET /api/v1/internal/packages/<hash>/archive`, an unpack failure, or a
+   hash mismatch.
+2. **`/problems` on the judge.** Confirm whether the hash directory exists
+   at all, and if it does, whether it's complete:
+
+       podman exec <project>_judge_1 sh -c 'ls -la /problems/<hash>/'
+
+   `init.yml`, `manifest.json`, and `tests/` should all be present.
+   Materialisation is atomic (`apps/judge-agent/src/materializer.ts` writes
+   to a temp directory and renames it into place), so a directory that
+   exists but is missing pieces means something wrote outside that atomic
+   path — treat it as a bug to fix, not a race to wait out.
+3. **The store on the API side.** Confirms the archive bytes actually exist
+   where `FilesystemPackageStore` expects them, which distinguishes "the API
+   never had the bytes" from "the judge failed to fetch what the API did
+   have":
+
+       podman exec <project>_api_1 sh -c 'ls -la /var/lib/qhhoj/packages/<hash prefix>/<hash>'
+
+   (shard directory is the hash's first two hex characters) or, without a
+   container shell, `GET /api/v1/packages/<hash>` (any authenticated
+   session) returns the DB-recorded `sizeBytes`/`fileCount` — a `404
+   package_not_found` here means the `packages` row was never inserted at
+   all (a seed run against the wrong `PACKAGE_STORE_DIR`, or against a
+   different `DATABASE_URL`, than the one the running stack actually uses).
+
+**Judges now authenticate — a wrong token looks exactly like a network
+problem, and is not.** Every judge presents `JUDGE_TOKEN`
+(task-13-brief.md's Controller addendum C1) at two points that must both
+agree with the `judge_nodes` row `scripts/seed-problem.ts` writes: `judged`'s
+bridge handshake, and judge-agent's archive fetch from the API. If the token
+is wrong — a typo in `.env`, a `judge/judge.yml` rendered from a stale
+environment, or a `judge_nodes` row seeded with a different token than what
+`judge.yml` actually has — the handshake is rejected. `judged` logs the
+rejection, by design, without the key itself:
+
+    {"msg":"judge handshake rejected","id":"judge-1","reason":"credential rejected"}
+
+but the judge's own client does not fail loudly and stop. Real DMOJ's
+`dmoj/packet.py` (vendored inside the judge image, not code in this repo)
+catches `JudgeAuthenticationFailed`, logs `Authentication as "<name>"
+failed`, and reconnects with **exponential backoff — starting at 4 seconds,
+capped at 60** (`packet.py`'s `_reconnect`/`_do_reconnect`, confirmed by
+reading the installed source: `self.fallback = min(self.fallback * 1.5,
+60)`) — forever. From the operator's side this looks exactly like a network
+or DNS problem: a judge container that is up, "trying," never crashing, and
+submissions that simply never leave `queued`. It is not a network problem.
+Check `judged`'s logs for the `judge handshake rejected` line before
+chasing connectivity theories; if it's there, the fix is aligning
+`JUDGE_TOKEN` (env), `judge/judge.yml`'s rendered `key`, and the
+`judge_nodes.tokenHash` row — not the network.
 
 ### The `IE`-for-compile-error wart — expected, not a bug to chase
 

@@ -29,6 +29,17 @@ int main(){long long a,b;std::cin>>a>>b;std::cout<<0<<"\\n";}`;
 
 const UNCOMPILABLE = `int main(){ this is not c++ }`;
 
+// `hello` (`problems/hello/`) is a genuinely different problem from
+// `aplusb` — string I/O instead of arithmetic — seeded separately by
+// `scripts/seed-problem.ts hello`. Submitting against it exercises a
+// package the judge has never seen materialise before this run: see
+// docs/runbook.md's "A second problem: hello" for the before/after
+// `/problems/<hash>/` check that proves the fetch actually happened, not
+// just that the grading path works.
+const HELLO_CORRECT = `#include <iostream>
+#include <string>
+int main(){std::string name;std::cin>>name;std::cout<<"Hello, "<<name<<"!\\n";}`;
+
 let cookie = '';
 
 async function call(path: string, init: RequestInit = {}): Promise<Response> {
@@ -47,10 +58,10 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
   return res;
 }
 
-async function submitAndWait(source: string): Promise<Record<string, unknown>> {
+async function submitAndWait(source: string, problemCode = 'aplusb'): Promise<Record<string, unknown>> {
   const created = await call('/submissions', {
     method: 'POST',
-    body: JSON.stringify({ problemCode: 'aplusb', languageKey: 'cpp17', source }),
+    body: JSON.stringify({ problemCode, languageKey: 'cpp17', source }),
   });
   if (created.status !== 201) throw new Error(`submit failed: ${created.status} ${await created.text()}`);
   const { id } = (await created.json()) as { id: number };
@@ -109,8 +120,19 @@ const broken = await submitAndWait(UNCOMPILABLE);
 console.log('broken   →', broken.verdict, '| compileOutput:', String(broken.compileOutput ?? '').slice(0, 80));
 if (!broken.compileOutput) failures.push('expected a non-empty compileOutput for uncompilable source');
 
+// A second, distinct problem — `hello` — not seeded until Task 14, and not
+// materialised on the judge until this submission triggers `POST
+// /packages/ensure`. AC here is the proof that a package the judge has
+// never seen arrives on demand rather than the walking skeleton only ever
+// having worked because `aplusb` happened to be pre-seeded.
+const hello = await submitAndWait(HELLO_CORRECT, 'hello');
+console.log('hello    →', hello.verdict, `${String(hello.points)}/${String(hello.maxPoints)}`);
+if (hello.verdict !== 'AC') failures.push(`expected hello AC, got ${String(hello.verdict)}`);
+if (hello.points !== 3) failures.push(`expected hello points === 3, got ${String(hello.points)}`);
+if (hello.maxPoints !== 3) failures.push(`expected hello maxPoints === 3, got ${String(hello.maxPoints)}`);
+
 if (failures.length > 0) {
   console.error('\nFAILED:\n' + failures.map((f) => `  - ${f}`).join('\n'));
   process.exit(1);
 }
-console.log('\nall three paths behaved as expected');
+console.log('\nall four paths behaved as expected');
