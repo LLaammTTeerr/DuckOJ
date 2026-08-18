@@ -75,6 +75,12 @@ describe('Materializer', () => {
     expect((calledInit.headers as Record<string, string>).authorization).toBe(
       'Judge judge-1:super-secret-token',
     );
+    // Every apps/api route (other than healthz/readyz) sits behind Nest's
+    // global `api/v1` prefix (apps/api/src/app.setup.ts) — including this
+    // judge-only archive route. A bare `${apiOrigin}/internal/packages/...`
+    // 404s against a real API; a mocked fetch never caught that until Task
+    // 13's actual podman-compose bring-up did.
+    expect(calledUrl).toBe(`http://api.invalid/api/v1/internal/packages/${hash}/archive`);
   }, 30_000);
 
   it('is a no-op when the package is already materialised', async () => {

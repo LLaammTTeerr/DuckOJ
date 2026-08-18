@@ -4,6 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 import { problems, problemRevisions } from '@qhhoj/db/guarded';
 import { createDb, hashJudgeToken, schema } from '@qhhoj/db';
 import { buildPackage } from './lib/build-package.js';
+import { putPackageArchive } from './lib/package-store.js';
 
 /**
  * Resolved relative to this file, not `process.cwd()` — the script is
@@ -39,10 +40,29 @@ if (!judgeToken) {
   process.exit(1);
 }
 
+// No default: `apps/api`'s own `PACKAGE_STORE_DIR` defaults to
+// `/var/lib/qhhoj/packages` inside its own container, but this script runs
+// as a *different* one-off container — silently defaulting here would write
+// the archive into that container's own throwaway overlay filesystem
+// instead of the named volume the real `api` service reads from, and the
+// judge's later archive fetch would 404 against a `packages` row that looks
+// perfectly registered. See docs/runbook.md's seeding section for the
+// `-v <project>_package_store:/var/lib/qhhoj/packages` mount this requires.
+const packageStoreDir = process.env.PACKAGE_STORE_DIR;
+if (!packageStoreDir) {
+  console.error('PACKAGE_STORE_DIR is required');
+  process.exit(1);
+}
+
 const { db, close } = createDb(url);
 
 try {
   const built = await buildPackage(PROBLEM_DIR);
+  // Store the bytes before any database row references the hash — same
+  // ordering rationale as `PackagesService.upload`'s doc comment: an
+  // orphaned blob is harmless, a row pointing at a blob that was never
+  // written fails far away, at grade time, on a judge.
+  await putPackageArchive(packageStoreDir, built.hash, built.archive);
 
   const insertedLanguage = await db
     .insert(schema.languages)

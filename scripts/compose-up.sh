@@ -18,26 +18,31 @@
 # task-14-brief.md addendum E7). `judged` depends on `migrate` and `redis`
 # the same way `api` depends on `migrate`, so it is started alongside `api`
 # (both via the same `--no-deps` step) and polled for healthy the same way.
-# `judge` has no healthcheck — it's a long-running process that dials out to
-# `judged`, not an HTTP service — and per addendum E6 it does not need
-# `judged` to be up first (it backs off and retries), but this script still
-# starts it only after `judged` is confirmed healthy, purely so the bring-up
-# log evidence shows a clean first-attempt handshake rather than a retry
-# backoff. It is then polled to confirm it didn't crash on startup.
+# This script still starts `judge` only after `judged` is confirmed
+# healthy, purely so the bring-up log evidence shows a clean first-attempt
+# handshake rather than a retry backoff — `judge` itself does not require
+# this ordering (see addendum E6).
+#
+# Task 13 gave `judge` its own healthcheck (judge-agent's `/healthz`,
+# started and supervised inside the same container — see
+# judge/entrypoint.sh) and, per that task's Controller addendum C3, this
+# script now waits on it with `wait_healthy` — the shape that fails loudly
+# on timeout whether or not the container was ever found — instead of the
+# older `wait_running`, which returned success on a container that was
+# never found at all (a bug Phase 1 fixed for exactly this reason, and one
+# a bring-up script for `judge` must not reintroduce).
 #
 # Fails loudly (non-zero exit, and prints the failing service's logs) on the
 # first step that does not succeed — it never proceeds past a failed build,
 # a postgres/redis that never turns healthy, a migrate that exits non-zero,
-# an api/judged that never turns healthy, or a judge that exits before the
-# bounded wait is up.
+# or an api/judged/judge that never turns healthy.
 #
 # Usage: scripts/compose-up.sh
 # Env overrides: COMPOSE (compose binary, default podman-compose),
-#   POSTGRES_TIMEOUT, REDIS_TIMEOUT, API_TIMEOUT, JUDGED_TIMEOUT (seconds to
-#   wait for healthy, default 60), JUDGE_TIMEOUT (seconds to confirm the
-#   judge container hasn't crashed on startup, default 20), MIGRATE_TIMEOUT
-#   (seconds to bound `up migrate` itself, default 120 — see the comment
-#   above that call for why this exists)
+#   POSTGRES_TIMEOUT, REDIS_TIMEOUT, API_TIMEOUT, JUDGED_TIMEOUT, JUDGE_TIMEOUT
+#   (seconds to wait for healthy, default 60), MIGRATE_TIMEOUT (seconds to
+#   bound `up migrate` itself, default 120 — see the comment above that call
+#   for why this exists)
 
 set -eu
 
@@ -49,7 +54,7 @@ POSTGRES_TIMEOUT=${POSTGRES_TIMEOUT:-60}
 REDIS_TIMEOUT=${REDIS_TIMEOUT:-60}
 API_TIMEOUT=${API_TIMEOUT:-60}
 JUDGED_TIMEOUT=${JUDGED_TIMEOUT:-60}
-JUDGE_TIMEOUT=${JUDGE_TIMEOUT:-20}
+JUDGE_TIMEOUT=${JUDGE_TIMEOUT:-60}
 MIGRATE_TIMEOUT=${MIGRATE_TIMEOUT:-120}
 
 # Finds the container podman-compose created for a given service, by the
@@ -82,45 +87,6 @@ wait_healthy() {
       echo "FATAL: $service did not become healthy within ${timeout}s" >&2
       "$COMPOSE" logs "$service" >&2 || true
       exit 1
-    fi
-    sleep 2
-    elapsed=$((elapsed + 2))
-  done
-}
-
-# `judge` has no healthcheck — it's a long-running process, not an HTTP
-# service — so there is no "healthy" to poll for. This instead confirms it
-# hasn't exited (crashed) within the bounded window, which is the closest
-# analogue available. Reaching the timeout without an exit is treated as
-# success, not a failure to observe.
-wait_running() {
-  service="$1"
-  timeout="$2"
-  elapsed=0
-  found=""
-  while true; do
-    cid=$(container_for_service "$service")
-    if [ -n "$cid" ]; then
-      found=1
-      status=$(podman inspect "$cid" --format '{{.State.Status}}' 2>/dev/null || true)
-      if [ "$status" = "exited" ]; then
-        echo "FATAL: $service exited unexpectedly within ${elapsed}s of starting" >&2
-        "$COMPOSE" logs "$service" >&2 || true
-        exit 1
-      fi
-    fi
-    if [ "$elapsed" -ge "$timeout" ]; then
-      # Mirrors wait_healthy's shape: the timeout branch fails unconditionally
-      # unless a container was actually found and observed still running. A
-      # service whose container name never resolved for the whole window is
-      # not "running" — it never started at all — so this must not return 0.
-      if [ -z "$found" ]; then
-        echo "FATAL: $service's container was never found within ${timeout}s" >&2
-        "$COMPOSE" logs "$service" >&2 || true
-        exit 1
-      fi
-      echo "==> $service still running after ${timeout}s (no healthcheck exists for this service)"
-      return 0
     fi
     sleep 2
     elapsed=$((elapsed + 2))
@@ -187,8 +153,8 @@ wait_healthy judged "$JUDGED_TIMEOUT"
 echo "==> Starting judge (after judged is healthy, so the bring-up log shows a clean first-attempt handshake rather than a retry backoff — judge itself does not require this ordering, see addendum E6)"
 "$COMPOSE" up -d --no-deps judge
 
-echo "==> Confirming judge hasn't crashed on startup"
-wait_running judge "$JUDGE_TIMEOUT"
+echo "==> Waiting for judge to report healthy (its judge-agent's own /healthz — see judge/entrypoint.sh)"
+wait_healthy judge "$JUDGE_TIMEOUT"
 
-echo "==> Stack is up: postgres healthy, redis healthy, migrate exited 0, api healthy, judged healthy, judge running, caddy started"
+echo "==> Stack is up: postgres healthy, redis healthy, migrate exited 0, api healthy, judged healthy, judge healthy, caddy started"
 "$COMPOSE" ps

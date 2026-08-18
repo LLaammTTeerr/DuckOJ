@@ -1,13 +1,19 @@
-id: judge-1
-key: phase1-judge-key
+id: __JUDGE_NAME__
+key: __JUDGE_TOKEN__
+# This file is a TEMPLATE, not the real config — `judge/entrypoint.sh` (via
+# `judge/render-config.mjs`) renders it into `/judge-config/judge.yml` at
+# container start, substituting `__JUDGE_NAME__`/`__JUDGE_TOKEN__` from this
+# container's own `JUDGE_NAME`/`JUDGE_TOKEN` environment (Task 13). The real
+# credential never gets baked into the image or checked in here.
+#
 # `judged`'s BridgeServer verifies this `(id, key)` pair against
 # `judge_nodes.name` / `judge_nodes.token_hash` before admitting a handshake
 # (apps/judged/src/drivers/dmoj/bridge-server.ts, `BridgeOptions.verifyJudge`).
-# For this key to work against a real deployment, a `judge_nodes` row named
-# `judge-1` with `token_hash = sha256_hex('phase1-judge-key')` must exist —
-# nothing in this phase's plan seeds one yet, so a fresh `docker-compose up`
-# will reject this judge until that row is created by hand or by a future
-# seed script.
+# `scripts/seed-problem.ts` seeds that `judge_nodes` row (name `judge-1`,
+# `token_hash = sha256_hex(JUDGE_TOKEN)`) from the same env var — see
+# `.env.example`'s `JUDGE_TOKEN` — so the two must agree, or a fresh
+# `docker-compose up` rejects this judge and it retries its handshake
+# forever.
 problem_storage_globs:
   - /problems/*
 runtime:

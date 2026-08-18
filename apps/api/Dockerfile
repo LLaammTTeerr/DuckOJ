@@ -7,6 +7,7 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/db/package.json packages/db/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/observability/package.json packages/observability/
+COPY packages/package-format/package.json packages/package-format/
 COPY packages/realtime/package.json packages/realtime/
 COPY apps/api/package.json apps/api/
 RUN pnpm install --frozen-lockfile
@@ -18,6 +19,12 @@ RUN pnpm --filter "@qhhoj/api..." typecheck
 FROM base AS runtime
 ENV NODE_ENV=production
 COPY --from=build /app /app
+# PACKAGE_STORE_DIR (Task 13) is backed by a named volume mounted here in
+# Compose. A named volume with no prior content is created root-owned on
+# first use, and this container runs as the unprivileged `node` user below
+# — without this, the first `FilesystemPackageStore.put()` fails EACCES.
+# Same reasoning as judge/Dockerfile's `chown judge:judge /problems`.
+RUN mkdir -p /var/lib/qhhoj/packages && chown node:node /var/lib/qhhoj/packages
 USER node
 EXPOSE 3000
 CMD ["node", "apps/api/dist/main.js"]

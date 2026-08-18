@@ -58,6 +58,14 @@ services:
       TOTP_ENC_KEY: ${TOTP_ENC_KEY:?set TOTP_ENC_KEY}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost}
       LOG_LEVEL: info
+      # Task 13: content-addressed package bytes live here, behind a named
+      # volume — without one, an uploaded/seeded package vanishes on the
+      # next `podman-compose up` (a fresh container gets a fresh overlay
+      # filesystem). apps/api/Dockerfile pre-creates and chowns this path so
+      # the unprivileged `node` user can write to it on first use.
+      PACKAGE_STORE_DIR: /var/lib/qhhoj/packages
+    volumes:
+      - package_store:/var/lib/qhhoj/packages
     # This condition is correct per the Compose spec and is left in place for
     # tools that honor it, but podman-compose 1.5 does NOT reliably enforce it:
     # `api` was observed, by container timestamp, to start before `migrate`
@@ -85,6 +93,14 @@ services:
       DATABASE_URL: postgres://qhhoj:${POSTGRES_PASSWORD}@postgres:5432/qhhoj
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       LOG_LEVEL: info
+      # apps/judged/src/config.ts defaults AGENT_ORIGIN to
+      # http://judge-agent:3002, which presumes a same-named service that
+      # does not exist here — per task-13-brief.md's Controller addendum
+      # C2, judge-agent runs inside the `judge` service's own container
+      # (judge/entrypoint.sh), so the reachable hostname on this Compose
+      # network is the `judge` service itself, on the port judge-agent
+      # actually listens on (AGENT_PORT below, on the `judge` service).
+      AGENT_ORIGIN: http://judge:3002
     # The judge dials OUT to judged (see the `judge` service below) — judged
     # needs no ingress at all. Do NOT publish 9999 (or 3001) to the host:
     # BridgeServer now verifies every handshake's `(id, key)` against
@@ -104,6 +120,31 @@ services:
   judge:
     build: { context: ., dockerfile: judge/Dockerfile }
     restart: unless-stopped
+    environment:
+      # judge-agent's own config (apps/judge-agent/src/config.ts) — the
+      # agent runs inside this container (judge/entrypoint.sh, Task 13's
+      # Controller addendum C2), so these reach it directly via the
+      # process environment; no separate service, no shared volume.
+      API_ORIGIN: http://api:3000
+      JUDGE_NAME: judge-1
+      # Must match the same var scripts/seed-problem.ts hashes into
+      # judge_nodes, and what judge/judge.yml's template renders as its
+      # `key` — see .env.example's JUDGE_TOKEN and task-13-brief.md's
+      # Controller addendum C1 ("three consumers, one token").
+      JUDGE_TOKEN: ${JUDGE_TOKEN:?set JUDGE_TOKEN}
+      PROBLEMS_DIR: /problems
+      AGENT_PORT: '3002'
+    # judge-agent's own /healthz, not the dmoj judge process (which has none
+    # to poll) — this is what scripts/compose-up.sh's wait_healthy waits on
+    # (Controller addendum C3: the shape that fails on timeout whether or
+    # not the container was ever found, not wait_running's). Do NOT publish
+    # this port to the host (Controller addendum C4) — nothing outside the
+    # Compose network has business reaching it.
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:3002/healthz').then(r=>process.exit(r.ok?0:1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     # The judge dials out to judged; judged never dials in. judge-server
     # tolerates judged being briefly unreachable at boot (exponential
     # backoff: 4s, then 6s, then retry) so no service_healthy dependency is
@@ -125,10 +166,22 @@ services:
     # exactly like a broken judge in the startup log. Loading only the
     # executor we actually dispatch to removes that noise instead of
     # explaining it away.
-    command: ['dmoj', 'judged', '-p', '9999', '-c', '/judge.yml', '--only-executors', 'CPP17']
+    command: ['dmoj', 'judged', '-p', '9999', '-c', '/judge-config/judge.yml', '--only-executors', 'CPP17']
+    # No bind mount for /problems: it is now a purely runtime, in-container
+    # directory that judge-agent materialises packages into on demand
+    # (apps/judge-agent/src/materializer.ts). Nothing here needs to persist
+    # across a container recreate — materialisation is idempotent and
+    # content-addressed, so a lost /problems is just re-fetched from the
+    # API on the next dispatch, not a data-loss event. judge/Dockerfile
+    # already creates and chowns it.
+    #
+    # judge.yml itself IS still a bind mount, but of the template
+    # (judge/judge.yml), read-only — the real, credential-bearing
+    # judge-config/judge.yml is rendered fresh into the container's own
+    # filesystem at every start (judge/entrypoint.sh), never checked in and
+    # never baked into the image.
     volumes:
-      - ./problems:/problems:ro
-      - ./judge/judge.yml:/judge.yml:ro
+      - ./judge/judge.yml:/judge-config/judge.yml.template:ro
 
   caddy:
     image: caddy:2-alpine
@@ -149,3 +202,4 @@ services:
 volumes:
   pgdata:
   caddydata:
+  package_store:

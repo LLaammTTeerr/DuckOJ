@@ -500,14 +500,22 @@ reasoning alone; it has to actually run.
 `scripts/compose-up.sh` brings the stack up but does **not** seed the
 `aplusb` problem — the first end-to-end run against a freshly-brought-up
 stack fails with `404 problem_not_found`. `scripts/seed-problem.ts` needs
-`DATABASE_URL` and `JUDGE_TOKEN` (the latter must match `judge/judge.yml`'s
-`key` — `phase1-judge-key` by default, see `.env.example` — or the compose
-`judge` service authenticates nowhere and retries its handshake forever), and
-`postgres` has no host port mapping (see "Local development" above), so run
-it as a one-off container on the Compose network, reusing the already-built
-`migrate` image rather than building a new one:
+`DATABASE_URL`, `JUDGE_TOKEN` (must match `judge/judge.yml`'s templated
+`key` — see `.env.example`'s `JUDGE_TOKEN` and task-13-brief.md's Controller
+addendum C1 — or the compose `judge` service authenticates nowhere and
+retries its handshake forever), and, as of Task 13, `PACKAGE_STORE_DIR`
+(where it writes the built archive's bytes — without this the `packages` row
+it registers points at a blob that was never written, and the judge's later
+archive fetch 404s even though the database looks fully seeded). `postgres`
+has no host port mapping (see "Local development" above), so run this as a
+one-off container on the Compose network, reusing the already-built
+`migrate` image rather than building a new one, and mounting the *same*
+named volume `api`'s `PACKAGE_STORE_DIR` uses so both containers see the
+same bytes:
 
     podman run --rm --network <project>_default --env-file .env \
+      -v <project>_package_store:/var/lib/qhhoj/packages \
+      -e PACKAGE_STORE_DIR=/var/lib/qhhoj/packages \
       localhost/<project>_migrate:latest \
       sh -c 'DATABASE_URL="postgres://qhhoj:$POSTGRES_PASSWORD@postgres:5432/qhhoj" packages/db/node_modules/.bin/tsx scripts/seed-problem.ts'
 
@@ -517,7 +525,8 @@ your shell. (`<project>` is the Compose project name, e.g. `phase-1-skeleton`
 — check `podman network ls` / `podman-compose ps` if unsure.) This only needs
 to run once per fresh `pgdata` volume; the script is idempotent
 (`onConflictDoNothing` throughout, and the package/judge-node rows it
-registers are the same across runs).
+registers are the same across runs — and the archive write is a plain
+overwrite of deterministic bytes, so re-running it is never harmful).
 
 **Upgrading an existing Phase 1 `pgdata` volume:** that volume's
 `problem_revisions` row still holds the literal `package_hash =

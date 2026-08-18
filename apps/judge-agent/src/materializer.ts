@@ -84,7 +84,16 @@ export class Materializer {
 
     try {
       const fetchImpl = this.options.fetchImpl ?? globalThis.fetch;
-      const url = `${this.options.apiOrigin}/internal/packages/${hash}/archive`;
+      // `apiOrigin` is a bare origin (e.g. `http://api:3000`), not
+      // API-prefixed — every route in apps/api sits behind NestJS's global
+      // `api/v1` prefix (`apps/api/src/app.setup.ts`'s `setGlobalPrefix`,
+      // which excludes only `healthz`/`readyz`), including this
+      // judge-only archive route. Same convention `apps/web/src/api.ts`
+      // follows for its own base URL. Discovered missing at Task 13's
+      // integration bring-up: every unit test here mocks `fetch` and never
+      // asserted the exact path against a real Nest app, so a 404 here was
+      // silent until an actual `podman-compose` stack proved it.
+      const url = `${this.options.apiOrigin}/api/v1/internal/packages/${hash}/archive`;
       const res = await fetchImpl(url, {
         headers: { authorization: `Judge ${this.options.judgeName}:${this.options.judgeToken}` },
       });
