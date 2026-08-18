@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "tsc -b",
     "lint": "eslint src test",
-    "test": "vitest run",
+    "test": "tsc -b && vitest run",
     "generate": "openapi-typescript ../../openapi.json -o src/generated.ts"
   },
   "dependencies": {

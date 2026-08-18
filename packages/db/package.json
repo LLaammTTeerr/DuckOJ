@@ -12,7 +12,7 @@
   "scripts": {
     "typecheck": "tsc -b",
     "lint": "eslint src test",
-    "test": "vitest run",
+    "test": "tsc -b && vitest run",
     "migrate": "tsx ../../scripts/migrate.ts"
   },
   "dependencies": {
