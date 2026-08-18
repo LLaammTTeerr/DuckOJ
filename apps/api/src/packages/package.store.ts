@@ -38,8 +38,7 @@ export class FilesystemPackageStore implements PackageStore {
   async has(hash: string): Promise<boolean> {
     const path = this.pathFor(hash);
     try {
-      await stat(path);
-      return true;
+      return (await stat(path)).isFile();
     } catch {
       return false;
     }

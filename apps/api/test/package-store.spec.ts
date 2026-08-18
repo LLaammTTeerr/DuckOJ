@@ -1,4 +1,4 @@
-import { mkdtemp, readdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -48,6 +48,16 @@ describe('FilesystemPackageStore', () => {
     // pre-check, or make an eviction pass silently skip it.
     const s = await store();
     await expect(s.has('../escape')).rejects.toThrow(/hash/i);
+  });
+
+  it('reports absence when a directory occupies the package path', async () => {
+    // has() switched from readFile to stat, and stat succeeds on a
+    // directory where readFile would fail. Without the isFile() check,
+    // has() would say true for a path get() cannot serve, turning a 404
+    // into a confusing EISDIR 500 for whoever trusted has() first.
+    const dir = await mkdtemp(join(tmpdir(), 'store-'));
+    await mkdir(join(dir, HASH.slice(0, 2), HASH), { recursive: true });
+    expect(await new FilesystemPackageStore(dir).has(HASH)).toBe(false);
   });
 
   it('shards by hash prefix so one directory does not hold every package', async () => {
