@@ -11,6 +11,7 @@
     { "path": "../../packages/db" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/observability" },
+    { "path": "../../packages/package-format" },
     { "path": "../../packages/realtime" }
   ]
 }

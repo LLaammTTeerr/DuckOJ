@@ -66,6 +66,9 @@ importers:
       '@qhhoj/observability':
         specifier: workspace:^
         version: link:../../packages/observability
+      '@qhhoj/package-format':
+        specifier: workspace:^
+        version: link:../../packages/package-format
       '@qhhoj/realtime':
         specifier: workspace:^
         version: link:../../packages/realtime

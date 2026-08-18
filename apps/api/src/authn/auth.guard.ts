@@ -8,6 +8,8 @@ import { AppError } from '../common/app.error.js';
 import type { Actor } from '../authz/actor.js';
 import { SessionService } from './session.service.js';
 import { TokenService } from './token.service.js';
+import { IS_JUDGE_ROUTE, verifyJudgeCredentials } from './judge.guard.js';
+import { JudgeService } from './judge.service.js';
 
 export interface AuthedRequest extends Request {
   actor?: Actor;
@@ -39,12 +41,37 @@ export class AuthGuard implements CanActivate {
   constructor(
     @Inject(SessionService) private readonly sessions: SessionService,
     @Inject(TokenService) private readonly tokens: TokenService,
+    @Inject(JudgeService) private readonly judges: JudgeService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(Reflector) private readonly reflector: Reflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
+
+    const isJudgeRoute =
+      this.reflector.getAllAndOverride<boolean | undefined>(IS_JUDGE_ROUTE, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? false;
+
+    // A judge is not a user: it never has a session or an access token, so
+    // the actor-resolution path below does not apply to it at all — checked,
+    // and returned on, before that path even runs. This is what keeps a
+    // signed-in session (however privileged) from ever satisfying a
+    // `@JudgeRoute()` handler: the branch below never consults `req.actor`.
+    //
+    // This performs the *real* judge-credential check itself, rather than
+    // merely stepping aside — see `JudgeRoute()`'s doc comment for why
+    // "defer to whatever guard the handler happens to carry" would make the
+    // marker `@Public()` in disguise the moment `@UseGuards(JudgeGuard)` is
+    // forgotten on the handler.
+    if (isJudgeRoute) {
+      if (!(await verifyJudgeCredentials(req, this.judges))) {
+        throw new AppError(401, 'judge_unauthorized', 'Judge credentials are required or not valid.');
+      }
+      return true;
+    }
 
     // Credentials are resolved even on public routes: `GET /orgs` must show a
     // signed-in member their private organizations.

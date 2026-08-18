@@ -1,4 +1,7 @@
 import type { AddressInfo } from 'node:net';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
@@ -10,6 +13,7 @@ import { AuthnModule } from '../src/authn/authn.module.js';
 import { OrgsModule } from '../src/orgs/orgs.module.js';
 import { SubmissionsModule } from '../src/submissions/submissions.module.js';
 import { RealtimeModule } from '../src/realtime/realtime.module.js';
+import { PackagesModule } from '../src/packages/packages.module.js';
 import { RedisSubscriber } from '../src/realtime/redis-subscriber.js';
 import { SubmissionsGateway } from '../src/realtime/submissions.gateway.js';
 import { APP_CONFIG, DB } from '../src/config/config.module.js';
@@ -36,6 +40,12 @@ export const TEST_CONFIG: AppConfig = {
   totpEncKey: Buffer.alloc(32, 1),
   publicOrigin: 'http://localhost:5173',
   logLevel: 'silent',
+  // `buildApp` overrides this with a fresh temp directory per call (mirrors
+  // how `buildAppWithRealtime` overrides `redisUrl`), so tests that actually
+  // upload get an isolated store. This default only backs callers — like
+  // `app.smoke.spec.ts` — that use `TEST_CONFIG` as-is and never touch the
+  // package store, so it never needs to exist on disk.
+  packageStoreDir: join(tmpdir(), 'qhhoj-test-packages-unused'),
 };
 
 export interface BuildAppOptions {
@@ -48,11 +58,20 @@ export interface BuildAppOptions {
 }
 
 export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<INestApplication> {
-  const moduleRef = await Test.createTestingModule({ imports: [AuthnModule, OrgsModule, SubmissionsModule] })
+  // A fresh directory per call, not the shared `TEST_CONFIG` default: tests
+  // in `packages.spec.ts` actually write blobs, and sharing one directory
+  // across every test in the file (or across files, since `mkdtemp` here is
+  // per-`buildApp`-call rather than per-process) would let one test's store
+  // state leak into another's.
+  const packageStoreDir = await mkdtemp(join(tmpdir(), 'qhhoj-test-packages-'));
+
+  const moduleRef = await Test.createTestingModule({
+    imports: [AuthnModule, OrgsModule, SubmissionsModule, PackagesModule],
+  })
     .overrideProvider(DB)
     .useValue(db)
     .overrideProvider(APP_CONFIG)
-    .useValue(TEST_CONFIG)
+    .useValue({ ...TEST_CONFIG, packageStoreDir })
     .compile();
 
   const app = moduleRef.createNestApplication();

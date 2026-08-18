@@ -19,6 +19,7 @@
     "@qhhoj/contracts": "workspace:^",
     "@qhhoj/db": "workspace:^",
     "@qhhoj/observability": "workspace:^",
+    "@qhhoj/package-format": "workspace:^",
     "@qhhoj/realtime": "workspace:^",
     "cookie-parser": "^1.4.7",
     "drizzle-orm": "^0.45.2",

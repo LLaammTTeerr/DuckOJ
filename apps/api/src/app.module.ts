@@ -6,8 +6,18 @@ import { AuthzModule } from './authz/authz.module.js';
 import { OrgsModule } from './orgs/orgs.module.js';
 import { SubmissionsModule } from './submissions/submissions.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
+import { PackagesModule } from './packages/packages.module.js';
 
 @Module({
-  imports: [ConfigModule, HealthModule, AuthnModule, AuthzModule, OrgsModule, SubmissionsModule, RealtimeModule],
+  imports: [
+    ConfigModule,
+    HealthModule,
+    AuthnModule,
+    AuthzModule,
+    OrgsModule,
+    SubmissionsModule,
+    RealtimeModule,
+    PackagesModule,
+  ],
 })
 export class AppModule {}
