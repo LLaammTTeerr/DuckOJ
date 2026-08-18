@@ -1,16 +1,43 @@
 import { mkdir, mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { FilesystemPackageStore } from '../src/packages/package.store.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// A hoisted flag `rename`'s mock reads from, so an individual test can flip
+// it on to fail exactly the next `rename()` call — simulating a process
+// death between `put()`'s write and its rename — without affecting any
+// other test in this file, which all rely on `rename` behaving for real.
+const renameFailure = vi.hoisted(() => ({ armed: false }));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    rename: async (...args: Parameters<typeof actual.rename>) => {
+      if (renameFailure.armed) {
+        renameFailure.armed = false;
+        throw new Error('simulated crash between write and rename');
+      }
+      return actual.rename(...args);
+    },
+  };
+});
+
+const { FilesystemPackageStore } = await import('../src/packages/package.store.js');
 
 const HASH = 'a'.repeat(64);
 
-async function store(): Promise<FilesystemPackageStore> {
+async function store(): Promise<InstanceType<typeof FilesystemPackageStore>> {
   return new FilesystemPackageStore(await mkdtemp(join(tmpdir(), 'store-')));
 }
 
 describe('FilesystemPackageStore', () => {
+  afterEach(() => {
+    // Belt-and-braces: a test that fails before consuming the armed
+    // failure must not leak it into the next test in this file.
+    renameFailure.armed = false;
+  });
+
   it('round-trips bytes by hash', async () => {
     const s = await store();
     await s.put(HASH, Buffer.from('hello'));
@@ -64,5 +91,45 @@ describe('FilesystemPackageStore', () => {
     const dir = await mkdtemp(join(tmpdir(), 'store-'));
     await new FilesystemPackageStore(dir).put(HASH, Buffer.from('x'));
     expect(await readdir(dir)).toEqual([HASH.slice(0, 2)]);
+  });
+
+  /**
+   * The crash-atomicity property `put()` exists to guarantee: a process
+   * death between the write and the rename — OOM kill, `podman stop`, a
+   * host crash, all realistic on a large upload — must never leave a
+   * truncated file sitting at the real hash path. Pre-fix, `put()` wrote
+   * straight to `path`, so this exact failure would have left a corrupt
+   * blob `has()` reports present forever, with no self-healing path (see
+   * `package.store.ts`'s doc comment on `put`).
+   */
+  it('leaves no file at the final path when the write crashes between the write and the rename', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'store-'));
+    const s = new FilesystemPackageStore(dir);
+
+    renameFailure.armed = true;
+    await expect(s.put(HASH, Buffer.from('truncated by a crash'))).rejects.toThrow(
+      /simulated crash between write and rename/,
+    );
+
+    expect(await s.has(HASH)).toBe(false);
+
+    // No stray temp file left behind either — the shard directory should
+    // be empty, not just missing the final hash-named file.
+    const shardDir = join(dir, HASH.slice(0, 2));
+    expect(await readdir(shardDir)).toEqual([]);
+  });
+
+  it('recovers on retry after a simulated crash — a client resending the correct bytes succeeds', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'store-'));
+    const s = new FilesystemPackageStore(dir);
+
+    renameFailure.armed = true;
+    await expect(s.put(HASH, Buffer.from('hello'))).rejects.toThrow();
+    expect(await s.has(HASH)).toBe(false);
+
+    // The retry — same call, no special-casing needed — lands normally.
+    await s.put(HASH, Buffer.from('hello'));
+    expect(await s.has(HASH)).toBe(true);
+    expect((await s.get(HASH)).toString()).toBe('hello');
   });
 });
