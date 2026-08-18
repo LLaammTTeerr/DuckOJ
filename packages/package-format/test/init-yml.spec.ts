@@ -45,12 +45,40 @@ describe('renderInitYml', () => {
     const grouped: PackageManifestDto = {
       ...manifest,
       tests: [
-        { input: 'tests/01.in', answer: 'tests/01.out', points: 1, group: 1 },
-        { input: 'tests/02.in', answer: 'tests/02.out', points: 1, group: 1 },
+        { input: 'tests/01.in', answer: 'tests/01.out', points: 2, group: 1 },
+        { input: 'tests/02.in', answer: 'tests/02.out', points: 3, group: 1 },
       ],
     };
     const doc = parse(renderInitYml(grouped)) as { test_cases: Array<Record<string, unknown>> };
     expect(doc.test_cases).toHaveLength(1);
-    expect(doc.test_cases[0]).toHaveProperty('batched');
+    const batch = doc.test_cases[0] as { points: number; batched: Array<{ in: string; out: string }> };
+    expect(batch.points).toBe(5); // Sum of 2 + 3, not just first case (2)
+    expect(batch.batched).toHaveLength(2);
+    expect(batch.batched[0]).toEqual({ in: 'tests/01.in', out: 'tests/01.out' });
+    expect(batch.batched[1]).toEqual({ in: 'tests/02.in', out: 'tests/02.out' });
+  });
+
+  it('renders ungrouped and grouped cases separately in the same document', () => {
+    const mixed: PackageManifestDto = {
+      schemaVersion: 1,
+      name: 'Mixed groups',
+      checker: { kind: 'standard' },
+      limits: { timeMs: 1000, memoryKb: 65536 },
+      tests: [
+        { input: 'tests/01.in', answer: 'tests/01.out', points: 1, group: 0 },
+        { input: 'tests/02.in', answer: 'tests/02.out', points: 2, group: 1 },
+        { input: 'tests/03.in', answer: 'tests/03.out', points: 3, group: 1 },
+      ],
+    };
+    const doc = parse(renderInitYml(mixed)) as { test_cases: Array<Record<string, unknown>> };
+    expect(doc.test_cases).toHaveLength(2);
+    // First case is ungrouped (group 0)
+    expect(doc.test_cases[0]).toEqual({ in: 'tests/01.in', out: 'tests/01.out', points: 1 });
+    // Second entry is the batch (group 1)
+    const batch = doc.test_cases[1] as { points: number; batched: Array<{ in: string; out: string }> };
+    expect(batch.points).toBe(5); // 2 + 3
+    expect(batch.batched).toHaveLength(2);
+    expect(batch.batched[0]).toEqual({ in: 'tests/02.in', out: 'tests/02.out' });
+    expect(batch.batched[1]).toEqual({ in: 'tests/03.in', out: 'tests/03.out' });
   });
 });
