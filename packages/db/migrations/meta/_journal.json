@@ -22,6 +22,13 @@
       "when": 1786970784608,
       "tag": "0002_judging",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787050336016,
+      "tag": "0003_optimal_valkyrie",
+      "breakpoints": true
     }
   ]
 }
