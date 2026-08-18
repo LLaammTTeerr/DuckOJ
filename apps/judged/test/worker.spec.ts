@@ -446,6 +446,12 @@ describe('Worker', () => {
       const [submission] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
       expect(submission?.state).not.toBe('queued');
       expect(submission?.state).toBe('errored');
+      // A bare "Errored" with no explanation tells the user nothing — the
+      // same generic, judge-detail-free message used for `internalError`
+      // must be present here too.
+      expect(submission?.compileOutput).toBe(
+        'Grading failed due to an internal judge error. This has been logged for investigation.',
+      );
 
       worker.stop();
       await Promise.race([run, new Promise((r) => setTimeout(r, 1000))]);

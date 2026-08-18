@@ -6,6 +6,8 @@ FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/db/package.json packages/db/
 COPY packages/contracts/package.json packages/contracts/
+COPY packages/observability/package.json packages/observability/
+COPY packages/realtime/package.json packages/realtime/
 COPY apps/api/package.json apps/api/
 RUN pnpm install --frozen-lockfile
 

@@ -7,11 +7,14 @@ import type { JobStore } from './job-store.js';
 import type { SubmissionEvents } from './submission-events.js';
 
 /**
- * Written to `compileOutput` for `internalError` instead of the judge's own
- * message. judge-server populates that field with its own Python traceback —
- * file paths, module names, internal state — none of which is fit to hand to
- * the submitting user. The raw message is still logged (see `write` below)
- * where an operator can reach it; only the client-facing payload is generic.
+ * Written to `compileOutput` for `internalError` and `terminated` instead of
+ * the judge's own message (or, for `terminated`, instead of leaving the
+ * field blank). judge-server populates `internalError` with its own Python
+ * traceback — file paths, module names, internal state — none of which is
+ * fit to hand to the submitting user, and a `terminated` attempt has no
+ * judge-provided explanation at all. The raw `internalError` message is
+ * still logged (see `write` below) where an operator can reach it; only the
+ * client-facing payload is generic.
  */
 const GENERIC_INTERNAL_ERROR_MESSAGE =
   'Grading failed due to an internal judge error. This has been logged for investigation.';
@@ -136,10 +139,18 @@ export class EventWriter {
         // it again (the job is already done) and the UI would show "Queued"
         // forever. `errored`/`IE` mirrors `internalError`'s precedent: an
         // abnormal halt is not a real graded outcome, but it must still land
-        // on a state a user can understand.
+        // on a state a user can understand. `compileOutput` reuses the same
+        // generic message as `internalError` — a terminated attempt has no
+        // judge-provided explanation of its own, and the field must never be
+        // left blank, which reads to the user as an unexplained "Errored".
         return void (await this.db
           .update(submissions)
-          .set({ state: 'errored', verdict: 'IE', judgedAt: new Date() })
+          .set({
+            state: 'errored',
+            verdict: 'IE',
+            compileOutput: GENERIC_INTERNAL_ERROR_MESSAGE,
+            judgedAt: new Date(),
+          })
           .where(eq(submissions.id, submissionId)));
       default: {
         // Exhaustiveness guard: `noImplicitReturns` is not part of the

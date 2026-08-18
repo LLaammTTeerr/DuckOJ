@@ -52,10 +52,22 @@ export class DmojDriver implements JudgeDriver {
    * id**, not our submission id. The job is the unit of grading, and every
    * reply packet echoes this value back so we can find the live entry.
    *
-   * A retry reuses the same job id with a higher attempt. That is safe in
-   * phase 1 because concurrency is 1 and the previous attempt is sent
-   * `terminate-submission` before the retry dispatches. If a later phase runs
-   * several judges, this must become an id unique per (job, attempt).
+   * A retry reuses the same job id with a higher attempt. `cancel` sends
+   * `terminate-submission` before the retry dispatches, which narrows the
+   * window but does not structurally close it: `live` is still keyed by job
+   * id alone, and the entry is deleted only on a terminal packet — which a
+   * wedged judge may never send, and a wedged judge is exactly what the
+   * watchdog exists for. So: watchdog fires -> terminate broadcast ->
+   * heartbeats stop -> the lease lapses 40-60s later -> attempt N+1
+   * overwrites `live[job]` -> an attempt-N packet arriving after that point
+   * finds N+1's entry, accumulates into N+1's mask, and passes fencing
+   * because it is emitted through N+1's closure. This requires the judge to
+   * be tens of seconds behind on its own socket, which with concurrency 1, a
+   * single `judged`, and a sub-second terminate round-trip on a local
+   * bridge is unlikely enough to defer past phase 1 — but it is a
+   * probabilistic argument, not a proof. The real fix is to key `live` by
+   * (job, attempt) instead of job id alone, planned for phase 4 when several
+   * judges run concurrently and this stops being a corner case.
    */
   async dispatch(job: GradingJob, emit: EmitEvent): Promise<void> {
     const submissionId = Number(job.id);

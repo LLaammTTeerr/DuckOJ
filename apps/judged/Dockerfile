@@ -6,6 +6,8 @@ FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/db/package.json packages/db/
 COPY packages/judge-protocol/package.json packages/judge-protocol/
+COPY packages/observability/package.json packages/observability/
+COPY packages/realtime/package.json packages/realtime/
 COPY apps/judged/package.json apps/judged/
 RUN pnpm install --frozen-lockfile
 
