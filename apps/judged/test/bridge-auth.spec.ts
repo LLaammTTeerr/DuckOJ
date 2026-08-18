@@ -38,6 +38,7 @@ function fakeJudge(port: number, id: string, key: string) {
     ready,
     received,
     isClosed: () => closed,
+    send: (p: unknown) => socket!.write(encodePacket(p)),
     close: () => socket!.destroy(),
   };
 }
@@ -70,11 +71,86 @@ describe('BridgeServer authentication', () => {
     expect(server.judgeCount()).toBe(1);
   }, 30_000);
 
-  it('closes the connection when the key does not verify, and registers nothing', async () => {
-    const verifyJudge = vi.fn(async () => false);
+  it('records last-seen liveness on a successful handshake', async () => {
+    // `judge_nodes.lastSeen` gets written on handshake and heartbeat (design
+    // §8) — proven here at the mechanism level, the same way
+    // `verifyJudge`'s own invocation is proven above: a spy in place of
+    // `@qhhoj/db`'s real `touchJudgeLastSeen`, since this file has no
+    // database and does not need one to prove the bridge calls the right
+    // thing at the right moment.
+    const verifyJudge = vi.fn(async () => true);
+    const recordLastSeen = vi.fn(async () => {});
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
       verifyJudge,
+      recordLastSeen,
+    });
+    const port = await server.listen(0);
+    judge = fakeJudge(port, 'judge-1', 'phase1-judge-key');
+    await judge.ready;
+
+    await vi.waitFor(() => expect(judge!.received.map((p) => p.name)).toContain('handshake-success'), 10_000);
+    await vi.waitFor(() => expect(recordLastSeen).toHaveBeenCalledWith('judge-1'), 10_000);
+  }, 30_000);
+
+  it('records last-seen liveness again on a ping-response, the design-specified heartbeat', async () => {
+    const verifyJudge = vi.fn(async () => true);
+    const recordLastSeen = vi.fn(async () => {});
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge,
+      recordLastSeen,
+    });
+    const port = await server.listen(0);
+    judge = fakeJudge(port, 'judge-1', 'phase1-judge-key');
+    await judge.ready;
+    await vi.waitFor(() => expect(judge!.received.map((p) => p.name)).toContain('handshake-success'), 10_000);
+    // The handshake itself already produced one call — isolate the
+    // heartbeat's own effect by counting from here.
+    const callsAfterHandshake = recordLastSeen.mock.calls.length;
+
+    judge.send({ name: 'ping-response', when: 0, time: 0 });
+
+    await vi.waitFor(() => expect(recordLastSeen.mock.calls.length).toBeGreaterThan(callsAfterHandshake), 10_000);
+    expect(recordLastSeen).toHaveBeenLastCalledWith('judge-1');
+  }, 30_000);
+
+  it('does not record last-seen liveness for a non-heartbeat packet', async () => {
+    // The design specifies exactly two write signals — handshake and
+    // heartbeat — not "any packet", unlike the in-memory `lastSeenAt` map
+    // this durable write sits beside. `supported-problems` is a real,
+    // frequent packet this bridge already handles specially; it must not
+    // also trigger a database write.
+    const verifyJudge = vi.fn(async () => true);
+    const recordLastSeen = vi.fn(async () => {});
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge,
+      recordLastSeen,
+    });
+    const port = await server.listen(0);
+    judge = fakeJudge(port, 'judge-1', 'phase1-judge-key');
+    await judge.ready;
+    await vi.waitFor(() => expect(judge!.received.map((p) => p.name)).toContain('handshake-success'), 10_000);
+    await vi.waitFor(() => expect(recordLastSeen).toHaveBeenCalledTimes(1), 10_000);
+
+    judge.send({ name: 'supported-problems', problems: [['aplusb', 0]] });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(recordLastSeen).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it('closes the connection when the key does not verify, and registers nothing', async () => {
+    const verifyJudge = vi.fn(async () => false);
+    // The other half of the property above: an unauthenticated caller must
+    // not be able to write to `judge_nodes` — however harmlessly — just by
+    // presenting a name. `recordLastSeen` staying uncalled on every
+    // rejection path in this file is what proves that.
+    const recordLastSeen = vi.fn(async () => {});
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge,
+      recordLastSeen,
     });
     const port = await server.listen(0);
     judge = fakeJudge(port, 'judge-1', 'wrong-key');
@@ -94,6 +170,8 @@ describe('BridgeServer authentication', () => {
     server.broadcast({ name: 'terminate-submission' });
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(judge.received.length).toBe(receivedBeforeBroadcast);
+
+    expect(recordLastSeen).not.toHaveBeenCalled();
   }, 30_000);
 
   it('does not register a judge whose verification throws', async () => {
@@ -101,9 +179,11 @@ describe('BridgeServer authentication', () => {
       // Simulates a database blip during verification.
       throw new Error('db blip');
     });
+    const recordLastSeen = vi.fn(async () => {});
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
       verifyJudge,
+      recordLastSeen,
     });
     const port = await server.listen(0);
     judge = fakeJudge(port, 'judge-1', 'phase1-judge-key');
@@ -116,6 +196,7 @@ describe('BridgeServer authentication', () => {
     await vi.waitFor(() => expect(judge!.isClosed()).toBe(true), 10_000);
     expect(judge.received).toHaveLength(0);
     expect(server.judgeCount()).toBe(0);
+    expect(recordLastSeen).not.toHaveBeenCalled();
 
     const receivedBeforeBroadcast = judge.received.length;
     server.broadcast({ name: 'terminate-submission' });

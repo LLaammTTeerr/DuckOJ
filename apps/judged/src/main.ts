@@ -1,5 +1,5 @@
 import { Redis } from 'ioredis';
-import { createDb, verifyJudgeCredential } from '@qhhoj/db';
+import { createDb, touchJudgeLastSeen, verifyJudgeCredential } from '@qhhoj/db';
 import { describeError } from '@qhhoj/observability';
 import { loadConfig } from './config.js';
 import { startHealthServer } from './health.js';
@@ -36,6 +36,10 @@ async function main(): Promise<void> {
     // Same check, same table, as the API's `JudgeGuard` — see
     // `verifyJudgeCredential`'s doc comment in `@qhhoj/db`.
     verifyJudge: (id, key) => verifyJudgeCredential(db, id, key),
+    // Design §8: "`lastSeen` gets written on handshake and heartbeat" — see
+    // `touchJudgeLastSeen`'s and `BridgeOptions.recordLastSeen`'s doc
+    // comments for exactly which two signals that means.
+    recordLastSeen: (id) => touchJudgeLastSeen(db, id),
   });
   const agent = new HttpAgentClient({ agentOrigin: config.agentOrigin });
   const driver = new DmojDriver(bridge, agent);

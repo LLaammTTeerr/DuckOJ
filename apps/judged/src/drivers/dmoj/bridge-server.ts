@@ -26,6 +26,22 @@ export interface BridgeOptions {
    * `BridgeServer` that accepts a judge without deciding how to verify it.
    */
   verifyJudge(id: string, key: string): Promise<boolean>;
+  /**
+   * Records that judge `id` is alive — production wires this to
+   * `@qhhoj/db`'s `touchJudgeLastSeen`, so `judge_nodes.last_seen` reflects
+   * what this class's own in-memory `lastSeenAt` map already knows.
+   * Called on a successful handshake and on every `ping-response`, the
+   * design's two specified signals (design §8) — never on every packet,
+   * unlike `lastSeenAt`, so a chatty grading session cannot turn liveness
+   * tracking into a write on every packet.
+   *
+   * Optional: every test double that builds `BridgeOptions` without caring
+   * about liveness keeps compiling. A rejection or a synchronous throw from
+   * this callback is always swallowed at the call site (`touchLastSeen`
+   * below) — never allowed to affect the handshake or drop a connection,
+   * the same fail-open contract `touchJudgeLastSeen` itself carries.
+   */
+  recordLastSeen?(id: string): Promise<void>;
   /** Overrides `PING_INTERVAL_MS`. Tests inject a short value; production uses the default. */
   pingIntervalMs?: number;
 }
@@ -76,6 +92,24 @@ export class BridgeServer {
   /** The problem set the given judge id last announced. Empty for an unknown or silent judge. */
   problemsFor(id: string): ReadonlySet<string> {
     return this.problemSets.get(id) ?? new Set();
+  }
+
+  /**
+   * Fires `options.recordLastSeen` for `id`, if the caller supplied one,
+   * without ever letting it affect the caller. `Promise.resolve().then(...)`
+   * catches a synchronous throw from a test double the same way it would
+   * catch an async rejection from the real implementation — both land in
+   * the same `catch`, which does nothing on purpose (see `recordLastSeen`'s
+   * doc comment).
+   */
+  private touchLastSeen(id: string): void {
+    const record = this.options.recordLastSeen;
+    if (!record) return;
+    void Promise.resolve()
+      .then(() => record(id))
+      .catch(() => {
+        // Observability only. Never rejects a handshake or drops a heartbeat.
+      });
   }
 
   /** Sends to any connected judge. Phase 1 has exactly one. */
@@ -208,6 +242,7 @@ export class BridgeServer {
             this.connections.set(id, connection);
             connection.send({ name: 'handshake-success' });
             this.lastSeenAt.set(id, Date.now());
+            this.touchLastSeen(id);
             this.handler(connection, packet);
           })();
           return;
@@ -223,6 +258,13 @@ export class BridgeServer {
         // Any decoded packet is proof the judge on the other end is still
         // reading and writing — not just `ping-response`.
         this.lastSeenAt.set(id, Date.now());
+        // Unlike `lastSeenAt` above, the durable `judge_nodes.last_seen`
+        // write only fires on `ping-response` — the actual heartbeat the
+        // design specifies (§8) — not on every packet a busy grading
+        // session produces.
+        if (packet.name === 'ping-response') {
+          this.touchLastSeen(id);
+        }
         if (packet.name === 'supported-problems') {
           this.problemSets.set(id, new Set(packet.problems.map(([problemId]) => problemId)));
         }
