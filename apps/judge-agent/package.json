@@ -1,0 +1,21 @@
+{
+  "name": "@qhhoj/judge-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -b",
+    "lint": "eslint src test",
+    "test": "tsc -b && vitest run",
+    "build": "tsc -b",
+    "dev": "tsx watch src/main.ts"
+  },
+  "dependencies": {
+    "@qhhoj/observability": "workspace:^",
+    "@qhhoj/package-format": "workspace:^",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  }
+}

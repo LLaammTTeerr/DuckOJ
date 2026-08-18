@@ -131,6 +131,22 @@ importers:
         specifier: ^4.23.12
         version: 4.23.12
 
+  apps/judge-agent:
+    dependencies:
+      '@qhhoj/observability':
+        specifier: workspace:^
+        version: link:../../packages/observability
+      '@qhhoj/package-format':
+        specifier: workspace:^
+        version: link:../../packages/package-format
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
+
   apps/judged:
     dependencies:
       '@qhhoj/db':
