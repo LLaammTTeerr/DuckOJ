@@ -2,5 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
   "include": ["src"],
-  "references": [{ "path": "../../packages/db" }, { "path": "../../packages/judge-protocol" }]
+  "references": [
+    { "path": "../../packages/db" },
+    { "path": "../../packages/judge-protocol" },
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/realtime" }
+  ]
 }

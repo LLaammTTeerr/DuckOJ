@@ -1,5 +1,6 @@
 import { Redis } from 'ioredis';
 import { createDb } from '@qhhoj/db';
+import { describeError } from '@qhhoj/observability';
 import { loadConfig } from './config.js';
 import { startHealthServer } from './health.js';
 import { JobStore } from './job-store.js';
@@ -45,6 +46,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(JSON.stringify({ msg: 'judged failed to start', error: describeError(error) }));
   process.exit(1);
 });

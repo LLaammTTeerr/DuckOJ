@@ -1,10 +1,12 @@
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { WebSocket, WebSocketServer } from 'ws';
+import { describeError } from '@qhhoj/observability';
 import { SessionService } from '../authn/session.service.js';
 import { TokenService } from '../authn/token.service.js';
 import { SubmissionAccessService } from '../authz/submission.access.js';
+import { AppError } from '../common/app.error.js';
 import type { Actor } from '../authz/actor.js';
 
 const BEARER_SCHEME = /^Bearer\s+/i;
@@ -37,6 +39,7 @@ export class SubmissionsGateway implements OnModuleDestroy {
   // `ws` defaults to a 100 MB max frame. The only message this endpoint ever
   // accepts is a two-field `subscribe` object, so anything approaching that
   // default is abuse, not a legitimate client.
+  private readonly logger = new Logger(SubmissionsGateway.name);
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
   private readonly clients = new Map<WebSocket, Client>();
   private httpServer: HttpServer | null = null;
@@ -196,8 +199,24 @@ export class SubmissionsGateway implements OnModuleDestroy {
       // any signed-in user could watch anyone's grading in real time.
       await this.submissions.getVisible(client.actor, submissionId);
       client.subscriptions.add(submissionId);
-    } catch {
-      ws.send(JSON.stringify({ type: 'error', code: 'submission_not_found' }));
+    } catch (error: unknown) {
+      // `getVisible` throws `AppError(404, 'submission_not_found', …)` for
+      // both "does not exist" and "exists but isn't yours" — deliberately
+      // the same outcome, so a caller can't use this endpoint as an
+      // existence oracle. A transient fault (the database dropping a
+      // connection mid-query) is a different thing entirely and must not be
+      // dressed up as that same authorization outcome: reported as
+      // `submission_not_found`, it reads to the caller as "you have no
+      // access", which is simply false, and it would hide a real operational
+      // problem behind a code nobody would think to alert on. Distinguish by
+      // type, not by content, so the 404-over-403 property above is untouched
+      // — only the *unexpected* case gets a different code.
+      if (error instanceof AppError) {
+        ws.send(JSON.stringify({ type: 'error', code: 'submission_not_found' }));
+      } else {
+        this.logger.error(describeError(error));
+        ws.send(JSON.stringify({ type: 'error', code: 'internal_error' }));
+      }
     }
   }
 

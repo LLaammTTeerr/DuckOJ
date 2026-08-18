@@ -127,6 +127,37 @@ describe('EventWriter', () => {
     });
   }, 120_000);
 
+  it('moves the submission to "grading" on the first case result', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+
+      await writer.apply(job, { type: 'compiling' });
+      let [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      expect(row?.state).toBe('compiling');
+
+      await writer.apply(job, {
+        type: 'caseResult',
+        groupIndex: 0,
+        caseIndex: 0,
+        verdict: 'AC',
+        skipped: false,
+        flags: [],
+        timeMs: 1,
+        memoryKb: 1,
+        points: 1,
+        maxPoints: 1,
+        feedback: '',
+      });
+
+      [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      // Without this, `state` jumps straight from `compiling` to `done` and
+      // the UI shows "Compiling" for the submission's entire run.
+      expect(row?.state).toBe('grading');
+    });
+  }, 120_000);
+
   it('tolerates a redelivered case result instead of duplicating it', async () => {
     await withTestDb(async (db) => {
       const store = new JobStore(db);

@@ -5,6 +5,7 @@ import { buildApp, buildAppWithRealtime } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import { registerAndLogin, seedProblemAndLanguage } from './submissions.fixtures.js';
 import { SessionService } from '../src/authn/session.service.js';
+import { SubmissionAccessService } from '../src/authz/submission.access.js';
 
 function open(url: string, headers: Record<string, string>): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
@@ -122,6 +123,42 @@ describe('submission realtime', () => {
         socket.send(JSON.stringify({ type: 'subscribe', submissionId: created.body.id }));
 
         expect(JSON.parse(await reply)).toMatchObject({ type: 'error', code: 'submission_not_found' });
+        socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('reports a transient database fault distinctly from "not found", without disclosing existence', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+
+      const failingSubmissions = {
+        getVisible: async (): Promise<never> => {
+          throw new Error('connection terminated unexpectedly');
+        },
+      };
+      const { app, url } = await buildAppWithRealtime(db, {
+        overrides: [{ provide: SubmissionAccessService, useValue: failingSubmissions }],
+      });
+      try {
+        const agent = request.agent(app.getHttpServer());
+        const cookie = await registerAndLogin(agent, 'gina');
+        const socket = await open(`${url}/ws`, { cookie });
+
+        const reply = new Promise<string>((resolve) => socket.once('message', (d) => resolve(String(d))));
+        socket.send(JSON.stringify({ type: 'subscribe', submissionId: 1 }));
+
+        // Not `submission_not_found`: that code is an authorization outcome
+        // (`getVisible` throwing `AppError`), and a transient fault is a
+        // different thing entirely — reporting it the same way would read to
+        // the caller as "you have no access", which is false, and would hide
+        // a real operational problem behind a code nobody watches.
+        const parsed = JSON.parse(await reply) as { type: string; code: string };
+        expect(parsed.type).toBe('error');
+        expect(parsed.code).not.toBe('submission_not_found');
+
         socket.close();
       } finally {
         await app.close();

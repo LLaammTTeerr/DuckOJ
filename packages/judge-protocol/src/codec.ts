@@ -102,13 +102,27 @@ export function createPacketDecoder(options: PacketDecoderOptions): PacketDecode
         const body = readBytes(HEADER_BYTES, size);
         consumeBytes(HEADER_BYTES + size);
 
+        // Decoding (inflate + JSON.parse) is the only thing that can prove
+        // the *stream* is corrupt, so it is the only thing this try/catch
+        // covers. `options.onPacket` runs the caller's own logic — in
+        // `BridgeServer`, that includes application code with no relation to
+        // frame integrity — and a throw from *it* is not evidence the wire
+        // format is broken. Catching it here and routing it through the same
+        // `onError` (which every caller wires to "drop the connection") would
+        // destroy a perfectly healthy connection over a bug in the handler.
+        // Left uncaught, it propagates out of this `push()` call instead,
+        // without setting `poisoned` — so a later `push()` (the next chunk,
+        // possibly the next packet in this one) still decodes normally.
+        let decoded: unknown;
         try {
-          options.onPacket(JSON.parse(inflateSync(body).toString('utf8')));
+          decoded = JSON.parse(inflateSync(body).toString('utf8'));
         } catch (error) {
           poisoned = true;
           options.onError(error instanceof Error ? error : new Error(String(error)));
           return;
         }
+
+        options.onPacket(decoded);
       }
     },
   };

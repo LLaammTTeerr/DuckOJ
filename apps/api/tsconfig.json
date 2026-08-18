@@ -7,5 +7,10 @@
     "emitDecoratorMetadata": true
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/db" }, { "path": "../../packages/contracts" }]
+  "references": [
+    { "path": "../../packages/db" },
+    { "path": "../../packages/contracts" },
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/realtime" }
+  ]
 }

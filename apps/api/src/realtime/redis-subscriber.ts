@@ -1,14 +1,9 @@
 import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { Redis } from 'ioredis';
+import { SUBMISSION_CHANNEL } from '@qhhoj/realtime';
 import { APP_CONFIG } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { SubmissionsGateway } from './submissions.gateway.js';
-
-// Mirrors `SUBMISSION_CHANNEL` in `apps/judged/src/submission-events.ts`. The
-// two apps share no package for this constant, so — per this task's own
-// instruction — the value is copied by hand rather than assumed; keep it in
-// sync with that file if it ever changes.
-const SUBMISSION_CHANNEL = 'submission';
 
 /**
  * Subscribes to the channel `judged`'s `SubmissionEvents` publishes on and

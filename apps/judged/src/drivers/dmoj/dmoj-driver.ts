@@ -7,6 +7,7 @@ import {
   type JudgeDriver,
   type JudgeToBridgePacket,
 } from '@qhhoj/judge-protocol';
+import { describeError } from '@qhhoj/observability';
 import type { BridgeServer } from './bridge-server.js';
 
 interface LiveJob {
@@ -133,7 +134,9 @@ export class DmojDriver implements JudgeDriver {
       .catch((error: unknown) => {
         // Keep the chain alive: one failed packet must not wedge every
         // subsequent packet for this job.
-        console.error(JSON.stringify({ msg: 'translate failed', jobId: entry.job.id, error: String(error) }));
+        console.error(
+          JSON.stringify({ msg: 'translate failed', jobId: entry.job.id, error: describeError(error) }),
+        );
       });
   }
 

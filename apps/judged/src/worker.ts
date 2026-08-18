@@ -1,4 +1,5 @@
 import type { JudgeDriver } from '@qhhoj/judge-protocol';
+import { describeError } from '@qhhoj/observability';
 import type { EventWriter } from './event-writer.js';
 import type { ClaimedJob, JobStore } from './job-store.js';
 
@@ -53,7 +54,7 @@ export class Worker {
         console.error(
           JSON.stringify({
             msg: 'claim failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: describeError(error),
           }),
         );
         await new Promise((r) => setTimeout(r, POLL_MS));
@@ -75,7 +76,7 @@ export class Worker {
               msg: 'heartbeat failed',
               jobId: claimed.id,
               attempt: claimed.attempt,
-              error: error instanceof Error ? error.message : String(error),
+              error: describeError(error),
             }),
           );
         });
@@ -131,7 +132,7 @@ export class Worker {
             msg: 'job failed',
             jobId: claimed.id,
             attempt: claimed.attempt,
-            error: error instanceof Error ? error.message : String(error),
+            error: describeError(error),
           }),
         );
         // Whatever ended the try block without the dispatch promise
@@ -152,7 +153,7 @@ export class Worker {
               msg: 'cancel after job failure also failed',
               jobId: claimed.id,
               attempt: claimed.attempt,
-              error: cancelError instanceof Error ? cancelError.message : String(cancelError),
+              error: describeError(cancelError),
             }),
           );
         }

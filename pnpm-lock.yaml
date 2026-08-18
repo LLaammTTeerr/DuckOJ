@@ -60,6 +60,12 @@ importers:
       '@qhhoj/db':
         specifier: workspace:^
         version: link:../../packages/db
+      '@qhhoj/observability':
+        specifier: workspace:^
+        version: link:../../packages/observability
+      '@qhhoj/realtime':
+        specifier: workspace:^
+        version: link:../../packages/realtime
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -124,6 +130,12 @@ importers:
       '@qhhoj/judge-protocol':
         specifier: workspace:^
         version: link:../../packages/judge-protocol
+      '@qhhoj/observability':
+        specifier: workspace:^
+        version: link:../../packages/observability
+      '@qhhoj/realtime':
+        specifier: workspace:^
+        version: link:../../packages/realtime
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(postgres@3.4.9)
@@ -217,6 +229,10 @@ importers:
         version: 4.23.12
 
   packages/judge-protocol: {}
+
+  packages/observability: {}
+
+  packages/realtime: {}
 
   packages/sdk:
     dependencies:

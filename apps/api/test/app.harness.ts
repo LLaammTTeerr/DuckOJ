@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import { Redis } from 'ioredis';
 import type { DestinationStream } from 'pino';
 import type { Db } from '@qhhoj/db';
+import { SUBMISSION_CHANNEL } from '@qhhoj/realtime';
 import { AuthnModule } from '../src/authn/authn.module.js';
 import { OrgsModule } from '../src/orgs/orgs.module.js';
 import { SubmissionsModule } from '../src/submissions/submissions.module.js';
@@ -16,11 +17,6 @@ import { ProblemFilter } from '../src/common/problem.filter.js';
 import { requestLogger } from '../src/common/logger.js';
 import type { AppConfig } from '../src/config/config.schema.js';
 import { ensureRedisUrl } from './redis.harness.js';
-
-// Mirrors `SUBMISSION_CHANNEL` in `apps/judged/src/submission-events.ts` and
-// `apps/api/src/realtime/redis-subscriber.ts` — see the latter for why this
-// value is copied by hand rather than imported from a shared package.
-const SUBMISSION_CHANNEL = 'submission';
 
 export const TEST_CONFIG: AppConfig = {
   nodeEnv: 'test',

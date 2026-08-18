@@ -92,4 +92,27 @@ describe('packet codec', () => {
 
     expect(onPacket).toHaveBeenCalledWith(payload);
   });
+
+  it('does not treat a throwing handler as a corrupt stream', () => {
+    const onError = vi.fn();
+    let calls = 0;
+    const onPacket = vi.fn(() => {
+      calls += 1;
+      if (calls === 1) throw new Error('handler bug, unrelated to the wire format');
+    });
+    const decoder = createPacketDecoder({ onPacket, onError });
+
+    // The first packet's handler throws. This must not be mistaken for a
+    // malformed frame: `onError` (which every real caller wires to
+    // `socket.destroy()`) must never fire for it, and the decoder must not
+    // poison itself — a healthy connection must survive one buggy handler
+    // invocation and keep decoding whatever arrives next.
+    expect(() => decoder.push(encodePacket({ name: 'a' }))).toThrow('handler bug');
+    expect(onError).not.toHaveBeenCalled();
+
+    decoder.push(encodePacket({ name: 'b' }));
+    expect(onPacket).toHaveBeenCalledTimes(2);
+    expect(onPacket).toHaveBeenLastCalledWith({ name: 'b' });
+    expect(onError).not.toHaveBeenCalled();
+  });
 });

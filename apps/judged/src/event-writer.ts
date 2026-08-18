@@ -70,6 +70,16 @@ export class EventWriter {
           })
           .where(eq(submissions.id, submissionId)));
       case 'caseResult':
+        // The first case result is the only signal that grading has actually
+        // started running tests, as opposed to still compiling — without
+        // this, `state` jumps straight from `compiling` to `done` and the UI
+        // shows "Compiling" for the submission's entire run. Idempotent
+        // (every subsequent case result re-sets the same value), and safe to
+        // do unconditionally: within one attempt, `DmojDriver`'s `translate`
+        // chain processes packets strictly in the order judge-server sends
+        // them, so a case result can never arrive after `finished` has
+        // already moved this submission to `done`.
+        await this.setState(submissionId, 'grading');
         return void (await this.db
           .insert(submissionCases)
           .values({

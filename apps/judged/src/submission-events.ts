@@ -1,6 +1,5 @@
 import type { Redis } from 'ioredis';
-
-export const SUBMISSION_CHANNEL = 'submission';
+import { SUBMISSION_CHANNEL } from '@qhhoj/realtime';
 
 /**
  * The ONLY thing in this service that publishes.

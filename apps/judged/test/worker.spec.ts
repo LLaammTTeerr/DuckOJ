@@ -1,4 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
+import { DrizzleQueryError } from 'drizzle-orm/errors';
 import { describe, expect, it, vi } from 'vitest';
 import { FakeDriver, type EmitEvent, type JudgeDriver } from '@qhhoj/judge-protocol';
 import { schema, type Db } from '@qhhoj/db';
@@ -223,9 +224,19 @@ describe('Worker', () => {
       const failLine = errorSpy.mock.calls
         .map((c) => c[0])
         .find((line) => typeof line === 'string' && line.includes('job failed')) as string;
-      const logged = JSON.parse(failLine) as { jobId: number; error: string };
+      const logged = JSON.parse(failLine) as {
+        jobId: number;
+        attempt: number;
+        error: { name: string; frames: string };
+      };
       expect(logged.jobId).toBe(jobId);
-      expect(logged.error).toContain('50ms');
+      expect(logged.attempt).toBe(1);
+      // The error is logged through `describeError` (see the "does not leak
+      // a failed query's bind parameters" test below), which reports a
+      // structured `{ name, frames }` rather than the raw `.message` — so
+      // this asserts the safe shape rather than message text.
+      expect(logged.error.name).toBe('Error');
+      expect(logged.error.frames).toContain('worker.ts');
 
       // The watchdog abandoning a job must cancel the driver's in-flight
       // attempt — otherwise the judge keeps grading it while a retry
@@ -295,6 +306,63 @@ describe('Worker', () => {
         .find((line) => typeof line === 'string' && line.includes('job failed'));
       expect(failLine).toBeDefined();
       expect((JSON.parse(failLine as string) as { jobId: number }).jobId).toBe(jobIdA);
+
+      worker.stop();
+      errorSpy.mockRestore();
+      await Promise.race([run, new Promise((r) => setTimeout(r, 1000))]);
+    });
+  }, 120_000);
+
+  it('does not leak a failed query\'s bind parameters into the "job failed" log', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const fake = new FakeDriver();
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { jobId } = await seed(db, store, 'int main(){}');
+
+      // Drizzle 0.45 builds every `DrizzleQueryError` message (and hence the
+      // first line of its `.stack`) as the raw query text plus its bind
+      // parameters — here standing in for a submission's own source, which a
+      // real failed `submissionCases` insert would carry. A driver rejecting
+      // with this exact shape is the realistic path: `dmoj-driver.ts`'s
+      // `translate()` calls `entry.emit`, which is `EventWriter.apply`, whose
+      // `write()` can throw exactly this.
+      const sensitive = 'int main(){ /* SENSITIVE SUBMISSION SOURCE */ }';
+      const queryError = new DrizzleQueryError(
+        'insert into "submission_cases" ("feedback") values ($1)',
+        [sensitive],
+        Object.assign(new Error('constraint violation'), { code: '23505' }),
+      );
+      const driver: JudgeDriver = {
+        start: () => fake.start(),
+        capabilities: () => fake.capabilities(),
+        dispatch: () => Promise.reject(queryError),
+        cancel: (id, attempt) => fake.cancel(id, attempt),
+        stop: () => fake.stop(),
+      };
+
+      const worker = new Worker(store, writer, driver, 'worker-a');
+      const run = worker.start();
+
+      await vi.waitFor(() => {
+        const failed = errorSpy.mock.calls
+          .map((c) => c[0])
+          .find((line) => typeof line === 'string' && line.includes('job failed'));
+        expect(failed).toBeDefined();
+      }, 10_000);
+
+      const rendered = errorSpy.mock.calls
+        .map((c) => c[0])
+        .filter((line): line is string => typeof line === 'string')
+        .join('\n');
+      expect(rendered).toContain(String(jobId));
+      // The leak this guards against: neither the bind parameter nor the raw
+      // query text may reach the log.
+      expect(rendered).not.toContain(sensitive);
+      expect(rendered).not.toContain('insert into');
+      // Diagnosable without the leak: the driver-reported SQLSTATE survives.
+      expect(rendered).toContain('23505');
 
       worker.stop();
       errorSpy.mockRestore();
