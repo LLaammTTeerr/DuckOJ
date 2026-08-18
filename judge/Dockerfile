@@ -81,10 +81,11 @@ WORKDIR /judge
 # (dmoj/judge.py: "running the judge as root is unsafe, please use an
 # unprivileged user instead"). Any Compose `user:` override breaks this.
 USER judge
-# entrypoint.sh starts judge-agent, waits for its /healthz, then execs the
-# judge (dmoj, per Compose's `command:`) — see the script's own comment and
-# task-13-brief.md's Controller addendum C2. tini remains the ENTRYPOINT
-# proper so it stays pid 1 and reaps both the backgrounded agent and
-# whatever `exec "$@"` replaces the script with.
+# entrypoint.sh starts judge-agent, waits for its /healthz, then starts the
+# judge (dmoj, per Compose's `command:`) as a second background job and
+# supervises both — see the script's own comment and task-13-brief.md's
+# Controller addendum C2. tini remains the ENTRYPOINT proper so it stays pid
+# 1 and reaps both children, however entrypoint.sh's own exit ends up
+# releasing them.
 ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]
 CMD ["dmoj", "--help"]
