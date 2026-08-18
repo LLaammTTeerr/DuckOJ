@@ -1,10 +1,13 @@
 id: judge-1
 key: phase1-judge-key
-# The judge's own key check is decorative in Phase 1 — `judged`'s
-# BridgeServer accepts any handshake and never verifies it
-# (apps/judged/src/drivers/dmoj/bridge-server.ts:73-76). Network isolation
-# (judged's port is never published to the host — see docker-compose.yml) is
-# the only real control; don't treat this key as one.
+# `judged`'s BridgeServer verifies this `(id, key)` pair against
+# `judge_nodes.name` / `judge_nodes.token_hash` before admitting a handshake
+# (apps/judged/src/drivers/dmoj/bridge-server.ts, `BridgeOptions.verifyJudge`).
+# For this key to work against a real deployment, a `judge_nodes` row named
+# `judge-1` with `token_hash = sha256_hex('phase1-judge-key')` must exist —
+# nothing in this phase's plan seeds one yet, so a fresh `docker-compose up`
+# will reject this judge until that row is created by hand or by a future
+# seed script.
 problem_storage_globs:
   - /problems/*
 runtime:

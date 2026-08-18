@@ -69,7 +69,11 @@ describe('DmojDriver', () => {
   });
 
   it('accepts a handshake and answers handshake-success', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
     judge = fakeJudge(port);
     await judge.ready;
@@ -77,7 +81,11 @@ describe('DmojDriver', () => {
   }, 30_000);
 
   it('translates a submission into a submission-request carrying the mapped problem code', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
@@ -99,7 +107,11 @@ describe('DmojDriver', () => {
   }, 30_000);
 
   it('translates a full grading run into our events', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
@@ -133,7 +145,11 @@ describe('DmojDriver', () => {
   }, 30_000);
 
   it('computes the correct verdict when test-case-status and grading-end arrive in the same TCP chunk', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
@@ -172,7 +188,11 @@ describe('DmojDriver', () => {
   }, 30_000);
 
   it('does not let a skipped case override a genuine failure in the aggregate verdict', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
@@ -210,7 +230,11 @@ describe('DmojDriver', () => {
   }, 30_000);
 
   it('reports IE, not AC, when every case in the run was skipped', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
@@ -240,7 +264,11 @@ describe('DmojDriver', () => {
   }, 30_000);
 
   it('still reports AC for a normal all-passing run', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
@@ -270,7 +298,11 @@ describe('DmojDriver', () => {
   }, 30_000);
 
   it('surfaces a compile error', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
@@ -291,7 +323,11 @@ describe('DmojDriver', () => {
   }, 30_000);
 
   it('sends terminate-submission when a job is cancelled', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
@@ -307,7 +343,11 @@ describe('DmojDriver', () => {
   }, 30_000);
 
   it('terminates an orphan a reconnecting judge reports that we hold no job for', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
     const driver = new DmojDriver(server);
     judge = fakeJudge(port);
@@ -327,6 +367,7 @@ describe('DmojDriver', () => {
     server = new BridgeServer({
       hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
       // A short injected interval so the test doesn't wait out the real 30s default.
       pingIntervalMs: 20,
     });
@@ -339,7 +380,11 @@ describe('DmojDriver', () => {
   }, 30_000);
 
   it('closes the displaced connection and keeps exactly one live entry when a judge reconnects with the same id', async () => {
-    server = new BridgeServer({ hashToProblemCode: () => 'aplusb', languageToExecutor: () => 'CPP17' });
+    server = new BridgeServer({
+      hashToProblemCode: () => 'aplusb',
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+    });
     const port = await server.listen(0);
 
     const first = connect(port, '127.0.0.1');
@@ -396,6 +441,7 @@ describe('DmojDriver', () => {
     server = new BridgeServer({
       hashToProblemCode: () => 'aplusb',
       languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
       pingIntervalMs: 20,
     });
     const port = await server.listen(0);

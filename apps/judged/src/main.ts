@@ -1,5 +1,5 @@
 import { Redis } from 'ioredis';
-import { createDb } from '@qhhoj/db';
+import { createDb, verifyJudgeCredential } from '@qhhoj/db';
 import { describeError } from '@qhhoj/observability';
 import { loadConfig } from './config.js';
 import { startHealthServer } from './health.js';
@@ -35,6 +35,9 @@ async function main(): Promise<void> {
     // Phase 2 replaces this with judge-agent's fetch-by-hash.
     hashToProblemCode: () => config.problemCode,
     languageToExecutor: (key) => (key === 'cpp17' ? 'CPP17' : key.toUpperCase()),
+    // Same check, same table, as the API's `JudgeGuard` — see
+    // `verifyJudgeCredential`'s doc comment in `@qhhoj/db`.
+    verifyJudge: (id, key) => verifyJudgeCredential(db, id, key),
   });
   const driver = new DmojDriver(bridge);
 

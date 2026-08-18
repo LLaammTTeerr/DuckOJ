@@ -19,6 +19,14 @@ export interface BridgeOptions {
   hashToProblemCode(packageHash: string): string;
   /** Our language key → judge-server executor key. */
   languageToExecutor(languageKey: string): string;
+  /**
+   * Verifies the `(id, key)` pair a judge presents in its `handshake` packet
+   * against `judge_nodes` — see `@qhhoj/db`'s `verifyJudgeCredential`, which
+   * production wires this to. Required, not optional: the handshake branch
+   * below calls it unconditionally, so a caller cannot construct a
+   * `BridgeServer` that accepts a judge without deciding how to verify it.
+   */
+  verifyJudge(id: string, key: string): Promise<boolean>;
   /** Overrides `PING_INTERVAL_MS`. Tests inject a short value; production uses the default. */
   pingIntervalMs?: number;
 }
@@ -114,26 +122,63 @@ export class BridgeServer {
       onPacket: (value) => {
         const packet = value as JudgeToBridgePacket;
         if (packet.name === 'handshake') {
-          id = packet.id;
-          // A judge reconnecting with an id already in the map (e.g. it
-          // dropped the old socket and redialed before we noticed) must not
-          // silently evict the live connection: `set()` alone leaves the old
-          // socket open and out of `connections`, so `sweep()` never pings or
-          // reaps it, and its eventual FIN — landing on a `close` handler
-          // captured with this same `id` — would delete whatever now sits at
-          // `id`, which by then is the new, live connection. Closing the old
-          // socket here retires it immediately and deterministically, rather
-          // than leaving that eviction to race an unrelated close event.
-          const displaced = this.connections.get(id);
-          if (displaced && displaced !== connection) displaced.close();
-          this.connections.set(id, connection);
-          connection.send({ name: 'handshake-success' });
+          const handshake = packet;
+          // `verifyJudge` is async but `onPacket` is a synchronous callback
+          // (the decoder's `push()` loop drains every packet buffered in the
+          // current chunk before returning), so the check runs detached in
+          // an IIFE rather than blocking decode of whatever follows it.
+          void (async () => {
+            let verified: boolean;
+            try {
+              verified = await this.options.verifyJudge(handshake.id, handshake.key);
+            } catch {
+              // A verification failure (e.g. a database blip) must fail
+              // closed: an unverifiable judge is an unauthenticated judge,
+              // never an admitted one.
+              verified = false;
+            }
+            // The socket may have been destroyed (by teardown, or the
+            // remote end dropping) while verification was in flight;
+            // touching `this.connections` for a dead socket would register
+            // a connection `broadcast()` can never actually reach.
+            if (socket.destroyed) return;
+            if (!verified) {
+              // Send nothing — no `handshake-success`, no error packet —
+              // just a closed connection, and `this.connections` is never
+              // touched.
+              socket.destroy();
+              return;
+            }
+            id = handshake.id;
+            // A judge reconnecting with an id already in the map (e.g. it
+            // dropped the old socket and redialed before we noticed) must not
+            // silently evict the live connection: `set()` alone leaves the old
+            // socket open and out of `connections`, so `sweep()` never pings or
+            // reaps it, and its eventual FIN — landing on a `close` handler
+            // captured with this same `id` — would delete whatever now sits at
+            // `id`, which by then is the new, live connection. Closing the old
+            // socket here retires it immediately and deterministically, rather
+            // than leaving that eviction to race an unrelated close event.
+            const displaced = this.connections.get(id);
+            if (displaced && displaced !== connection) displaced.close();
+            this.connections.set(id, connection);
+            connection.send({ name: 'handshake-success' });
+            this.lastSeenAt.set(id, Date.now());
+            this.handler(connection, packet);
+          })();
+          return;
         }
+        // A packet arriving before the handshake has finished verifying
+        // (e.g. batched into the same TCP chunk) belongs to a connection
+        // that is not yet authenticated — and may never be, since
+        // verification is still pending. Dropping it here, rather than
+        // forwarding to `this.handler`, closes the gap the async check
+        // above would otherwise leave open: an unverified socket must not
+        // be able to inject grading packets just by arriving fast enough.
+        if (!id) return;
         // Any decoded packet is proof the judge on the other end is still
-        // reading and writing — not just `ping-response`. Recorded after
-        // `id` is assigned above, so a handshake and a packet that follows
-        // it in the same TCP chunk both land against the right id.
-        if (id) this.lastSeenAt.set(id, Date.now());
+        // reading and writing — not just `ping-response`.
+        this.lastSeenAt.set(id, Date.now());
         this.handler(connection, packet);
       },
       // A malformed frame means we can no longer trust the stream position,

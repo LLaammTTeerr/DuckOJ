@@ -86,12 +86,12 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       LOG_LEVEL: info
     # The judge dials OUT to judged (see the `judge` service below) — judged
-    # needs no ingress at all. Do NOT publish 9999 (or 3001) to the host: our
-    # BridgeServer accepts any handshake and never checks the judge key
-    # (apps/judged/src/drivers/dmoj/bridge-server.ts:73-76), so anything that
-    # can reach 9999 could register as a judge and be handed submission
-    # source. Network isolation on the Compose network is the only control —
-    # keep it, don't "fix" this by publishing the port.
+    # needs no ingress at all. Do NOT publish 9999 (or 3001) to the host:
+    # BridgeServer now verifies every handshake's `(id, key)` against
+    # `judge_nodes` (apps/judged/src/drivers/dmoj/bridge-server.ts,
+    # `BridgeOptions.verifyJudge`), but network isolation on the Compose
+    # network remains real defense in depth — keep it, don't "fix" this by
+    # publishing the port.
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://localhost:3001/healthz').then(r=>process.exit(r.ok?0:1))"]
       interval: 10s
