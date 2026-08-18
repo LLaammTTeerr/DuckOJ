@@ -535,21 +535,21 @@ it's all pending migrations or none.
   running `migrate`, so it repoints `phase1-aplusb` first; only then does
   `0004` find a database it can apply to.
 - **If the volume genuinely predates `0003`** (a true original Phase 1
-  skeleton, never redeployed since), the seed cannot run first — it needs
-  `packages`/`package_files` to exist, and a plain `migrate` on this commit
-  would try to apply `0003` and `0004` in the same transaction, rolling both
-  back when `0004` hits the pre-existing row. Reaching the "already at 0003"
-  case from here means landing `0003` without `0004` in the same pass —
-  e.g. temporarily moving `0004_tiny_professor_monster.sql` and its
-  `meta/0004_snapshot.json` and journal entry out of `migrations/` for one
-  `migrate` run, then restoring them for a second `migrate` run after
-  seeding. **Not independently verified** — no volume in this state was
-  available to test the workaround against; flagging it rather than
-  asserting it works.
+  skeleton, never redeployed since): **recreate it, don't upgrade it.**
+  Remove the Phase 1 `pgdata` volume and re-run `scripts/compose-up.sh`
+  against an empty one — `migrate` then applies every migration including
+  `0004` from scratch (no pre-existing `phase1-aplusb` row to conflict
+  with), and the seed populates a real package from clean. This destroys
+  whatever was in that volume. That's fine by design here: this project's
+  data does not need to survive a Phase 1-era dev volume — the data that
+  eventually matters lives on a remote server and is migrated there later,
+  separately, so a local Phase 1 volume is disposable, not something to
+  carry forward by hand.
 
 Either way this is not automated (migrations are forward-only and
-generated, not hand-edited): it takes an operator doing the steps in this
-non-default order once, by hand, per pre-existing volume.
+generated, not hand-edited): it takes an operator either seeding before
+migrating (already-at-`0003` case) or discarding and recreating the volume
+(pre-`0003` case), once, by hand, per pre-existing volume.
 
 ### Running the script
 
