@@ -337,7 +337,8 @@ evidence, not carried forward from earlier tasks' say-so:**
     `phase-2a-packages` stack: `correct → AC 3/3`, `wrong → WA 1/3`,
     `broken → IE | compileOutput: <real g++ diagnostic, truncated to 80
     chars by the script itself>`, `hello → AC 3/3`, `all four paths behaved
-    as expected`. Output pasted verbatim in the Step 1 section of
+    as expected`. Output pasted verbatim (including the g++ ANSI color
+    escape the 80-char slice happened to stop inside this run) in
     `task-15-report.md`.
 12. **Met, re-proved live this session rather than cited from Task 14's
     record.** Before the run: `podman exec phase-2a-packages_judge_1 ls
@@ -373,6 +374,15 @@ policy) are still true and were left unchanged. This ledger
 committed; `progress.md` itself stays untracked and gitignored, unmodified
 by this task.
 
-Task 15: complete. Commit recorded in `task-15-report.md`. **256/256, all
+Task 15: complete, commit `c30be00` (docs, runbook, e2e-submit.ts comment,
+and this ledger; `947fca8` remains the last code change). **256/256, all
 gates green, from a genuinely clean install. 12 of 12 acceptance criteria
-met, 0 not met, 0 unverifiable.**
+met, 0 not met, 0 unverifiable.** `task-15-report.md` (gitignored, not
+committed) carries the full verbatim gate and e2e output.
+
+**PHASE 2A COMPLETE — 15 tasks, 256 tests, gate green from a clean
+install.** All twelve acceptance criteria met, none unverifiable. Three
+known issues and one test flake carried forward honestly rather than
+patched under acceptance pressure — see `docs/runbook.md`'s "Known issues
+carried into Phase 2b". Awaiting the human's integration decision, same as
+Phase 1: merge, PR, or leave the branch.
