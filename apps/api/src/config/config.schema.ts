@@ -10,6 +10,7 @@ const EnvSchema = z.object({
   TOTP_ENC_KEY: z.string().regex(/^[0-9a-f]{64}$/, 'must be 32 bytes of lowercase hex'),
   PUBLIC_ORIGIN: z.string().url(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  PACKAGE_STORE_DIR: z.string().min(1).default('/var/lib/qhhoj/packages'),
 });
 
 export interface AppConfig {
@@ -22,6 +23,7 @@ export interface AppConfig {
   totpEncKey: Buffer;
   publicOrigin: string;
   logLevel: string;
+  packageStoreDir: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -43,5 +45,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     totpEncKey: Buffer.from(e.TOTP_ENC_KEY, 'hex'),
     publicOrigin: e.PUBLIC_ORIGIN,
     logLevel: e.LOG_LEVEL,
+    packageStoreDir: e.PACKAGE_STORE_DIR,
   };
 }

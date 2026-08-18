@@ -1,0 +1,48 @@
+import { mkdtemp, readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { FilesystemPackageStore } from '../src/packages/package.store.js';
+
+const HASH = 'a'.repeat(64);
+
+async function store(): Promise<FilesystemPackageStore> {
+  return new FilesystemPackageStore(await mkdtemp(join(tmpdir(), 'store-')));
+}
+
+describe('FilesystemPackageStore', () => {
+  it('round-trips bytes by hash', async () => {
+    const s = await store();
+    await s.put(HASH, Buffer.from('hello'));
+    expect((await s.get(HASH)).toString()).toBe('hello');
+  });
+
+  it('reports absence without throwing', async () => {
+    expect(await (await store()).has(HASH)).toBe(false);
+  });
+
+  it('throws a distinguishable error when reading something absent', async () => {
+    await expect((await store()).get(HASH)).rejects.toThrow(/not found|ENOENT/i);
+  });
+
+  it('is idempotent — putting the same hash twice is not an error', async () => {
+    const s = await store();
+    await s.put(HASH, Buffer.from('hello'));
+    await s.put(HASH, Buffer.from('hello'));
+    expect((await s.get(HASH)).toString()).toBe('hello');
+  });
+
+  it('refuses a hash that is not 64 hex characters', async () => {
+    const s = await store();
+    // The hash reaches the filesystem as a path component. Anything else is a
+    // traversal primitive: `../../etc/x` would write outside the store.
+    await expect(s.put('../escape', Buffer.from('x'))).rejects.toThrow(/hash/i);
+    await expect(s.get('../escape')).rejects.toThrow(/hash/i);
+  });
+
+  it('shards by hash prefix so one directory does not hold every package', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'store-'));
+    await new FilesystemPackageStore(dir).put(HASH, Buffer.from('x'));
+    expect(await readdir(dir)).toEqual([HASH.slice(0, 2)]);
+  });
+});
