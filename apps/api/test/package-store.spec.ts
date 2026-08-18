@@ -40,6 +40,16 @@ describe('FilesystemPackageStore', () => {
     await expect(s.get('../escape')).rejects.toThrow(/hash/i);
   });
 
+  it('has() throws on a malformed hash rather than reporting it absent', async () => {
+    // Paired with "reports absence without throwing" above: has() must
+    // distinguish "this key is not a valid hash" (a caller bug) from "this
+    // key is a valid hash that just isn't present" (false). Collapsing both
+    // to `false` would let a malformed key sail through an upload
+    // pre-check, or make an eviction pass silently skip it.
+    const s = await store();
+    await expect(s.has('../escape')).rejects.toThrow(/hash/i);
+  });
+
   it('shards by hash prefix so one directory does not hold every package', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'store-'));
     await new FilesystemPackageStore(dir).put(HASH, Buffer.from('x'));

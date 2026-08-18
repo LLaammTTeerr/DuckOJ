@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export const PACKAGE_STORE = Symbol('PACKAGE_STORE');
@@ -36,8 +36,9 @@ export class FilesystemPackageStore implements PackageStore {
   }
 
   async has(hash: string): Promise<boolean> {
+    const path = this.pathFor(hash);
     try {
-      await readFile(this.pathFor(hash));
+      await stat(path);
       return true;
     } catch {
       return false;
