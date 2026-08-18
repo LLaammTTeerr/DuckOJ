@@ -262,10 +262,41 @@ invalidates every stored package and every `problem_revisions` row pointing at
 one. It is worth getting the canonical form right now, and worth writing down
 why it is what it is — which §5 does.
 
-## 16. Open questions
+## 16. Resolved decisions
 
-1. Archive format and compression — `tar.zst` is the assumption, unconfirmed.
-2. Maximum package size, and whether upload needs to be resumable at this scale.
-3. Whether the agent should pre-warm packages for queued jobs, or stay purely
-   on-demand. On-demand is assumed; pre-warming is an optimisation with a
-   scheduling dependency.
+The three questions this spec opened are now closed. Each is recorded with what
+it costs if wrong, so a later phase can reverse it knowingly.
+
+**Archive format: `tar` + zstd, using Node's built-in `zlib`.** Verified on this
+project's Node 22.22.1: `zlib.zstdCompressSync` exists and round-trips. That was
+the deciding fact — the assumption had been that zstd meant a native dependency
+and therefore a build burden in the judge and API images, which would have made
+gzip the pragmatic choice. It does not, so we get the better ratio for free and
+add nothing to either Dockerfile. Cost if wrong: re-compressing stored packages,
+which is mechanical because the hash covers file contents rather than archive
+bytes (§5) — package identity is unaffected by a change of compressor.
+
+**Maximum package size: 256 MB, no resumable upload.** At this project's stated
+scale — one operator, up to a thousand users, one to three VPS — resumable
+upload is machinery with no user behind it. Cost if wrong: a setter with a
+genuinely large test set gets a hard failure at upload rather than a slow
+success, which is at least loud.
+
+**The agent stays purely on-demand.** Pre-warming needs to know what is queued,
+which is a scheduling dependency, and scheduling is deferred to Phase 4. The
+cost is latency on a cache miss — one fetch and unpack before the first
+submission for a package grades. Worth measuring during the end-to-end run so
+Phase 4 inherits a number rather than an intuition.
+
+## 17. Remaining unknowns
+
+Deliberately not decided here, because deciding them without evidence would be
+guessing:
+
+1. The cache eviction threshold. LRU over directories is the mechanism (§7);
+   the size at which it triggers should follow a measurement of real package
+   sizes, not precede it.
+2. Whether `package_files` earns its keep in this slice. It is specified for
+   integrity verification and future partial fetch (§10), and integrity is
+   used at upload — but if partial fetch never arrives, a manifest inside the
+   package would have been enough. Worth revisiting at the end of the slice.
