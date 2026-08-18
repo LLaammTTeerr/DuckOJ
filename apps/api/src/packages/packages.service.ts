@@ -1,9 +1,10 @@
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { schema, type Db } from '@qhhoj/db';
+import { describeError } from '@qhhoj/observability';
 import { hashFile, packageHash, parseManifest, unpackArchive, type PackageFile } from '@qhhoj/package-format';
 import type { PackageSummaryDto, UploadPackageResponseDto } from '@qhhoj/contracts';
 import { DB } from '../config/config.module.js';
@@ -64,10 +65,23 @@ async function walkAndHash(root: string): Promise<PackageFile[]> {
  * that may be case-insensitive (macOS, Windows) or Unicode-normalising
  * (APFS/HFS+), and `packageHash` deliberately does not fold either — see its
  * doc comment. Returns the first colliding pair found, or `null`.
+ *
+ * Three independent folds, not two: case-folding alone and NFC-normalising
+ * alone each miss a pair that only collides once *both* are applied together
+ * — e.g. `CAFÉ.txt` (NFC) against `café.txt` (NFD, a lowercase 'e' plus a
+ * combining acute accent). `'CAFÉ.txt'.toLowerCase()` and
+ * `'café.txt'.normalize('NFC')` are each distinct from the other string
+ * alone, but `normalize('NFC').toLowerCase()` collapses both to the same
+ * value — which is exactly what a default case-insensitive, Unicode
+ * -normalising macOS APFS volume would do to them at write time. Purely
+ * additive: this third fold can only reject packages the first two already
+ * accepted as ambiguous under some fold, never something they'd have
+ * accepted as genuinely distinct.
  */
 function findPathCollision(files: PackageFile[]): [string, string] | null {
   const byLower = new Map<string, string>();
   const byNfc = new Map<string, string>();
+  const byNfcLower = new Map<string, string>();
 
   for (const file of files) {
     const lower = file.path.toLowerCase();
@@ -79,12 +93,19 @@ function findPathCollision(files: PackageFile[]): [string, string] | null {
     const priorNfc = byNfc.get(nfc);
     if (priorNfc !== undefined) return [priorNfc, file.path];
     byNfc.set(nfc, file.path);
+
+    const nfcLower = nfc.toLowerCase();
+    const priorNfcLower = byNfcLower.get(nfcLower);
+    if (priorNfcLower !== undefined) return [priorNfcLower, file.path];
+    byNfcLower.set(nfcLower, file.path);
   }
   return null;
 }
 
 @Injectable()
 export class PackagesService {
+  private readonly logger = new Logger(PackagesService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(PACKAGE_STORE) private readonly store: PackageStore,
@@ -96,6 +117,12 @@ export class PackagesService {
    * enough on its own to trust the input:
    *
    *  1. Unpack to a scratch directory — the only way to see individual files.
+   *     A malformed or hostile archive (bad zstd, bad tar, a `../` traversal
+   *     entry `unpackArchive`'s own guard rejects) throws a plain `Error`
+   *     here, not an `AppError` — caught below and turned into a 422, not
+   *     left to fall through to `ProblemFilter`'s 500 branch. The upload
+   *     endpoint's entire job is telling a bad archive from a good one; it
+   *     must not answer "the server broke" for input it exists to reject.
    *  2. Recompute every file's digest from what actually extracted, not from
    *     anything the client asserted about it.
    *  3. Recompute the package hash from those digests and compare against
@@ -116,8 +143,29 @@ export class PackagesService {
   async upload(claimedHash: string, archiveBytes: Buffer): Promise<UploadPackageResponseDto> {
     const workDir = await mkdtemp(join(tmpdir(), 'pkg-upload-'));
     try {
-      await unpackArchive(archiveBytes, workDir);
-      const files = await walkAndHash(workDir);
+      let files: PackageFile[];
+      try {
+        await unpackArchive(archiveBytes, workDir);
+        files = await walkAndHash(workDir);
+      } catch (error) {
+        // `walkAndHash`'s own rejections (symlink, non-regular entry) are
+        // already a specific, correctly-coded `AppError` — pass those
+        // through untouched. Everything else (a corrupt/foreign archive, or
+        // `unpackArchive`'s traversal guard) is a plain `Error` from
+        // node-tar or zstd internals: translated to a generic 422 so the
+        // client never sees library internals, but still logged — at `warn`,
+        // not `error`, so this stays out of alerting built on ERROR-level
+        // lines — so an operator can tell "a user sent a bad archive" from
+        // "something in here is actually broken".
+        if (error instanceof AppError) throw error;
+        this.logger.warn({ ...describeError(error), claimedHash }, 'rejected an unparseable package archive');
+        throw new AppError(
+          422,
+          'package_archive_invalid',
+          'The archive could not be unpacked. It may be corrupt, not a valid tar+zstd archive, or ' +
+            'contain an unsafe path.',
+        );
+      }
 
       const computed = packageHash(files);
       if (computed !== claimedHash) {

@@ -434,8 +434,53 @@
               }
             }
           },
+          "413": {
+            "description": "The archive exceeds the server-configured upload size limit",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
           "422": {
-            "description": "The claimed hash does not match the archive contents, the manifest is invalid, or two paths collide once case-folded or Unicode-normalised",
+            "description": "The archive could not be unpacked, the claimed hash does not match its contents, the manifest is invalid, or two paths collide once case-folded or Unicode-normalised",
             "content": {
               "application/problem+json": {
                 "schema": {

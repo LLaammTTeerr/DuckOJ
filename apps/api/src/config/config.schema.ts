@@ -11,6 +11,10 @@ const EnvSchema = z.object({
   PUBLIC_ORIGIN: z.string().url(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   PACKAGE_STORE_DIR: z.string().min(1).default('/var/lib/qhhoj/packages'),
+  // 256 MiB. Injectable per-environment (and per-test) rather than a
+  // hardcoded controller constant, so a test can set it to a few bytes and
+  // actually exercise the over-limit path without uploading 256 MiB.
+  PACKAGE_UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(268_435_456),
 });
 
 export interface AppConfig {
@@ -24,6 +28,7 @@ export interface AppConfig {
   publicOrigin: string;
   logLevel: string;
   packageStoreDir: string;
+  packageUploadMaxBytes: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -46,5 +51,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     publicOrigin: e.PUBLIC_ORIGIN,
     logLevel: e.LOG_LEVEL,
     packageStoreDir: e.PACKAGE_STORE_DIR,
+    packageUploadMaxBytes: e.PACKAGE_UPLOAD_MAX_BYTES,
   };
 }

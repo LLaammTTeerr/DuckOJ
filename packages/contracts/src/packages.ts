@@ -50,10 +50,14 @@ registry.registerPath({
       description: 'Not signed in',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
+    413: {
+      description: 'The archive exceeds the server-configured upload size limit',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
     422: {
       description:
-        'The claimed hash does not match the archive contents, the manifest is invalid, or two paths ' +
-        'collide once case-folded or Unicode-normalised',
+        'The archive could not be unpacked, the claimed hash does not match its contents, the manifest ' +
+        'is invalid, or two paths collide once case-folded or Unicode-normalised',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },
@@ -85,5 +89,11 @@ registry.registerPath({
 // here. It is machine-to-machine (a judge fetching bytes with a judge
 // credential), it is not part of the client SDK surface, and it must never
 // be reachable with a user session — registering it would put it in
-// `openapi.json` and the generated SDK, both of which CI checks stay free of
-// it.
+// `openapi.json` and the generated SDK.
+//
+// CI's regen-and-`git diff --exit-code` check only enforces that those two
+// artifacts stay in *sync* with this file; it says nothing about which paths
+// this file may register, so it would not fail if `/internal/...` were added
+// here later. `test/no-internal-routes.spec.ts` is what actually makes that
+// true — a structural check over every registered path, not a promise
+// resting on this comment alone.

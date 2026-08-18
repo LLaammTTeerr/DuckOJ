@@ -259,7 +259,27 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The claimed hash does not match the archive contents, the manifest is invalid, or two paths collide once case-folded or Unicode-normalised */
+                /** @description The archive exceeds the server-configured upload size limit */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The archive could not be unpacked, the claimed hash does not match its contents, the manifest is invalid, or two paths collide once case-folded or Unicode-normalised */
                 422: {
                     headers: {
                         [name: string]: unknown;

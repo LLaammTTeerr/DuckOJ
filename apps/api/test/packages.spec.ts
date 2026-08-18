@@ -1,8 +1,11 @@
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { zstdCompressSync } from 'node:zlib';
+import { Logger } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import { create } from 'tar';
 import { eq } from 'drizzle-orm';
 import { hashJudgeToken, schema } from '@qhhoj/db';
 import { packDirectory, packageHash, type PackageFile } from '@qhhoj/package-format';
@@ -35,6 +38,26 @@ async function buildPackage(dir: string): Promise<{ archive: Buffer; files: Pack
 
 function uploadTo(agent: ReturnType<typeof request.agent>, hash: string, archive: Buffer) {
   return agent.post('/packages').query({ hash }).set('Content-Type', 'application/octet-stream').send(archive);
+}
+
+/**
+ * A tar+zstd archive whose single entry escapes `destDir` via a `../` prefix
+ * — the exact hostile shape `unpackArchive`'s traversal guard exists to
+ * reject, and therefore the sharpest case for "a malformed/hostile archive
+ * must answer 422, not 500": if this one alone regressed to a 500, it would
+ * mean the guard's own rejection was leaking through as a server error
+ * rather than a client-facing validation failure. Built the same way
+ * `archive.spec.ts`'s "refuses an archive entry that escapes the
+ * destination" test builds it — `packDirectory`/`unpackArchive` can never
+ * produce such an archive themselves, so it has to be hand-built.
+ */
+async function buildTraversalArchive(): Promise<Buffer> {
+  const evil = await mkdtemp(join(tmpdir(), 'evil-'));
+  await writeFile(join(evil, 'ok.txt'), 'x');
+  const chunks: Buffer[] = [];
+  const stream = create({ cwd: evil, portable: true, prefix: '../escaped' }, ['ok.txt']);
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk as Uint8Array));
+  return Buffer.from(zstdCompressSync(Buffer.concat(chunks)));
 }
 
 describe('packages', () => {
@@ -187,6 +210,87 @@ describe('packages', () => {
       }
     });
   }, 120_000);
+
+  /**
+   * Fix 1: the upload endpoint's entire job is telling a bad archive from a
+   * good one, so a malformed/hostile archive must never fall through to
+   * `ProblemFilter`'s 500 branch — that answers "the server broke" for input
+   * the route exists to reject, and writes an ERROR-level log line per
+   * malformed request, a cheap alert-noise primitive for any authenticated
+   * caller. `Logger.prototype.error` is spied globally (it is the one
+   * `ProblemFilter` itself calls for a >=500 response) rather than
+   * inspecting captured output, so this fails if *anything* in the request
+   * path logs at error level, not just `ProblemFilter`.
+   */
+  it('rejects garbage bytes as a malformed archive, not a 500, and logs no ERROR line', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'malformed1');
+        const errorSpy = vi.spyOn(Logger.prototype, 'error');
+
+        const res = await uploadTo(agent, 'a'.repeat(64), Buffer.from('not an archive at all, just bytes'));
+
+        expect(res.status).toBe(422);
+        expect(res.headers['content-type']).toContain('application/problem+json');
+        expect(res.body.code).toBe('package_archive_invalid');
+        expect(errorSpy).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('rejects a path-traversal archive as a malformed archive, not a 500, and logs no ERROR line', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'malformed2');
+        const errorSpy = vi.spyOn(Logger.prototype, 'error');
+
+        const hostile = await buildTraversalArchive();
+        const res = await uploadTo(agent, 'b'.repeat(64), hostile);
+
+        expect(res.status).toBe(422);
+        expect(res.headers['content-type']).toContain('application/problem+json');
+        expect(res.body.code).toBe('package_archive_invalid');
+        expect(errorSpy).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  /**
+   * Fix 2: the size cap previously called `req.destroy()` before
+   * `ProblemFilter` ever got a chance to write a response on that same
+   * connection, so the entire 413 contract was dead code — a real upload
+   * over the real limit got a bare `socket hang up`, no status, no body.
+   * The limit is injected via `configOverrides` rather than actually
+   * uploading a multi-hundred-megabyte archive to prove it.
+   */
+  it('answers 413 problem+json for an over-limit upload, not a socket error', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db, { configOverrides: { packageUploadMaxBytes: 16 } });
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'oversize1');
+
+        const { archive } = await buildPackage(await fixtureDir());
+        expect(archive.length).toBeGreaterThan(16);
+
+        const res = await uploadTo(agent, 'c'.repeat(64), archive);
+
+        expect(res.status).toBe(413);
+        expect(res.headers['content-type']).toContain('application/problem+json');
+        expect(res.body.code).toBe('package_too_large');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
 });
 
 /**
@@ -251,6 +355,51 @@ describe('packages — path collision rejection (A2)', () => {
         expect(res.body.code).toBe('package_path_collision');
         expect(res.body.detail).toContain(nfc);
         expect(res.body.detail).toContain(nfd);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  /**
+   * Fix 3 (originally the addendum's own gap, not an implementation defect):
+   * a pair that collides only once case-folding and Unicode-normalisation
+   * are applied *together* — `CAFÉ.txt` (NFC, uppercase) and `café.txt`
+   * (NFD, lowercase) are distinct under `toLowerCase()` alone (accents
+   * aren't touched, so the NFD form's decomposed 'e'+combining-accent never
+   * matches the NFC form's precomposed É once lowered) and distinct under
+   * `normalize('NFC')` alone (the case difference survives normalisation),
+   * but collapse to the same string once folded through both. That exact
+   * pair collides on a default case-insensitive, Unicode-normalising macOS
+   * APFS volume — precisely the silent-merge failure A2 exists to prevent.
+   */
+  it('rejects a package containing CAFÉ.txt (NFC) and café.txt (NFD)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'collider4');
+
+        const upperNfc = 'CAF\u00c9.txt'; // U+00C9 LATIN CAPITAL LETTER E WITH ACUTE, precomposed
+        const lowerNfd = 'cafe\u0301.txt'; // 'e' + U+0301 COMBINING ACUTE ACCENT, decomposed
+        // Neither single fold catches this pair — only both together do.
+        expect(upperNfc.toLowerCase()).not.toBe(lowerNfd.toLowerCase());
+        expect(upperNfc.normalize('NFC')).not.toBe(lowerNfd.normalize('NFC'));
+        expect(upperNfc.normalize('NFC').toLowerCase()).toBe(lowerNfd.normalize('NFC').toLowerCase());
+
+        const dir = await mkdtemp(join(tmpdir(), 'pkg-collide-'));
+        await writeFile(join(dir, 'manifest.json'), JSON.stringify({ ...VALID_MANIFEST, tests: [] }));
+        await writeFile(join(dir, upperNfc), 'upper-nfc');
+        await writeFile(join(dir, lowerNfd), 'lower-nfd');
+
+        const { archive, hash } = await buildPackage(dir);
+        const res = await uploadTo(agent, hash, archive);
+
+        expect(res.status).toBe(422);
+        expect(res.headers['content-type']).toContain('application/problem+json');
+        expect(res.body.code).toBe('package_path_collision');
+        expect(res.body.detail).toContain(upperNfc);
+        expect(res.body.detail).toContain(lowerNfd);
       } finally {
         await app.close();
       }

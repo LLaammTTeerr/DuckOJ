@@ -46,6 +46,7 @@ export const TEST_CONFIG: AppConfig = {
   // `app.smoke.spec.ts` — that use `TEST_CONFIG` as-is and never touch the
   // package store, so it never needs to exist on disk.
   packageStoreDir: join(tmpdir(), 'qhhoj-test-packages-unused'),
+  packageUploadMaxBytes: 256 * 1024 * 1024,
 };
 
 export interface BuildAppOptions {
@@ -55,6 +56,13 @@ export interface BuildAppOptions {
    * so the rest of the suite stays silent.
    */
   logging?: { level: string; destination: DestinationStream };
+  /**
+   * Merged over `TEST_CONFIG` (after the per-call `packageStoreDir`), for
+   * tests that need one config value away from the default — e.g. shrinking
+   * `packageUploadMaxBytes` to a few bytes so the over-limit path is
+   * reachable without actually uploading hundreds of megabytes.
+   */
+  configOverrides?: Partial<AppConfig>;
 }
 
 export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<INestApplication> {
@@ -71,7 +79,7 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
     .overrideProvider(DB)
     .useValue(db)
     .overrideProvider(APP_CONFIG)
-    .useValue({ ...TEST_CONFIG, packageStoreDir })
+    .useValue({ ...TEST_CONFIG, packageStoreDir, ...options.configOverrides })
     .compile();
 
   const app = moduleRef.createNestApplication();
