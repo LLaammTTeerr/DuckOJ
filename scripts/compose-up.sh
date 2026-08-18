@@ -35,7 +35,9 @@
 # Env overrides: COMPOSE (compose binary, default podman-compose),
 #   POSTGRES_TIMEOUT, REDIS_TIMEOUT, API_TIMEOUT, JUDGED_TIMEOUT (seconds to
 #   wait for healthy, default 60), JUDGE_TIMEOUT (seconds to confirm the
-#   judge container hasn't crashed on startup, default 20)
+#   judge container hasn't crashed on startup, default 20), MIGRATE_TIMEOUT
+#   (seconds to bound `up migrate` itself, default 120 — see the comment
+#   above that call for why this exists)
 
 set -eu
 
@@ -48,6 +50,7 @@ REDIS_TIMEOUT=${REDIS_TIMEOUT:-60}
 API_TIMEOUT=${API_TIMEOUT:-60}
 JUDGED_TIMEOUT=${JUDGED_TIMEOUT:-60}
 JUDGE_TIMEOUT=${JUDGE_TIMEOUT:-20}
+MIGRATE_TIMEOUT=${MIGRATE_TIMEOUT:-120}
 
 # Finds the container podman-compose created for a given service, by the
 # compose labels it sets on every container it creates. More reliable than
@@ -137,8 +140,20 @@ echo "==> Waiting for redis to report healthy"
 wait_healthy redis "$REDIS_TIMEOUT"
 
 echo "==> Running migrations (blocking until migrate exits)"
-if ! "$COMPOSE" up migrate; then
-  echo "FATAL: podman-compose up migrate failed" >&2
+# --no-deps: without it, podman-compose also tries to bring up `migrate`'s
+# dependency (postgres, already started and gated healthy above) before
+# running it. Observed hanging indefinitely on that dependency resolution —
+# `podman-compose up migrate` sitting for 10+ minutes with no progress and no
+# timeout, wedging this entire script — with a "container already in use" /
+# "has dependent containers" error in its own output where it tried to
+# recreate the already-running `postgres` container. `--no-deps` is already
+# used below for exactly this reason (api/judged/caddy); migrate gets it too.
+# `--no-deps` is the actual fix for the hang above; `timeout` is a second,
+# independent line of defense so that if this (or some other) dependency
+# resolution wedge recurs, the script fails loudly on its own instead of
+# sitting silently until whatever is driving it gives up and kills it by hand.
+if ! timeout "${MIGRATE_TIMEOUT}s" "$COMPOSE" up --no-deps migrate; then
+  echo "FATAL: podman-compose up migrate failed (or exceeded ${MIGRATE_TIMEOUT}s)" >&2
   "$COMPOSE" logs migrate >&2 || true
   exit 1
 fi
