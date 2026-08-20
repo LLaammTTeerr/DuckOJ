@@ -11,8 +11,21 @@ import { renderStatement } from '../src/markdown.js';
 // nothing, and this project has shipped three tests-that-cannot-fail
 // before (see the phase's global constraint 7).
 describe('renderStatement', () => {
+  it('demotes a statement heading so it cannot compete with the page h1', () => {
+    // problem.tsx owns the page's single <h1>. A statement opening with
+    // `# Title` would otherwise add a second one, which Chromium reported as
+    // `getByRole('heading')` resolving to two elements.
+    expect(renderStatement('# Title')).toContain('<h2>');
+    expect(renderStatement('# Title')).not.toContain('<h1>');
+    expect(renderStatement('## Sub')).toContain('<h3>');
+    // No h7 exists, so the deepest level saturates rather than emitting one.
+    expect(renderStatement('###### Deep')).toContain('<h6>');
+  });
+
   it('renders markdown', () => {
-    expect(renderStatement('# Hi')).toContain('<h1');
+    // `#` now renders as <h2>: statement headings are demoted so they
+    // cannot compete with the page's own <h1>. See the demotion test above.
+    expect(renderStatement('# Hi')).toContain('<h2');
   });
 
   it('renders inline maths', () => {

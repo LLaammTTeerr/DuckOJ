@@ -91,7 +91,9 @@ describe('ProblemEditPage', () => {
     // non-empty") confirms the live preview is really running Markdown
     // through it on every keystroke, not just echoing raw text.
     await waitFor(() => {
-      expect(preview.querySelector('h1')).toHaveTextContent('Hello');
+      // <h2>, not <h1>: renderStatement demotes statement headings so a
+      // statement cannot inject a second page-level heading.
+      expect(preview.querySelector('h2')).toHaveTextContent('Hello');
     });
   });
 });

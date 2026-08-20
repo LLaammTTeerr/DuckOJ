@@ -129,11 +129,12 @@ describe('ProblemPage', () => {
 
     renderWithClient(<ProblemPage code="aplusb" />);
 
-    // The statement's own heading ("## Statement" → an <h2>) is distinct
-    // from the page's own <h1> ("A Plus B (aplusb)") — asserting on it (and
-    // on the body text next to it) confirms the rendered Markdown, not just
-    // the problem's name, actually reached the document.
-    const statementHeading = await screen.findByRole('heading', { name: 'Statement', level: 2 });
+    // The statement's own heading ("## Statement") renders as an <h3>:
+    // renderStatement demotes every statement heading one level so none can
+    // compete with the page's own <h1> ("A Plus B (aplusb)"). Asserting on it,
+    // and on the body text beside it, confirms the rendered Markdown — not
+    // just the problem's name — actually reached the document.
+    const statementHeading = await screen.findByRole('heading', { name: 'Statement', level: 3 });
     expect(
       within(statementHeading.parentElement ?? document.body).getByText(/Add two numbers\./),
     ).toBeInTheDocument();

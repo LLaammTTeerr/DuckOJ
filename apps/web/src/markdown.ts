@@ -67,7 +67,29 @@ const mathExtension: TokenizerAndRendererExtension = {
   },
 };
 
-const markdown = new Marked({ extensions: [mathExtension] });
+/**
+ * Statement headings are demoted one level: `#` renders as `<h2>`, not `<h1>`.
+ *
+ * The problem page already owns the page's single `<h1>` (the problem's name
+ * and code, see problem.tsx). A statement that opens with `# Title` — which is
+ * a completely ordinary way to write one — would otherwise put a SECOND `<h1>`
+ * on the page, breaking the heading hierarchy that screen readers navigate by
+ * and making the document outline claim two top-level sections.
+ *
+ * Found by the Playwright suite on its first honest run: Chromium reported
+ * `getByRole('heading')` resolving to two elements. No jsdom test could have
+ * caught it — the markup is identical either way, and only a real accessibility
+ * tree makes the conflict visible. `h6` stays `h6` because there is no `h7`.
+ */
+const markdown = new Marked({
+  extensions: [mathExtension],
+  renderer: {
+    heading({ tokens, depth }) {
+      const level = Math.min(depth + 1, 6);
+      return `<h${level}>${this.parser.parseInline(tokens)}</h${level}>\n`;
+    },
+  },
+});
 
 /**
  * Renders a problem statement's raw Markdown (with inline `$...$` maths) to

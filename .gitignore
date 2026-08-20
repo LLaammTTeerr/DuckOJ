@@ -8,3 +8,7 @@ dist/
 # Tooling scratch — worktrees and subagent-driven-development ledgers
 .claude/worktrees/
 .superpowers/
+
+# Playwright browser artifacts
+apps/web/test-results/
+apps/web/playwright-report/
