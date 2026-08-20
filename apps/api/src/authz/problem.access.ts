@@ -2,9 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
 import { organizations, problemMembers, problemOrgs, problemRevisions, problems } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
+import { parseManifest, readArchiveEntry, type PackageManifestDto } from '@duckoj/package-format';
 import type { PaginationQueryDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
+import { PACKAGE_STORE, type PackageStore } from '../packages/package.store.js';
 import {
   canCreateProblem,
   canEditProblem,
@@ -12,6 +14,7 @@ import {
   loadProblemContext,
   visibleProblemsWhere,
   type ProblemRole,
+  type ProblemViewContext,
   type ProblemVisibility,
 } from './problem.visibility.js';
 import { isAdmin, type Actor } from './actor.js';
@@ -83,6 +86,15 @@ export interface UpdateProblemPatch {
   orgSlugs?: string[];
 }
 
+export interface AttachRevisionInput {
+  packageHash: string;
+  notes?: string;
+}
+
+export interface AttachRevisionResult {
+  version: number;
+}
+
 /**
  * Escapes Postgres `LIKE` metacharacters — the escape character itself,
  * then `%` and `_` — so a search term is matched literally rather than as a
@@ -101,7 +113,10 @@ export function likeEscape(raw: string): string {
  */
 @Injectable()
 export class ProblemAccessService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    @Inject(PACKAGE_STORE) private readonly store: PackageStore,
+  ) {}
 
   async listVisible(
     actor: Actor | null,
@@ -262,22 +277,7 @@ export class ProblemAccessService {
    * set rather than merging with what is already there.
    */
   async update(actor: Actor | null, code: string, patch: UpdateProblemPatch): Promise<ProblemDetailDto> {
-    const row = (
-      await this.db
-        .select({ id: problems.id, visibility: problems.visibility })
-        .from(problems)
-        .where(sql`lower(${problems.code}) = lower(${code})`)
-        .limit(1)
-    )[0];
-    if (!row) throw new AppError(404, 'problem_not_found', 'No such problem.');
-
-    const ctx = await loadProblemContext(this.db, actor, row.id);
-    if (!canViewProblem(actor, { id: row.id, visibility: row.visibility }, ctx)) {
-      throw new AppError(404, 'problem_not_found', 'No such problem.');
-    }
-    if (!actor || !canEditProblem(actor, ctx)) {
-      throw new AppError(403, 'problem_forbidden', 'You may not edit this problem.');
-    }
+    const { problem: row } = await this.loadForEdit(actor, code);
 
     // --- validate the patch ---
     if ('code' in patch) {
@@ -289,9 +289,11 @@ export class ProblemAccessService {
     }
 
     // Resolve usernames/slugs to ids before the transaction, so a bad
-    // request never half-applies.
+    // request never half-applies. `actor!`: `loadForEdit` already threw 403
+    // for a null actor before returning, so this is non-null past that
+    // point — TypeScript just can't see that across the method boundary.
     const memberRows = patch.members ? await this.resolveMemberIds(patch.members) : undefined;
-    const orgIds = patch.orgSlugs ? await this.resolveOrgIds(actor, patch.orgSlugs) : undefined;
+    const orgIds = patch.orgSlugs ? await this.resolveOrgIds(actor!, patch.orgSlugs) : undefined;
 
     const effectiveVisibility = patch.visibility ?? row.visibility;
     if (effectiveVisibility === 'org') {
@@ -337,6 +339,127 @@ export class ProblemAccessService {
     });
 
     return this.loadDetailById(row.id);
+  }
+
+  /**
+   * Attaches an already-uploaded package to a problem as a new draft
+   * revision, denormalising the manifest's grading-relevant fields onto the
+   * revision row (spec §5.1) so every read of a revision's limits is a plain
+   * column, never a re-parse of the archive.
+   *
+   * `package_files` (not the archive, and not `PackageStore.has`) is the
+   * authority on whether the package exists: a hash with no rows is
+   * `package_not_found` even if orphaned bytes happen to survive in the
+   * store, and the collision check below runs over the exact list the hash
+   * was computed over — no unpack, no scratch directory. The manifest,
+   * though, is genuinely not in the database, so that one file's bytes are
+   * read straight out of the archive with `readArchiveEntry`.
+   */
+  async attachRevision(
+    actor: Actor | null,
+    code: string,
+    input: AttachRevisionInput,
+  ): Promise<AttachRevisionResult> {
+    const { problem } = await this.loadForEdit(actor, code);
+    // `loadForEdit` throws 403 for a null actor before returning, so `actor`
+    // is guaranteed non-null past this point — TypeScript just can't see
+    // that across the method boundary.
+    const authorId = actor!.userId;
+
+    const paths = await this.db
+      .select({ path: schema.packageFiles.path })
+      .from(schema.packageFiles)
+      .where(eq(schema.packageFiles.packageHash, input.packageHash));
+    if (paths.length === 0) {
+      throw new AppError(404, 'package_not_found', 'No such package.');
+    }
+    assertNoPathCollisions(paths);
+
+    const entry = await readArchiveEntry(await this.store.get(input.packageHash), 'manifest.json');
+    if (!entry) {
+      throw new AppError(400, 'package_invalid', 'Package has no manifest.json.');
+    }
+    let manifest: PackageManifestDto;
+    try {
+      manifest = parseManifest(JSON.parse(entry.toString('utf8')));
+    } catch (error) {
+      throw new AppError(400, 'package_invalid', error instanceof Error ? error.message : 'Invalid package manifest.');
+    }
+
+    // Two concurrent attaches can both read the same `max(version)` and both
+    // try to insert the same next version. Catching the unique-violation
+    // Postgres would raise on `problem_revisions_version_idx` (Task 1) would
+    // work, but it aborts the enclosing transaction — poisoning every
+    // statement after it on the same connection, including the retry's own
+    // `maxVersion` read (this matters for tests, which run inside one
+    // transaction via `withTestDb`; it is also just simpler in production).
+    // `onConflictDoNothing` sidesteps that: it never raises, so a lost race
+    // is just an empty `returning()`, and the loop reads a fresh version and
+    // tries again.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const next = (await this.maxVersion(problem.id)) + 1;
+      const inserted = await this.db
+        .insert(problemRevisions)
+        .values({
+          problemId: problem.id,
+          version: next,
+          packageHash: input.packageHash,
+          state: 'draft',
+          createdBy: authorId,
+          notes: input.notes ?? null,
+          timeMs: manifest.limits.timeMs,
+          memoryKb: manifest.limits.memoryKb,
+          testCount: manifest.tests.length,
+          totalPoints: manifest.tests.reduce((sum, t) => sum + t.points, 0),
+          checkerKind: manifest.checker.kind,
+        })
+        .onConflictDoNothing({ target: [problemRevisions.problemId, problemRevisions.version] })
+        .returning({ version: problemRevisions.version });
+      if (inserted.length > 0) {
+        return { version: inserted[0]!.version };
+      }
+    }
+    throw new AppError(409, 'revision_conflict', 'Too many concurrent attaches.');
+  }
+
+  /**
+   * Loads a problem by code and applies the shared 404-then-403 ordering
+   * every write path against an existing problem needs: an invisible problem
+   * 404s (spec §3, item 2 — never a distinct error for "exists but you may
+   * not act on it"), then a visible-but-uneditable problem 403s. Shared by
+   * `update` and `attachRevision` so the ordering can only drift by editing
+   * one place.
+   */
+  private async loadForEdit(
+    actor: Actor | null,
+    code: string,
+  ): Promise<{ problem: { id: number; visibility: ProblemVisibility }; ctx: ProblemViewContext }> {
+    const row = (
+      await this.db
+        .select({ id: problems.id, visibility: problems.visibility })
+        .from(problems)
+        .where(sql`lower(${problems.code}) = lower(${code})`)
+        .limit(1)
+    )[0];
+    if (!row) throw new AppError(404, 'problem_not_found', 'No such problem.');
+
+    const ctx = await loadProblemContext(this.db, actor, row.id);
+    if (!canViewProblem(actor, { id: row.id, visibility: row.visibility }, ctx)) {
+      throw new AppError(404, 'problem_not_found', 'No such problem.');
+    }
+    if (!actor || !canEditProblem(actor, ctx)) {
+      throw new AppError(403, 'problem_forbidden', 'You may not edit this problem.');
+    }
+    return { problem: row, ctx };
+  }
+
+  /** The highest existing revision version for a problem, or 0 if it has none. */
+  private async maxVersion(problemId: number): Promise<number> {
+    const [row] = await this.db
+      .select({ max: sql<number | null>`max(${problemRevisions.version})` })
+      .from(problemRevisions)
+      .where(eq(problemRevisions.problemId, problemId));
+    return row?.max ?? 0;
   }
 
   /**
@@ -495,6 +618,34 @@ function isUniqueViolationShape(value: unknown): value is { code: string; constr
     'code' in value &&
     (value as { code?: unknown }).code === UNIQUE_VIOLATION
   );
+}
+
+/**
+ * Path collisions for `attachRevision` come from the `package_files` table,
+ * not the archive: Phase 2a already stores one row per file per hash, and
+ * `packages.service.ts`'s `findPathCollision` already rejects a colliding
+ * upload before those rows are ever written. This is the same class of
+ * check, run again over what actually landed in the table — a single
+ * combined fold, not three separate ones, because folding case *and*
+ * normalisation together is strictly the more aggressive comparison: any
+ * pair either partial fold would flag also collides under the combined key,
+ * so the single key catches everything the three-fold version at upload
+ * time does.
+ */
+function assertNoPathCollisions(files: Array<{ path: string }>): void {
+  const seen = new Map<string, string>();
+  for (const f of files) {
+    const key = f.path.normalize('NFC').toLowerCase();
+    const prior = seen.get(key);
+    if (prior !== undefined && prior !== f.path) {
+      throw new AppError(
+        400,
+        'package_path_collision',
+        `Paths "${prior}" and "${f.path}" collide on a case-insensitive or normalising filesystem.`,
+      );
+    }
+    seen.set(key, f.path);
+  }
 }
 
 function toSummary(row: {

@@ -1,10 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '../config/config.module.js';
+import { PackagesModule } from '../packages/packages.module.js';
 import { OrgAccessService } from './org.access.js';
 import { ProblemAccessService } from './problem.access.js';
 
 @Module({
-  imports: [ConfigModule],
+  // `PackagesModule` for `PACKAGE_STORE`, which `ProblemAccessService.attachRevision`
+  // needs to read a package's manifest. `PackagesModule` imports `AuthnModule`,
+  // not `AuthzModule`, so this stays acyclic — no `forwardRef` needed.
+  imports: [ConfigModule, PackagesModule],
   providers: [OrgAccessService, ProblemAccessService],
   exports: [OrgAccessService, ProblemAccessService],
 })

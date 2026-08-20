@@ -5,12 +5,26 @@ import type { Db } from '@duckoj/db';
 import { organizations, orgMembers, problemMembers, problemOrgs, problemRevisions, problems } from '@duckoj/db/guarded';
 import type { Actor } from '../src/authz/actor.js';
 import { ProblemAccessService } from '../src/authz/problem.access.js';
+import type { PackageStore } from '../src/packages/package.store.js';
 import { withTestDb } from './db.harness.js';
 import { insertUser } from './submissions.fixtures.js';
 
 function actorFor(userId: number, globalRole: 'user' | 'setter' | 'admin' = 'user'): Actor {
   return { userId, globalRole, via: 'session', scopes: [] };
 }
+
+/**
+ * None of `create`/`update` ever touch the package store (that's
+ * `attachRevision`'s job, tested separately in `problem-revisions.spec.ts`)
+ * — throwing on every call turns an accidental future dependency into a
+ * loud test failure instead of a silent no-op.
+ */
+const UNUSED_STORE: PackageStore = {
+  has: () => Promise.reject(new Error('unexpected package store access in this test')),
+  put: () => Promise.reject(new Error('unexpected package store access in this test')),
+  get: () => Promise.reject(new Error('unexpected package store access in this test')),
+  delete: () => Promise.reject(new Error('unexpected package store access in this test')),
+};
 
 type Visibility = 'private' | 'org' | 'public';
 
@@ -60,7 +74,7 @@ describe('ProblemAccessService.create', () => {
   it('a setter creates a problem and is inserted as its author', async () => {
     await withTestDb(async (db) => {
       const setter = await insertUser(db, 'setter-create');
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const detail = await service.create(actorFor(setter.id, 'setter'), {
         code: 'newprob',
@@ -82,7 +96,7 @@ describe('ProblemAccessService.create', () => {
   it('a plain user creating a problem gets 403 problem_forbidden', async () => {
     await withTestDb(async (db) => {
       const plain = await insertUser(db, 'plain-create');
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await expect(
         service.create(actorFor(plain.id, 'user'), {
@@ -97,7 +111,7 @@ describe('ProblemAccessService.create', () => {
   it('a duplicate code (differing only in case) gets 409 problem_code_taken', async () => {
     await withTestDb(async (db) => {
       const setter = await insertUser(db, 'setter-dup');
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await service.create(actorFor(setter.id, 'setter'), {
         code: 'DupCode',
@@ -118,7 +132,7 @@ describe('ProblemAccessService.create', () => {
   it("visibility 'org' with empty orgSlugs gets 400 problem_org_required", async () => {
     await withTestDb(async (db) => {
       const setter = await insertUser(db, 'setter-org-required');
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await expect(
         service.create(actorFor(setter.id, 'setter'), {
@@ -136,7 +150,7 @@ describe('ProblemAccessService.create', () => {
     await withTestDb(async (db) => {
       const setter = await insertUser(db, 'private-share-setter');
       await db.insert(organizations).values({ slug: 'private-club', name: 'Private Club', visibility: 'private' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await expect(
         service.create(actorFor(setter.id, 'setter'), {
@@ -154,7 +168,7 @@ describe('ProblemAccessService.create', () => {
     await withTestDb(async (db) => {
       const setter = await insertUser(db, 'public-share-setter');
       await db.insert(organizations).values({ slug: 'public-club', name: 'Public Club', visibility: 'public' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       // Being nameable and browsable via GET /orgs does not make an org a
       // valid share target — sharing still requires membership.
@@ -178,7 +192,7 @@ describe('ProblemAccessService.create', () => {
         .values({ slug: 'Secret-Org', name: 'Secret Org', visibility: 'private' })
         .returning();
       await db.insert(orgMembers).values({ orgId: org!.id, userId: setter.id, role: 'member' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const detail = await service.create(actorFor(setter.id, 'setter'), {
         code: 'membershare',
@@ -199,7 +213,7 @@ describe('ProblemAccessService.create', () => {
       const setter = await insertUser(db, 'org-oracle-setter');
       await db.insert(organizations).values({ slug: 'oracle-private', name: 'Oracle Private', visibility: 'private' });
       // `setter` is never made a member of `oracle-private`.
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const privateOrgError = await service
         .create(actorFor(setter.id, 'setter'), {
@@ -241,7 +255,7 @@ describe('ProblemAccessService.update', () => {
       const owner = await insertUser(db, 'author-patch');
       const { id } = await seedProblem(db, { code: 'patchme', name: 'Old Name', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const detail = await service.update(actorFor(owner.id), 'patchme', { name: 'New Name' });
       expect(detail.name).toBe('New Name');
@@ -258,7 +272,7 @@ describe('ProblemAccessService.update', () => {
       const { id } = await seedProblem(db, { code: 'testerpatch', name: 'Name', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       await db.insert(problemMembers).values({ problemId: id, userId: tester.id, role: 'tester' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await expect(
         service.update(actorFor(tester.id), 'testerpatch', { name: 'New Name' }),
@@ -272,7 +286,7 @@ describe('ProblemAccessService.update', () => {
       await insertUser(db, 'last-author-other');
       const { id } = await seedProblem(db, { code: 'lastauthor', name: 'Name', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await expect(
         service.update(actorFor(owner.id), 'lastauthor', {
@@ -287,7 +301,7 @@ describe('ProblemAccessService.update', () => {
       const owner = await insertUser(db, 'unknown-member-owner');
       const { id } = await seedProblem(db, { code: 'unknownmember', name: 'Name', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await expect(
         service.update(actorFor(owner.id), 'unknownmember', {
@@ -305,7 +319,7 @@ describe('ProblemAccessService.update', () => {
       const owner = await insertUser(db, 'code-immutable-owner');
       const { id } = await seedProblem(db, { code: 'immutable', name: 'Name', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await expect(
         service.update(actorFor(owner.id), 'immutable', { code: 'newcode' }),
@@ -334,7 +348,7 @@ describe('ProblemAccessService.update', () => {
       await db.insert(problemOrgs).values({ problemId: id, orgId: orgA!.id });
       await db.insert(problemOrgs).values({ problemId: id, orgId: orgB!.id });
 
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
       await service.update(actorFor(owner.id), 'replaceall', {
         members: [{ username: 'replace-owner', role: 'author' }],
         orgSlugs: ['org-a'],
@@ -361,7 +375,7 @@ describe('ProblemAccessService.update', () => {
         createdBy: owner.id,
       });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       // The stranger can neither view nor edit this problem. The patch is
       // malformed (`code` is immutable) — if patch validation ran before the
@@ -378,7 +392,7 @@ describe('ProblemAccessService.update', () => {
       const owner = await insertUser(db, 'MixedCaseOwner');
       const { id } = await seedProblem(db, { code: 'casetest', name: 'Name', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await service.update(actorFor(owner.id), 'casetest', {
         // Deliberately different case than the stored username.
@@ -396,7 +410,7 @@ describe('ProblemAccessService.update', () => {
       const other = await insertUser(db, 'dedupe-other');
       const { id } = await seedProblem(db, { code: 'dedupe', name: 'Name', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await service.update(actorFor(owner.id), 'dedupe', {
         members: [
@@ -443,7 +457,7 @@ describe('ProblemAccessService.update', () => {
       });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       // No `orgSlugs` key in the patch at all — the `problem_org_required`
       // check must fall back to counting the org already attached in the

@@ -22,5 +22,10 @@ import { PackagesService } from './packages.service.js';
       useFactory: (config: AppConfig): PackageStore => new FilesystemPackageStore(config.packageStoreDir),
     },
   ],
+  // `ProblemAccessService` (`AuthzModule`) needs the store too, to read a
+  // package's manifest when attaching it as a revision. `PackagesModule`
+  // does not import `AuthzModule` anywhere in the graph, so this stays
+  // acyclic without a `forwardRef`.
+  exports: [PACKAGE_STORE],
 })
 export class PackagesModule {}

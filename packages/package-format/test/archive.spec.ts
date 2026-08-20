@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { packDirectory, unpackArchive } from '../src/archive.js';
+import { packDirectory, readArchiveEntry, unpackArchive } from '../src/archive.js';
 
 async function fixture(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'pkg-'));
@@ -53,5 +53,38 @@ describe('archive', () => {
     const hostile = Buffer.from(zstdCompressSync(Buffer.concat(chunks)));
     const dest = await mkdtemp(join(tmpdir(), 'out-'));
     await expect(unpackArchive(hostile, dest)).rejects.toThrow(/refus|escape|traver/i);
+  }, 30_000);
+});
+
+describe('readArchiveEntry', () => {
+  it('returns the bytes of an entry that exists', async () => {
+    const { archive } = await packDirectory(await fixture());
+    const bytes = await readArchiveEntry(archive, 'manifest.json');
+    expect(bytes?.toString('utf8')).toBe('{"schemaVersion":1}');
+  }, 30_000);
+
+  it('returns null for a path the archive does not contain', async () => {
+    const { archive } = await packDirectory(await fixture());
+    expect(await readArchiveEntry(archive, 'no-such-file.txt')).toBeNull();
+  }, 30_000);
+
+  /**
+   * The Phase 2a reviewer's reproduction: a truncating implementation (one
+   * that resolves as soon as it sees *an* entry, rather than draining every
+   * entry and matching by path) passes on a two- or three-file fixture and
+   * fails here. `manifest.json` is written last and sorts after all 500
+   * numbered files (`packDirectory` walks in sorted order, and `'f' < 'm'`),
+   * so it is nowhere near the first entry the parser emits.
+   */
+  it('finds the right entry in a 500-file archive, even when it is not the first entry', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pkg-many-'));
+    for (let i = 0; i < 500; i++) {
+      await writeFile(join(dir, `file-${String(i).padStart(4, '0')}.txt`), `contents of file ${i}`);
+    }
+    await writeFile(join(dir, 'manifest.json'), '{"schemaVersion":1,"target":true}');
+    const { archive } = await packDirectory(dir);
+
+    const bytes = await readArchiveEntry(archive, 'manifest.json');
+    expect(bytes?.toString('utf8')).toBe('{"schemaVersion":1,"target":true}');
   }, 30_000);
 });

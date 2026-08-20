@@ -5,12 +5,25 @@ import type { Db } from '@duckoj/db';
 import { organizations, orgMembers, problemMembers, problemOrgs, problemRevisions, problems } from '@duckoj/db/guarded';
 import type { Actor } from '../src/authz/actor.js';
 import { likeEscape, ProblemAccessService } from '../src/authz/problem.access.js';
+import type { PackageStore } from '../src/packages/package.store.js';
 import { withTestDb } from './db.harness.js';
 import { insertUser } from './submissions.fixtures.js';
 
 function actorFor(userId: number, globalRole: 'user' | 'admin' = 'user'): Actor {
   return { userId, globalRole, via: 'session', scopes: [] };
 }
+
+/**
+ * None of `listVisible`/`getVisible` ever touch the package store — throwing
+ * on every call turns an accidental future dependency into a loud test
+ * failure instead of a silent no-op.
+ */
+const UNUSED_STORE: PackageStore = {
+  has: () => Promise.reject(new Error('unexpected package store access in this test')),
+  put: () => Promise.reject(new Error('unexpected package store access in this test')),
+  get: () => Promise.reject(new Error('unexpected package store access in this test')),
+  delete: () => Promise.reject(new Error('unexpected package store access in this test')),
+};
 
 type Visibility = 'private' | 'org' | 'public';
 
@@ -62,7 +75,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'owner-pub');
       await seedProblem(db, { code: 'pub1', name: 'Public One', createdBy: owner.id });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const page = await service.listVisible(null, { limit: 25 });
       expect(page.items.map((p) => p.code)).toContain('pub1');
@@ -82,7 +95,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
         .returning();
       const { id } = await seedProblem(db, { code: 'org1', name: 'Org One', visibility: 'org', createdBy: owner.id });
       await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const page = await service.listVisible(actorFor(stranger.id), { limit: 25 });
       expect(page.items.map((p) => p.code)).not.toContain('org1');
@@ -105,7 +118,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       await db.insert(orgMembers).values({ orgId: org!.id, userId: member.id, role: 'member' });
       const { id } = await seedProblem(db, { code: 'org2', name: 'Org Two', visibility: 'org', createdBy: owner.id });
       await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const page = await service.listVisible(actorFor(member.id), { limit: 25 });
       expect(page.items.map((p) => p.code)).toContain('org2');
@@ -126,7 +139,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
         createdBy: owner.id,
       });
       await db.insert(problemMembers).values({ problemId: id, userId: tester.id, role: 'tester' });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const page = await service.listVisible(actorFor(tester.id), { limit: 25 });
       expect(page.items.map((p) => p.code)).toContain('priv1');
@@ -141,7 +154,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       const owner = await insertUser(db, 'owner-priv2');
       const stranger = await insertUser(db, 'stranger-priv2');
       await seedProblem(db, { code: 'priv2', name: 'Private Two', visibility: 'private', createdBy: owner.id });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       await expect(service.getVisible(actorFor(stranger.id), 'priv2')).rejects.toMatchObject({
         status: 404,
@@ -163,7 +176,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       await seedProblem(db, { code: 'page-a', name: 'Page A', createdBy: owner.id });
       await seedProblem(db, { code: 'page-b', name: 'Page B', createdBy: owner.id });
       await seedProblem(db, { code: 'page-c', name: 'Page C', createdBy: owner.id });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const first = await service.listVisible(null, { limit: 2 });
       expect(first.items.map((p) => p.code)).toEqual(['page-a', 'page-b']);
@@ -180,7 +193,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       const owner = await insertUser(db, 'owner-q');
       await seedProblem(db, { code: 'aplusb', name: 'A plus B', createdBy: owner.id });
       await seedProblem(db, { code: 'other', name: 'Something Else', createdBy: owner.id });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const byName = await service.listVisible(null, { limit: 25 }, 'PLUS');
       expect(byName.items.map((p) => p.code)).toEqual(['aplusb']);
@@ -198,7 +211,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       // pattern's middle is a wildcard rather than a literal character.
       await seedProblem(db, { code: 'nopct', name: 'Contains 100 but no percent', createdBy: owner.id });
       await seedProblem(db, { code: 'haspct', name: 'Get 100% off today', createdBy: owner.id });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const page = await service.listVisible(null, { limit: 25 }, '100%');
       expect(page.items.map((p) => p.code)).toEqual(['haspct']);
@@ -209,7 +222,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'owner-draft');
       await seedProblem(db, { code: 'draft1', name: 'Draft One', createdBy: owner.id, publish: false });
-      const service = new ProblemAccessService(db);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
 
       const page = await service.listVisible(null, { limit: 25 });
       const item = page.items.find((p) => p.code === 'draft1');

@@ -1,7 +1,7 @@
 import { readdir, readFile, mkdir } from 'node:fs/promises';
 import { join, relative, sep, posix } from 'node:path';
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
-import { create, extract } from 'tar';
+import { create, extract, Parser } from 'tar';
 import { hashFile, type PackageFile } from './hash.js';
 
 async function walk(root: string, dir = root): Promise<string[]> {
@@ -71,4 +71,52 @@ export async function unpackArchive(archive: Buffer, destDir: string): Promise<v
     stream.on('end', resolve);
     stream.end(tarBytes);
   });
+}
+
+/**
+ * Returns the bytes of one entry, or `null` if the archive has no such path.
+ *
+ * Unlike `unpackArchive`, this never touches disk — the caller needs one
+ * file's *contents* (the manifest), not a materialised tree, and reading
+ * `manifest.json` out of a package that may otherwise be huge should not
+ * require unpacking the whole thing into a scratch directory first.
+ *
+ * Every entry the parser emits must be drained (`entry.resume()` for the
+ * ones that don't match, a `'data'`/`'end'` collector for the one that does)
+ * or the parser stalls forever waiting for the current entry to finish
+ * before it will emit the next one — see the `ignored entries get .resume()`
+ * comment in tar's own `parse.js`. The whole scan runs to completion
+ * (rather than aborting as soon as the target is found) so a truncating
+ * shortcut can never quietly return the wrong bytes for an archive where the
+ * sought entry isn't first.
+ */
+export async function readArchiveEntry(archive: Buffer, path: string): Promise<Buffer | null> {
+  const tarBytes = Buffer.from(zstdDecompressSync(archive));
+  let found: Buffer | null = null;
+
+  const parser = new Parser({
+    onReadEntry: (entry) => {
+      if (found === null && entry.path === path) {
+        const chunks: Buffer[] = [];
+        entry.on('data', (chunk: Buffer) => chunks.push(chunk));
+        entry.on('end', () => {
+          found = Buffer.concat(chunks);
+        });
+      } else {
+        entry.resume();
+      }
+    },
+  });
+
+  // Same trap as `unpackArchive`: `Parser#end()` returns `this`, not a
+  // Promise, so awaiting it directly awaits nothing and resolves before the
+  // tar stream has actually finished parsing. Wrap it in a Promise that
+  // resolves on the parser's own `'end'` event instead.
+  await new Promise<void>((resolve, reject) => {
+    parser.on('error', reject);
+    parser.on('end', resolve);
+    parser.end(tarBytes);
+  });
+
+  return found;
 }
