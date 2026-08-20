@@ -130,7 +130,11 @@ try {
     .returning();
 
   const systemUser = (
-    await db.select().from(schema.users).where(eq(schema.users.username, 'system')).limit(1)
+    await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.username}) = lower('system')`)
+      .limit(1)
   )[0]!;
 
   const insertedDriverKey = await db

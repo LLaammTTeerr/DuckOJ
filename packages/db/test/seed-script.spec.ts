@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { createDb, hashJudgeToken, runMigrations, schema } from '../src/index.js';
-import { problemRevisions, problems } from '../src/schema/guarded.js';
+import { problemMembers, problemRevisions, problems } from '../src/schema/guarded.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -107,6 +108,31 @@ describe('seed-problem.ts', () => {
         expect(revisionRows).toHaveLength(1);
         expect(revisionRows[0]!.packageHash).toBe(REAL_APLUSB_HASH);
         expect(revisionRows[0]!.id).toBe(problem!.currentRevisionId);
+
+        // R7: the seed script's locked service account exists and is
+        // reachable with no valid password — `'!'` is not a valid argon2
+        // encoding, so `PasswordService.verify` fails closed on it.
+        const [systemUser] = await db.select().from(schema.users).where(eq(schema.users.username, 'system'));
+        expect(systemUser).toBeDefined();
+        expect(systemUser!.passwordHash).toBe('!');
+
+        // R7: the system account also holds the problem's `author`
+        // membership, recorded the other way `problem_members` expects it.
+        const authorRows = await db
+          .select()
+          .from(problemMembers)
+          .where(eq(problemMembers.problemId, problem!.id));
+        expect(authorRows).toEqual([{ problemId: problem!.id, userId: systemUser!.id, role: 'author' }]);
+
+        // R9: the five revision metadata columns come from
+        // `problems/aplusb/manifest.json`, not a hardcoded sentinel —
+        // `{ limits: { timeMs: 1000, memoryKb: 65536 }, tests: [3 cases,
+        // 1 point each], checker: { kind: 'standard' } }`.
+        expect(revisionRows[0]!.timeMs).toBe(1000);
+        expect(revisionRows[0]!.memoryKb).toBe(65536);
+        expect(revisionRows[0]!.testCount).toBe(3);
+        expect(revisionRows[0]!.totalPoints).toBe(3);
+        expect(revisionRows[0]!.checkerKind).toBe('standard');
 
         const blobPath = join(packageStoreDir, REAL_APLUSB_HASH.slice(0, 2), REAL_APLUSB_HASH);
         expect((await stat(blobPath)).isFile()).toBe(true);
