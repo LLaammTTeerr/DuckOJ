@@ -24,7 +24,11 @@ type Route = { name: 'problems' } | { name: 'problem'; code: string } | { name: 
 function parseRoute(pathname: string): Route {
   if (pathname === '/problems' || pathname === '/problems/') return { name: 'problems' };
   const match = /^\/problems\/([^/]+)\/?$/.exec(pathname);
-  if (match) return { name: 'problem', code: decodeURIComponent(match[1]!) };
+  // No `decodeURIComponent` here: a problem code is `[a-z0-9][a-z0-9_-]{1,63}`
+  // (contracts' `PROBLEM_CODE`), so it never needs percent-decoding, and
+  // decoding a malformed segment (e.g. `/problems/%zz`) would throw a
+  // `URIError` mid-render and white-screen the whole app for no benefit.
+  if (match) return { name: 'problem', code: match[1]! };
   return { name: 'root' };
 }
 

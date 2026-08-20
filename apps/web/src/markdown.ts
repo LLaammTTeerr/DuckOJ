@@ -1,6 +1,14 @@
 import { Marked, type Tokens, type TokenizerAndRendererExtension } from 'marked';
 import katex from 'katex';
 import DOMPurify from 'dompurify';
+// `katex.renderToString` emits both a hidden MathML copy (for
+// accessibility/copy-paste) and the visible HTML rendering; this stylesheet
+// is what actually hides the MathML one. Without it every formula would
+// render twice in a real browser — wrong content, not just unstyled
+// content. jsdom's tests can't see this (they only assert the output
+// contains "katex"), so this import has no test coverage of its own —
+// verified by eye against the built app instead.
+import 'katex/dist/katex.min.css';
 
 // Problem statements are stored as raw, author-controlled Markdown (spec
 // §3.4) and rendered client-side into the DOM via
