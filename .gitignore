@@ -12,3 +12,6 @@ dist/
 # Playwright browser artifacts
 apps/web/test-results/
 apps/web/playwright-report/
+
+# graphify build output — derived from the repo, regenerable with /graphify
+graphify-out/
