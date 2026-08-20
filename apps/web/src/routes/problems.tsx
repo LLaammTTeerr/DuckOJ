@@ -57,6 +57,13 @@ export function ProblemsPage() {
             {problems.map((p) => (
               <tr key={p.id}>
                 <td>
+                  {/* Deliberately a plain `<a>`, not `<Link>`: this component
+                      is unit-tested by rendering it directly, with no
+                      `RouterProvider` above it (see test/problems.spec.tsx),
+                      and `<Link>` throws outside one. A full page load here
+                      is unchanged behaviour, not a regression — see
+                      router.tsx and this task's report for the routes that
+                      did convert to client-side transitions. */}
                   <a href={`/problems/${p.code}`}>{p.code}</a>
                 </td>
                 <td>{p.name}</td>

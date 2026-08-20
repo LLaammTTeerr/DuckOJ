@@ -64,8 +64,13 @@ export function ProblemPage(props: { code: string }) {
           DOMPurify.sanitize. */}
       <div dangerouslySetInnerHTML={{ __html: renderStatement(problem.statement) }} />
       <p>
+        {/* Deliberately a plain `<a>`, not `<Link>`: this component is
+            unit-tested by rendering it directly with `code` as a prop (see
+            this file's own doc comment above and test/problems.spec.tsx),
+            with no `RouterProvider` above it, and `<Link>` throws outside
+            one. A full page load here is unchanged behaviour, not a
+            regression — see router.tsx and this task's report. */}
         <a href={`/submit?problem=${encodeURIComponent(problem.code)}`}>Submit a solution</a>
-
       </p>
     </section>
   );
