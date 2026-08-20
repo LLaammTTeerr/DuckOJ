@@ -60,6 +60,41 @@ async function seedOrgProblem(db: Db, code: string, ownerId: number): Promise<{ 
 // This suite exists to fail if anyone reintroduces a second visibility
 // implementation in the submission path. It is not about submissions.
 describe('submission create honours problem visibility', () => {
+  // AC4, and the reason this whole phase has a Global Constraint about one
+  // shared visibility predicate. The two paths are deliberately exercised by
+  // ONE actor against ONE problem in ONE test: two separate tests, with two
+  // fixtures, can both pass while the paths disagree — which is exactly the
+  // bug this phase found, where an org member saw a problem in the list and
+  // got a 404 submitting to it. Splitting this test reintroduces the blind
+  // spot it exists to cover.
+  it('lets the SAME org member both see the problem and submit to it', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const owner = await insertUser(db, 'ac4-owner');
+      const { orgId } = await seedOrgProblem(db, 'ac4org', owner.id);
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'ac4-member');
+        const memberId = await userIdOf(db, 'ac4-member');
+        await db.insert(orgMembers).values({ orgId, userId: memberId, role: 'member' });
+
+        // Path 1: the read side sees it.
+        const detail = await agent.get('/problems/ac4org');
+        expect(detail.status).toBe(200);
+        expect(detail.body.code).toBe('ac4org');
+
+        // Path 2: the same session submits to it.
+        const created = await agent
+          .post('/submissions')
+          .send({ problemCode: 'ac4org', languageKey: 'cpp17', source: 'int main(){}' });
+        expect(created.status).toBe(201);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('accepts a submission from a member of an org the problem is shared with', async () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);

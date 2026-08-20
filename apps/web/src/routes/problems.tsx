@@ -38,6 +38,14 @@ export function ProblemsPage() {
   return (
     <section>
       <h1>Problems</h1>
+      {/* The problems browser renders OUTSIDE the auth gate in main.tsx —
+          deliberately, so anonymous visitors can read public problems. The
+          cost is that a signed-out visitor who lands here has no route back
+          to the sign-in form, which lives only at `/`. Without this link they
+          would have to guess the URL. */}
+      <p>
+        <a href="/">Home / sign in</a>
+      </p>
       <label htmlFor="problem-search">Search</label>
       <input id="problem-search" value={q} onChange={(e) => setQ(e.target.value)} />
 

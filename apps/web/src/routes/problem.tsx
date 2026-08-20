@@ -65,6 +65,12 @@ export function ProblemPage(props: { code: string }) {
       <div dangerouslySetInnerHTML={{ __html: renderStatement(problem.statement) }} />
       <p>
         <a href={`/submit?problem=${encodeURIComponent(problem.code)}`}>Submit a solution</a>
+        {' · '}
+        {/* Same reason as problems.tsx: this page is outside the auth gate,
+            and submitting needs a session that can only be obtained at `/`. */}
+        <a href="/">Home / sign in</a>
+        {' · '}
+        <a href="/problems">All problems</a>
       </p>
     </section>
   );
