@@ -638,10 +638,19 @@ async attachRevision(actor: Actor, code: string, input: { packageHash: string; n
   // Read-then-insert races; the unique index of Task 1 turns that race into a
   // constraint violation. Retry rather than surfacing a 500 — the second
   // attempt reads the winner's version and succeeds.
+  //
+  // Use `onConflictDoNothing().returning()` and retry on an EMPTY result. Do
+  // NOT catch the unique-violation error instead: inside a transaction, a
+  // constraint violation aborts the whole transaction, so every later
+  // statement — including the retry's own `max(version)` read — fails with
+  // `25P02 current transaction is aborted`. The test harness wraps each case
+  // in one transaction, so the catch-based version fails there even though it
+  // would appear to work in production. `onConflictDoNothing` never raises,
+  // so it works in both.
   for (let attempt = 0; attempt < 5; attempt++) {
     const next = (await this.maxVersion(problem.id)) + 1;
-    try {
-      await this.db.insert(problemRevisions).values({
+    {
+      await this.db.insert(problemRevisions).onConflictDoNothing().returning().values({
         problemId: problem.id, version: next, packageHash: input.packageHash,
         state: 'draft', createdBy: actor.userId, notes: input.notes ?? null,
         timeMs: manifest.limits.timeMs, memoryKb: manifest.limits.memoryKb,
@@ -651,7 +660,6 @@ async attachRevision(actor: Actor, code: string, input: { packageHash: string; n
       });
       return { version: next };
     } catch (e) {
-      if (!isUniqueViolation(e)) throw e;
     }
   }
   throw new AppError(409, 'revision_conflict', 'Too many concurrent attaches.');
@@ -693,8 +701,10 @@ module, and say in the report which you did and why.
 Remove the `assertNoPathCollisions` call. Expect both collision cases to fail
 with "expected 400, got 201". Revert and report.
 
-Build the NFC fixture by *uploading* a package containing both spellings, so
-the `package_files` rows exist — the check reads the database, not the
+Seed the store blob and the `packages`/`package_files` rows **directly**.
+Do not try to build the fixture by uploading: `POST /packages` already
+rejects a colliding or manifest-less package, so upload cannot produce the
+state this check is supposed to catch. The check reads the database, not the
 archive. Write the two names with explicit escapes
 (`'café.txt'` and `'café.txt'`), never by typing the character:
 an editor that normalises on save makes the test pass for the wrong reason.
