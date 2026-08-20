@@ -2,7 +2,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { schema } from '@duckoj/db';
-import { problemRevisions, submissionCases, submissions } from '@duckoj/db/guarded';
+import { problemMembers, problemRevisions, problems, submissionCases, submissions } from '@duckoj/db/guarded';
 import { SubmissionAccessService } from '../src/authz/submission.access.js';
 import type { Actor } from '../src/authz/actor.js';
 import { buildApp } from './app.harness.js';
@@ -316,6 +316,36 @@ describe('create(): only a published revision and an active language are gradeab
 
       await expect(
         service.create(actorFor(user.id), { problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' }),
+      ).rejects.toMatchObject({ status: 404, code: 'problem_not_found' });
+    });
+  }, 120_000);
+
+  // The role-blind half of the same rule. The check above uses a plain
+  // non-member, so it would still pass if `currentRevisionId`'s guard were
+  // ever folded into the visibility check — a member would then submit
+  // against an unpublished draft and the judge would be handed a revision
+  // nobody published. An author is the actor most able to see the problem
+  // and must still be refused.
+  it('rejects an unpublished revision even for the problem author', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      await db
+        .update(problemRevisions)
+        .set({ state: 'draft' })
+        .where(eq(problemRevisions.packageHash, 'phase1-aplusb'));
+
+      const author = await insertUser(db, 'jules');
+      const [problem] = await db
+        .select({ id: problems.id })
+        .from(problems)
+        .where(sql`lower(${problems.code}) = lower('aplusb')`);
+      await db
+        .insert(problemMembers)
+        .values({ problemId: problem!.id, userId: author.id, role: 'author' });
+
+      const service = new SubmissionAccessService(db);
+      await expect(
+        service.create(actorFor(author.id), { problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' }),
       ).rejects.toMatchObject({ status: 404, code: 'problem_not_found' });
     });
   }, 120_000);
