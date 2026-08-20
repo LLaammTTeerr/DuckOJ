@@ -1,4 +1,4 @@
-import { StrictMode, useState } from 'react';
+import { StrictMode, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LoginForm, type LoginValues } from './routes/login.js';
@@ -8,6 +8,7 @@ import { ProblemPage } from './routes/problem.js';
 import { ProblemEditPage } from './routes/problem-edit.js';
 import { ProblemRevisionsPage } from './routes/problem-revisions.js';
 import { api } from './api.js';
+import './app.css';
 
 const queryClient = new QueryClient();
 
@@ -106,19 +107,46 @@ function App() {
     await client.invalidateQueries({ queryKey: ['me'] });
   }
 
-  if (route.name === 'problems') return <ProblemsPage />;
-  if (route.name === 'problem-new') return <ProblemEditPage />;
-  if (route.name === 'problem-edit') return <ProblemEditPage code={route.code} />;
-  if (route.name === 'problem-revisions') return <ProblemRevisionsPage code={route.code} />;
-  if (route.name === 'problem') return <ProblemPage code={route.code} />;
+  return <Shell me={me.data ?? null}>{renderRoute()}</Shell>;
 
-  if (me.isLoading) return <p>Loading…</p>;
-  if (!me.data) return <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />;
+  function renderRoute() {
+    if (route.name === 'problems') return <ProblemsPage />;
+    if (route.name === 'problem-new') return <ProblemEditPage />;
+    if (route.name === 'problem-edit') return <ProblemEditPage code={route.code} />;
+    if (route.name === 'problem-revisions') return <ProblemRevisionsPage code={route.code} />;
+    if (route.name === 'problem') return <ProblemPage code={route.code} />;
 
+    if (me.isLoading) return <p>Loading…</p>;
+    if (!me.data) return <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />;
+
+    return <SubmitPage />;
+  }
+}
+
+/**
+ * The shell: one nav, one column, on every route.
+ *
+ * It lives here rather than in each page because the problems routes render
+ * OUTSIDE the auth gate — a signed-out visitor browsing `/problems` previously
+ * had no route back to the sign-in form, which exists only at `/`. That gap
+ * was found by a human clicking around, not by any test, and a shared nav is
+ * what stops it recurring for every route added from here on.
+ *
+ * `me` is passed in rather than queried again so the nav cannot disagree with
+ * the page about who is signed in.
+ */
+function Shell({ me, children }: { me: { displayName: string } | null; children: ReactNode }) {
   return (
     <>
-      <p>Signed in as {me.data.displayName}.</p>
-      <SubmitPage />
+      <nav className="shell-nav">
+        <div>
+          <strong>DuckOJ</strong>
+          <a href="/problems">Problems</a>
+          <a href="/api/v1/docs">API</a>
+          {me ? <span>Signed in as {me.displayName}</span> : <a href="/">Sign in</a>}
+        </div>
+      </nav>
+      <main>{children}</main>
     </>
   );
 }

@@ -1,0 +1,227 @@
+/*
+ * The minimal shell. Deliberately not a framework.
+ *
+ * Every page in this app was written as unstyled semantic HTML while the data
+ * model was still moving — the problem page's shape changed three times in
+ * Phase 2b alone. This file makes those pages presentable without committing
+ * to Tailwind, CSS modules, or a component library, because that choice
+ * deserves its own design pass rather than being settled by whoever needed a
+ * button first.
+ *
+ * Two rules keep it honest:
+ *   1. Style ELEMENTS, not classes. The pages carry no `className` and should
+ *      not have to. When a real front-end phase arrives it replaces this file
+ *      wholesale instead of unpicking class names threaded through 1,200
+ *      lines of TSX.
+ *   2. No layout that assumes a design. A max-width column, readable type,
+ *      and legible tables — nothing that has to be undone later.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #5c5c5c;
+  --border: #d9d9d9;
+  --surface: #f6f6f6;
+  --accent: #1c5d99;
+  --accent-fg: #ffffff;
+  --danger: #a11b1b;
+
+  --space: 1rem;
+  --radius: 4px;
+  --measure: 68ch;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181c;
+    --fg: #e8e8e8;
+    --muted: #9aa0a8;
+    --border: #333840;
+    --surface: #1e2126;
+    --accent: #6ba7dd;
+    --accent-fg: #10141a;
+    --danger: #ef6b6b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+/* --- shell ------------------------------------------------------------- */
+
+.shell-nav {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.shell-nav > div,
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: var(--space);
+}
+
+.shell-nav a {
+  margin-right: var(--space);
+  font-weight: 500;
+}
+
+.shell-nav strong {
+  margin-right: calc(var(--space) * 1.5);
+}
+
+main > section > h1:first-child {
+  margin-top: 0;
+}
+
+/* --- type -------------------------------------------------------------- */
+
+h1 {
+  font-size: 1.6rem;
+  line-height: 1.25;
+}
+h2 {
+  font-size: 1.25rem;
+}
+h3 {
+  font-size: 1.05rem;
+}
+
+h1 small {
+  color: var(--muted);
+  font-size: 0.6em;
+  font-weight: 400;
+}
+
+p,
+li {
+  max-width: var(--measure);
+}
+
+a {
+  color: var(--accent);
+}
+
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space);
+  overflow-x: auto;
+}
+
+/* --- tables ------------------------------------------------------------ */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--space) 0;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+/* --- forms ------------------------------------------------------------- */
+
+label {
+  display: block;
+  margin-top: var(--space);
+  font-weight: 500;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.4rem 0.55rem;
+  width: 100%;
+  max-width: 32rem;
+}
+
+textarea {
+  max-width: none;
+  min-height: 12rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* `:disabled` is load-bearing, not decoration: the problem code field is
+   disabled on the edit route because codes are immutable, and a field that
+   looks editable but silently discards input is worse than one that does
+   not. */
+input:disabled {
+  background: var(--surface);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+button {
+  font: inherit;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0.4rem 0.9rem;
+  margin-top: var(--space);
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.1);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* --- state ------------------------------------------------------------- */
+
+[role='alert'] {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+/* The revisions and submit screens surface the server's error `code`
+   verbatim — `package_not_found`, not "Something went wrong". Monospace
+   because it is an identifier a setter will paste into a search, not prose. */
+[role='alert'] code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.05em 0.35em;
+}

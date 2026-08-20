@@ -133,7 +133,10 @@ test('the site root offers a sign-in form, reachable from the problems pages', a
   // gate, so without this link a signed-out visitor has no route to the login
   // form, which lives only at `/`.
   await page.goto('/problems');
-  const signIn = page.getByRole('link', { name: /sign in/i });
+  // Scoped to the shell nav, which now owns this link on every route. The
+  // per-page copies were removed once the shell existed — two links to the
+  // same place, one of which the next page forgets, is how the gap reopens.
+  const signIn = page.locator('nav.shell-nav').getByRole('link', { name: /sign in/i });
   await expect(signIn).toBeVisible();
   await signIn.click();
 
@@ -154,4 +157,31 @@ test('the API reference loads and lists routes', async ({ page }) => {
   await expect(page.locator('body')).toContainText(/DuckOJ/i, { timeout: 30_000 });
 
   expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
+});
+
+test('every route carries the shell: one nav, links that work, styles applied', async ({ page }) => {
+  // The shell exists because the problems routes render outside the auth gate
+  // and a signed-out visitor had no route back to `/`. A human found that by
+  // clicking; this makes it a standing check for every route added from here.
+  for (const path of ['/', '/problems', '/problems/aplusb']) {
+    const watch = watchForBrokenRequests(page);
+    await page.goto(path);
+
+    const nav = page.locator('nav.shell-nav');
+    await expect(nav, `no shell nav on ${path}`).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Problems' })).toBeVisible();
+
+    // The stylesheet actually applied, not merely linked. jsdom would pass
+    // this page with no CSS at all; only a real browser computes the value.
+    const navBg = await nav.evaluate((el) => getComputedStyle(el).borderBottomWidth);
+    expect(navBg, `shell stylesheet not applied on ${path}`).not.toBe('0px');
+
+    // The column is constrained rather than running the full window width —
+    // the one layout promise this shell makes.
+    const main = page.locator('main');
+    const box = await main.boundingBox();
+    expect(box!.width, `main column unconstrained on ${path}`).toBeLessThanOrEqual(1000);
+
+    expect(watch.errors, `${path} reported: ${watch.errors.join(' | ')}`).toEqual([]);
+  }
 });
