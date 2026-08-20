@@ -6,6 +6,7 @@ import type { CreateSubmissionRequestDto, SubmissionDetailDto } from '@duckoj/co
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from './actor.js';
+import { canViewProblem, loadProblemContext } from './problem.visibility.js';
 
 /**
  * The ONLY module permitted to import `@duckoj/db/guarded` for submissions,
@@ -23,12 +24,17 @@ export class SubmissionAccessService {
         .where(sql`lower(${problems.code}) = lower(${input.problemCode})`)
         .limit(1)
     )[0];
-    // Answering `problem_not_found` for a private problem the actor may not
-    // see, rather than a distinct code, is deliberate: a distinct code (or a
-    // 403) would itself be an existence oracle — the same reasoning as the
-    // 404-over-403 rule in `getVisible` below. Deny-by-default is the safe
-    // direction to be wrong in; Phase 4 widens this with real visibility rules.
-    if (!problem?.currentRevisionId || (problem.visibility !== 'public' && !isAdmin(actor))) {
+    // "No published revision" and "not visible to this actor" are different
+    // conditions, but both answer `problem_not_found`: a distinct code (or a
+    // 403) for either would itself be an existence oracle — the same
+    // reasoning as the 404-over-403 rule in `getVisible` below. Visibility is
+    // decided by the one shared predicate every problem read path uses, not
+    // a private copy of the rule here.
+    if (!problem?.currentRevisionId) {
+      throw new AppError(404, 'problem_not_found', 'No such problem.');
+    }
+    const ctx = await loadProblemContext(this.db, actor, problem.id);
+    if (!canViewProblem(actor, problem, ctx)) {
       throw new AppError(404, 'problem_not_found', 'No such problem.');
     }
 
