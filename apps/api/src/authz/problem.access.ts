@@ -82,7 +82,17 @@ export class ProblemAccessService {
         memoryKb: problemRevisions.memoryKb,
       })
       .from(problems)
-      .leftJoin(problemRevisions, eq(problems.currentRevisionId, problemRevisions.id))
+      .leftJoin(
+          problemRevisions,
+          // The `state` term is not redundant. Every path that sets
+          // `currentRevisionId` today points it at a published revision, but
+          // that is convention across three call sites, not a database
+          // constraint. Without this, a future bug leaving the pointer on an
+          // archived revision would report that revision's stale limits as
+          // live; with it, the same bug degrades to `hasPublishedRevision:
+          // false`, which is at least honest.
+          and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published')),
+        )
       .where(and(...conditions))
       .orderBy(asc(problems.id))
       .limit(page.limit + 1);
@@ -110,7 +120,17 @@ export class ProblemAccessService {
           checkerKind: problemRevisions.checkerKind,
         })
         .from(problems)
-        .leftJoin(problemRevisions, eq(problems.currentRevisionId, problemRevisions.id))
+        .leftJoin(
+          problemRevisions,
+          // The `state` term is not redundant. Every path that sets
+          // `currentRevisionId` today points it at a published revision, but
+          // that is convention across three call sites, not a database
+          // constraint. Without this, a future bug leaving the pointer on an
+          // archived revision would report that revision's stale limits as
+          // live; with it, the same bug degrades to `hasPublishedRevision:
+          // false`, which is at least honest.
+          and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published')),
+        )
         .where(sql`lower(${problems.code}) = lower(${code})`)
         .limit(1)
     )[0];

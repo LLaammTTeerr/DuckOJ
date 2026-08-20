@@ -235,5 +235,10 @@ describe('likeEscape', () => {
     expect(likeEscape('a_b')).toBe('a\\_b');
     expect(likeEscape('a%b_c')).toBe('a\\%b\\_c');
     expect(likeEscape('plain')).toBe('plain');
+    // The backslash branch must run FIRST, or escaping `%` would then have
+    // its own escape re-escaped. A term that is itself a backslash is the
+    // only input that distinguishes correct ordering from reversed.
+    expect(likeEscape('a\\b')).toBe('a\\\\b');
+    expect(likeEscape('100\\%')).toBe('100\\\\\\%');
   });
 });
