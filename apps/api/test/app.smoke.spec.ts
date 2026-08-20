@@ -110,4 +110,39 @@ describe('AppModule composition root', () => {
     expect(res.status).toBe(401);
     expect(res.body.code).toBe('authentication_required');
   });
+
+  // Task 7b. The Caddyfile falls everything outside `/api/*` through to the
+  // web app's `index.html`, so a document served at bare `/openapi.json`
+  // would answer 200 with the SPA's markup — not the doc — which is a worse
+  // failure than a 404 (see `docs.controller.ts`). Asserting the real prefix
+  // here, the same way the tests above do for the internal-archive and
+  // admin routes, is what would catch that regression before Task 13's
+  // through-Caddy check ever runs.
+  it('serves the OpenAPI document at /api/v1/openapi.json, anonymously', async () => {
+    const res = await request(app.getHttpServer()).get('/api/v1/openapi.json');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/json');
+    expect(res.body.openapi).toBe('3.1.0');
+    expect(res.body.paths).toHaveProperty('/auth/login');
+  });
+
+  it('serves the docs viewer at /api/v1/docs, anonymously, referencing the prefixed document and script', async () => {
+    const res = await request(app.getHttpServer()).get('/api/v1/docs');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.text).toContain('data-url="/api/v1/openapi.json"');
+    expect(res.text).toContain('src="/api/v1/docs/scalar-standalone.js"');
+  });
+
+  it('serves the vendored viewer script at /api/v1/docs/scalar-standalone.js, as JavaScript', async () => {
+    const res = await request(app.getHttpServer()).get('/api/v1/docs/scalar-standalone.js');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('javascript');
+    expect(res.text.length).toBeGreaterThan(1_000_000);
+  });
+
+  it('does not answer the docs off the prefix', async () => {
+    const res = await request(app.getHttpServer()).get('/openapi.json');
+    expect(res.status).toBe(404);
+  });
 });

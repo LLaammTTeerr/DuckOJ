@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from './config/config.module.js';
 import { HealthModule } from './health/health.module.js';
+import { DocsModule } from './docs/docs.module.js';
 import { AuthnModule } from './authn/authn.module.js';
 import { AuthzModule } from './authz/authz.module.js';
 import { AdminModule } from './admin/admin.module.js';
@@ -14,6 +15,7 @@ import { PackagesModule } from './packages/packages.module.js';
   imports: [
     ConfigModule,
     HealthModule,
+    DocsModule,
     AuthnModule,
     AuthzModule,
     AdminModule,

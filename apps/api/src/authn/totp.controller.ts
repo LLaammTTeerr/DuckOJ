@@ -1,12 +1,10 @@
 import { Body, Controller, Delete, HttpCode, Inject, Post, UseGuards } from '@nestjs/common';
-import { z } from 'zod';
+import { TotpConfirmRequest, type TotpConfirmRequestDto } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import type { Actor } from '../authz/actor.js';
 import { CurrentActor } from './auth.guard.js';
 import { SessionOnlyGuard } from './session-only.guard.js';
 import { TotpService } from './totp.service.js';
-
-const ConfirmRequest = z.object({ code: z.string().regex(/^\d{6}$/) });
 
 // Every route here rewrites the caller's second factor — `begin` in particular
 // upserts a new secret with `confirmedAt: null`, which silently disables an
@@ -26,7 +24,7 @@ export class TotpController {
   @HttpCode(204)
   confirm(
     @CurrentActor() actor: Actor,
-    @Body(new ZodValidationPipe(ConfirmRequest)) body: z.infer<typeof ConfirmRequest>,
+    @Body(new ZodValidationPipe(TotpConfirmRequest)) body: TotpConfirmRequestDto,
   ): Promise<void> {
     return this.totp.confirmEnrolment(actor.userId, body.code);
   }

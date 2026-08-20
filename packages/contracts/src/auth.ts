@@ -42,6 +42,24 @@ export const LoginResponse = z.object({ user: MeResponse });
 
 registry.registerPath({
   method: 'post',
+  path: '/auth/register',
+  summary: 'Create an account',
+  request: { body: { content: { 'application/json': { schema: RegisterRequest } } } },
+  responses: {
+    201: { description: 'The account was created', content: { 'application/json': { schema: MeResponse } } },
+    409: {
+      description: 'That username or email is already registered (`username_taken` or `email_taken`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: {
+      description: 'The request body failed validation',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
   path: '/auth/login',
   summary: 'Sign in and receive a session cookie',
   request: { body: { content: { 'application/json': { schema: LoginRequest } } } },
@@ -51,6 +69,18 @@ registry.registerPath({
       description: 'Invalid credentials or a TOTP code is required',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/auth/logout',
+  summary: 'End the current session',
+  description:
+    'Public and idempotent on purpose: a caller whose session has already expired still gets its cookie ' +
+    'cleared, rather than a 401.',
+  responses: {
+    204: { description: 'Signed out (or was already signed out)' },
   },
 });
 
