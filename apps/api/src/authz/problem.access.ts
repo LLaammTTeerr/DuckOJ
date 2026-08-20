@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
 import { organizations, problemMembers, problemOrgs, problemRevisions, problems } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
-import { parseManifest, readArchiveEntry, type PackageManifestDto } from '@duckoj/package-format';
+import { findPathCollision, parseManifest, readArchiveEntry, type PackageManifestDto } from '@duckoj/package-format';
 import type { PaginationQueryDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
@@ -373,7 +373,15 @@ export class ProblemAccessService {
     if (paths.length === 0) {
       throw new AppError(404, 'package_not_found', 'No such package.');
     }
-    assertNoPathCollisions(paths);
+    const collision = findPathCollision(paths);
+    if (collision) {
+      const [a, b] = collision;
+      throw new AppError(
+        422,
+        'package_path_collision',
+        `Paths "${a}" and "${b}" collide on a case-insensitive or normalising filesystem.`,
+      );
+    }
 
     const entry = await readArchiveEntry(await this.store.get(input.packageHash), 'manifest.json');
     if (!entry) {
@@ -618,34 +626,6 @@ function isUniqueViolationShape(value: unknown): value is { code: string; constr
     'code' in value &&
     (value as { code?: unknown }).code === UNIQUE_VIOLATION
   );
-}
-
-/**
- * Path collisions for `attachRevision` come from the `package_files` table,
- * not the archive: Phase 2a already stores one row per file per hash, and
- * `packages.service.ts`'s `findPathCollision` already rejects a colliding
- * upload before those rows are ever written. This is the same class of
- * check, run again over what actually landed in the table — a single
- * combined fold, not three separate ones, because folding case *and*
- * normalisation together is strictly the more aggressive comparison: any
- * pair either partial fold would flag also collides under the combined key,
- * so the single key catches everything the three-fold version at upload
- * time does.
- */
-function assertNoPathCollisions(files: Array<{ path: string }>): void {
-  const seen = new Map<string, string>();
-  for (const f of files) {
-    const key = f.path.normalize('NFC').toLowerCase();
-    const prior = seen.get(key);
-    if (prior !== undefined && prior !== f.path) {
-      throw new AppError(
-        400,
-        'package_path_collision',
-        `Paths "${prior}" and "${f.path}" collide on a case-insensitive or normalising filesystem.`,
-      );
-    }
-    seen.set(key, f.path);
-  }
 }
 
 function toSummary(row: {

@@ -5,7 +5,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import { describeError } from '@duckoj/observability';
-import { hashFile, packageHash, parseManifest, unpackArchive, type PackageFile } from '@duckoj/package-format';
+import { findPathCollision, hashFile, packageHash, parseManifest, unpackArchive, type PackageFile } from '@duckoj/package-format';
 import type { PackageSummaryDto, UploadPackageResponseDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
@@ -57,49 +57,6 @@ async function walkAndHash(root: string): Promise<PackageFile[]> {
 
   await recurse(root, '');
   return files;
-}
-
-/**
- * Rejects two paths that are genuinely different strings but would collapse
- * to one file once materialised: a judge writes a package onto a filesystem
- * that may be case-insensitive (macOS, Windows) or Unicode-normalising
- * (APFS/HFS+), and `packageHash` deliberately does not fold either — see its
- * doc comment. Returns the first colliding pair found, or `null`.
- *
- * Three independent folds, not two: case-folding alone and NFC-normalising
- * alone each miss a pair that only collides once *both* are applied together
- * — e.g. `CAFÉ.txt` (NFC) against `café.txt` (NFD, a lowercase 'e' plus a
- * combining acute accent). `'CAFÉ.txt'.toLowerCase()` and
- * `'café.txt'.normalize('NFC')` are each distinct from the other string
- * alone, but `normalize('NFC').toLowerCase()` collapses both to the same
- * value — which is exactly what a default case-insensitive, Unicode
- * -normalising macOS APFS volume would do to them at write time. Purely
- * additive: this third fold can only reject packages the first two already
- * accepted as ambiguous under some fold, never something they'd have
- * accepted as genuinely distinct.
- */
-function findPathCollision(files: PackageFile[]): [string, string] | null {
-  const byLower = new Map<string, string>();
-  const byNfc = new Map<string, string>();
-  const byNfcLower = new Map<string, string>();
-
-  for (const file of files) {
-    const lower = file.path.toLowerCase();
-    const priorLower = byLower.get(lower);
-    if (priorLower !== undefined) return [priorLower, file.path];
-    byLower.set(lower, file.path);
-
-    const nfc = file.path.normalize('NFC');
-    const priorNfc = byNfc.get(nfc);
-    if (priorNfc !== undefined) return [priorNfc, file.path];
-    byNfc.set(nfc, file.path);
-
-    const nfcLower = nfc.toLowerCase();
-    const priorNfcLower = byNfcLower.get(nfcLower);
-    if (priorNfcLower !== undefined) return [priorNfcLower, file.path];
-    byNfcLower.set(nfcLower, file.path);
-  }
-  return null;
 }
 
 @Injectable()

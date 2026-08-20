@@ -202,7 +202,7 @@ describe('ProblemAccessService.attachRevision', () => {
     });
   }, 120_000);
 
-  it('an archive whose paths collide case-insensitively gets 400 package_path_collision', async () => {
+  it('an archive whose paths collide case-insensitively gets 422 package_path_collision', async () => {
     await withTestDb(async (db) => {
       const store = await newStore();
       const owner = await insertUser(db, 'attach-collide-case');
@@ -213,11 +213,11 @@ describe('ProblemAccessService.attachRevision', () => {
 
       await expect(
         service.attachRevision(actorFor(owner.id), 'attachcollidecase', { packageHash: hash }),
-      ).rejects.toMatchObject({ status: 400, code: 'package_path_collision' });
+      ).rejects.toMatchObject({ status: 422, code: 'package_path_collision' });
     });
   }, 120_000);
 
-  it('an archive whose paths collide under NFC gets 400 package_path_collision', async () => {
+  it('an archive whose paths collide under NFC gets 422 package_path_collision', async () => {
     await withTestDb(async (db) => {
       const store = await newStore();
       const owner = await insertUser(db, 'attach-collide-nfc');
@@ -237,7 +237,7 @@ describe('ProblemAccessService.attachRevision', () => {
 
       await expect(
         service.attachRevision(actorFor(owner.id), 'attachcollidenfc', { packageHash: hash }),
-      ).rejects.toMatchObject({ status: 400, code: 'package_path_collision' });
+      ).rejects.toMatchObject({ status: 422, code: 'package_path_collision' });
     });
   }, 120_000);
 
