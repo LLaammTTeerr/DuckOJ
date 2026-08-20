@@ -7,7 +7,8 @@ import DOMPurify from 'dompurify';
 // render twice in a real browser — wrong content, not just unstyled
 // content. jsdom's tests can't see this (they only assert the output
 // contains "katex"), so this import has no test coverage of its own —
-// verified by eye against the built app instead.
+// confirmed instead by `vite build` emitting the KaTeX CSS and font assets
+// (see apps/web's build output), not by rendering the page.
 import 'katex/dist/katex.min.css';
 
 // Problem statements are stored as raw, author-controlled Markdown (spec
