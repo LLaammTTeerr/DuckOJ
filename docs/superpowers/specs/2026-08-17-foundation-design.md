@@ -43,7 +43,7 @@ The existing repositories are a **functionality reference only**. No code is car
 
 ### Kept
 
-Users, profiles, registration, TOTP two-factor · problems, statements, test data · submissions and the judging pipeline · contests with `default`, `icpc`, `ioi16`, `ioi` (legacy) formats · scoreboards · ratings · **organizations** (load-bearing for QHH) · tags · judge and runtime status · PDF statements.
+Users, profiles, registration, TOTP two-factor · problems, statements, test data · submissions and the judging pipeline · contests with `default`, `icpc`, `ioi16`, `ioi` (legacy) formats · scoreboards · ratings · **organizations** (load-bearing for DuckOJ) · tags · judge and runtime status · PDF statements.
 
 ### Dropped
 

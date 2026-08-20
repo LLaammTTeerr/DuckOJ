@@ -7,7 +7,7 @@ import { DB } from '../config/config.module.js';
 import type { Actor } from '../authz/actor.js';
 import { hashToken } from './session.service.js';
 
-export const TOKEN_PREFIX = 'qhh_';
+export const TOKEN_PREFIX = 'duck_';
 
 @Injectable()
 export class TokenService {

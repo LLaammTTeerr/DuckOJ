@@ -16,13 +16,13 @@ describe('createClient', () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
     const client = createClient({
       baseUrl: 'http://api.test/api/v1',
-      token: 'qhh_abc',
+      token: 'duck_abc',
       fetch: fetchMock,
     });
 
     await client.GET('/auth/me');
 
     const req = fetchMock.mock.calls[0]?.[0] as Request;
-    expect(req.headers.get('authorization')).toBe('Bearer qhh_abc');
+    expect(req.headers.get('authorization')).toBe('Bearer duck_abc');
   });
 });

@@ -18,7 +18,7 @@ describe('organization schema', () => {
         .returning();
       const [org] = await db
         .insert(organizations)
-        .values({ slug: 'qhh', name: 'QHH' })
+        .values({ slug: 'duck', name: 'Duck' })
         .returning();
 
       expect(org?.visibility).toBe('private');

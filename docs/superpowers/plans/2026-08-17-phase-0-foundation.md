@@ -616,7 +616,7 @@ describe('organization schema', () => {
         .returning();
       const [org] = await db
         .insert(organizations)
-        .values({ slug: 'qhh', name: 'QHH' })
+        .values({ slug: 'duck', name: 'Duck' })
         .returning();
 
       expect(org?.visibility).toBe('private');
@@ -2675,7 +2675,7 @@ import { DB } from '../config/config.module.js';
 import type { Actor } from '../authz/actor.js';
 import { hashToken } from './session.service.js';
 
-export const TOKEN_PREFIX = 'qhh_';
+export const TOKEN_PREFIX = 'duck_';
 
 @Injectable()
 export class TokenService {
@@ -3382,14 +3382,14 @@ describe('createClient', () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
     const client = createClient({
       baseUrl: 'http://api.test/api/v1',
-      token: 'qhh_abc',
+      token: 'duck_abc',
       fetch: fetchMock,
     });
 
     await client.GET('/auth/me');
 
     const req = fetchMock.mock.calls[0]?.[0] as Request;
-    expect(req.headers.get('authorization')).toBe('Bearer qhh_abc');
+    expect(req.headers.get('authorization')).toBe('Bearer duck_abc');
   });
 });
 ```
