@@ -74,25 +74,23 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
   // a non-fatal `compileMessage` (compiler *warnings*, submission keeps
   // grading normally), a fatal `compileError`, and an unrelated
   // `internalError` (judge-side failure, nothing to do with the user's code).
-  // Only the second is an actual compile failure. The `case_verdict` enum
-  // has no CE member, so `compileError` is written as the misleading
-  // `verdict: 'IE'` — the same value `internalError` uses — so `state`
-  // must be checked too: `compileError` always finishes in `state: 'done'`,
-  // while `internalError` finishes in `state: 'errored'`. That's what
-  // distinguishes the three:
-  //   - compileMessage (warning):  compileOutput set, verdict likely AC/WA/…
-  //   - compileError:              state 'done',    verdict 'IE'
-  //   - internalError:             state 'errored', verdict 'IE'
-  // Deliberately not fixed at the data model here — see task-13-brief.md's
-  // "two things that will bite you" and task-15's F3: the real fix is a
-  // Phase 2 change (submission-level outcomes need to stop sharing an enum
-  // with per-case verdicts). One residual edge this predicate cannot
-  // separate with data currently on the wire: a submission that emits a
-  // compiler warning and *then* finishes 'IE' from a genuine case-level
-  // internal error also reads as a compile error here — rare, and not
-  // resolvable without more data than the API currently exposes.
-  const isCompileError =
-    submission.state === 'done' && submission.verdict === 'IE' && Boolean(submission.compileOutput);
+  // Only the second is an actual compile failure, and since Phase 2b Task 9
+  // it has a verdict of its own: `compileError` writes `verdict: 'CE'`, while
+  // `internalError` still writes `'IE'`. The verdict alone now separates the
+  // three:
+  //   - compileMessage (warning):  compileOutput set, verdict AC/WA/…
+  //   - compileError:              verdict 'CE'
+  //   - internalError:             verdict 'IE', state 'errored'
+  //
+  // This predicate previously read `state === 'done' && verdict === 'IE' &&
+  // compileOutput` — correct before Task 9 and unreachable after it, so a
+  // compile error rendered as a bare "IE" with no test anywhere to notice
+  // (no test in apps/web/test covered this branch at all). Task 13 found it
+  // by submitting uncompilable source against the live stack and getting
+  // `CE` back. `compileOutput` is deliberately NOT part of the condition
+  // any more: `CE` means the compile failed whether or not the compiler
+  // managed to say why.
+  const isCompileError = submission.verdict === 'CE';
   const stateLabel = STATE_LABELS[submission.state];
 
   return (
@@ -132,13 +130,39 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
   );
 }
 
-// Phase 1 has no problem browser and no language catalog endpoint, so both
-// are fixed here rather than built as general UI — the only problem seeded
-// for this phase is `aplusb` (see scripts/seed-problem.ts), and `cpp17` is
-// the only language it grades (see packages/judge-protocol's fake driver and
-// judge/judge.yml). Deliberately not general-purpose: see task brief D5.
-const PROBLEM_CODE = 'aplusb';
+// Phase 1 had no problem browser, so this page's problem code was a fixed
+// `aplusb` and its language list a fixed `['cpp17']`. Phase 2b's problem page
+// then started linking here as `/submit?problem=<code>`
+// (`routes/problem.tsx`) while this constant stayed hardcoded — so "Submit a
+// solution" on `hello`, or on any problem authored through the new forms,
+// silently submitted against `aplusb` instead. Nothing caught it: every unit
+// test here renders `SubmitForm`/`VerdictPanel` directly and never reads the
+// URL, and the API answered a perfectly valid request for a different
+// problem than the one on screen. Found by Task 13, browsing the live stack.
+//
+// The language list stays fixed: `cpp17` is still the only language with a
+// driver key that reaches a real dmoj executor (see scripts/seed-problem.ts's
+// `languageDriverKeys` insert), and there is still no language catalog
+// endpoint to populate it from.
+const DEFAULT_PROBLEM_CODE = 'aplusb';
 const LANGUAGES = ['cpp17'];
+
+/**
+ * The problem this page submits against, read from `?problem=<code>`.
+ *
+ * Deliberately no client-side validation of the code's shape: the code is
+ * only ever sent to the API — which validates it and answers
+ * `problem_not_found` for anything it does not recognise, the same as for a
+ * problem the caller may not see — and rendered as React text, which escapes
+ * it. A local copy of contracts' `PROBLEM_CODE` regex here would be a fourth
+ * place for that pattern to drift, buying nothing.
+ *
+ * Falls back to `aplusb` when the parameter is absent so bare `/submit` (and
+ * `/`, which renders this page too) behaves exactly as it did before.
+ */
+export function problemCodeFromSearch(search: string): string {
+  return new URLSearchParams(search).get('problem') ?? DEFAULT_PROBLEM_CODE;
+}
 
 // Reconnect backoff, not a tight loop. Capped rather than unbounded so a
 // long-stuck grade doesn't end up polling every ten seconds forever, but
@@ -268,6 +292,10 @@ export function useSubmissionSocket(
 }
 
 export function SubmitPage() {
+  // Read once per render from `window.location`, matching `main.tsx`'s
+  // routing: there is no History API listener anywhere in this app, so the
+  // search string only ever changes on a real page load.
+  const problemCode = problemCodeFromSearch(window.location.search);
   const [submissionId, setSubmissionId] = useState<number | null>(null);
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null);
   const [busy, setBusy] = useState(false);
@@ -304,7 +332,7 @@ export function SubmitPage() {
     setSubmitError(null);
     try {
       const { data, error } = await api.POST('/submissions', {
-        body: { problemCode: PROBLEM_CODE, languageKey: values.languageKey, source: values.source },
+        body: { problemCode, languageKey: values.languageKey, source: values.source },
       });
       if (error || !data) {
         setSubmitError(error?.detail ?? 'Submission failed.');
@@ -327,7 +355,7 @@ export function SubmitPage() {
 
   return (
     <section>
-      <h1>Submit a solution — {PROBLEM_CODE}</h1>
+      <h1>Submit a solution — {problemCode}</h1>
       <SubmitForm onSubmit={handleSubmit} languages={LANGUAGES} busy={busy} />
       {submitError ? <p role="alert">{submitError}</p> : null}
       {submission ? <VerdictPanel submission={submission} /> : null}

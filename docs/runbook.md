@@ -732,22 +732,34 @@ chasing connectivity theories; if it's there, the fix is aligning
 `JUDGE_TOKEN` (env), `judge/judge.yml`'s rendered `key`, and the
 `judge_nodes.tokenHash` row — not the network.
 
-### The `IE`-for-compile-error wart — expected, not a bug to chase
+### A compile error is `CE` — fixed in Phase 2b, and `IE` now means `IE`
 
-`EventWriter` (`apps/judged/src/event-writer.ts`) writes `verdict: 'IE'` for
-every `compileError` event, because `case_verdict`
-(`packages/db/src/schema/guarded.ts`) has no `CE` member — a per-case verdict
-can never be `CE`, and the enum is shared between submission-level outcomes
-and case verdicts. So an ordinary syntax error comes back labelled an
-*internal* error, which reads as "our judge broke" rather than "your code
-doesn't compile." This is a real modelling defect, confirmed, and
-**deliberately left alone**: the correct fix is separating submission-level
-outcomes from case verdicts, which is Phase 2 data-model work, not a Phase 1
-patch. `scripts/e2e-submit.ts` does not assert `verdict === 'CE'`; it
-distinguishes a compile failure solely by `compileOutput` being non-empty.
-If you see `IE` on a submission whose `compileOutput` clearly shows a syntax
-error, this is why — check `compileOutput` before assuming the judge itself
-is broken.
+**This section previously documented the opposite, as expected behaviour.**
+For all of Phase 1 and 2a, `EventWriter` (`apps/judged/src/event-writer.ts`)
+wrote `verdict: 'IE'` for every `compileError` event, because `case_verdict`
+(`packages/db/src/schema/guarded.ts`) had no `CE` member — so an ordinary
+syntax error came back labelled an *internal* error, reading as "our judge
+broke" rather than "your code doesn't compile."
+
+Phase 2b fixed it at the data model: migration `0005` added `CE` to
+`case_verdict`, and `EventWriter`'s `compileError` branch writes `CE`.
+Confirmed end to end against a real judge on a fresh stack by both
+`scripts/e2e-submit.ts` and `scripts/e2e-problem.ts`, which now **assert**
+`verdict === 'CE'` rather than inferring a compile failure from a non-empty
+`compileOutput`.
+
+So, reading a verdict today:
+
+- `CE` — the submission did not compile. `compileOutput` carries the
+  compiler's message.
+- `IE` — a genuine judge-side internal error, finishing in `state:
+  'errored'`. Nothing to do with the user's code.
+
+If a compile error ever comes back as `IE` again, that is a regression in
+`event-writer.ts`, **not** an expected wart to work around. Note that
+`compileOutput` on its own is still not a compile-failure flag: a
+non-fatal `compileMessage` (compiler *warnings*) writes it too, on a
+submission that goes on to grade normally.
 
 ### Diagnosing a submission stuck in `queued`/`compiling`
 
@@ -895,9 +907,113 @@ the stack or going through `scripts/compose-up.sh` again (that script's
 migration-ordering guarantee is irrelevant to recreating a single already-
 migrated-against service).
 
+## The problems path end to end — `scripts/e2e-problem.ts`
+
+`scripts/e2e-submit.ts` proves the *judging* path. This proves the
+**authoring** path Phase 2b added, which no unit suite can reach: role
+grants, problem creation, package upload over real HTTP, revision attach,
+publish, visibility change, and grading against a package that did not exist
+before the run. Same shape as its sibling — real HTTP against
+`https://localhost:8443`, `E2E_BASE_URL` to override, non-zero exit and a
+`FAILED at step N:` line on the first thing that does not hold.
+
+    corepack pnpm exec tsx scripts/e2e-problem.ts
+
+**It needs the stack up and `podman` on `PATH`.** `postgres` publishes no
+host port, so the one step that cannot go over HTTP — the bootstrap
+`UPDATE users SET global_role = 'admin'` from "Bootstrapping the first
+admin" above — runs as a `podman exec` into the postgres container, found by
+the compose labels (`COMPOSE_PROJECT` overrides the project name, which
+otherwise comes from the repo directory's basename, exactly as
+`scripts/compose-up.sh` derives it).
+
+What each run does, in order — all names and the problem code carry a
+`Date.now()` nonce, so the script is safe to run repeatedly against the same
+database:
+
+1. Registers three users: an admin-to-be, a setter-to-be, and a plain
+   viewer.
+2. Promotes the first with the **bootstrap SQL** — the documented manual
+   step that had no test running it anywhere.
+3. Promotes the second with **`PATCH /admin/users/:username`**, the route
+   the first promotion unlocks. Both promotion paths, one run.
+4. Checks the plain viewer is refused `POST /problems` (403
+   `problem_forbidden`) — so step 3 is what unlocks step 5, not
+   permissiveness.
+5. Creates a **private** problem as the setter.
+6. Checks the viewer gets **404 `problem_not_found`**, not 403, for it.
+7. Builds a per-run package (a temp directory whose test data carries the
+   nonce, so its hash is one the stack has never seen) and uploads it
+   through `POST /packages`.
+8. Attaches it (`POST /problems/:code/revisions`) and asserts the
+   **denormalised** revision metadata — `timeMs`, `memoryKb`, `testCount`,
+   `totalPoints`, `checkerKind` — matches the manifest. The fixture uses
+   limits deliberately unlike `aplusb`'s (2000ms/128MiB, four tests worth
+   1+2+3+4) so a stale row cannot pass by coincidence.
+9. Checks a **draft** revision is not gradeable, not even for its author
+   (404 `problem_not_found` — see `SubmissionAccessService.create`'s comment
+   on why that, and not a distinct code).
+10. Publishes it, then `PATCH`es the problem to `public`, then checks an
+    **anonymous** caller now sees it in both the list and the detail.
+11. Submits a correct solution as the plain viewer and asserts `AC 10/10`
+    — against a package that reached the judge only because it was uploaded
+    over HTTP this run.
+12. Submits uncompilable source and asserts the verdict is **`CE`**.
+
+## What Phase 2b's acceptance run found — two defects a green suite could not see
+
+Both were in `apps/web/src/routes/submit.tsx`, both invisible to 391 passing
+tests, and both found by browsing the live stack rather than by reasoning
+about the code. They are fixed, with tests; recorded here because the
+*shape* recurs.
+
+**1. "Submit a solution" submitted against the wrong problem.** Task 11's
+problem page links to `/submit?problem=<code>` for every problem, but
+`SubmitPage` still carried Phase 1's hardcoded `const PROBLEM_CODE =
+'aplusb'` and never read the URL. Clicking Submit on `hello` — or on
+anything authored through the new forms — produced a perfectly valid
+submission against `aplusb`. Nothing failed anywhere: the API was asked for
+a real problem and answered correctly, and every test in `apps/web/test`
+renders `SubmitForm`/`VerdictPanel` directly, so no test has ever read the
+page's URL. Fixed by `problemCodeFromSearch`, which reads `?problem=` and
+falls back to `aplusb`.
+
+**2. The compile-error wording became unreachable.** `VerdictPanel` decided
+"Compile error" with `state === 'done' && verdict === 'IE' &&
+compileOutput` — correct before Task 9 changed the mapping to `CE`, and
+impossible to satisfy after it. A compile error rendered as a bare `CE`
+instead. No test covered the branch at all, so nothing noticed when it went
+dead. Fixed to key off `verdict === 'CE'`.
+
+The pattern behind both: **a change on one side of a seam, with the other
+side's only tests below the seam.** Task 9 changed a verdict the web decides
+wording from; Task 11 added a link the web never taught the target to read.
+Neither is detectable without either an integration test that spans the seam
+or someone loading the page.
+
+### How the web was verified, and what was not verified
+
+There is no browser on the development machine and none was installed. The
+SPA was checked by fetching every route through Caddy (all served
+`index.html`, so deep links work — the `/ws` bug's shape has not recurred),
+fetching every asset `index.html` and the built CSS reference (all 200,
+including all 59 KaTeX font files), and then **executing the real,
+Caddy-served bundle in jsdom against the live stack** to confirm each page
+actually loads its data rather than merely returning HTML: `/problems`
+listed all three seeded problems with correct deep-link hrefs,
+`/problems/:code` rendered its statement with three KaTeX nodes for `$a$`,
+`$b$` and `$a + b$`, `/problems/new` rendered the create form, and
+`/problems/:code/edit` and `/problems/:code/revisions` rendered real data
+for a signed-in author (and the API's own 404 for an anonymous one).
+
+What that does **not** cover: real layout, CSS as a browser applies it,
+fonts as a browser renders them, and any behaviour that depends on a real
+event loop or user input. A jsdom run proves the data path, not the visual
+one.
+
 ## Known issues carried into Phase 2b
 
-Three things found while building the package pipeline, judged out of scope
+Four things found while building the package pipeline, judged out of scope
 for Phase 2a, and recorded here so they are not lost.
 
 ### The Dockerfile COPY manifest is a recurring trap

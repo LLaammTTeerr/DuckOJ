@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { SubmitForm, VerdictPanel } from '../src/routes/submit.js';
+import { SubmitForm, VerdictPanel, problemCodeFromSearch } from '../src/routes/submit.js';
 
 describe('SubmitForm', () => {
   it('submits the entered source and language', async () => {
@@ -55,5 +55,48 @@ describe('VerdictPanel', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(3);
     // A skipped case never ran, so it must not display a verdict of its own.
     expect(screen.getByText(/skipped/i)).toBeInTheDocument();
+  });
+});
+
+// Task 13 found this against the live stack: `routes/problem.tsx` links to
+// `/submit?problem=<code>` for every problem, while this page's problem code
+// was a hardcoded `aplusb` — so "Submit a solution" on any other problem
+// submitted against the wrong one, and the API happily accepted it.
+describe('problemCodeFromSearch', () => {
+  it('submits against the problem the problem page linked with', () => {
+    expect(problemCodeFromSearch('?problem=hello')).toBe('hello');
+  });
+
+  it('falls back to aplusb when no problem is named', () => {
+    expect(problemCodeFromSearch('')).toBe('aplusb');
+  });
+});
+
+// Also Task 13: `EventWriter` has written `verdict: 'CE'` for a compile error
+// since Phase 2b Task 9, but this panel still keyed its "Compile error"
+// wording off the pre-Task-9 `state === 'done' && verdict === 'IE'`, which a
+// real compile error can no longer produce. No test covered the branch, so
+// nothing failed when it became unreachable.
+describe('VerdictPanel compile errors', () => {
+  it('names a CE verdict a compile error rather than showing the raw code', () => {
+    render(
+      <VerdictPanel
+        submission={
+          { state: 'done', verdict: 'CE', points: 0, maxPoints: 0, compileOutput: 'error: expected ;', cases: [] } as never
+        }
+      />,
+    );
+    expect(screen.getByText(/compile error/i)).toBeInTheDocument();
+    expect(screen.getByText(/expected ;/)).toBeInTheDocument();
+  });
+
+  it('leaves a genuine internal error labelled IE, not a compile error', () => {
+    render(
+      <VerdictPanel
+        submission={{ state: 'errored', verdict: 'IE', compileOutput: 'judge exploded', cases: [] } as never}
+      />,
+    );
+    expect(screen.getByText('IE', { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.queryByText(/compile error/i)).not.toBeInTheDocument();
   });
 });
