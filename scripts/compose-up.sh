@@ -141,8 +141,21 @@ if [ "$migrate_exit" != "0" ]; then
 fi
 echo "==> migrate exited 0"
 
+# --force-recreate is load-bearing, not belt-and-braces. podman-compose 1.5's
+# `up -d --no-deps` STARTS a stopped container but does NOT recreate a running
+# one whose image has changed — so re-running this script after a rebuild
+# leaves the old container serving old code, and `wait_healthy` below then
+# polls that container's healthcheck and finds it green. The script reports a
+# healthy stack that is running the previous build.
+#
+# That is the worst possible failure for a verification tool: it does not fail,
+# it lies, and every check performed afterwards is against code nobody wrote.
+# This project already paid for the same hazard once in the migrate image
+# (Phase 2a, "stale-image silent reseed"); this is the same class living in the
+# bring-up script itself. Recreating unconditionally costs a few seconds and
+# removes the entire question.
 echo "==> Starting api, judged and caddy (--no-deps: migrate/redis already up above, and this avoids re-running migrate and re-triggering the race)"
-"$COMPOSE" up -d --no-deps api judged caddy
+"$COMPOSE" up -d --no-deps --force-recreate api judged caddy
 
 echo "==> Waiting for api to report healthy (restores the availability guarantee --no-deps drops from caddy's depends_on)"
 wait_healthy api "$API_TIMEOUT"
@@ -151,7 +164,7 @@ echo "==> Waiting for judged to report healthy"
 wait_healthy judged "$JUDGED_TIMEOUT"
 
 echo "==> Starting judge (after judged is healthy, so the bring-up log shows a clean first-attempt handshake rather than a retry backoff — judge itself does not require this ordering, see addendum E6)"
-"$COMPOSE" up -d --no-deps judge
+"$COMPOSE" up -d --no-deps --force-recreate judge
 
 echo "==> Waiting for judge to report healthy (its judge-agent's own /healthz — see judge/entrypoint.sh)"
 wait_healthy judge "$JUDGE_TIMEOUT"

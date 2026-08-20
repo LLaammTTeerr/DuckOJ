@@ -66,7 +66,7 @@ export class EventWriter {
           .update(submissions)
           .set({
             state: 'done',
-            verdict: 'IE',
+            verdict: 'CE',
             compileOutput: event.message,
             points: 0,
             judgedAt: new Date(),

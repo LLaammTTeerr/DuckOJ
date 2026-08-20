@@ -73,7 +73,9 @@ export const submissionState = pgEnum('submission_state', [
   'done',
   'errored',
 ]);
-export const caseVerdict = pgEnum('case_verdict', ['AC', 'WA', 'TLE', 'MLE', 'OLE', 'RTE', 'IR', 'IE']);
+export const caseVerdict = pgEnum('case_verdict', [
+  'AC', 'WA', 'TLE', 'MLE', 'OLE', 'RTE', 'IR', 'CE', 'IE',
+]);
 
 export const problems = pgTable(
   'problems',
@@ -84,23 +86,86 @@ export const problems = pgTable(
     statement: text('statement').notNull(),
     visibility: problemVisibility('visibility').notNull().default('public'),
     currentRevisionId: bigint('current_revision_id', { mode: 'number' }),
+    createdBy: bigint('created_by', { mode: 'number' })
+      .notNull()
+      .references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('problems_code_lower_idx').on(sql`lower(${t.code})`)],
 );
 
-export const problemRevisions = pgTable('problem_revisions', {
-  id: bigserial('id', { mode: 'number' }).primaryKey(),
-  problemId: bigint('problem_id', { mode: 'number' })
-    .notNull()
-    .references(() => problems.id, { onDelete: 'cascade' }),
-  version: integer('version').notNull(),
-  packageHash: text('package_hash')
-    .notNull()
-    .references(() => packages.hash),
-  state: revisionState('state').notNull().default('draft'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const problemRevisions = pgTable(
+  'problem_revisions',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    problemId: bigint('problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => problems.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    packageHash: text('package_hash')
+      .notNull()
+      .references(() => packages.hash),
+    state: revisionState('state').notNull().default('draft'),
+    createdBy: bigint('created_by', { mode: 'number' })
+      .notNull()
+      .references(() => users.id),
+    notes: text('notes'),
+    /** Denormalised from the package manifest at attach time — see spec §5.1. */
+    timeMs: integer('time_ms').notNull(),
+    memoryKb: integer('memory_kb').notNull(),
+    testCount: integer('test_count').notNull(),
+    totalPoints: doublePrecision('total_points').notNull(),
+    checkerKind: text('checker_kind').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('problem_revisions_version_idx').on(t.problemId, t.version),
+    // At most one published revision per problem at any time — the invariant
+    // publishRevision's archive-then-publish sequencing relies on. A row
+    // lock (`SELECT ... FOR UPDATE` on the parent `problems` row) serialises
+    // concurrent publishes in practice; this index is the second half of
+    // that pairing (mirrors Task 1's `problem_revisions_version_idx`): it
+    // makes the invariant impossible to violate even if some future caller
+    // forgets the lock. Partial on `state = 'published'` so any number of
+    // `draft`/`archived` rows coexist freely — only two 'published' rows for
+    // the same problem collide.
+    uniqueIndex('problem_revisions_one_published_idx')
+      .on(t.problemId)
+      .where(sql`${t.state} = 'published'`),
+  ],
+);
+
+export const problemRole = pgEnum('problem_role', ['author', 'curator', 'tester']);
+
+export const problemMembers = pgTable(
+  'problem_members',
+  {
+    problemId: bigint('problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => problems.id, { onDelete: 'cascade' }),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: problemRole('role').notNull(),
+  },
+  // `role` is in the key on purpose: DMOJ's separate authors/curators
+  // relations let one person hold both, and a (problem, user) key would
+  // force the deferred importer to discard one of them.
+  (t) => [primaryKey({ columns: [t.problemId, t.userId, t.role] })],
+);
+
+export const problemOrgs = pgTable(
+  'problem_orgs',
+  {
+    problemId: bigint('problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => problems.id, { onDelete: 'cascade' }),
+    orgId: bigint('org_id', { mode: 'number' })
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.problemId, t.orgId] })],
+);
 
 export const submissions = pgTable('submissions', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),

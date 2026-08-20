@@ -20,12 +20,23 @@ async function seedSubmissionAndJob(
     .returning();
   const [problem] = await db
     .insert(problems)
-    .values({ code: 'aplusb', name: 'A+B', statement: 's' })
+    .values({ code: 'aplusb', name: 'A+B', statement: 's', createdBy: user!.id })
     .returning();
   await db.insert(schema.packages).values({ hash: 'h', sizeBytes: 1, fileCount: 1 });
   const [revision] = await db
     .insert(problemRevisions)
-    .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })
+    .values({
+      problemId: problem!.id,
+      version: 1,
+      packageHash: 'h',
+      state: 'published',
+      createdBy: user!.id,
+      timeMs: 1000,
+      memoryKb: 256_000,
+      testCount: 5,
+      totalPoints: 100,
+      checkerKind: 'wcmp',
+    })
     .returning();
   const [submission] = await db
     .insert(submissions)
@@ -196,16 +207,17 @@ describe('EventWriter', () => {
       const writer = new EventWriter(db, store, { publish } as never);
       const { job } = await seedSubmissionAndJob(db, store);
 
-      // Force a real database failure: `case_verdict` is a Postgres enum with
-      // no `CE` member (see the note on `compileError` above), so writing a
-      // case result that claims one is rejected by Postgres itself — not by
-      // `onConflictDoNothing`, which only absorbs a conflict on the
-      // identity index, not an invalid enum literal.
+      // Force a real database failure: `case_verdict` is a Postgres enum, so
+      // writing a case result that claims a verdict outside its member list
+      // is rejected by Postgres itself — not by `onConflictDoNothing`, which
+      // only absorbs a conflict on the identity index, not an invalid enum
+      // literal. `'ZZ'` (not `'CE'`, since Task 1 added that as a real
+      // member) is the poison value here for exactly that reason.
       const badEvent = {
         type: 'caseResult',
         groupIndex: 0,
         caseIndex: 0,
-        verdict: 'CE',
+        verdict: 'ZZ',
         skipped: false,
         flags: [],
         timeMs: 1,
@@ -255,6 +267,48 @@ describe('EventWriter', () => {
       const logged = errorSpy.mock.calls.map((c) => c[0]).find((line) => typeof line === 'string');
       expect(logged).toBeDefined();
       expect(logged as string).toContain('Traceback');
+
+      errorSpy.mockRestore();
+    });
+  }, 120_000);
+
+  it('records a compile error as verdict CE with the compile log preserved', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+
+      const log = "error: expected ';' before '}' token";
+
+      await writer.apply(job, { type: 'compileError', message: log });
+
+      const [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      // A compile error is a graded outcome the submitter caused, not a
+      // judge-side failure: it lands on `done`, not `errored`.
+      expect(row?.state).toBe('done');
+      expect(row?.verdict).toBe('CE');
+      // The whole point of distinguishing CE from IE is that the person
+      // fixing their code gets to see why it didn't compile.
+      expect(row?.compileOutput).toBe(log);
+      expect(row?.compileOutput).not.toHaveLength(0);
+    });
+  }, 120_000);
+
+  it('keeps a genuine internal error on verdict IE, distinct from a compile error', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Guards against a "simplification" that maps every judge-side
+      // failure to the same verdict: a test that only proves compileError
+      // -> CE would still pass if internalError were mapped to CE too.
+      await writer.apply(job, { type: 'internalError', message: 'boom' });
+
+      const [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      expect(row?.verdict).toBe('IE');
+      expect(row?.verdict).not.toBe('CE');
 
       errorSpy.mockRestore();
     });

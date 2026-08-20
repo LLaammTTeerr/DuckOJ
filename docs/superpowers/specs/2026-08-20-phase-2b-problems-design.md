@@ -24,8 +24,9 @@ a problem: tags, contests, ratings, editorials, and scheduling policy.
 
 - The permission model: `problem_members`, `problem_orgs`, and the visibility
   predicate that every read path shares.
-- `ProblemAccessService` — the sole module permitted to import guarded problem
-  tables, matching `OrgAccessService` and `SubmissionAccessService`.
+- `ProblemAccessService` — the sole *service* importing guarded problem
+  tables, matching `OrgAccessService` and `SubmissionAccessService`
+  (`problem.visibility.ts` also holds them, by design — see §3.3).
 - Problem CRUD and the revision lifecycle over HTTP: list, read, create,
   update, attach a package, publish.
 - Manifest denormalisation onto `problem_revisions` at attach time.
@@ -151,7 +152,8 @@ export interface ProblemViewContext {
   memberRoles: ProblemRole[];
   /** Organizations this problem is shared with. */
   sharedOrgIds: number[];
-  /** Organizations the actor belongs to. */
+  /** Orgs the actor belongs to THAT THIS PROBLEM IS SHARED WITH — the
+   *  intersection, not the actor's full membership list. */
   actorOrgIds: number[];
 }
 ```
@@ -211,8 +213,11 @@ These bind every task in the implementation plan.
    `problem_not_found`, never a distinct code and never a 403; the existence
    of a private problem is itself information. On *writes* against a problem
    the actor *can* see, 403 is correct — existence is already disclosed.
-3. **`ProblemAccessService` is the only importer of guarded problem tables.**
-   Same rule as `OrgAccessService` and `SubmissionAccessService`.
+3. **`ProblemAccessService` is the only *service* importing guarded problem
+   tables.** Same rule as `OrgAccessService` and `SubmissionAccessService`.
+   `problem.visibility.ts` is not a service and is the one other file that
+   holds these imports, by design — the predicate and the loader that feeds it
+   belong together, and splitting them is how the two forms drift apart.
 4. **Statements are Markdown.** Not HTML, not a rich-text blob. Forced by the
    deferred import: DMOJ stores Markdown with MathJax-delimited maths, and a
    different storage format would make that import lossy. Rendering is

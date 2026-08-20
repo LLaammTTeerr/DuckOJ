@@ -110,14 +110,16 @@ if (wrong.verdict !== 'WA') failures.push(`expected WA, got ${String(wrong.verdi
 if (wrong.points !== 1) failures.push(`expected wrong points === 1, got ${String(wrong.points)}`);
 if (wrong.maxPoints !== 3) failures.push(`expected wrong maxPoints === 3, got ${String(wrong.maxPoints)}`);
 
-// A compile error is reported as verdict `IE`, not `CE` — `case_verdict`
-// (packages/db/src/schema/guarded.ts) has no CE member, since a per-case
-// verdict can never be CE, and separating submission-level outcomes from
-// case verdicts is out of scope for this phase (task-15-brief.md, F3). Do
-// not assert verdict === 'CE' here; distinguish a compile error solely by a
-// non-empty compileOutput, as the check below does.
+// A compile error came back as verdict `IE` for all of Phase 1 and 2a —
+// `case_verdict` had no CE member, so `EventWriter` reused `IE` and this
+// script deliberately asserted nothing but a non-empty `compileOutput`.
+// Phase 2b Task 9 added `CE` to the enum and changed the mapping, and Task
+// 13 confirmed `CE` against the real judge on a fresh stack, so the
+// assertion is now the real one. If this ever regresses to `IE`, that is a
+// bug in `apps/judged/src/event-writer.ts`, not an expected wart.
 const broken = await submitAndWait(UNCOMPILABLE);
 console.log('broken   →', broken.verdict, '| compileOutput:', String(broken.compileOutput ?? '').slice(0, 80));
+if (broken.verdict !== 'CE') failures.push(`expected CE for uncompilable source, got ${String(broken.verdict)}`);
 if (!broken.compileOutput) failures.push('expected a non-empty compileOutput for uncompilable source');
 
 // A second, distinct problem — `hello` — not seeded until Task 14, and not

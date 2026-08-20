@@ -33,12 +33,23 @@ async function seed(
     .returning();
   const [problem] = await db
     .insert(problems)
-    .values({ code: 'aplusb', name: 'A+B', statement: 's' })
+    .values({ code: 'aplusb', name: 'A+B', statement: 's', createdBy: user!.id })
     .returning();
   await db.insert(schema.packages).values({ hash: 'h', sizeBytes: 1, fileCount: 1 }).onConflictDoNothing();
   const [revision] = await db
     .insert(problemRevisions)
-    .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })
+    .values({
+      problemId: problem!.id,
+      version: 1,
+      packageHash: 'h',
+      state: 'published',
+      createdBy: user!.id,
+      timeMs: 1000,
+      memoryKb: 256_000,
+      testCount: 5,
+      totalPoints: 100,
+      checkerKind: 'wcmp',
+    })
     .returning();
   const [submission] = await db
     .insert(submissions)
@@ -453,6 +464,32 @@ describe('Worker', () => {
       expect(submission?.compileOutput).toBe(
         'Grading failed due to an internal judge error. This has been logged for investigation.',
       );
+
+      worker.stop();
+      await Promise.race([run, new Promise((r) => setTimeout(r, 1000))]);
+    });
+  }, 120_000);
+
+  it('a compile-error event from the driver lands as verdict CE with the log preserved', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const driver = new FakeDriver();
+      const { jobId, submissionId } = await seed(db, store, 'int main() {');
+      const log = "error: expected ';' before '}' token";
+      driver.script(String(jobId), [{ type: 'compileError', message: log }]);
+
+      const worker = new Worker(store, writer, driver, 'worker-a');
+      const run = worker.start();
+
+      await vi.waitFor(async () => {
+        const [job] = await db.select().from(schema.gradingJobs).where(eq(schema.gradingJobs.id, jobId));
+        expect(job?.state).toBe('done');
+      }, 10_000);
+
+      const [submission] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      expect(submission?.verdict).toBe('CE');
+      expect(submission?.compileOutput).toBe(log);
 
       worker.stop();
       await Promise.race([run, new Promise((r) => setTimeout(r, 1000))]);

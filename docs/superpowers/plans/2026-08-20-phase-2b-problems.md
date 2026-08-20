@@ -16,7 +16,7 @@ Copied verbatim from the spec §3. Every task's requirements implicitly include 
 
 1. **One visibility predicate, two consumers.** `SubmissionAccessService.create`'s inline check (`apps/api/src/authz/submission.access.ts:31`, `visibility !== 'public'`) must be *replaced* by the shared predicate, not shadowed by it. Task 8 owns this and is not optional.
 2. **404 over 403 on reads.** A problem the actor may not see returns `problem_not_found`. On writes against a problem the actor *can* see, 403 `problem_forbidden` is correct.
-3. **`ProblemAccessService` is the only importer of guarded problem tables** (`problems`, `problemRevisions`, `problemMembers`, `problemOrgs`) — with the single exception of `SubmissionAccessService`, which already owns `submissions` and reads `problems` through the shared predicate.
+3. **`ProblemAccessService` is the only *service* importing guarded problem tables** (`problems`, `problemRevisions`, `problemMembers`, `problemOrgs`). Two files are explicitly not violations: `apps/api/src/authz/problem.visibility.ts`, which the spec mandates hold these imports so the predicate and its loader live together; and `SubmissionAccessService`, which already owns `submissions` and reaches problems only through that predicate.
 4. **Statements are Markdown**, stored raw, rendered client-side, and **sanitized** before insertion into the DOM.
 5. **No new hardcoded API prefix.** Every URL derives from `@duckoj/api-prefix`.
 6. **Every new workspace dependency of a Dockerised app updates that Dockerfile's COPY manifest**, and `apps/api/test/dockerfile-manifest.spec.ts` stays green.
@@ -224,7 +224,14 @@ git add packages/db && git commit -m "feat(db): problem members, orgs, revision 
 
 **Interfaces:**
 - Consumes: `Actor`, `isAdmin` from `./actor.js`; tables from Task 1.
-- Produces: `visibleProblemsWhere(actor)`, `canViewProblem(actor, problem, ctx)`, `canEditProblem(actor, ctx)`, `type ProblemViewContext`.
+- Produces: `visibleProblemsWhere(db, actor)`, `canViewProblem(actor, problem, ctx)`, `canEditProblem(actor, ctx)`, `canCreateProblem(actor)`, `loadProblemContext(db, actor, problemId)`, `type ProblemViewContext`, `type ProblemRole`.
+
+**`loadProblemContext` lives here, not in the service.** Task 8 must call it
+without depending on `ProblemAccessService`, and a second loader written later
+for the submission path is exactly the duplication Global Constraint 1 exists
+to prevent. Its two queries are given in Task 3 Step 3 — implement them in
+this file now; this task's own suite covers only the pure predicates, and
+Task 3's database tests exercise the loader.
 
 - [ ] **Step 1: Write the failing test first**
 
@@ -362,9 +369,12 @@ Expected: all pass.
 
 - [ ] **Step 5: Prove the suite discriminates**
 
-Temporarily change `canViewProblem`'s org branch to `return true`. Re-run.
-Expect `anon cannot see org`, `user cannot see org`, and `non-shared org
-member cannot see org` to fail. Revert. **Report the observed failures** —
+Temporarily make `canViewProblem`'s org branch unconditionally `return true`
+— **including dropping its `&& actor` guard**. Re-run. Expect `anon cannot see
+org`, `user cannot see org`, and `non-shared org member cannot see org` to
+fail. Changing only the inner return leaves the `&& actor` guard standing and
+produces two failures, not three; if you see two, you have not broken enough.
+Revert. **Report the observed failures** —
 a matrix test that passes under a broken predicate is worthless, and this
 project has shipped three such tests before.
 
@@ -381,7 +391,7 @@ project has shipped three such tests before.
 
 **Interfaces:**
 - Consumes: Task 2's exports; `PaginationQueryDto`.
-- Produces: `ProblemAccessService` with `listVisible(actor, page, q?)`, `getVisible(actor, code)`, and the private helper `contextFor(actor, problemId)` that Tasks 4–6 also use.
+- Produces: `ProblemAccessService` with `listVisible(actor, page, q?)` and `getVisible(actor, code)`. The per-problem context comes from Task 2's `loadProblemContext`; this service does not define its own.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -404,34 +414,33 @@ problem named `A plus B` **and** that `q: 'apl'` matches code `aplusb`.
 
 - [ ] **Step 2: Run and watch fail**
 
-- [ ] **Step 3: Implement `contextFor` and the two reads**
+- [ ] **Step 3: Implement the two reads**
+
+`loadProblemContext` belongs to Task 2's file. Its body is given here because
+this is the task whose tests first exercise it — everything Task 2's
+predicates need about one actor/problem pair, in two queries, called on every
+single-problem path so authorization never depends on which handler the
+request arrived through:
 
 ```ts
-@Injectable()
-export class ProblemAccessService {
-  constructor(@Inject(DB) private readonly db: Db) {}
-
-  /**
-   * Everything Task 2's predicates need about one actor/problem pair, in two
-   * queries. Called on every single-problem path — reads and writes alike —
-   * so authorization never depends on which handler you arrived through.
-   */
-  private async contextFor(actor: Actor | null, problemId: number): Promise<ProblemViewContext> {
-    if (!actor) return { memberRoles: [], sharedOrgIds: [], actorOrgIds: [] };
-    const [roles, orgs] = await Promise.all([
-      this.db.select({ role: problemMembers.role }).from(problemMembers)
-        .where(and(eq(problemMembers.problemId, problemId), eq(problemMembers.userId, actor.userId))),
-      this.db.select({ shared: problemOrgs.orgId, mine: orgMembers.orgId })
-        .from(problemOrgs)
-        .leftJoin(orgMembers, and(eq(orgMembers.orgId, problemOrgs.orgId), eq(orgMembers.userId, actor.userId)))
-        .where(eq(problemOrgs.problemId, problemId)),
-    ]);
-    return {
-      memberRoles: roles.map((r) => r.role),
-      sharedOrgIds: orgs.map((o) => o.shared),
-      actorOrgIds: orgs.filter((o) => o.mine !== null).map((o) => o.mine!),
-    };
-  }
+export async function loadProblemContext(
+  db: Db, actor: Actor | null, problemId: number,
+): Promise<ProblemViewContext> {
+  if (!actor) return { memberRoles: [], sharedOrgIds: [], actorOrgIds: [] };
+  const [roles, orgs] = await Promise.all([
+    db.select({ role: problemMembers.role }).from(problemMembers)
+      .where(and(eq(problemMembers.problemId, problemId), eq(problemMembers.userId, actor.userId))),
+    db.select({ shared: problemOrgs.orgId, mine: orgMembers.orgId })
+      .from(problemOrgs)
+      .leftJoin(orgMembers, and(eq(orgMembers.orgId, problemOrgs.orgId), eq(orgMembers.userId, actor.userId)))
+      .where(eq(problemOrgs.problemId, problemId)),
+  ]);
+  return {
+    memberRoles: roles.map((r) => r.role),
+    sharedOrgIds: orgs.map((o) => o.shared),
+    actorOrgIds: orgs.filter((o) => o.mine !== null).map((o) => o.mine!),
+  };
+}
 ```
 
 `listVisible` follows `OrgAccessService.listVisible` exactly — keyset on
@@ -454,8 +463,8 @@ Limits come from a `leftJoin` on `problemRevisions` at
 `problems.currentRevisionId`; a null join yields `timeMs: null`,
 `memoryKb: null`, `hasPublishedRevision: false`.
 
-`getVisible` loads the problem by `lower(code) = lower(:code)`, builds
-`contextFor`, and throws `new AppError(404, 'problem_not_found', 'No such problem.')`
+`getVisible` loads the problem by `lower(code) = lower(:code)`, builds its
+context with `loadProblemContext`, and throws `new AppError(404, 'problem_not_found', 'No such problem.')`
 when `canViewProblem` is false — the same 404 for "absent" and "invisible".
 
 - [ ] **Step 4: Register in `AuthzModule`** (providers + exports).
@@ -506,7 +515,7 @@ insert `problemMembers` `{ role: 'author', userId: actor.userId }`, insert any
 rethrow as `AppError(409, 'problem_code_taken', …)`; do not pre-check with a
 SELECT, which races.
 
-`update` loads the problem, builds `contextFor`, and — in this order —
+`update` loads the problem, builds its context with `loadProblemContext`, and — in this order —
 
 1. `canViewProblem` false → 404 (never disclose existence),
 2. `canEditProblem` false → 403,
@@ -537,8 +546,44 @@ returns 404 even with a bad patch" case to fail. Revert and report.
 - Test: `apps/api/test/problem-revisions.spec.ts`
 
 **Interfaces:**
-- Consumes: `PackageStore`, `unpackArchive`, `parseManifest` from `@duckoj/package-format`.
-- Produces: `attachRevision(actor, code, { packageHash, notes })` → `{ version }`.
+- Consumes: `PackageStore.get(hash): Promise<Buffer>` (**not** `read` — it does not exist), `parseManifest` from `@duckoj/package-format`, and the `packageFiles` table.
+- Produces: `readArchiveEntry` in `@duckoj/package-format` (Step 0); `attachRevision(actor, code, { packageHash, notes })` → `{ version }`.
+
+**Read this before writing any code.** The obvious implementation — "unpack
+the archive in memory and inspect it" — does not typecheck against the real
+API, and a pre-flight scan caught it in this plan's own first draft:
+
+- `unpackArchive(archive: Buffer, destDir: string): Promise<void>` **writes to
+  disk and returns nothing.** It cannot hand you file contents.
+- `PackageStore` exposes `has`, `put`, `get`, `delete`. There is no `read`.
+
+So this task takes two different routes for its two needs:
+
+- **Path collisions come from the database, not the archive.** Phase 2a
+  already stores one `package_files` row per file per hash. Query it. No
+  unpack, no temp directory, and the check runs against the same list the
+  hash was computed over.
+- **The manifest comes from a new, narrow archive reader** (Step 0), because
+  its *contents* are genuinely not in the database.
+
+- [ ] **Step 0: Add `readArchiveEntry` to `@duckoj/package-format`**
+
+```ts
+/** Returns the bytes of one entry, or null if the archive has no such path. */
+export async function readArchiveEntry(archive: Buffer, path: string): Promise<Buffer | null>;
+```
+
+Implement it beside `unpackArchive` with tar's parser and an in-memory
+collector, resolving on the parser's `end` event. **Do not write
+`await parse(...).end(bytes)`** — `end()` returns the stream, not a promise,
+so awaiting it awaits nothing. That exact bug shipped in `unpackArchive` in
+Phase 2a and was caught only in review; the fix there wraps the parser in a
+`new Promise` that resolves on `'end'`. Copy that shape.
+
+Test it: an archive containing `manifest.json` returns its bytes; a missing
+path returns `null`; a 500-file archive still returns the right entry (the
+Phase 2a reviewer's reproduction — a truncating implementation passes on
+small fixtures and fails here).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -571,16 +616,21 @@ asserts the resulting version set is exactly `{1, 2}`.
 async attachRevision(actor: Actor, code: string, input: { packageHash: string; notes?: string }) {
   const { problem, ctx } = await this.loadForEdit(actor, code);   // 404 then 403, as Task 4
 
-  if (!(await this.store.has(input.packageHash))) {
+  // The `packages` row is the authority on existence; the store is where the
+  // bytes live. Check the row, because a hash with no row is `package_not_found`
+  // even if orphaned bytes happen to survive in the store.
+  const paths = await this.db.select({ path: packageFiles.path })
+    .from(packageFiles).where(eq(packageFiles.packageHash, input.packageHash));
+  if (paths.length === 0) {
     throw new AppError(404, 'package_not_found', 'No such package.');
   }
-  const files = await unpackArchive(await this.store.read(input.packageHash));
-  assertNoPathCollisions(files);                                   // Step 4
-  const manifestFile = files.find((f) => f.path === 'manifest.json');
-  if (!manifestFile) throw new AppError(400, 'package_invalid', 'Package has no manifest.json.');
+  assertNoPathCollisions(paths);                                   // Step 4
+
+  const entry = await readArchiveEntry(await this.store.get(input.packageHash), 'manifest.json');
+  if (!entry) throw new AppError(400, 'package_invalid', 'Package has no manifest.json.');
   let manifest;
   try {
-    manifest = parseManifest(JSON.parse(manifestFile.contents.toString('utf8')));
+    manifest = parseManifest(JSON.parse(entry.toString('utf8')));
   } catch (e) {
     throw new AppError(400, 'package_invalid', (e as Error).message);
   }
@@ -588,10 +638,19 @@ async attachRevision(actor: Actor, code: string, input: { packageHash: string; n
   // Read-then-insert races; the unique index of Task 1 turns that race into a
   // constraint violation. Retry rather than surfacing a 500 — the second
   // attempt reads the winner's version and succeeds.
+  //
+  // Use `onConflictDoNothing().returning()` and retry on an EMPTY result. Do
+  // NOT catch the unique-violation error instead: inside a transaction, a
+  // constraint violation aborts the whole transaction, so every later
+  // statement — including the retry's own `max(version)` read — fails with
+  // `25P02 current transaction is aborted`. The test harness wraps each case
+  // in one transaction, so the catch-based version fails there even though it
+  // would appear to work in production. `onConflictDoNothing` never raises,
+  // so it works in both.
   for (let attempt = 0; attempt < 5; attempt++) {
     const next = (await this.maxVersion(problem.id)) + 1;
-    try {
-      await this.db.insert(problemRevisions).values({
+    {
+      await this.db.insert(problemRevisions).onConflictDoNothing().returning().values({
         problemId: problem.id, version: next, packageHash: input.packageHash,
         state: 'draft', createdBy: actor.userId, notes: input.notes ?? null,
         timeMs: manifest.limits.timeMs, memoryKb: manifest.limits.memoryKb,
@@ -601,7 +660,6 @@ async attachRevision(actor: Actor, code: string, input: { packageHash: string; n
       });
       return { version: next };
     } catch (e) {
-      if (!isUniqueViolation(e)) throw e;
     }
   }
   throw new AppError(409, 'revision_conflict', 'Too many concurrent attaches.');
@@ -629,12 +687,29 @@ function assertNoPathCollisions(files: Array<{ path: string }>): void {
 }
 ```
 
-- [ ] **Step 5: Run tests; prove the collision test discriminates**
+- [ ] **Step 5: Wire `PackageStore` into `ProblemAccessService`**
+
+The service now needs the store in its constructor. `PackageStore` is
+provided by `PackagesModule` (see `apps/api/src/packages/packages.module.ts`);
+`AuthzModule` must import it, or the provider must be moved somewhere both
+can reach. **Check for a circular import** — if `PackagesModule` imports
+`AuthzModule`, use `forwardRef` or lift the store provider into a shared
+module, and say in the report which you did and why.
+
+- [ ] **Step 6: Run tests; prove the collision test discriminates**
 
 Remove the `assertNoPathCollisions` call. Expect both collision cases to fail
 with "expected 400, got 201". Revert and report.
 
-- [ ] **Step 6: Commit**
+Seed the store blob and the `packages`/`package_files` rows **directly**.
+Do not try to build the fixture by uploading: `POST /packages` already
+rejects a colliding or manifest-less package, so upload cannot produce the
+state this check is supposed to catch. The check reads the database, not the
+archive. Write the two names with explicit escapes
+(`'café.txt'` and `'café.txt'`), never by typing the character:
+an editor that normalises on save makes the test pass for the wrong reason.
+
+- [ ] **Step 7: Commit**
 
 ---
 
@@ -703,7 +778,21 @@ archives the first" to fail. Revert and report.
 - Modify: `packages/contracts/src/index.ts`, `packages/contracts/src/registry.ts`
 - Create: `apps/api/src/problems/problems.controller.ts`, `problems.module.ts`
 - Modify: `apps/api/src/app.module.ts`
+- Create: `packages/contracts/test/route-coverage.spec.ts`
 - Test: `apps/api/test/problems-http.spec.ts`, `packages/contracts/test/registry.spec.ts`
+
+**SPLIT, as anticipated.** This grew to contracts, controller, eleven
+unregistered legacy routes, a drift test and a served docs viewer — too much
+for one review surface. Executed as two tasks:
+
+- **7a** — Steps 1-4 and 8: the Phase 2b problems surface. Contracts,
+  controller, the `registry.ts` prefix fix, HTTP tests, module wiring.
+- **7b** — Steps 5-7: the OpenAPI debt. Backfilling the eleven routes, the
+  route-coverage drift test, and serving `/openapi.json` plus `/docs`.
+
+7a is on the phase's critical path; 7b is not, and could slip to Phase 3
+without blocking anything. The drift test is the piece worth keeping under any
+reordering, because it is what stops the gap reopening.
 
 **Interfaces:**
 - Produces: `CreateProblemRequest`, `UpdateProblemRequest`, `AttachRevisionRequest`, `ProblemListQuery`, `ProblemSummary`, `ProblemDetail`, `RevisionSummary` and their DTO types.
@@ -791,7 +880,63 @@ PATCH with an unknown field is 400 problem_code_immutable
 the OpenAPI document lists every problem route under API_PREFIX
 ```
 
-- [ ] **Step 5: Register the module, run all gates, commit**
+- [ ] **Step 5: Backfill the eleven unregistered routes**
+
+The contracts registry documents **7 of 18** live non-internal routes. These
+eleven exist in Nest controllers and appear nowhere in `openapi.json`, which
+also means they are absent from the generated SDK:
+
+```
+POST   /auth/register        POST   /auth/tokens
+POST   /auth/logout          GET    /auth/tokens
+POST   /auth/totp/begin      DELETE /auth/tokens/{id}
+POST   /auth/totp/confirm    DELETE /auth/totp
+GET    /orgs/{slug}          GET    /healthz
+                             GET    /readyz
+```
+
+Register each against the schemas its controller already validates with. Do
+not invent new shapes — every one of these has a Zod contract already, or
+takes no body.
+
+- [ ] **Step 6: Add the drift test that stops this recurring**
+
+`packages/contracts/test/route-coverage.spec.ts`. Registering a route in a
+Nest controller and registering it in the contracts registry are two
+independent acts, and nothing has ever enforced that they agree — which is
+exactly how the count reached 7 of 18 silently.
+
+Parse `apps/api/src/**/*.controller.ts` for `@Controller` prefixes and
+`@Get`/`@Post`/`@Patch`/`@Delete` paths, convert `:param` to `{param}`,
+exclude anything under an `internal/` controller, and assert the resulting
+set equals the document's paths. Model it on
+`apps/api/test/dockerfile-manifest.spec.ts`, which does the same job for
+Dockerfile COPY lines and has already caught a real break.
+
+**Prove it discriminates:** delete one registration, confirm the test names
+the missing route, restore.
+
+- [ ] **Step 7: Serve the document and a viewer**
+
+`GET /openapi.json` returning `openApiDocument()`, and `GET /docs` rendering
+it. Both `@Public()`.
+
+Serve the viewer's assets **from the API**, not a CDN — the compose stack has
+no guarantee of outbound network, and a docs page that silently fails to load
+offline is worse than none. Scalar's standalone bundle or Redoc's are both
+single files; vendor one.
+
+Serving the document from the running API rather than shipping the committed
+`openapi.json` is the point: the file on disk can drift from the build, and
+the endpoint cannot.
+
+**Add a Caddy route for `/docs` and `/openapi.json` if the current config
+does not already proxy them.** A route that works locally and 404s behind
+Caddy is this project's single most repeated integration bug — Phase 1's
+`/ws` and Phase 2a's archive-fetch URL were both exactly this. Task 13 checks
+it against the live stack.
+
+- [ ] **Step 8: Register the module, run all gates, commit**
 
 ---
 
@@ -802,11 +947,10 @@ the OpenAPI document lists every problem route under API_PREFIX
 - Test: `apps/api/test/submission-problem-visibility.spec.ts`
 
 **Interfaces:**
-- Consumes: Task 2's `canViewProblem`, Task 3's `contextFor` (promote it from
-  `private` to a package-internal export, or move it into
-  `problem.visibility.ts` as `loadProblemContext(db, actor, problemId)` —
-  prefer the latter, so `SubmissionAccessService` does not depend on
-  `ProblemAccessService`).
+- Consumes: Task 2's `canViewProblem` and `loadProblemContext`, both already
+  exported from `problem.visibility.ts`. `SubmissionAccessService` must NOT
+  depend on `ProblemAccessService` — the shared thing is the predicate module,
+  not the service.
 
 **This task is the reason the phase has a Global Constraint about it.** It is
 not cleanup. Skipping it ships a problem an org member can see in the list and
@@ -1176,6 +1320,8 @@ rulings verbatim from the SDD progress file. Commit it.
 7. A package whose paths collide case-insensitively or under NFC is rejected at attach time with `package_path_collision`.
 8. Two concurrent attaches produce versions 1 and 2, never two 1s.
 9. `registry.servers[0].url` is `API_PREFIX`, asserted against the imported constant.
+9b. Every non-internal Nest route appears in the OpenAPI document — 18 of 18, not 7 — and deleting one registration makes `route-coverage.spec.ts` name it.
+9c. `GET /docs` and `GET /openapi.json` are reachable **through Caddy** on the live stack, with the viewer's assets served locally rather than from a CDN.
 10. `apps/api/test/dockerfile-manifest.spec.ts` is green, and deleting a COPY line makes it fail.
 11. All gates green from a clean tree with every `dist/` deleted.
 12. Every test added by this phase has been demonstrated to fail against broken code, with the failure output recorded in its task report.

@@ -22,9 +22,10 @@ export async function seedProblemAndLanguage(db: Db): Promise<void> {
     executorKey: 'CPP17',
   });
 
+  const owner = await insertUser(db, 'aplusb-owner');
   const [problem] = await db
     .insert(problems)
-    .values({ code: 'aplusb', name: 'A+B', statement: 'Add two integers.' })
+    .values({ code: 'aplusb', name: 'A+B', statement: 'Add two integers.', createdBy: owner.id })
     .returning();
   await db.insert(schema.packages).values({ hash: 'phase1-aplusb', sizeBytes: 1, fileCount: 1 });
   const [revision] = await db
@@ -34,6 +35,12 @@ export async function seedProblemAndLanguage(db: Db): Promise<void> {
       version: 1,
       packageHash: 'phase1-aplusb',
       state: 'published',
+      createdBy: owner.id,
+      timeMs: 1000,
+      memoryKb: 256_000,
+      testCount: 5,
+      totalPoints: 100,
+      checkerKind: 'wcmp',
     })
     .returning();
   await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problem!.id));
@@ -84,14 +91,26 @@ export async function insertUser(
  * problem's submissions also need.
  */
 export async function seedPrivateProblem(db: Db): Promise<void> {
+  const owner = await insertUser(db, 'hidden-owner');
   const [problem] = await db
     .insert(problems)
-    .values({ code: 'hidden', name: 'Hidden Problem', statement: 's', visibility: 'private' })
+    .values({ code: 'hidden', name: 'Hidden Problem', statement: 's', visibility: 'private', createdBy: owner.id })
     .returning();
   await db.insert(schema.packages).values({ hash: 'phase1-hidden', sizeBytes: 1, fileCount: 1 });
   const [revision] = await db
     .insert(problemRevisions)
-    .values({ problemId: problem!.id, version: 1, packageHash: 'phase1-hidden', state: 'published' })
+    .values({
+      problemId: problem!.id,
+      version: 1,
+      packageHash: 'phase1-hidden',
+      state: 'published',
+      createdBy: owner.id,
+      timeMs: 1000,
+      memoryKb: 256_000,
+      testCount: 5,
+      totalPoints: 100,
+      checkerKind: 'wcmp',
+    })
     .returning();
   await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problem!.id));
 }

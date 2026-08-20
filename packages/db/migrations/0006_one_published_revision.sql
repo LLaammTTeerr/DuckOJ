@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "problem_revisions_one_published_idx" ON "problem_revisions" USING btree ("problem_id") WHERE "problem_revisions"."state" = 'published';

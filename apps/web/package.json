@@ -5,20 +5,25 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint src test",
+    "lint": "eslint src test e2e",
     "test": "tsc -b ../../packages/sdk && vitest run",
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@duckoj/api-prefix": "workspace:^",
     "@duckoj/sdk": "workspace:^",
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-router": "^1.170.29",
+    "dompurify": "^3.4.14",
+    "katex": "^0.18.4",
+    "marked": "^18.0.10",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.4",
