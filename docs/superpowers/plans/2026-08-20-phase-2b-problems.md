@@ -768,7 +768,14 @@ archives the first" to fail. Revert and report.
 - Modify: `packages/contracts/src/index.ts`, `packages/contracts/src/registry.ts`
 - Create: `apps/api/src/problems/problems.controller.ts`, `problems.module.ts`
 - Modify: `apps/api/src/app.module.ts`
+- Create: `packages/contracts/test/route-coverage.spec.ts`
 - Test: `apps/api/test/problems-http.spec.ts`, `packages/contracts/test/registry.spec.ts`
+
+**This is the largest task in the phase** — contracts, controller, the eleven
+unregistered legacy routes, a drift test, and a served docs viewer. If it
+proves unwieldy, split at Step 5: Steps 1-4 and 8 are the problems surface,
+Steps 5-7 are the OpenAPI debt. The drift test (Step 6) is the piece worth
+keeping under any split, because it is what stops the gap reopening.
 
 **Interfaces:**
 - Produces: `CreateProblemRequest`, `UpdateProblemRequest`, `AttachRevisionRequest`, `ProblemListQuery`, `ProblemSummary`, `ProblemDetail`, `RevisionSummary` and their DTO types.
@@ -856,7 +863,63 @@ PATCH with an unknown field is 400 problem_code_immutable
 the OpenAPI document lists every problem route under API_PREFIX
 ```
 
-- [ ] **Step 5: Register the module, run all gates, commit**
+- [ ] **Step 5: Backfill the eleven unregistered routes**
+
+The contracts registry documents **7 of 18** live non-internal routes. These
+eleven exist in Nest controllers and appear nowhere in `openapi.json`, which
+also means they are absent from the generated SDK:
+
+```
+POST   /auth/register        POST   /auth/tokens
+POST   /auth/logout          GET    /auth/tokens
+POST   /auth/totp/begin      DELETE /auth/tokens/{id}
+POST   /auth/totp/confirm    DELETE /auth/totp
+GET    /orgs/{slug}          GET    /healthz
+                             GET    /readyz
+```
+
+Register each against the schemas its controller already validates with. Do
+not invent new shapes — every one of these has a Zod contract already, or
+takes no body.
+
+- [ ] **Step 6: Add the drift test that stops this recurring**
+
+`packages/contracts/test/route-coverage.spec.ts`. Registering a route in a
+Nest controller and registering it in the contracts registry are two
+independent acts, and nothing has ever enforced that they agree — which is
+exactly how the count reached 7 of 18 silently.
+
+Parse `apps/api/src/**/*.controller.ts` for `@Controller` prefixes and
+`@Get`/`@Post`/`@Patch`/`@Delete` paths, convert `:param` to `{param}`,
+exclude anything under an `internal/` controller, and assert the resulting
+set equals the document's paths. Model it on
+`apps/api/test/dockerfile-manifest.spec.ts`, which does the same job for
+Dockerfile COPY lines and has already caught a real break.
+
+**Prove it discriminates:** delete one registration, confirm the test names
+the missing route, restore.
+
+- [ ] **Step 7: Serve the document and a viewer**
+
+`GET /openapi.json` returning `openApiDocument()`, and `GET /docs` rendering
+it. Both `@Public()`.
+
+Serve the viewer's assets **from the API**, not a CDN — the compose stack has
+no guarantee of outbound network, and a docs page that silently fails to load
+offline is worse than none. Scalar's standalone bundle or Redoc's are both
+single files; vendor one.
+
+Serving the document from the running API rather than shipping the committed
+`openapi.json` is the point: the file on disk can drift from the build, and
+the endpoint cannot.
+
+**Add a Caddy route for `/docs` and `/openapi.json` if the current config
+does not already proxy them.** A route that works locally and 404s behind
+Caddy is this project's single most repeated integration bug — Phase 1's
+`/ws` and Phase 2a's archive-fetch URL were both exactly this. Task 13 checks
+it against the live stack.
+
+- [ ] **Step 8: Register the module, run all gates, commit**
 
 ---
 
@@ -1240,6 +1303,8 @@ rulings verbatim from the SDD progress file. Commit it.
 7. A package whose paths collide case-insensitively or under NFC is rejected at attach time with `package_path_collision`.
 8. Two concurrent attaches produce versions 1 and 2, never two 1s.
 9. `registry.servers[0].url` is `API_PREFIX`, asserted against the imported constant.
+9b. Every non-internal Nest route appears in the OpenAPI document — 18 of 18, not 7 — and deleting one registration makes `route-coverage.spec.ts` name it.
+9c. `GET /docs` and `GET /openapi.json` are reachable **through Caddy** on the live stack, with the viewer's assets served locally rather than from a CDN.
 10. `apps/api/test/dockerfile-manifest.spec.ts` is green, and deleting a COPY line makes it fail.
 11. All gates green from a clean tree with every `dist/` deleted.
 12. Every test added by this phase has been demonstrated to fail against broken code, with the failure output recorded in its task report.
