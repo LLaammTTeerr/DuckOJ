@@ -1,7 +1,7 @@
 import { createServer, type Server, type Socket } from 'node:net';
-import { describeError } from '@qhhoj/observability';
-import { createPacketDecoder, encodePacket } from '@qhhoj/judge-protocol';
-import type { BridgeToJudgePacket, JudgeToBridgePacket } from '@qhhoj/judge-protocol';
+import { describeError } from '@duckoj/observability';
+import { createPacketDecoder, encodePacket } from '@duckoj/judge-protocol';
+import type { BridgeToJudgePacket, JudgeToBridgePacket } from '@duckoj/judge-protocol';
 
 // judge-server sets a 300s read timeout on its end of this socket
 // (dmoj/packet.py:104) and expects *us* to send `ping` so it has traffic to
@@ -20,7 +20,7 @@ export interface BridgeOptions {
   languageToExecutor(languageKey: string): string;
   /**
    * Verifies the `(id, key)` pair a judge presents in its `handshake` packet
-   * against `judge_nodes` — see `@qhhoj/db`'s `verifyJudgeCredential`, which
+   * against `judge_nodes` — see `@duckoj/db`'s `verifyJudgeCredential`, which
    * production wires this to. Required, not optional: the handshake branch
    * below calls it unconditionally, so a caller cannot construct a
    * `BridgeServer` that accepts a judge without deciding how to verify it.
@@ -28,7 +28,7 @@ export interface BridgeOptions {
   verifyJudge(id: string, key: string): Promise<boolean>;
   /**
    * Records that judge `id` is alive — production wires this to
-   * `@qhhoj/db`'s `touchJudgeLastSeen`, so `judge_nodes.last_seen` reflects
+   * `@duckoj/db`'s `touchJudgeLastSeen`, so `judge_nodes.last_seen` reflects
    * what this class's own in-memory `lastSeenAt` map already knows.
    * Called on a successful handshake and on every `ping-response`, the
    * design's two specified signals (design §8) — never on every packet,

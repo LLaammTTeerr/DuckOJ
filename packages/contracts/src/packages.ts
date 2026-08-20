@@ -4,7 +4,7 @@ import { registry } from './registry.js';
 
 /**
  * The package identity: a lowercase-hex SHA-256 over the canonical file list
- * (see `@qhhoj/package-format`'s `packageHash`). Used both as a path
+ * (see `@duckoj/package-format`'s `packageHash`). Used both as a path
  * parameter (`GET /packages/{hash}`) and as the claimed-hash query parameter
  * on upload — one schema, so the format is enforced identically everywhere
  * it appears.
@@ -33,7 +33,7 @@ registry.registerPath({
   path: '/packages',
   summary: 'Upload a content-addressed problem package',
   description:
-    'The body is the raw tar+zstd archive bytes (see @qhhoj/package-format). ' +
+    'The body is the raw tar+zstd archive bytes (see @duckoj/package-format). ' +
     'The `hash` query parameter is the hash the client claims for it; the ' +
     'server unpacks the archive, recomputes the hash from the file digests, ' +
     'and rejects the upload if it disagrees.',

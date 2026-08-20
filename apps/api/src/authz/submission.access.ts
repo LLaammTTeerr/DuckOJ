@@ -1,14 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { problems, problemRevisions, submissionCases, submissions } from '@qhhoj/db/guarded';
-import { schema, type Db } from '@qhhoj/db';
-import type { CreateSubmissionRequestDto, SubmissionDetailDto } from '@qhhoj/contracts';
+import { problems, problemRevisions, submissionCases, submissions } from '@duckoj/db/guarded';
+import { schema, type Db } from '@duckoj/db';
+import type { CreateSubmissionRequestDto, SubmissionDetailDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from './actor.js';
 
 /**
- * The ONLY module permitted to import `@qhhoj/db/guarded` for submissions,
+ * The ONLY module permitted to import `@duckoj/db/guarded` for submissions,
  * exactly as `org.access.ts` is for organizations.
  */
 @Injectable()

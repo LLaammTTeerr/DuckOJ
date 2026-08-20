@@ -1,5 +1,5 @@
 {
-  "name": "@qhhoj/judged",
+  "name": "@duckoj/judged",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,10 +11,10 @@
     "dev": "tsx watch src/main.ts"
   },
   "dependencies": {
-    "@qhhoj/db": "workspace:^",
-    "@qhhoj/judge-protocol": "workspace:^",
-    "@qhhoj/observability": "workspace:^",
-    "@qhhoj/realtime": "workspace:^",
+    "@duckoj/db": "workspace:^",
+    "@duckoj/judge-protocol": "workspace:^",
+    "@duckoj/observability": "workspace:^",
+    "@duckoj/realtime": "workspace:^",
     "drizzle-orm": "^0.45.2",
     "ioredis": "^6.0.0",
     "zod": "^4.4.3"

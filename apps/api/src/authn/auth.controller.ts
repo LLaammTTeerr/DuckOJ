@@ -6,7 +6,7 @@ import {
   type LoginRequestDto,
   type MeResponseDto,
   type RegisterRequestDto,
-} from '@qhhoj/contracts';
+} from '@duckoj/contracts';
 import { AppError } from '../common/app.error.js';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { APP_CONFIG } from '../config/config.module.js';

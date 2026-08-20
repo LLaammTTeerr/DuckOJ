@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 import { APP_CONFIG, DB } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import type { Actor } from '../authz/actor.js';

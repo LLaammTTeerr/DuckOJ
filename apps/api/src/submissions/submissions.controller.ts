@@ -5,7 +5,7 @@ import {
   type CreateSubmissionRequestDto,
   type CreateSubmissionResponseDto,
   type SubmissionDetailDto,
-} from '@qhhoj/contracts';
+} from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { CurrentActor } from '../authn/auth.guard.js';
 import type { Actor } from '../authz/actor.js';

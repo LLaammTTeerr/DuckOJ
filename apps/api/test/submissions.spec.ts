@@ -1,8 +1,8 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { schema } from '@qhhoj/db';
-import { problemRevisions, submissionCases, submissions } from '@qhhoj/db/guarded';
+import { schema } from '@duckoj/db';
+import { problemRevisions, submissionCases, submissions } from '@duckoj/db/guarded';
 import { SubmissionAccessService } from '../src/authz/submission.access.js';
 import type { Actor } from '../src/authz/actor.js';
 import { buildApp } from './app.harness.js';

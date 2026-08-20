@@ -5,12 +5,12 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
-  SESSION_COOKIE_NAME: z.string().default('qhhoj_session'),
+  SESSION_COOKIE_NAME: z.string().default('duckoj_session'),
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).default(720),
   TOTP_ENC_KEY: z.string().regex(/^[0-9a-f]{64}$/, 'must be 32 bytes of lowercase hex'),
   PUBLIC_ORIGIN: z.string().url(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
-  PACKAGE_STORE_DIR: z.string().min(1).default('/var/lib/qhhoj/packages'),
+  PACKAGE_STORE_DIR: z.string().min(1).default('/var/lib/duckoj/packages'),
   // 256 MiB. Injectable per-environment (and per-test) rather than a
   // hardcoded controller constant, so a test can set it to a few bytes and
   // actually exercise the over-limit path without uploading 256 MiB.

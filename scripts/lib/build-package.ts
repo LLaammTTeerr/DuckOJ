@@ -6,7 +6,7 @@ import {
   parseManifest,
   type PackageFile,
   type PackageManifestDto,
-} from '@qhhoj/package-format';
+} from '@duckoj/package-format';
 
 export interface BuiltPackage {
   archive: Buffer;

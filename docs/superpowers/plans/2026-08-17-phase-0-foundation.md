@@ -41,7 +41,7 @@ Idempotency-key middleware (Phase 1, when duplicate submission POSTs make it mea
 ## File Structure
 
 ```
-qhhoj/
+duckoj/
   package.json                      workspace root, scripts
   pnpm-workspace.yaml
   tsconfig.base.json                shared compiler options
@@ -116,7 +116,7 @@ qhhoj/
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: workspace scripts `pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test`; the package naming convention `@qhhoj/<name>`.
+- Produces: workspace scripts `pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test`; the package naming convention `@duckoj/<name>`.
 
 - [ ] **Step 1: Write the failing smoke test**
 
@@ -128,7 +128,7 @@ import { PACKAGE_NAME } from '../src/index.js';
 
 describe('workspace wiring', () => {
   it('resolves the package entrypoint', () => {
-    expect(PACKAGE_NAME).toBe('@qhhoj/db');
+    expect(PACKAGE_NAME).toBe('@duckoj/db');
   });
 });
 ```
@@ -158,7 +158,7 @@ packages:
 
 ```json
 {
-  "name": "qhhoj",
+  "name": "duckoj",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.12.0",
@@ -233,7 +233,7 @@ export default tseslint.config(
 
 ```json
 {
-  "name": "@qhhoj/db",
+  "name": "@duckoj/db",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -264,7 +264,7 @@ export default tseslint.config(
 `packages/db/src/index.ts`:
 
 ```ts
-export const PACKAGE_NAME = '@qhhoj/db';
+export const PACKAGE_NAME = '@duckoj/db';
 ```
 
 - [ ] **Step 5: Install and run the full gate**
@@ -304,8 +304,8 @@ git commit -m "chore: pnpm workspace, typescript, eslint, prettier, vitest"
 - [ ] **Step 1: Install dependencies**
 
 ```bash
-pnpm --filter @qhhoj/db add drizzle-orm postgres
-pnpm --filter @qhhoj/db add -D drizzle-kit @testcontainers/postgresql
+pnpm --filter @duckoj/db add drizzle-orm postgres
+pnpm --filter @duckoj/db add -D drizzle-kit @testcontainers/postgresql
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -356,7 +356,7 @@ describe('identity schema', () => {
 
 - [ ] **Step 3: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/db test`
+Run: `pnpm --filter @duckoj/db test`
 Expected: FAIL — `Cannot find module './harness.js'`.
 
 - [ ] **Step 4: Write the schema**
@@ -508,7 +508,7 @@ export default defineConfig({
   dialect: 'postgresql',
   schema: ['./src/schema/index.ts', './src/schema/guarded.ts'],
   out: './migrations',
-  dbCredentials: { url: process.env.DATABASE_URL ?? 'postgres://localhost:5432/qhhoj' },
+  dbCredentials: { url: process.env.DATABASE_URL ?? 'postgres://localhost:5432/duckoj' },
 });
 ```
 
@@ -566,8 +566,8 @@ class RollbackSignal extends Error {}
 - [ ] **Step 7: Generate the migration and run the tests**
 
 ```bash
-pnpm --filter @qhhoj/db exec drizzle-kit generate --name init_identity
-pnpm --filter @qhhoj/db test
+pnpm --filter @duckoj/db exec drizzle-kit generate --name init_identity
+pnpm --filter @duckoj/db test
 ```
 
 Expected: both tests PASS. A `migrations/0000_*.sql` file exists and is committed.
@@ -589,7 +589,7 @@ git commit -m "feat(db): drizzle client, migration runner, identity schema"
 
 **Interfaces:**
 - Consumes: `schema.users` (Task 2), `withTestDb` (Task 2).
-- Produces: `organizations`, `orgMembers`, `orgJoinRequests` — importable **only** from `@qhhoj/db/guarded`.
+- Produces: `organizations`, `orgMembers`, `orgJoinRequests` — importable **only** from `@duckoj/db/guarded`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -648,7 +648,7 @@ describe('organization schema', () => {
 
 - [ ] **Step 2: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/db test orgs`
+Run: `pnpm --filter @duckoj/db test orgs`
 Expected: FAIL — `organizations` is not exported from `guarded.js`.
 
 - [ ] **Step 3: Write the guarded schema**
@@ -718,13 +718,13 @@ export const orgJoinRequests = pgTable('org_join_requests', {
 });
 ```
 
-**Deliberately not re-exported from `src/schema/index.ts`.** The only import path is `@qhhoj/db/guarded`, which Task 11 restricts by ESLint.
+**Deliberately not re-exported from `src/schema/index.ts`.** The only import path is `@duckoj/db/guarded`, which Task 11 restricts by ESLint.
 
 - [ ] **Step 4: Generate the migration and run the tests**
 
 ```bash
-pnpm --filter @qhhoj/db exec drizzle-kit generate --name organizations
-pnpm --filter @qhhoj/db test
+pnpm --filter @duckoj/db exec drizzle-kit generate --name organizations
+pnpm --filter @duckoj/db test
 ```
 
 Expected: PASS.
@@ -756,7 +756,7 @@ git commit -m "feat(db): organizations, membership, join requests as guarded sch
 - [ ] **Step 1: Install dependencies**
 
 ```bash
-pnpm --filter @qhhoj/contracts add zod @asteasolutions/zod-to-openapi
+pnpm --filter @duckoj/contracts add zod @asteasolutions/zod-to-openapi
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -790,14 +790,14 @@ describe('common contracts', () => {
   it('emits an OpenAPI 3.1 document', () => {
     const doc = openApiDocument();
     expect(doc.openapi).toBe('3.1.0');
-    expect(doc.info.title).toBe('QHH Online Judge API');
+    expect(doc.info.title).toBe('DuckOJ API');
   });
 });
 ```
 
 - [ ] **Step 3: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/contracts test`
+Run: `pnpm --filter @duckoj/contracts test`
 Expected: FAIL — module not found.
 
 - [ ] **Step 4: Write the package**
@@ -806,7 +806,7 @@ Expected: FAIL — module not found.
 
 ```json
 {
-  "name": "@qhhoj/contracts",
+  "name": "@duckoj/contracts",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -918,7 +918,7 @@ export const registry = new OpenAPIRegistry();
 export function openApiDocument() {
   return new OpenApiGeneratorV31(registry.definitions).generateDocument({
     openapi: '3.1.0',
-    info: { title: 'QHH Online Judge API', version: '1.0.0' },
+    info: { title: 'DuckOJ API', version: '1.0.0' },
     servers: [{ url: '/api/v1' }],
   });
 }
@@ -934,7 +934,7 @@ export * from './registry.js';
 
 - [ ] **Step 5: Run the tests**
 
-Run: `pnpm --filter @qhhoj/contracts test`
+Run: `pnpm --filter @duckoj/contracts test`
 Expected: PASS (3 tests).
 
 - [ ] **Step 6: Commit**
@@ -953,7 +953,7 @@ git commit -m "feat(contracts): problem+json envelope, cursor pagination, auth s
 - Create: `apps/api/test/health.spec.ts`, `apps/api/test/config.spec.ts`
 
 **Interfaces:**
-- Consumes: `@qhhoj/db` `createDb`.
+- Consumes: `@duckoj/db` `createDb`.
 - Produces:
   - `AppConfig` type and `loadConfig(env: NodeJS.ProcessEnv): AppConfig`
   - `ConfigModule` providing `APP_CONFIG` injection token
@@ -963,10 +963,10 @@ git commit -m "feat(contracts): problem+json envelope, cursor pagination, auth s
 - [ ] **Step 1: Install dependencies**
 
 ```bash
-pnpm --filter @qhhoj/api add @nestjs/common @nestjs/core @nestjs/platform-express \
+pnpm --filter @duckoj/api add @nestjs/common @nestjs/core @nestjs/platform-express \
   reflect-metadata rxjs pino pino-http zod drizzle-orm \
-  @qhhoj/db@workspace:* @qhhoj/contracts@workspace:*
-pnpm --filter @qhhoj/api add -D @nestjs/testing supertest @types/supertest @types/express tsx
+  @duckoj/db@workspace:* @duckoj/contracts@workspace:*
+pnpm --filter @duckoj/api add -D @nestjs/testing supertest @types/supertest @types/express tsx
 ```
 
 - [ ] **Step 2: Create the package manifest**
@@ -975,7 +975,7 @@ pnpm --filter @qhhoj/api add -D @nestjs/testing supertest @types/supertest @type
 
 ```json
 {
-  "name": "@qhhoj/api",
+  "name": "@duckoj/api",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -1041,7 +1041,7 @@ describe('loadConfig', () => {
 
 - [ ] **Step 4: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/api test config`
+Run: `pnpm --filter @duckoj/api test config`
 Expected: FAIL — module not found.
 
 - [ ] **Step 5: Write the config**
@@ -1055,7 +1055,7 @@ const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().url(),
-  SESSION_COOKIE_NAME: z.string().default('qhhoj_session'),
+  SESSION_COOKIE_NAME: z.string().default('duckoj_session'),
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).default(720),
   TOTP_ENC_KEY: z.string().regex(/^[0-9a-f]{64}$/, 'must be 32 bytes of lowercase hex'),
   PUBLIC_ORIGIN: z.string().url(),
@@ -1097,7 +1097,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
 
 - [ ] **Step 6: Run the config test**
 
-Run: `pnpm --filter @qhhoj/api test config`
+Run: `pnpm --filter @duckoj/api test config`
 Expected: PASS (3 tests).
 
 - [ ] **Step 7: Write the failing health test**
@@ -1146,7 +1146,7 @@ describe('health endpoints', () => {
 
 ```ts
 import { Global, Module } from '@nestjs/common';
-import { createDb, type Db } from '@qhhoj/db';
+import { createDb, type Db } from '@duckoj/db';
 import { loadConfig, type AppConfig } from './config.schema.js';
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
@@ -1172,7 +1172,7 @@ export class ConfigModule {}
 ```ts
 import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import type { Db } from '@qhhoj/db';
+import type { Db } from '@duckoj/db';
 import { DB } from '../config/config.module.js';
 
 @Controller()
@@ -1264,7 +1264,7 @@ void bootstrap();
 
 - [ ] **Step 9: Run the tests**
 
-Run: `pnpm --filter @qhhoj/api test`
+Run: `pnpm --filter @duckoj/api test`
 Expected: PASS (5 tests).
 
 - [ ] **Step 10: Commit**
@@ -1284,7 +1284,7 @@ git commit -m "feat(api): nest bootstrap, zod-validated config, pino request log
 - Modify: `apps/api/src/main.ts`
 
 **Interfaces:**
-- Consumes: `ProblemDetails` from `@qhhoj/contracts`.
+- Consumes: `ProblemDetails` from `@duckoj/contracts`.
 - Produces:
   - `class AppError extends Error { status: number; code: string; detail?: string; fields?: Record<string, string[]> }`
   - `ProblemFilter` — global exception filter emitting `application/problem+json`
@@ -1377,7 +1377,7 @@ describe('problem+json error handling', () => {
 
 - [ ] **Step 2: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/api test problem`
+Run: `pnpm --filter @duckoj/api test problem`
 Expected: FAIL — `app.error.js` not found.
 
 - [ ] **Step 3: Write the implementation**
@@ -1430,7 +1430,7 @@ export class ZodValidationPipe<T extends ZodTypeAny> implements PipeTransform {
 import { Catch, HttpException, Logger } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import type { ProblemDetailsDto } from '@qhhoj/contracts';
+import type { ProblemDetailsDto } from '@duckoj/contracts';
 import { AppError } from './app.error.js';
 
 const TITLES: Record<number, string> = {
@@ -1513,7 +1513,7 @@ import { ProblemFilter } from './common/problem.filter.js';
 
 - [ ] **Step 5: Run the tests**
 
-Run: `pnpm --filter @qhhoj/api test problem`
+Run: `pnpm --filter @duckoj/api test problem`
 Expected: PASS (4 tests).
 
 - [ ] **Step 6: Commit**
@@ -1544,7 +1544,7 @@ git commit -m "feat(api): rfc 9457 problem+json filter and zod validation pipe"
 - [ ] **Step 1: Install argon2**
 
 ```bash
-pnpm --filter @qhhoj/api add @node-rs/argon2
+pnpm --filter @duckoj/api add @node-rs/argon2
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -1587,7 +1587,7 @@ describe('PasswordService', () => {
 
 - [ ] **Step 3: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/api test register`
+Run: `pnpm --filter @duckoj/api test register`
 Expected: FAIL — module not found.
 
 - [ ] **Step 4: Write the password service**
@@ -1619,7 +1619,7 @@ export class PasswordService {
 
 - [ ] **Step 5: Run the password tests**
 
-Run: `pnpm --filter @qhhoj/api test register`
+Run: `pnpm --filter @duckoj/api test register`
 Expected: PASS (5 tests).
 
 - [ ] **Step 6: Add the registration test**
@@ -1687,7 +1687,7 @@ describe('POST /auth/register', () => {
 });
 ```
 
-Create `apps/api/test/db.harness.ts` — a verbatim copy of `packages/db/test/harness.ts`. It is duplicated rather than imported because test directories are outside each package's `exports` map, and widening `@qhhoj/db`'s public surface to expose test infrastructure would be worse than sixteen duplicated lines.
+Create `apps/api/test/db.harness.ts` — a verbatim copy of `packages/db/test/harness.ts`. It is duplicated rather than imported because test directories are outside each package's `exports` map, and widening `@duckoj/db`'s public surface to expose test infrastructure would be worse than sixteen duplicated lines.
 
 Also create `apps/api/test/app.harness.ts`, shared by every API endpoint spec:
 
@@ -1695,7 +1695,7 @@ Also create `apps/api/test/app.harness.ts`, shared by every API endpoint spec:
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
-import type { Db } from '@qhhoj/db';
+import type { Db } from '@duckoj/db';
 import { AuthnModule } from '../src/authn/authn.module.js';
 import { APP_CONFIG, DB } from '../src/config/config.module.js';
 import { ProblemFilter } from '../src/common/problem.filter.js';
@@ -1705,7 +1705,7 @@ export const TEST_CONFIG: AppConfig = {
   nodeEnv: 'test',
   port: 0,
   databaseUrl: 'postgres://unused',
-  sessionCookieName: 'qhhoj_session',
+  sessionCookieName: 'duckoj_session',
   sessionTtlHours: 720,
   totpEncKey: Buffer.alloc(32, 1),
   publicOrigin: 'http://localhost:5173',
@@ -1737,8 +1737,8 @@ Import `buildApp` from this file in the registration spec rather than defining i
 ```ts
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
-import type { MeResponseDto, RegisterRequestDto } from '@qhhoj/contracts';
+import { schema, type Db } from '@duckoj/db';
+import type { MeResponseDto, RegisterRequestDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { PasswordService } from './password.service.js';
@@ -1802,7 +1802,7 @@ export function toMe(
 
 ```ts
 import { Body, Controller, HttpCode, Post } from '@nestjs/common';
-import { RegisterRequest, type MeResponseDto, type RegisterRequestDto } from '@qhhoj/contracts';
+import { RegisterRequest, type MeResponseDto, type RegisterRequestDto } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { AuthService } from './auth.service.js';
 
@@ -1842,7 +1842,7 @@ Add `AuthnModule` to `imports` in `apps/api/src/app.module.ts`.
 
 - [ ] **Step 8: Run the tests**
 
-Run: `pnpm --filter @qhhoj/api test register`
+Run: `pnpm --filter @duckoj/api test register`
 Expected: PASS (8 tests).
 
 - [ ] **Step 9: Commit**
@@ -1874,8 +1874,8 @@ git commit -m "feat(api): argon2id password hashing and user registration"
 - [ ] **Step 1: Install the cookie parser**
 
 ```bash
-pnpm --filter @qhhoj/api add cookie-parser
-pnpm --filter @qhhoj/api add -D @types/cookie-parser
+pnpm --filter @duckoj/api add cookie-parser
+pnpm --filter @duckoj/api add -D @types/cookie-parser
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -1884,7 +1884,7 @@ pnpm --filter @qhhoj/api add -D @types/cookie-parser
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { schema } from '@qhhoj/db';
+import { schema } from '@duckoj/db';
 import { SessionService } from '../src/authn/session.service.js';
 import { withTestDb } from './db.harness.js';
 
@@ -1959,7 +1959,7 @@ describe('SessionService', () => {
 
 - [ ] **Step 3: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/api test session`
+Run: `pnpm --filter @duckoj/api test session`
 Expected: FAIL — module not found.
 
 - [ ] **Step 4: Write the actor type and session service**
@@ -1985,7 +1985,7 @@ export function isAdmin(actor: Actor | null): boolean {
 import { createHash, randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 import { APP_CONFIG, DB } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import type { Actor } from '../authz/actor.js';
@@ -2045,7 +2045,7 @@ export class SessionService {
 
 - [ ] **Step 5: Run the session tests**
 
-Run: `pnpm --filter @qhhoj/api test session`
+Run: `pnpm --filter @duckoj/api test session`
 Expected: PASS (5 tests).
 
 - [ ] **Step 6: Write the guard and wire up login/logout/me**
@@ -2143,7 +2143,7 @@ import {
   type LoginRequestDto,
   type MeResponseDto,
   type RegisterRequestDto,
-} from '@qhhoj/contracts';
+} from '@duckoj/contracts';
 import { Inject, UseGuards } from '@nestjs/common';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { APP_CONFIG } from '../config/config.module.js';
@@ -2296,7 +2296,7 @@ import { buildApp } from './app.harness.js';
 
 - [ ] **Step 8: Run the tests**
 
-Run: `pnpm --filter @qhhoj/api test`
+Run: `pnpm --filter @duckoj/api test`
 Expected: PASS.
 
 - [ ] **Step 9: Commit**
@@ -2328,7 +2328,7 @@ git commit -m "feat(api): opaque session cookies with login, logout and me"
 - [ ] **Step 1: Install otplib**
 
 ```bash
-pnpm --filter @qhhoj/api add @otplib/preset-default
+pnpm --filter @duckoj/api add @otplib/preset-default
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -2338,7 +2338,7 @@ pnpm --filter @qhhoj/api add @otplib/preset-default
 ```ts
 import { authenticator } from '@otplib/preset-default';
 import { describe, expect, it } from 'vitest';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 import { TotpService } from '../src/authn/totp.service.js';
 import type { AppConfig } from '../src/config/config.schema.js';
 import { TEST_CONFIG } from './app.harness.js';
@@ -2402,7 +2402,7 @@ describe('TotpService', () => {
 
 - [ ] **Step 3: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/api test totp`
+Run: `pnpm --filter @duckoj/api test totp`
 Expected: FAIL — module not found.
 
 - [ ] **Step 4: Write the service**
@@ -2414,12 +2414,12 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { authenticator } from '@otplib/preset-default';
 import { eq } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 import { APP_CONFIG, DB } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 
-const ISSUER = 'QHH Online Judge';
+const ISSUER = 'DuckOJ';
 
 @Injectable()
 export class TotpService {
@@ -2555,7 +2555,7 @@ export class TotpController {
 
 - [ ] **Step 6: Run the tests**
 
-Run: `pnpm --filter @qhhoj/api test totp`
+Run: `pnpm --filter @duckoj/api test totp`
 Expected: PASS (4 tests).
 
 - [ ] **Step 7: Commit**
@@ -2589,7 +2589,7 @@ git commit -m "feat(api): totp two-factor enrolment and login gate"
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 import { TokenService } from '../src/authn/token.service.js';
 import { withTestDb } from './db.harness.js';
 
@@ -2659,7 +2659,7 @@ describe('TokenService', () => {
 
 - [ ] **Step 2: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/api test tokens`
+Run: `pnpm --filter @duckoj/api test tokens`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Write the service**
@@ -2670,7 +2670,7 @@ Expected: FAIL — module not found.
 import { randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 import { DB } from '../config/config.module.js';
 import type { Actor } from '../authz/actor.js';
 import { hashToken } from './session.service.js';
@@ -2812,7 +2812,7 @@ Add `export * from './tokens.js';` to `packages/contracts/src/index.ts`.
 
 ```ts
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
-import { CreateTokenRequest, type CreateTokenRequestDto } from '@qhhoj/contracts';
+import { CreateTokenRequest, type CreateTokenRequestDto } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import type { Actor } from '../authz/actor.js';
 import { AuthGuard, CurrentActor, requireActor } from './auth.guard.js';
@@ -2857,7 +2857,7 @@ Register `TokenService` and `TokensController` in `authn.module.ts`.
 
 - [ ] **Step 6: Run the tests**
 
-Run: `pnpm --filter @qhhoj/api test tokens`
+Run: `pnpm --filter @duckoj/api test tokens`
 Expected: PASS (5 tests).
 
 - [ ] **Step 7: Commit**
@@ -2876,13 +2876,13 @@ git commit -m "feat(api): personal access tokens with bearer authentication"
 - Modify: `eslint.config.js`, `apps/api/src/app.module.ts`, `packages/contracts/src/orgs.ts`, `packages/contracts/src/index.ts`
 
 **Interfaces:**
-- Consumes: `organizations`, `orgMembers` from `@qhhoj/db/guarded`; `Actor`.
+- Consumes: `organizations`, `orgMembers` from `@duckoj/db/guarded`; `Actor`.
 - Produces:
   - `OrgAccessService.listVisible(actor, page): Promise<{ items: OrgSummaryDto[]; nextCursor: string | null }>`
   - `OrgAccessService.getVisible(actor, slug): Promise<OrgSummaryDto>` — throws 404 for an invisible private org
   - `OrgAccessService.roleIn(actor, orgId): Promise<'owner'|'admin'|'member'|null>`
   - `GET /orgs`, `GET /orgs/:slug`
-  - An ESLint rule making `@qhhoj/db/guarded` importable only from `apps/api/src/authz/**`
+  - An ESLint rule making `@duckoj/db/guarded` importable only from `apps/api/src/authz/**`
 
 - [ ] **Step 1: Write the contract**
 
@@ -2914,9 +2914,9 @@ Add `export * from './orgs.js';` to `packages/contracts/src/index.ts`.
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { organizations, orgMembers } from '@qhhoj/db/guarded';
-import type { Db } from '@qhhoj/db';
-import { schema } from '@qhhoj/db';
+import { organizations, orgMembers } from '@duckoj/db/guarded';
+import type { Db } from '@duckoj/db';
+import { schema } from '@duckoj/db';
 import { OrgAccessService } from '../../src/authz/org.access.js';
 import type { Actor } from '../../src/authz/actor.js';
 import { withTestDb } from '../db.harness.js';
@@ -3024,7 +3024,7 @@ describe('organization visibility leakage matrix', () => {
 
 - [ ] **Step 3: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/api test leakage`
+Run: `pnpm --filter @duckoj/api test leakage`
 Expected: FAIL — module not found.
 
 - [ ] **Step 4: Write the access service**
@@ -3034,15 +3034,15 @@ Expected: FAIL — module not found.
 ```ts
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, or, sql } from 'drizzle-orm';
-import { organizations, orgMembers } from '@qhhoj/db/guarded';
-import type { Db } from '@qhhoj/db';
-import type { OrgSummaryDto, PaginationQueryDto } from '@qhhoj/contracts';
+import { organizations, orgMembers } from '@duckoj/db/guarded';
+import type { Db } from '@duckoj/db';
+import type { OrgSummaryDto, PaginationQueryDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from './actor.js';
 
 /**
- * The ONLY module permitted to import `@qhhoj/db/guarded`. Every read of an
+ * The ONLY module permitted to import `@duckoj/db/guarded`. Every read of an
  * organization anywhere in the API goes through here, so visibility cannot be
  * forgotten at a call site.
  */
@@ -3135,7 +3135,7 @@ export class AuthzModule {}
 
 ```ts
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { PaginationQuery, type OrgSummaryDto, type PaginationQueryDto } from '@qhhoj/contracts';
+import { PaginationQuery, type OrgSummaryDto, type PaginationQueryDto } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { AuthGuard, CurrentActor } from '../authn/auth.guard.js';
 import type { Actor } from '../authz/actor.js';
@@ -3177,7 +3177,7 @@ Add `AuthzModule` and `OrgsModule` to `app.module.ts` imports.
 
 - [ ] **Step 5: Run the leakage tests**
 
-Run: `pnpm --filter @qhhoj/api test leakage`
+Run: `pnpm --filter @duckoj/api test leakage`
 Expected: PASS (4 tests).
 
 - [ ] **Step 6: Add the ESLint import-boundary rule**
@@ -3202,7 +3202,7 @@ export default tseslint.config(
     rules: {
       'no-restricted-imports': [
         'error',
-        { paths: [{ name: '@qhhoj/db/guarded', message: GUARDED_MESSAGE }] },
+        { paths: [{ name: '@duckoj/db/guarded', message: GUARDED_MESSAGE }] },
       ],
     },
   },
@@ -3217,7 +3217,7 @@ export default tseslint.config(
 
 ```bash
 cat > /tmp/violation.ts <<'EOF'
-import { organizations } from '@qhhoj/db/guarded';
+import { organizations } from '@duckoj/db/guarded';
 export const t = organizations;
 EOF
 cp /tmp/violation.ts apps/api/src/orgs/violation.ts
@@ -3250,7 +3250,7 @@ git commit -m "feat(api): centralised org visibility with an enforced import bou
 - Modify: `packages/contracts/src/auth.ts`, `packages/contracts/src/orgs.ts` (register paths)
 
 **Interfaces:**
-- Consumes: `registry`, `openApiDocument` from `@qhhoj/contracts`.
+- Consumes: `registry`, `openApiDocument` from `@duckoj/contracts`.
 - Produces:
   - `openapi.json` at the repo root (generated, committed)
   - `packages/sdk/src/generated.ts` (generated by `openapi-typescript`, committed)
@@ -3262,7 +3262,7 @@ git commit -m "feat(api): centralised org visibility with an enforced import bou
 
 ```json
 {
-  "name": "@qhhoj/sdk",
+  "name": "@duckoj/sdk",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -3289,9 +3289,9 @@ git commit -m "feat(api): centralised org visibility with an enforced import bou
 ```
 
 ```bash
-pnpm --filter @qhhoj/contracts add -D tsx
-pnpm --filter @qhhoj/sdk add openapi-fetch
-pnpm --filter @qhhoj/sdk add -D openapi-typescript
+pnpm --filter @duckoj/contracts add -D tsx
+pnpm --filter @duckoj/sdk add openapi-fetch
+pnpm --filter @duckoj/sdk add -D openapi-typescript
 ```
 
 - [ ] **Step 2: Register the paths**
@@ -3397,8 +3397,8 @@ describe('createClient', () => {
 - [ ] **Step 5: Generate types and write the client**
 
 ```bash
-pnpm --filter @qhhoj/contracts openapi
-pnpm --filter @qhhoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
+pnpm --filter @duckoj/contracts openapi
+pnpm --filter @duckoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
 ```
 
 `packages/sdk/src/client.ts`:
@@ -3444,7 +3444,7 @@ export type { paths, components } from './generated.js';
 
 - [ ] **Step 6: Run the tests**
 
-Run: `pnpm --filter @qhhoj/sdk test`
+Run: `pnpm --filter @duckoj/sdk test`
 Expected: PASS (2 tests).
 
 - [ ] **Step 7: Commit**
@@ -3463,7 +3463,7 @@ git commit -m "feat(sdk): openapi emission and typed fetch client"
 - Create: `apps/web/test/login.spec.tsx`
 
 **Interfaces:**
-- Consumes: `createClient` from `@qhhoj/sdk`.
+- Consumes: `createClient` from `@duckoj/sdk`.
 - Produces: a Vite build at `apps/web/dist`, served by Caddy in Task 15.
 
 **Scope note:** deliberately unstyled and minimal. Its only job is to prove the contracts → OpenAPI → SDK → frontend loop compiles and works end to end. The component library and i18n library are open questions in spec §15 and are **not** decided here.
@@ -3474,7 +3474,7 @@ git commit -m "feat(sdk): openapi emission and typed fetch client"
 
 ```json
 {
-  "name": "@qhhoj/web",
+  "name": "@duckoj/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -3509,8 +3509,8 @@ git commit -m "feat(sdk): openapi emission and typed fetch client"
 ```
 
 ```bash
-pnpm --filter @qhhoj/web add react react-dom @tanstack/react-router @tanstack/react-query @qhhoj/sdk@workspace:*
-pnpm --filter @qhhoj/web add -D vite @vitejs/plugin-react @types/react @types/react-dom \
+pnpm --filter @duckoj/web add react react-dom @tanstack/react-router @tanstack/react-query @duckoj/sdk@workspace:*
+pnpm --filter @duckoj/web add -D vite @vitejs/plugin-react @types/react @types/react-dom \
   @testing-library/react @testing-library/user-event jsdom
 ```
 
@@ -3557,7 +3557,7 @@ describe('LoginForm', () => {
 
 - [ ] **Step 3: Run it and confirm it fails**
 
-Run: `pnpm --filter @qhhoj/web test`
+Run: `pnpm --filter @duckoj/web test`
 Expected: FAIL — module not found.
 
 - [ ] **Step 4: Write the app**
@@ -3580,12 +3580,12 @@ export default defineConfig({
 import '@testing-library/jest-dom/vitest';
 ```
 
-(install with `pnpm --filter @qhhoj/web add -D @testing-library/jest-dom`)
+(install with `pnpm --filter @duckoj/web add -D @testing-library/jest-dom`)
 
 `apps/web/src/api.ts`:
 
 ```ts
-import { createClient } from '@qhhoj/sdk';
+import { createClient } from '@duckoj/sdk';
 
 export const api = createClient({
   baseUrl: `${import.meta.env.VITE_API_ORIGIN ?? ''}/api/v1`,
@@ -3678,7 +3678,7 @@ export function Home() {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>QHH Online Judge</title>
+    <title>DuckOJ</title>
   </head>
   <body>
     <div id="root"></div>
@@ -3711,8 +3711,8 @@ createRoot(document.getElementById('root')!).render(
 - [ ] **Step 5: Run the tests and the build**
 
 ```bash
-pnpm --filter @qhhoj/web test
-pnpm --filter @qhhoj/web exec vite build
+pnpm --filter @duckoj/web test
+pnpm --filter @duckoj/web exec vite build
 ```
 
 Expected: 3 tests PASS, build succeeds.
@@ -3783,12 +3783,12 @@ jobs:
 
       - name: Verify OpenAPI and SDK are up to date
         run: |
-          pnpm --filter @qhhoj/contracts openapi
-          pnpm --filter @qhhoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
+          pnpm --filter @duckoj/contracts openapi
+          pnpm --filter @duckoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
           git diff --exit-code -- openapi.json packages/sdk/src/generated.ts
 
       - name: Build
-        run: pnpm --filter @qhhoj/web exec vite build
+        run: pnpm --filter @duckoj/web exec vite build
 ```
 
 The regeneration check matters: `openapi.json` and `generated.ts` are committed artifacts, and a contract change that was not regenerated would silently leave the SDK describing an API that no longer exists.
@@ -3798,8 +3798,8 @@ The regeneration check matters: `openapi.json` and `generated.ts` are committed 
 ```bash
 pnpm install --frozen-lockfile
 pnpm -r typecheck && pnpm -r lint && pnpm -r test
-pnpm --filter @qhhoj/contracts openapi
-pnpm --filter @qhhoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
+pnpm --filter @duckoj/contracts openapi
+pnpm --filter @duckoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
 git diff --exit-code -- openapi.json packages/sdk/src/generated.ts
 ```
 
@@ -3831,7 +3831,7 @@ git commit -m "ci: typecheck, lint, test, contract-drift check and build"
 `scripts/migrate.ts`:
 
 ```ts
-import { runMigrations } from '@qhhoj/db';
+import { runMigrations } from '@duckoj/db';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -3906,22 +3906,22 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: qhhoj
+      POSTGRES_USER: duckoj
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      POSTGRES_DB: qhhoj
+      POSTGRES_DB: duckoj
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U qhhoj']
+      test: ['CMD-SHELL', 'pg_isready -U duckoj']
       interval: 5s
       timeout: 5s
       retries: 10
 
   migrate:
     build: { context: ., dockerfile: apps/api/Dockerfile }
-    command: ['pnpm', '--filter', '@qhhoj/db', 'migrate']
+    command: ['pnpm', '--filter', '@duckoj/db', 'migrate']
     environment:
-      DATABASE_URL: postgres://qhhoj:${POSTGRES_PASSWORD}@postgres:5432/qhhoj
+      DATABASE_URL: postgres://duckoj:${POSTGRES_PASSWORD}@postgres:5432/duckoj
     depends_on:
       postgres: { condition: service_healthy }
     restart: 'no'
@@ -3931,7 +3931,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: '3000'
-      DATABASE_URL: postgres://qhhoj:${POSTGRES_PASSWORD}@postgres:5432/qhhoj
+      DATABASE_URL: postgres://duckoj:${POSTGRES_PASSWORD}@postgres:5432/duckoj
       TOTP_ENC_KEY: ${TOTP_ENC_KEY:?set TOTP_ENC_KEY}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost}
       LOG_LEVEL: info
@@ -3977,7 +3977,7 @@ Add `.env` to `.gitignore` (already present from the spec commit).
 ```bash
 cp .env.example .env
 sed -i "s/^TOTP_ENC_KEY=.*/TOTP_ENC_KEY=$(openssl rand -hex 32)/" .env
-pnpm --filter @qhhoj/web exec vite build
+pnpm --filter @duckoj/web exec vite build
 docker compose up -d --build
 sleep 20
 curl -fsS http://localhost/healthz
@@ -4029,34 +4029,34 @@ Expected: all green. Record the total test count in the commit message.
     corepack enable
     pnpm install
     docker compose up -d postgres
-    export DATABASE_URL=postgres://qhhoj:dev@localhost:5432/qhhoj
-    pnpm --filter @qhhoj/db migrate
-    pnpm --filter @qhhoj/api exec tsx watch src/main.ts
-    pnpm --filter @qhhoj/web exec vite
+    export DATABASE_URL=postgres://duckoj:dev@localhost:5432/duckoj
+    pnpm --filter @duckoj/db migrate
+    pnpm --filter @duckoj/api exec tsx watch src/main.ts
+    pnpm --filter @duckoj/web exec vite
 
 ## Adding a database table
 
 1. Add it to `packages/db/src/schema/identity.ts`, or to `guarded.ts` if reads
    must be visibility-filtered.
-2. `pnpm --filter @qhhoj/db exec drizzle-kit generate --name <change>`
+2. `pnpm --filter @duckoj/db exec drizzle-kit generate --name <change>`
 3. Commit the generated SQL. Never edit a migration that is already committed.
 
 ## Adding an endpoint
 
 1. Add the Zod schema to `packages/contracts`, and register the path.
 2. Implement the controller in `apps/api`, validating with `ZodValidationPipe`.
-3. Regenerate: `pnpm --filter @qhhoj/contracts openapi` then the SDK types.
+3. Regenerate: `pnpm --filter @duckoj/contracts openapi` then the SDK types.
    CI fails if these are stale.
 
 ## Reading a guarded table
 
-You cannot import `@qhhoj/db/guarded` outside `apps/api/src/authz/**`; ESLint
+You cannot import `@duckoj/db/guarded` outside `apps/api/src/authz/**`; ESLint
 will stop you. Add a method to the relevant `*.access.ts` service instead. This
 is deliberate — see spec §8.
 
 ## Deploying
 
-    pnpm --filter @qhhoj/web exec vite build
+    pnpm --filter @duckoj/web exec vite build
     docker compose up -d --build
 
 Migrations run automatically before the API starts.
@@ -4067,9 +4067,9 @@ Migrations run automatically before the API starts.
 Replace `README.md`:
 
 ```markdown
-# QHH Online Judge
+# DuckOJ
 
-A ground-up rewrite of the QHH Online Judge: a TypeScript monorepo with a
+A ground-up rewrite of DuckOJ: a TypeScript monorepo with a
 NestJS API, a PostgreSQL data layer, a typed SDK, and a React frontend.
 
 - Design: `docs/superpowers/specs/2026-08-17-foundation-design.md`
@@ -4103,7 +4103,7 @@ git commit -m "docs: runbook and readme; phase 0 acceptance"
 - [ ] TOTP can be enrolled, confirmed, and required at login.
 - [ ] A personal access token authenticates a request and can be revoked.
 - [ ] The organization leakage matrix passes, asserting exact visible sets for anonymous, member, outsider, and admin actors.
-- [ ] Importing `@qhhoj/db/guarded` outside `apps/api/src/authz/**` fails `pnpm lint` — **demonstrated**, not assumed (Task 11, Step 7).
+- [ ] Importing `@duckoj/db/guarded` outside `apps/api/src/authz/**` fails `pnpm lint` — **demonstrated**, not assumed (Task 11, Step 7).
 - [ ] A stale `openapi.json` or `generated.ts` fails CI.
 - [ ] `docker compose up -d --build` yields a healthy stack with migrations applied.
 - [ ] No plaintext session token, access token, or TOTP secret exists anywhere in the database.

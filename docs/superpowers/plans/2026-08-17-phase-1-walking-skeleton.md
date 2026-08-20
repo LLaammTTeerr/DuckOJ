@@ -24,7 +24,7 @@
 - **No hand-written DTOs.** Request and response shapes come from Zod schemas in `packages/contracts`, and must be *wired in* — annotate return types with the inferred DTOs.
 - **Credentials never appear in logs or URLs.** `pino` redaction is configured; do not add a credential to a query string, ever.
 - **Regenerate `openapi.json` and `packages/sdk/src/generated.ts`** after any contracts change. CI fails on drift.
-- **The guarded-import boundary:** `@qhhoj/db/guarded` is importable only from `apps/api/src/authz/**`, enforced by ESLint over `apps/api/src/**`.
+- **The guarded-import boundary:** `@duckoj/db/guarded` is importable only from `apps/api/src/authz/**`, enforced by ESLint over `apps/api/src/**`.
 - **There is no Docker.** Rootless Podman 5.7 + podman-compose 1.5. `packages/db/test/harness.ts` auto-detects the Podman socket; it must be running (`systemctl --user start podman.socket`).
 - **Every task ends on a green `corepack pnpm -r typecheck && corepack pnpm -r lint && corepack pnpm -r test`.**
 
@@ -34,7 +34,7 @@ Phase 0 found three cases where a task's `pnpm add` list omitted a package its o
 
 ### Why `apps/judged` may import guarded tables
 
-The ESLint boundary is scoped to `apps/api/src/**`. `judged` imports `@qhhoj/db/guarded` freely and legitimately: the rule exists so that **no HTTP handler filters visibility by hand**, and `judged` serves no user-facing requests — it has no actor, no request, and no visibility decision to make. This is deliberate, not an oversight; Task 16 records it in the runbook.
+The ESLint boundary is scoped to `apps/api/src/**`. `judged` imports `@duckoj/db/guarded` freely and legitimately: the rule exists so that **no HTTP handler filters visibility by hand**, and `judged` serves no user-facing requests — it has no actor, no request, and no visibility decision to make. This is deliberate, not an oversight; Task 16 records it in the runbook.
 
 ---
 
@@ -102,7 +102,7 @@ Phase 0 shipped a Compose stack that has **never been run** — no compose provi
 - [ ] **Step 1: Build the web bundle, which Caddy bind-mounts**
 
 ```bash
-corepack pnpm --filter @qhhoj/web exec vite build
+corepack pnpm --filter @duckoj/web exec vite build
 ls apps/web/dist/index.html
 ```
 
@@ -176,7 +176,7 @@ git commit -m "fix(deploy): repair and verify the compose stack under podman-com
 
 ```json
 {
-  "name": "@qhhoj/judge-protocol",
+  "name": "@duckoj/judge-protocol",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -281,7 +281,7 @@ describe('packet codec', () => {
 - [ ] **Step 3: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/judge-protocol test
+corepack pnpm --filter @duckoj/judge-protocol test
 ```
 
 Expected: FAIL — module not found.
@@ -369,7 +369,7 @@ export * from './codec.js';
 - [ ] **Step 5: Run the tests**
 
 ```bash
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/judge-protocol test
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/judge-protocol test
 ```
 
 Expected: PASS (6 tests).
@@ -452,7 +452,7 @@ describe('interpretFlags', () => {
 - [ ] **Step 2: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/judge-protocol test verdict
+corepack pnpm --filter @duckoj/judge-protocol test verdict
 ```
 
 Expected: FAIL — `interpretFlags` not exported.
@@ -539,7 +539,7 @@ Add `export * from './verdict.js';` to `packages/judge-protocol/src/index.ts`.
 - [ ] **Step 4: Run the tests**
 
 ```bash
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/judge-protocol test
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/judge-protocol test
 ```
 
 Expected: PASS (12 tests).
@@ -766,7 +766,7 @@ describe('FakeDriver', () => {
 - [ ] **Step 3: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/judge-protocol test fake
+corepack pnpm --filter @duckoj/judge-protocol test fake
 ```
 
 Expected: FAIL — `FakeDriver` not exported.
@@ -828,7 +828,7 @@ Add `export * from './contract.js';`, `export * from './dmoj-packets.js';`, `exp
 - [ ] **Step 5: Run the tests**
 
 ```bash
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/judge-protocol test
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/judge-protocol test
 ```
 
 Expected: PASS (16 tests).
@@ -852,7 +852,7 @@ git commit -m "feat(judge-protocol): grading contract, dmoj packet types, fake d
 
 **Interfaces:**
 - Consumes: `users` (existing), `withTestDb`.
-- Produces: `schema.languages`, `schema.judgeNodes`, `schema.gradingJobs`; and from `@qhhoj/db/guarded`: `problems`, `problemRevisions`, `submissions`, `submissionCases`.
+- Produces: `schema.languages`, `schema.judgeNodes`, `schema.gradingJobs`; and from `@duckoj/db/guarded`: `problems`, `problemRevisions`, `submissions`, `submissionCases`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1023,7 +1023,7 @@ describe('judging schema', () => {
 - [ ] **Step 2: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/db test judging
+corepack pnpm --filter @duckoj/db test judging
 ```
 
 Expected: FAIL — `problems` not exported from `guarded.js`.
@@ -1212,8 +1212,8 @@ export const submissionCases = pgTable(
 - [ ] **Step 5: Generate the migration and run the tests**
 
 ```bash
-corepack pnpm --filter @qhhoj/db exec drizzle-kit generate --name judging
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/db test
+corepack pnpm --filter @duckoj/db exec drizzle-kit generate --name judging
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/db test
 ```
 
 Expected: PASS.
@@ -1246,8 +1246,8 @@ The safety properties of the whole phase live here.
 - [ ] **Step 1: Install dependencies**
 
 ```bash
-corepack pnpm --filter @qhhoj/judged add @qhhoj/db@workspace:* @qhhoj/judge-protocol@workspace:* drizzle-orm zod
-corepack pnpm --filter @qhhoj/judged add -D @testcontainers/postgresql tsx
+corepack pnpm --filter @duckoj/judged add @duckoj/db@workspace:* @duckoj/judge-protocol@workspace:* drizzle-orm zod
+corepack pnpm --filter @duckoj/judged add -D @testcontainers/postgresql tsx
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -1256,7 +1256,7 @@ corepack pnpm --filter @qhhoj/judged add -D @testcontainers/postgresql tsx
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 import { JobStore } from '../src/job-store.js';
 import { withTestDb } from './db.harness.js';
 
@@ -1374,7 +1374,7 @@ Add `import { sql } from 'drizzle-orm';` at the top of the spec.
 - [ ] **Step 3: Run it and confirm it fails**
 
 ```bash
-corepack pnpm -r typecheck; corepack pnpm --filter @qhhoj/judged test
+corepack pnpm -r typecheck; corepack pnpm --filter @duckoj/judged test
 ```
 
 Expected: FAIL — `JobStore` not found.
@@ -1385,7 +1385,7 @@ Expected: FAIL — `JobStore` not found.
 
 ```ts
 import { and, eq, sql } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 
 /**
  * How long a claim is valid without a heartbeat.
@@ -1538,7 +1538,7 @@ export class JobStore {
 - [ ] **Step 5: Run the tests**
 
 ```bash
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/judged test
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/judged test
 ```
 
 Expected: PASS (8 tests).
@@ -1569,7 +1569,7 @@ git commit -m "feat(judged): leased job store with fencing"
 - [ ] **Step 1: Install Redis client**
 
 ```bash
-corepack pnpm --filter @qhhoj/judged add ioredis
+corepack pnpm --filter @duckoj/judged add ioredis
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -1579,8 +1579,8 @@ corepack pnpm --filter @qhhoj/judged add ioredis
 ```ts
 import { eq, sql } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
-import { problems, problemRevisions, submissions, submissionCases } from '@qhhoj/db/guarded';
-import { schema, type Db } from '@qhhoj/db';
+import { problems, problemRevisions, submissions, submissionCases } from '@duckoj/db/guarded';
+import { schema, type Db } from '@duckoj/db';
 import { EventWriter } from '../src/event-writer.js';
 import { JobStore, type ClaimedJob } from '../src/job-store.js';
 import { withTestDb } from './db.harness.js';
@@ -1761,7 +1761,7 @@ describe('EventWriter', () => {
 - [ ] **Step 3: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/judged test event-writer
+corepack pnpm --filter @duckoj/judged test event-writer
 ```
 
 Expected: FAIL — `EventWriter` not found.
@@ -1801,9 +1801,9 @@ export class SubmissionEvents {
 
 ```ts
 import { eq, sql } from 'drizzle-orm';
-import { submissions, submissionCases } from '@qhhoj/db/guarded';
-import type { Db } from '@qhhoj/db';
-import type { GradingEvent } from '@qhhoj/judge-protocol';
+import { submissions, submissionCases } from '@duckoj/db/guarded';
+import type { Db } from '@duckoj/db';
+import type { GradingEvent } from '@duckoj/judge-protocol';
 import type { ClaimedJob } from './job-store.js';
 import type { JobStore } from './job-store.js';
 import type { SubmissionEvents } from './submission-events.js';
@@ -1911,7 +1911,7 @@ Note the `compileError` case maps to verdict `IE` because our `case_verdict` enu
 - [ ] **Step 5: Run the tests**
 
 ```bash
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/judged test
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/judged test
 ```
 
 Expected: PASS (13 tests).
@@ -1945,7 +1945,7 @@ git commit -m "feat(judged): event writer with fencing and post-commit publishin
 ```ts
 import { connect, type Socket } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPacketDecoder, encodePacket, type GradingEvent, type GradingJob } from '@qhhoj/judge-protocol';
+import { createPacketDecoder, encodePacket, type GradingEvent, type GradingJob } from '@duckoj/judge-protocol';
 import { BridgeServer } from '../src/drivers/dmoj/bridge-server.js';
 import { DmojDriver } from '../src/drivers/dmoj/dmoj-driver.js';
 
@@ -2117,7 +2117,7 @@ describe('DmojDriver', () => {
 - [ ] **Step 2: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/judged test dmoj-driver
+corepack pnpm --filter @duckoj/judged test dmoj-driver
 ```
 
 Expected: FAIL — `BridgeServer` not found.
@@ -2128,8 +2128,8 @@ Expected: FAIL — `BridgeServer` not found.
 
 ```ts
 import { createServer, type Server, type Socket } from 'node:net';
-import { createPacketDecoder, encodePacket } from '@qhhoj/judge-protocol';
-import type { BridgeToJudgePacket, JudgeToBridgePacket } from '@qhhoj/judge-protocol';
+import { createPacketDecoder, encodePacket } from '@duckoj/judge-protocol';
+import type { BridgeToJudgePacket, JudgeToBridgePacket } from '@duckoj/judge-protocol';
 
 export interface BridgeOptions {
   /** Content hash → on-disk problem code. This is where the DMOJ-ism stops. */
@@ -2236,7 +2236,7 @@ import {
   type GradingJob,
   type JudgeDriver,
   type JudgeToBridgePacket,
-} from '@qhhoj/judge-protocol';
+} from '@duckoj/judge-protocol';
 import type { BridgeServer } from './bridge-server.js';
 
 interface LiveJob {
@@ -2410,7 +2410,7 @@ export class DmojDriver implements JudgeDriver {
 - [ ] **Step 5: Run the tests**
 
 ```bash
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/judged test
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/judged test
 ```
 
 Expected: PASS (19 tests).
@@ -2470,7 +2470,7 @@ describe('loadConfig', () => {
 - [ ] **Step 2: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/judged test config
+corepack pnpm --filter @duckoj/judged test config
 ```
 
 Expected: FAIL — module not found.
@@ -2548,7 +2548,7 @@ export function startHealthServer(port: number): Server {
 `apps/judged/src/worker.ts`:
 
 ```ts
-import type { JudgeDriver } from '@qhhoj/judge-protocol';
+import type { JudgeDriver } from '@duckoj/judge-protocol';
 import type { EventWriter } from './event-writer.js';
 import type { JobStore } from './job-store.js';
 
@@ -2635,7 +2635,7 @@ export class Worker {
 ```ts
 import 'reflect-metadata';
 import Redis from 'ioredis';
-import { createDb } from '@qhhoj/db';
+import { createDb } from '@duckoj/db';
 import { loadConfig } from './config.js';
 import { startHealthServer } from './health.js';
 import { JobStore } from './job-store.js';
@@ -2681,9 +2681,9 @@ main().catch((error: unknown) => {
 ```ts
 import { sql } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
-import { FakeDriver } from '@qhhoj/judge-protocol';
-import { schema, type Db } from '@qhhoj/db';
-import { problems, problemRevisions, submissions } from '@qhhoj/db/guarded';
+import { FakeDriver } from '@duckoj/judge-protocol';
+import { schema, type Db } from '@duckoj/db';
+import { problems, problemRevisions, submissions } from '@duckoj/db/guarded';
 import { EventWriter } from '../src/event-writer.js';
 import { JobStore } from '../src/job-store.js';
 import { Worker } from '../src/worker.js';
@@ -2782,7 +2782,7 @@ describe('Worker', () => {
 - [ ] **Step 5: Run the tests**
 
 ```bash
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/judged test
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/judged test
 ```
 
 Expected: PASS (24 tests).
@@ -2983,7 +2983,7 @@ Create `apps/api/test/submissions.fixtures.ts` exporting `seedProblemAndLanguage
 - [ ] **Step 3: Run it and confirm it fails**
 
 ```bash
-corepack pnpm -r typecheck; corepack pnpm --filter @qhhoj/api test submissions
+corepack pnpm -r typecheck; corepack pnpm --filter @duckoj/api test submissions
 ```
 
 Expected: FAIL — route not found (404 on POST) or module missing.
@@ -2995,9 +2995,9 @@ Expected: FAIL — route not found (404 on POST) or module missing.
 ```ts
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { problems, problemRevisions, submissionCases, submissions } from '@qhhoj/db/guarded';
-import { schema, type Db } from '@qhhoj/db';
-import type { CreateSubmissionRequestDto, SubmissionDetailDto } from '@qhhoj/contracts';
+import { problems, problemRevisions, submissionCases, submissions } from '@duckoj/db/guarded';
+import { schema, type Db } from '@duckoj/db';
+import type { CreateSubmissionRequestDto, SubmissionDetailDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from './actor.js';
@@ -3144,7 +3144,7 @@ import {
   type CreateSubmissionRequestDto,
   type CreateSubmissionResponseDto,
   type SubmissionDetailDto,
-} from '@qhhoj/contracts';
+} from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { CurrentActor } from '../authn/auth.guard.js';
 import type { Actor } from '../authz/actor.js';
@@ -3180,9 +3180,9 @@ export class SubmissionsController {
 - [ ] **Step 5: Run the tests, regenerate artifacts**
 
 ```bash
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/api test
-corepack pnpm --filter @qhhoj/contracts openapi
-corepack pnpm --filter @qhhoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/api test
+corepack pnpm --filter @duckoj/contracts openapi
+corepack pnpm --filter @duckoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
 git diff --stat -- openapi.json packages/sdk/src/generated.ts
 ```
 
@@ -3213,8 +3213,8 @@ git commit -m "feat(api): submission contracts, access service and endpoints"
 - [ ] **Step 1: Install the WebSocket library**
 
 ```bash
-corepack pnpm --filter @qhhoj/api add ws ioredis
-corepack pnpm --filter @qhhoj/api add -D @types/ws
+corepack pnpm --filter @duckoj/api add ws ioredis
+corepack pnpm --filter @duckoj/api add -D @types/ws
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -3364,7 +3364,7 @@ Extend `apps/api/test/app.harness.ts` with `buildAppWithRealtime(db)` returning 
 - [ ] **Step 3: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/api test realtime
+corepack pnpm --filter @duckoj/api test realtime
 ```
 
 Expected: FAIL — no `/ws` endpoint.
@@ -3496,7 +3496,7 @@ function parseCookie(header: string): Record<string, string> {
 - [ ] **Step 5: Run the tests**
 
 ```bash
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/api test
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/api test
 ```
 
 Expected: PASS (6 new tests).
@@ -3518,7 +3518,7 @@ git commit -m "feat(api): authenticated websocket gateway with per-subscription 
 - Modify: root `package.json` (a `seed` script)
 
 **Interfaces:**
-- Consumes: `@qhhoj/db`.
+- Consumes: `@duckoj/db`.
 - Produces: an idempotent seed inserting the `cpp17` language, its `CPP17` driver key, the `aplusb` problem, and a published revision with `packageHash: 'phase1-aplusb'`.
 
 - [ ] **Step 1: Create the problem fixture**
@@ -3543,8 +3543,8 @@ With `tests/01.in` = `1 2`, `01.out` = `3`; `02.in` = `-5 5`, `02.out` = `0`; `0
 
 ```ts
 import { eq, sql } from 'drizzle-orm';
-import { problems, problemRevisions } from '@qhhoj/db/guarded';
-import { createDb, schema } from '@qhhoj/db';
+import { problems, problemRevisions } from '@duckoj/db/guarded';
+import { createDb, schema } from '@duckoj/db';
 
 /**
  * The problem's content hash. Phase 1 has no package system, so this is a
@@ -3624,11 +3624,11 @@ try {
 - [ ] **Step 3: Verify against a real database**
 
 ```bash
-podman run -d --name seed-pg -e POSTGRES_PASSWORD=seed -e POSTGRES_DB=qhhoj -p 55432:5432 postgres:16-alpine
+podman run -d --name seed-pg -e POSTGRES_PASSWORD=seed -e POSTGRES_DB=duckoj -p 55432:5432 postgres:16-alpine
 sleep 5
-DATABASE_URL=postgres://postgres:seed@localhost:55432/qhhoj corepack pnpm --filter @qhhoj/db migrate
-DATABASE_URL=postgres://postgres:seed@localhost:55432/qhhoj corepack pnpm exec tsx scripts/seed-problem.ts
-DATABASE_URL=postgres://postgres:seed@localhost:55432/qhhoj corepack pnpm exec tsx scripts/seed-problem.ts
+DATABASE_URL=postgres://postgres:seed@localhost:55432/duckoj corepack pnpm --filter @duckoj/db migrate
+DATABASE_URL=postgres://postgres:seed@localhost:55432/duckoj corepack pnpm exec tsx scripts/seed-problem.ts
+DATABASE_URL=postgres://postgres:seed@localhost:55432/duckoj corepack pnpm exec tsx scripts/seed-problem.ts
 podman rm -f seed-pg
 ```
 
@@ -3719,7 +3719,7 @@ describe('VerdictPanel', () => {
 - [ ] **Step 2: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/web test
+corepack pnpm --filter @duckoj/web test
 ```
 
 Expected: FAIL — module not found.
@@ -3731,8 +3731,8 @@ Expected: FAIL — module not found.
 - [ ] **Step 4: Run the tests and build**
 
 ```bash
-corepack pnpm -r typecheck && corepack pnpm --filter @qhhoj/web test
-corepack pnpm --filter @qhhoj/web exec vite build
+corepack pnpm -r typecheck && corepack pnpm --filter @duckoj/web test
+corepack pnpm --filter @duckoj/web exec vite build
 ```
 
 - [ ] **Step 5: Commit**
@@ -3775,7 +3775,7 @@ problem_storage_root:
 - [ ] **Step 3: Build the judged image**
 
 ```bash
-podman build -f apps/judged/Dockerfile -t qhhoj-judged:dev .
+podman build -f apps/judged/Dockerfile -t duckoj-judged:dev .
 ```
 
 Expected: success. **If it fails, fix the Dockerfile** — the same rule as Phase 0: a Dockerfile that does not build is a defect, not an environment limitation.
@@ -3783,7 +3783,7 @@ Expected: success. **If it fails, fix the Dockerfile** — the same rule as Phas
 - [ ] **Step 4: Bring the whole stack up**
 
 ```bash
-corepack pnpm --filter @qhhoj/web exec vite build
+corepack pnpm --filter @duckoj/web exec vite build
 podman-compose up -d --build
 sleep 40
 podman-compose ps

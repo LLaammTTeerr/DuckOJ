@@ -15,7 +15,7 @@ import {
   type CreateTokenRequestDto,
   type CreateTokenResponseDto,
   type TokenSummaryDto,
-} from '@qhhoj/contracts';
+} from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import type { Actor } from '../authz/actor.js';
 import { CurrentActor } from './auth.guard.js';

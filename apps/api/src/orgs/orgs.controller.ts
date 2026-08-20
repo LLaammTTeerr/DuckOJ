@@ -4,7 +4,7 @@ import {
   type OrgPageDto,
   type OrgSummaryDto,
   type PaginationQueryDto,
-} from '@qhhoj/contracts';
+} from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { MaybeActor, Public } from '../authn/auth.guard.js';
 import type { Actor } from '../authz/actor.js';

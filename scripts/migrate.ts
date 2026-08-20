@@ -1,4 +1,4 @@
-import { runMigrations } from '@qhhoj/db';
+import { runMigrations } from '@duckoj/db';
 
 const url = process.env.DATABASE_URL;
 if (!url) {

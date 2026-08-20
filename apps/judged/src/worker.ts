@@ -1,5 +1,5 @@
-import type { JudgeDriver } from '@qhhoj/judge-protocol';
-import { describeError } from '@qhhoj/observability';
+import type { JudgeDriver } from '@duckoj/judge-protocol';
+import { describeError } from '@duckoj/observability';
 import type { EventWriter } from './event-writer.js';
 import type { ClaimedJob, JobStore } from './job-store.js';
 

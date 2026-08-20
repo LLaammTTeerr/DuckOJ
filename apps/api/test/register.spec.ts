@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { schema } from '@qhhoj/db';
+import { schema } from '@duckoj/db';
 import { PasswordService } from '../src/authn/password.service.js';
 import { AuthService } from '../src/authn/auth.service.js';
 import { buildApp } from './app.harness.js';

@@ -1,7 +1,7 @@
 import type { Agent as SupertestAgent } from 'supertest';
 import { eq } from 'drizzle-orm';
-import { problems, problemRevisions } from '@qhhoj/db/guarded';
-import { schema, type Db } from '@qhhoj/db';
+import { problems, problemRevisions } from '@duckoj/db/guarded';
+import { schema, type Db } from '@duckoj/db';
 
 const PASSWORD = 'a-long-enough-password';
 

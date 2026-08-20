@@ -1,5 +1,5 @@
 {
-  "name": "@qhhoj/web",
+  "name": "@duckoj/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@qhhoj/api-prefix": "workspace:^",
-    "@qhhoj/sdk": "workspace:^",
+    "@duckoj/api-prefix": "workspace:^",
+    "@duckoj/sdk": "workspace:^",
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-router": "^1.170.29",
     "react": "^19.2.8",

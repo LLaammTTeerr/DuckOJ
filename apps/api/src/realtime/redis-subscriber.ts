@@ -1,6 +1,6 @@
 import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { SUBMISSION_CHANNEL } from '@qhhoj/realtime';
+import { SUBMISSION_CHANNEL } from '@duckoj/realtime';
 import { APP_CONFIG } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { SubmissionsGateway } from './submissions.gateway.js';

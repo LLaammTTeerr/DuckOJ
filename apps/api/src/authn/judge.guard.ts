@@ -6,7 +6,7 @@ import { JudgeService } from './judge.service.js';
 
 const JUDGE_SCHEME = /^Judge\s+/i;
 
-export const IS_JUDGE_ROUTE = 'qhhoj:judge-route';
+export const IS_JUDGE_ROUTE = 'duckoj:judge-route';
 
 /**
  * Marks a route as authenticated by a judge's `(name, token)` credential

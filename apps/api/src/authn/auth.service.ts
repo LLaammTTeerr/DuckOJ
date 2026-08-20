@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
-import type { MeResponseDto, RegisterRequestDto } from '@qhhoj/contracts';
+import { schema, type Db } from '@duckoj/db';
+import type { MeResponseDto, RegisterRequestDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { PasswordService } from './password.service.js';

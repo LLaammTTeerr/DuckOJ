@@ -5,7 +5,7 @@ import {
   UploadPackageQuery,
   type PackageSummaryDto,
   type UploadPackageResponseDto,
-} from '@qhhoj/contracts';
+} from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { AppError } from '../common/app.error.js';
 import { APP_CONFIG } from '../config/config.module.js';

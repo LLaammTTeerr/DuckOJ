@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
-import { problems, problemRevisions, submissions, submissionCases } from '@qhhoj/db/guarded';
-import { schema, type Db } from '@qhhoj/db';
+import { problems, problemRevisions, submissions, submissionCases } from '@duckoj/db/guarded';
+import { schema, type Db } from '@duckoj/db';
 import { EventWriter } from '../src/event-writer.js';
 import { JobStore, type ClaimedJob } from '../src/job-store.js';
 import { withTestDb } from './db.harness.js';

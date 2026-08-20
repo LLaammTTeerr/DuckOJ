@@ -2,7 +2,7 @@ import { mkdtemp, readFile, mkdir, writeFile, stat, readdir } from 'node:fs/prom
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { packDirectory, packageHash } from '@qhhoj/package-format';
+import { packDirectory, packageHash } from '@duckoj/package-format';
 import { Materializer } from '../src/materializer.js';
 
 /** A minimal, manifest-valid package: `manifest.json` plus one test under `tests/`. */

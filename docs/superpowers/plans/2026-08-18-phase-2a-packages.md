@@ -4,7 +4,7 @@
 
 **Goal:** Make a package a real content-addressed artifact that can be built, uploaded, stored, fetched by a judge and graded against — so the system can grade a second problem.
 
-**Architecture:** A new `@qhhoj/package-format` package owns the manifest schema, canonical hashing, archiving and the DMOJ `init.yml` renderer. The API gains a filesystem content-addressed store and two endpoints (public upload, judge-only archive fetch). A new `apps/judge-agent` runs beside judge-server and materialises packages to `/problems/<hash>/` on demand. `judged` asks the agent to ensure a package before dispatching, and the DMOJ `problem-id` becomes the package hash itself.
+**Architecture:** A new `@duckoj/package-format` package owns the manifest schema, canonical hashing, archiving and the DMOJ `init.yml` renderer. The API gains a filesystem content-addressed store and two endpoints (public upload, judge-only archive fetch). A new `apps/judge-agent` runs beside judge-server and materialises packages to `/problems/<hash>/` on demand. `judged` asks the agent to ensure a package before dispatching, and the DMOJ `problem-id` becomes the package hash itself.
 
 **Tech Stack:** TypeScript ESM, Node 22, pnpm workspaces, NestJS, Drizzle + PostgreSQL 16, Zod contracts → OpenAPI → generated SDK, `tar` + `zlib` zstd (built in to Node 22.22), rootless Podman + podman-compose, Caddy.
 
@@ -23,7 +23,7 @@
 - **No hand-written DTOs.** Request and response shapes come from Zod schemas in `packages/contracts`, and must be *wired in* — annotate return types with the inferred DTOs.
 - **Credentials never appear in logs or URLs.**
 - **Regenerate `openapi.json` and `packages/sdk/src/generated.ts`** after any contracts change. CI fails on drift.
-- **The guarded-import boundary:** `@qhhoj/db/guarded` is importable only from `apps/api/src/authz/**`, enforced by ESLint over `apps/api/src/**`. `apps/judged`, `apps/judge-agent` and `scripts/` are deliberately exempt.
+- **The guarded-import boundary:** `@duckoj/db/guarded` is importable only from `apps/api/src/authz/**`, enforced by ESLint over `apps/api/src/**`. `apps/judged`, `apps/judge-agent` and `scripts/` are deliberately exempt.
 - **There is no Docker.** Rootless Podman 5.7 + podman-compose 1.5. Bring the stack up with `scripts/compose-up.sh`, never bare `podman-compose up -d`.
 - **Every task ends on a green `corepack pnpm -r typecheck && corepack pnpm -r lint && corepack pnpm -r test`,** plus `corepack pnpm typecheck:scripts && corepack pnpm lint:scripts`. Baseline entering this plan is **181 tests**.
 
@@ -70,7 +70,7 @@ weakening the assertion to fit.
 
 ---
 
-## Task 1: `@qhhoj/package-format` scaffold and manifest schema
+## Task 1: `@duckoj/package-format` scaffold and manifest schema
 
 **Files:**
 - Create: `packages/package-format/package.json`, `tsconfig.json`, `src/index.ts`, `src/manifest.ts`
@@ -86,7 +86,7 @@ weakening the assertion to fit.
 
 ```json
 {
-  "name": "@qhhoj/package-format",
+  "name": "@duckoj/package-format",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -163,7 +163,7 @@ describe('parseManifest', () => {
 - [ ] **Step 3: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/package-format test
+corepack pnpm --filter @duckoj/package-format test
 ```
 
 Expected: FAIL — module not found.
@@ -237,7 +237,7 @@ export * from './manifest.js';
 - [ ] **Step 5: Run the tests**
 
 ```bash
-corepack pnpm --filter @qhhoj/package-format test
+corepack pnpm --filter @duckoj/package-format test
 ```
 
 Expected: PASS (5 tests).
@@ -313,7 +313,7 @@ describe('packageHash', () => {
 - [ ] **Step 2: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/package-format test hash
+corepack pnpm --filter @duckoj/package-format test hash
 ```
 
 Expected: FAIL — module not found.
@@ -373,7 +373,7 @@ export * from './hash.js';
 - [ ] **Step 4: Run the tests**
 
 ```bash
-corepack pnpm --filter @qhhoj/package-format test
+corepack pnpm --filter @duckoj/package-format test
 ```
 
 Expected: PASS (12 tests).
@@ -399,7 +399,7 @@ git commit -m "feat(package-format): canonical content-addressed package hash"
   - `packDirectory(dir: string): Promise<{ archive: Buffer; files: PackageFile[] }>`
   - `unpackArchive(archive: Buffer, destDir: string): Promise<void>`
 
-Install: `corepack pnpm --filter @qhhoj/package-format add tar` and `corepack pnpm --filter @qhhoj/package-format add -D @types/tar`.
+Install: `corepack pnpm --filter @duckoj/package-format add tar` and `corepack pnpm --filter @duckoj/package-format add -D @types/tar`.
 
 zstd needs no dependency: Node 22.22 ships `zlib.zstdCompressSync` / `zstdDecompressSync`. Verified on this host.
 
@@ -470,7 +470,7 @@ describe('archive', () => {
 - [ ] **Step 2: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/package-format test archive
+corepack pnpm --filter @duckoj/package-format test archive
 ```
 
 Expected: FAIL — module not found.
@@ -552,7 +552,7 @@ export * from './archive.js';
 - [ ] **Step 4: Run the tests**
 
 ```bash
-corepack pnpm --filter @qhhoj/package-format test
+corepack pnpm --filter @duckoj/package-format test
 ```
 
 Expected: PASS (16 tests).
@@ -579,7 +579,7 @@ git commit -m "feat(package-format): tar+zstd archive with traversal guard"
 - Consumes: `PackageManifestDto` from Task 1.
 - Produces: `renderInitYml(manifest: PackageManifestDto): string`
 
-Install: `corepack pnpm --filter @qhhoj/package-format add yaml`.
+Install: `corepack pnpm --filter @duckoj/package-format add yaml`.
 
 **This file is the only place in the codebase that knows DMOJ's on-disk format.** Everything above it speaks our manifest. Keeping that true is what makes replacing judge-server a one-file change.
 
@@ -649,7 +649,7 @@ describe('renderInitYml', () => {
 - [ ] **Step 2: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/package-format test init-yml
+corepack pnpm --filter @duckoj/package-format test init-yml
 ```
 
 Expected: FAIL — module not found.
@@ -715,7 +715,7 @@ export * from './init-yml.js';
 - [ ] **Step 4: Run the tests**
 
 ```bash
-corepack pnpm --filter @qhhoj/package-format test
+corepack pnpm --filter @duckoj/package-format test
 ```
 
 Expected: PASS (21 tests).
@@ -766,7 +766,7 @@ git commit -m "feat(package-format): DMOJ init.yml renderer"
 ```ts
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { packDirectory, packageHash, parseManifest } from '@qhhoj/package-format';
+import { packDirectory, packageHash, parseManifest } from '@duckoj/package-format';
 
 const dir = process.argv[2];
 const out = process.argv[3];
@@ -800,7 +800,7 @@ Add to root `package.json` scripts:
 "package:build": "tsx scripts/package-build.ts"
 ```
 
-Note `scripts/` is covered by `typecheck:scripts` and `lint:scripts` — add `@qhhoj/package-format` to the root `package.json` dependencies so a root-level script can resolve it, the same reason `tsx` and `drizzle-orm` are already there.
+Note `scripts/` is covered by `typecheck:scripts` and `lint:scripts` — add `@duckoj/package-format` to the root `package.json` dependencies so a root-level script can resolve it, the same reason `tsx` and `drizzle-orm` are already there.
 
 - [ ] **Step 3: Build the fixture and record the hash**
 
@@ -840,7 +840,7 @@ git commit -m "feat(scripts): build a content-addressed package from a directory
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `packages`, `packageFiles` Drizzle tables, exported from `@qhhoj/db`'s schema barrel.
+- Produces: `packages`, `packageFiles` Drizzle tables, exported from `@duckoj/db`'s schema barrel.
 
 **Do not add the foreign key from `problem_revisions.package_hash` in this task.** That row currently holds the literal string `phase1-aplusb`, which satisfies no key, and the migration would fail to apply. Task 12 does the repoint and the constraint together, in that order.
 
@@ -912,7 +912,7 @@ describe('package schema', () => {
 - [ ] **Step 2: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/db test packages
+corepack pnpm --filter @duckoj/db test packages
 ```
 
 Expected: FAIL — `schema.packages` undefined.
@@ -963,7 +963,7 @@ Export both from `packages/db/src/schema/index.ts`, following the existing barre
 - [ ] **Step 4: Generate and inspect the migration**
 
 ```bash
-corepack pnpm --filter @qhhoj/db exec drizzle-kit generate
+corepack pnpm --filter @duckoj/db exec drizzle-kit generate
 ```
 
 Read the generated SQL before running it. It must create two tables and add no constraint to `problem_revisions`. If it touches an existing migration file, stop — migrations are forward-only and never hand-edited.
@@ -971,7 +971,7 @@ Read the generated SQL before running it. It must create two tables and add no c
 - [ ] **Step 5: Run the tests**
 
 ```bash
-corepack pnpm --filter @qhhoj/db test
+corepack pnpm --filter @duckoj/db test
 ```
 
 Expected: PASS (12 tests: 8 existing + 4 new).
@@ -998,7 +998,7 @@ git commit -m "feat(db): packages and package_files tables"
   - `class FilesystemPackageStore implements PackageStore`
   - `export const PACKAGE_STORE = Symbol('PACKAGE_STORE')`
 
-Add to `config.schema.ts`: `PACKAGE_STORE_DIR: z.string().min(1).default('/var/lib/qhhoj/packages')`, with `packageStoreDir: string` on `AppConfig` and the mapping in `loadConfig`. Follow the existing shape exactly — one line in each of the three places.
+Add to `config.schema.ts`: `PACKAGE_STORE_DIR: z.string().min(1).default('/var/lib/duckoj/packages')`, with `packageStoreDir: string` on `AppConfig` and the mapping in `loadConfig`. Follow the existing shape exactly — one line in each of the three places.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1058,7 +1058,7 @@ describe('FilesystemPackageStore', () => {
 - [ ] **Step 2: Run it and confirm it fails**
 
 ```bash
-corepack pnpm --filter @qhhoj/api test package-store
+corepack pnpm --filter @duckoj/api test package-store
 ```
 
 Expected: FAIL — module not found.
@@ -1135,7 +1135,7 @@ export class FilesystemPackageStore implements PackageStore {
 - [ ] **Step 4: Run the tests**
 
 ```bash
-corepack pnpm --filter @qhhoj/api test
+corepack pnpm --filter @duckoj/api test
 ```
 
 Expected: PASS (94 tests: 88 existing + 6 new).
@@ -1159,7 +1159,7 @@ git commit -m "feat(api): filesystem content-addressed package store"
 - Create: `apps/judged/test/bridge-auth.spec.ts`
 
 **Interfaces:**
-- Consumes: `judgeNodes` from `@qhhoj/db`, `DB` token.
+- Consumes: `judgeNodes` from `@duckoj/db`, `DB` token.
 - Produces:
   - `JudgeService.verify(name: string, token: string): Promise<boolean>`
   - `JudgeGuard` — a NestJS guard authenticating `Authorization: Judge <name>:<token>`
@@ -1203,7 +1203,7 @@ Write these out fully against the existing harness — the sketch above names th
 - [ ] **Step 2: Run and confirm they fail**
 
 ```bash
-corepack pnpm --filter @qhhoj/judged test bridge-auth
+corepack pnpm --filter @duckoj/judged test bridge-auth
 ```
 
 - [ ] **Step 3: Implement the bridge check**
@@ -1257,7 +1257,7 @@ Register both paths on the OpenAPI registry following `orgs.ts`, register 401/40
 ```ts
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { packDirectory, packageHash } from '@qhhoj/package-format';
+import { packDirectory, packageHash } from '@duckoj/package-format';
 // ... build a temp package dir as in packages/package-format/test/archive.spec.ts
 
 describe('packages', () => {
@@ -1296,7 +1296,7 @@ Write each of these out fully against `app.harness.ts`'s existing helpers; the c
 - [ ] **Step 2: Run and confirm they fail**
 
 ```bash
-corepack pnpm --filter @qhhoj/api test packages
+corepack pnpm --filter @duckoj/api test packages
 ```
 
 - [ ] **Step 3: Implement**
@@ -1320,8 +1320,8 @@ Steps 6's insert and the `store.put` are **not** atomic with each other. Put to 
 - [ ] **Step 4: Regenerate artifacts**
 
 ```bash
-corepack pnpm --filter @qhhoj/contracts openapi
-corepack pnpm --filter @qhhoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
+corepack pnpm --filter @duckoj/contracts openapi
+corepack pnpm --filter @duckoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
 git diff --stat -- openapi.json packages/sdk/src/generated.ts
 ```
 
@@ -1344,7 +1344,7 @@ git commit -m "feat(api): package upload with integrity verification, and judge-
 - Create: `apps/judge-agent/test/materializer.spec.ts`
 
 **Interfaces:**
-- Consumes: `unpackArchive`, `renderInitYml`, `parseManifest` from `@qhhoj/package-format`.
+- Consumes: `unpackArchive`, `renderInitYml`, `parseManifest` from `@duckoj/package-format`.
 - Produces: `POST /packages/ensure` with body `{ hash: string }` → 204 on success; `GET /healthz` → `{ status: 'ok' }`.
 
 `package.json` mirrors `apps/judged`, including `"test": "tsc -b && vitest run"` and `build`/`dev` scripts. Config via Zod as in `apps/judged/src/config.ts`: `API_ORIGIN`, `JUDGE_NAME`, `JUDGE_TOKEN`, `PROBLEMS_DIR` (default `/problems`), `AGENT_PORT` (default 3002).
@@ -1368,7 +1368,7 @@ import { mkdtemp, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { packDirectory } from '@qhhoj/package-format';
+import { packDirectory } from '@duckoj/package-format';
 import { Materializer } from '../src/materializer.js';
 
 describe('Materializer', () => {
@@ -1474,7 +1474,7 @@ it('records problems announced later by a supported-problems packet', async () =
 - [ ] **Step 2: Run and confirm they fail**
 
 ```bash
-corepack pnpm --filter @qhhoj/judged test dmoj-driver
+corepack pnpm --filter @duckoj/judged test dmoj-driver
 ```
 
 - [ ] **Step 3: Implement**
@@ -1527,11 +1527,11 @@ prints another, and the symptom appears on a judge two tasks later.
 - [ ] **Step 2: Verify against a real database, twice**
 
 ```bash
-podman run -d --name seed-pg -e POSTGRES_PASSWORD=seed -e POSTGRES_DB=qhhoj -p 55432:5432 postgres:16-alpine
+podman run -d --name seed-pg -e POSTGRES_PASSWORD=seed -e POSTGRES_DB=duckoj -p 55432:5432 postgres:16-alpine
 sleep 5
-DATABASE_URL=postgres://postgres:seed@localhost:55432/qhhoj corepack pnpm --filter @qhhoj/db migrate
-DATABASE_URL=postgres://postgres:seed@localhost:55432/qhhoj corepack pnpm exec tsx scripts/seed-problem.ts
-DATABASE_URL=postgres://postgres:seed@localhost:55432/qhhoj corepack pnpm exec tsx scripts/seed-problem.ts
+DATABASE_URL=postgres://postgres:seed@localhost:55432/duckoj corepack pnpm --filter @duckoj/db migrate
+DATABASE_URL=postgres://postgres:seed@localhost:55432/duckoj corepack pnpm exec tsx scripts/seed-problem.ts
+DATABASE_URL=postgres://postgres:seed@localhost:55432/duckoj corepack pnpm exec tsx scripts/seed-problem.ts
 ```
 
 Paste both runs' output. The second must report nothing new, and the revision must point at the 64-hex hash from Task 5.
@@ -1541,7 +1541,7 @@ Paste both runs' output. The second must report nothing new, and the revision mu
 - [ ] **Step 3: Add the foreign key and generate the migration**
 
 ```bash
-corepack pnpm --filter @qhhoj/db exec drizzle-kit generate
+corepack pnpm --filter @duckoj/db exec drizzle-kit generate
 ```
 
 Read the SQL. Apply it to the same throwaway database and confirm it succeeds *after* the seed has run.
@@ -1583,7 +1583,7 @@ Extend `scripts/compose-up.sh` for the agent's health, using `wait_healthy`'s sh
 - [ ] **Step 4: Bring the stack up**
 
 ```bash
-corepack pnpm --filter @qhhoj/web exec vite build
+corepack pnpm --filter @duckoj/web exec vite build
 ./scripts/compose-up.sh
 podman-compose ps
 podman logs phase-1-skeleton_judge_1 2>&1 | tail -30

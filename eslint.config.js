@@ -21,11 +21,11 @@ export default tseslint.config(
       'no-restricted-imports': [
         'error',
         {
-          paths: [{ name: '@qhhoj/db/guarded', message: GUARDED_MESSAGE }],
+          paths: [{ name: '@duckoj/db/guarded', message: GUARDED_MESSAGE }],
           // Also closes the obvious ways around the exact-name match above:
           // a `.js` suffix, or a deep relative path into the db package.
           patterns: [
-            { group: ['@qhhoj/db/guarded*', '**/schema/guarded*'], message: GUARDED_MESSAGE },
+            { group: ['@duckoj/db/guarded*', '**/schema/guarded*'], message: GUARDED_MESSAGE },
           ],
         },
       ],

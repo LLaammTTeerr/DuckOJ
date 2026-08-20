@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { afterAll } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { createDb, runMigrations, type Db } from '@qhhoj/db';
+import { createDb, runMigrations, type Db } from '@duckoj/db';
 
 // Testcontainers speaks the Docker API. This local sandbox has no Docker
 // daemon but does have rootless Podman exposing a Docker-compatible socket.

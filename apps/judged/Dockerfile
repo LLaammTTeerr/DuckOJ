@@ -13,7 +13,7 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
-RUN pnpm --filter "@qhhoj/judged..." typecheck
+RUN pnpm --filter "@duckoj/judged..." typecheck
 
 FROM base AS runtime
 ENV NODE_ENV=production

@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { createDb, schema, type Db } from '@qhhoj/db';
-import { problems, problemRevisions } from '@qhhoj/db/guarded';
+import { createDb, schema, type Db } from '@duckoj/db';
+import { problems, problemRevisions } from '@duckoj/db/guarded';
 import { JobStore } from '../src/job-store.js';
 import { testDbUrl } from './db.harness.js';
 

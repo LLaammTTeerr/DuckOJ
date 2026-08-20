@@ -1,9 +1,9 @@
 import { eq, sql } from 'drizzle-orm';
 import { DrizzleQueryError } from 'drizzle-orm/errors';
 import { describe, expect, it, vi } from 'vitest';
-import { FakeDriver, type EmitEvent, type JudgeDriver } from '@qhhoj/judge-protocol';
-import { schema, type Db } from '@qhhoj/db';
-import { problems, problemRevisions, submissions } from '@qhhoj/db/guarded';
+import { FakeDriver, type EmitEvent, type JudgeDriver } from '@duckoj/judge-protocol';
+import { schema, type Db } from '@duckoj/db';
+import { problems, problemRevisions, submissions } from '@duckoj/db/guarded';
 import { EventWriter } from '../src/event-writer.js';
 import { JobStore, type ClaimedJob } from '../src/job-store.js';
 import { Worker } from '../src/worker.js';

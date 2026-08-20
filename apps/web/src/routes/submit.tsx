@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import type { paths } from '@qhhoj/sdk';
+import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 
 export type SubmissionDetail =

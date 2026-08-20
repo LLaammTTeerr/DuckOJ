@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { eq } from 'drizzle-orm';
-import { organizations, orgMembers } from '@qhhoj/db/guarded';
-import { schema, type Db } from '@qhhoj/db';
-import { OrgPage } from '@qhhoj/contracts';
+import { organizations, orgMembers } from '@duckoj/db/guarded';
+import { schema, type Db } from '@duckoj/db';
+import { OrgPage } from '@duckoj/contracts';
 import { OrgAccessService } from '../src/authz/org.access.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';

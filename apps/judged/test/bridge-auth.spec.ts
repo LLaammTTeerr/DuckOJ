@@ -1,6 +1,6 @@
 import { connect, type Socket } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPacketDecoder, encodePacket } from '@qhhoj/judge-protocol';
+import { createPacketDecoder, encodePacket } from '@duckoj/judge-protocol';
 import { BridgeServer } from '../src/drivers/dmoj/bridge-server.js';
 
 /**
@@ -75,7 +75,7 @@ describe('BridgeServer authentication', () => {
     // `judge_nodes.lastSeen` gets written on handshake and heartbeat (design
     // §8) — proven here at the mechanism level, the same way
     // `verifyJudge`'s own invocation is proven above: a spy in place of
-    // `@qhhoj/db`'s real `touchJudgeLastSeen`, since this file has no
+    // `@duckoj/db`'s real `touchJudgeLastSeen`, since this file has no
     // database and does not need one to prove the bridge calls the right
     // thing at the right moment.
     const verifyJudge = vi.fn(async () => true);

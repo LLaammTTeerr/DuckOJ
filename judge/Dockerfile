@@ -58,7 +58,7 @@ COPY apps/judge-agent apps/judge-agent
 # `typecheck` is `tsc -b` (composite project references), which emits dist/
 # as a side effect of type-checking — the same pattern apps/api and
 # apps/judged's Dockerfiles use, not a separate `build` step.
-RUN pnpm --filter "@qhhoj/judge-agent..." typecheck
+RUN pnpm --filter "@duckoj/judge-agent..." typecheck
 
 FROM python:3.11-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \

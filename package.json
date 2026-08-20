@@ -1,5 +1,5 @@
 {
-  "name": "qhhoj",
+  "name": "duckoj",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.12.0",
@@ -15,8 +15,8 @@
     "package:build": "tsx scripts/package-build.ts"
   },
   "dependencies": {
-    "@qhhoj/db": "workspace:*",
-    "@qhhoj/package-format": "workspace:*",
+    "@duckoj/db": "workspace:*",
+    "@duckoj/package-format": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {

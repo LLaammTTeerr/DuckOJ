@@ -207,7 +207,7 @@ describe('submission realtime', () => {
         // throw inside `authenticate` had no `.catch`, so it became an
         // unhandled promise rejection and Node 22 terminates the process on
         // those by default.
-        await expect(open(`${url}/ws`, { cookie: 'qhhoj_session=%zz' })).rejects.toThrow(/401/);
+        await expect(open(`${url}/ws`, { cookie: 'duckoj_session=%zz' })).rejects.toThrow(/401/);
 
         // The assertion that actually catches a regression: a well-formed
         // connection made afterwards, on the same server, still succeeds.
@@ -271,7 +271,7 @@ describe('submission realtime', () => {
         // this race that would surface as a generic 120s per-test timeout
         // instead of a fast, legible assertion failure.
         const openOrTimeout = Promise.race([
-          open(`${url}/ws`, { cookie: 'qhhoj_session=whatever' }),
+          open(`${url}/ws`, { cookie: 'duckoj_session=whatever' }),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error('open() did not settle within 2000ms')), 2_000),
           ),

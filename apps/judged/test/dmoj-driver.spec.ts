@@ -1,6 +1,6 @@
 import { connect, type Socket } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPacketDecoder, DMOJ_FLAG, encodePacket, type GradingEvent, type GradingJob } from '@qhhoj/judge-protocol';
+import { createPacketDecoder, DMOJ_FLAG, encodePacket, type GradingEvent, type GradingJob } from '@duckoj/judge-protocol';
 import { BridgeServer } from '../src/drivers/dmoj/bridge-server.js';
 import { DmojDriver } from '../src/drivers/dmoj/dmoj-driver.js';
 

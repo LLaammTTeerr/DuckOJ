@@ -1,14 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, inArray, or, sql } from 'drizzle-orm';
-import { organizations, orgMembers } from '@qhhoj/db/guarded';
-import type { Db } from '@qhhoj/db';
-import type { OrgPageDto, OrgSummaryDto, PaginationQueryDto } from '@qhhoj/contracts';
+import { organizations, orgMembers } from '@duckoj/db/guarded';
+import type { Db } from '@duckoj/db';
+import type { OrgPageDto, OrgSummaryDto, PaginationQueryDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from './actor.js';
 
 /**
- * The ONLY module permitted to import `@qhhoj/db/guarded`. Every read of an
+ * The ONLY module permitted to import `@duckoj/db/guarded`. Every read of an
  * organization anywhere in the API goes through here, so visibility cannot be
  * forgotten at a call site.
  */

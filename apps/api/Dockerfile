@@ -15,7 +15,7 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
-RUN pnpm --filter "@qhhoj/api..." typecheck
+RUN pnpm --filter "@duckoj/api..." typecheck
 
 FROM base AS runtime
 ENV NODE_ENV=production
@@ -25,7 +25,7 @@ COPY --from=build /app /app
 # first use, and this container runs as the unprivileged `node` user below
 # — without this, the first `FilesystemPackageStore.put()` fails EACCES.
 # Same reasoning as judge/Dockerfile's `chown judge:judge /problems`.
-RUN mkdir -p /var/lib/qhhoj/packages && chown node:node /var/lib/qhhoj/packages
+RUN mkdir -p /var/lib/duckoj/packages && chown node:node /var/lib/duckoj/packages
 USER node
 EXPOSE 3000
 CMD ["node", "apps/api/dist/main.js"]

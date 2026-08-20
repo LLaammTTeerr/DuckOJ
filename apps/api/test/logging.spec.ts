@@ -52,7 +52,7 @@ describe('request logging redacts credentials', () => {
         expect(login.status).toBe(200);
 
         const setCookie = login.headers['set-cookie'] as unknown as string[];
-        const sessionToken = /qhhoj_session=([^;]+)/.exec(setCookie.join(';'))![1]!;
+        const sessionToken = /duckoj_session=([^;]+)/.exec(setCookie.join(';'))![1]!;
         expect(sessionToken.length).toBeGreaterThan(16);
 
         // (b) Cookie on the request: the agent replays the session token.
@@ -83,7 +83,7 @@ describe('request logging redacts credentials', () => {
         // Then the actual guarantee: no plaintext credential anywhere in it.
         expect(output).not.toContain(sessionToken);
         expect(output).not.toContain(accessToken);
-        expect(output).not.toContain('qhhoj_session=');
+        expect(output).not.toContain('duckoj_session=');
         expect(output.toLowerCase()).not.toContain('bearer ');
       } finally {
         await app.close();

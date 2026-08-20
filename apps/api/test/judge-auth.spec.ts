@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import type { DestinationStream } from 'pino';
 import { describe, expect, it } from 'vitest';
-import { hashJudgeToken, schema } from '@qhhoj/db';
+import { hashJudgeToken, schema } from '@duckoj/db';
 import { JudgeGuard } from '../src/authn/judge.guard.js';
 import { JudgeService } from '../src/authn/judge.service.js';
 import { requestLogger } from '../src/common/logger.js';

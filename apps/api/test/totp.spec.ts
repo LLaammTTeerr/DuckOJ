@@ -1,6 +1,6 @@
 import { authenticator } from '@otplib/preset-default';
 import { describe, expect, it, vi } from 'vitest';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 import { TotpService } from '../src/authn/totp.service.js';
 import type { AppConfig } from '../src/config/config.schema.js';
 import { TEST_CONFIG } from './app.harness.js';

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
-import { submissions, submissionCases } from '@qhhoj/db/guarded';
-import type { Db } from '@qhhoj/db';
-import type { GradingEvent } from '@qhhoj/judge-protocol';
+import { submissions, submissionCases } from '@duckoj/db/guarded';
+import type { Db } from '@duckoj/db';
+import type { GradingEvent } from '@duckoj/judge-protocol';
 import type { ClaimedJob } from './job-store.js';
 import type { JobStore } from './job-store.js';
 import type { SubmissionEvents } from './submission-events.js';

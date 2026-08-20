@@ -1,5 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
-import { API_PREFIX } from '@qhhoj/api-prefix';
+import { API_PREFIX } from '@duckoj/api-prefix';
 import cookieParser from 'cookie-parser';
 import type { DestinationStream } from 'pino';
 import type { AppConfig } from './config/config.schema.js';
@@ -9,7 +9,7 @@ import { ProblemFilter } from './common/problem.filter.js';
 /**
  * Everything that turns a bare `AppModule` into the application this project
  * actually serves: request logging, cookie parsing, problem+json errors, the
- * `API_PREFIX` (`@qhhoj/api-prefix`) with its health-probe exclusions, and CORS.
+ * `API_PREFIX` (`@duckoj/api-prefix`) with its health-probe exclusions, and CORS.
  *
  * This lives beside `main.ts` rather than inside it so that `main.ts` stays a
  * pure entrypoint — importing it runs `bootstrap()` as a side effect, which a

@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 
 /**
  * How long a claim is valid without a heartbeat.

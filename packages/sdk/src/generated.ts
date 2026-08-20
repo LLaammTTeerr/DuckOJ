@@ -211,7 +211,7 @@ export interface paths {
         put?: never;
         /**
          * Upload a content-addressed problem package
-         * @description The body is the raw tar+zstd archive bytes (see @qhhoj/package-format). The `hash` query parameter is the hash the client claims for it; the server unpacks the archive, recomputes the hash from the file digests, and rejects the upload if it disagrees.
+         * @description The body is the raw tar+zstd archive bytes (see @duckoj/package-format). The `hash` query parameter is the hash the client claims for it; the server unpacks the archive, recomputes the hash from the file digests, and rejects the upload if it disagrees.
          */
         post: {
             parameters: {

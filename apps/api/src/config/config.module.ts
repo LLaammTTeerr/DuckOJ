@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common';
-import { createDb, type Db } from '@qhhoj/db';
+import { createDb, type Db } from '@duckoj/db';
 import { loadConfig, type AppConfig } from './config.schema.js';
 
 export const APP_CONFIG = Symbol('APP_CONFIG');

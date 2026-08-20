@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
-import type { CreateTokenResponseDto, TokenSummaryDto } from '@qhhoj/contracts';
+import { schema, type Db } from '@duckoj/db';
+import type { CreateTokenResponseDto, TokenSummaryDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import type { Actor } from '../authz/actor.js';
 import { hashToken } from './session.service.js';

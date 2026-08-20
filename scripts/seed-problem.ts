@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
-import { problems, problemRevisions } from '@qhhoj/db/guarded';
-import { createDb, hashJudgeToken, schema } from '@qhhoj/db';
+import { problems, problemRevisions } from '@duckoj/db/guarded';
+import { createDb, hashJudgeToken, schema } from '@duckoj/db';
 import { buildPackage } from './lib/build-package.js';
 import { putPackageArchive } from './lib/package-store.js';
 
@@ -56,7 +56,7 @@ const problemMeta = await readProblemMeta(PROBLEM_TARGET);
 /**
  * The compose `judge` service's identity (`judge/judge.yml`'s `id: judge-1`).
  * `judged`'s bridge handshake and the API's archive-fetch guard both verify
- * `(name, token)` against this row — see `@qhhoj/db`'s `verifyJudgeCredential`
+ * `(name, token)` against this row — see `@duckoj/db`'s `verifyJudgeCredential`
  * — so without it a fresh database leaves the judge authenticating nowhere,
  * retrying forever. No default: a hardcoded token here is a backdoor with a
  * changelog entry, so the operator must supply the credential that matches
@@ -79,13 +79,13 @@ if (!judgeToken) {
 }
 
 // No default: `apps/api`'s own `PACKAGE_STORE_DIR` defaults to
-// `/var/lib/qhhoj/packages` inside its own container, but this script runs
+// `/var/lib/duckoj/packages` inside its own container, but this script runs
 // as a *different* one-off container — silently defaulting here would write
 // the archive into that container's own throwaway overlay filesystem
 // instead of the named volume the real `api` service reads from, and the
 // judge's later archive fetch would 404 against a `packages` row that looks
 // perfectly registered. See docs/runbook.md's seeding section for the
-// `-v <project>_package_store:/var/lib/qhhoj/packages` mount this requires.
+// `-v <project>_package_store:/var/lib/duckoj/packages` mount this requires.
 const packageStoreDir = process.env.PACKAGE_STORE_DIR;
 if (!packageStoreDir) {
   console.error('PACKAGE_STORE_DIR is required');

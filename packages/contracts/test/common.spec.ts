@@ -24,6 +24,6 @@ describe('common contracts', () => {
   it('emits an OpenAPI 3.1 document', () => {
     const doc = openApiDocument();
     expect(doc.openapi).toBe('3.1.0');
-    expect(doc.info.title).toBe('QHH Online Judge API');
+    expect(doc.info.title).toBe('DuckOJ API');
   });
 });

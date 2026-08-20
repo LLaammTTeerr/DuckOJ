@@ -7,8 +7,8 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import { Redis } from 'ioredis';
 import type { DestinationStream } from 'pino';
-import type { Db } from '@qhhoj/db';
-import { SUBMISSION_CHANNEL } from '@qhhoj/realtime';
+import type { Db } from '@duckoj/db';
+import { SUBMISSION_CHANNEL } from '@duckoj/realtime';
 import { AuthnModule } from '../src/authn/authn.module.js';
 import { OrgsModule } from '../src/orgs/orgs.module.js';
 import { SubmissionsModule } from '../src/submissions/submissions.module.js';
@@ -35,7 +35,7 @@ export const TEST_CONFIG: AppConfig = {
   // subscriber use `buildAppWithRealtime`, which overrides this with a real
   // container's URL.
   redisUrl: 'redis://127.0.0.1:1',
-  sessionCookieName: 'qhhoj_session',
+  sessionCookieName: 'duckoj_session',
   sessionTtlHours: 720,
   totpEncKey: Buffer.alloc(32, 1),
   publicOrigin: 'http://localhost:5173',
@@ -45,7 +45,7 @@ export const TEST_CONFIG: AppConfig = {
   // upload get an isolated store. This default only backs callers — like
   // `app.smoke.spec.ts` — that use `TEST_CONFIG` as-is and never touch the
   // package store, so it never needs to exist on disk.
-  packageStoreDir: join(tmpdir(), 'qhhoj-test-packages-unused'),
+  packageStoreDir: join(tmpdir(), 'duckoj-test-packages-unused'),
   packageUploadMaxBytes: 256 * 1024 * 1024,
 };
 
@@ -71,7 +71,7 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
   // across every test in the file (or across files, since `mkdtemp` here is
   // per-`buildApp`-call rather than per-process) would let one test's store
   // state leak into another's.
-  const packageStoreDir = await mkdtemp(join(tmpdir(), 'qhhoj-test-packages-'));
+  const packageStoreDir = await mkdtemp(join(tmpdir(), 'duckoj-test-packages-'));
 
   const moduleRef = await Test.createTestingModule({
     imports: [AuthnModule, OrgsModule, SubmissionsModule, PackagesModule],

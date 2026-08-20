@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { eq } from 'drizzle-orm';
-import { schema } from '@qhhoj/db';
+import { schema } from '@duckoj/db';
 import { SessionService } from '../src/authn/session.service.js';
 import { buildApp, TEST_CONFIG } from './app.harness.js';
 import { withTestDb } from './db.harness.js';

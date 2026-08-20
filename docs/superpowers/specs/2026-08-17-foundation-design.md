@@ -1,4 +1,4 @@
-# QHH Online Judge — Foundation Design
+# DuckOJ — Foundation Design
 
 **Date:** 2026-08-17
 **Status:** Draft, pending review
@@ -8,7 +8,7 @@
 
 ## 1. Context
 
-QHH Online Judge currently runs a fork of DMOJ (`qhhoj/online-judge`), roughly 60k LOC of Python in a single Django app, with 232 Jinja2 templates and 737 lines of URL routing.
+DuckOJ currently runs a fork of DMOJ (`qhhoj/online-judge`), roughly 60k LOC of Python in a single Django app, with 232 Jinja2 templates and 737 lines of URL routing.
 
 The dependency tree is not old — it pins Django 5.1, Celery 5.4, and current auth libraries. **The architecture is what is old.** Views carry business logic (`views/contests.py` is 1964 lines, `views/problem.py` 1356), models are equally fat (`models/contest.py` 1240 lines), and the JSON API is a single file bolted alongside the HTML views.
 
@@ -105,7 +105,7 @@ Frontend component library, and the i18n library. UI locales are **Vietnamese an
 ## 4. Repository layout
 
 ```
-qhhoj/
+duckoj/
   apps/
     api/          NestJS — HTTP + WebSocket
     judged/       judge gateway — hosts judge drivers

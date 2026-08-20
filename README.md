@@ -1,6 +1,6 @@
-# QHH Online Judge
+# DuckOJ
 
-A ground-up rewrite of the QHH Online Judge: a TypeScript monorepo with a NestJS
+A ground-up rewrite of DuckOJ: a TypeScript monorepo with a NestJS
 API, a PostgreSQL data layer, a typed SDK, and a React frontend.
 
 - Design: `docs/superpowers/specs/2026-08-17-foundation-design.md`
@@ -73,7 +73,7 @@ priority, fairness, and bounded retries all arrive in later phases.
 Problems as real, content-addressed **packages** rather than a single
 directory the judge image happened to ship with. A package (manifest, test
 data, checker) is built into a deterministic, zstd-compressed archive and
-hashed (`@qhhoj/package-format`); the hash *is* the package's identity and
+hashed (`@duckoj/package-format`); the hash *is* the package's identity and
 the DMOJ `problem-id`, so two builds of the same directory always produce
 the same hash and no code anywhere maps a hash back to a directory name. The
 API gains a filesystem content-addressed store behind two endpoints — a

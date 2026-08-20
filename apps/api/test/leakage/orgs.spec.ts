@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { organizations, orgMembers } from '@qhhoj/db/guarded';
-import type { Db } from '@qhhoj/db';
-import { schema } from '@qhhoj/db';
+import { organizations, orgMembers } from '@duckoj/db/guarded';
+import type { Db } from '@duckoj/db';
+import { schema } from '@duckoj/db';
 import { OrgAccessService } from '../../src/authz/org.access.js';
 import type { Actor } from '../../src/authz/actor.js';
 import { withTestDb } from '../db.harness.js';

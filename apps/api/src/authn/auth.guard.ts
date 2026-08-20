@@ -15,7 +15,7 @@ export interface AuthedRequest extends Request {
   actor?: Actor;
 }
 
-export const IS_PUBLIC = 'qhhoj:public';
+export const IS_PUBLIC = 'duckoj:public';
 
 /**
  * Opts a route — or a whole controller — into serving anonymous callers.

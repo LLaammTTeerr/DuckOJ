@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis';
-import { createDb, touchJudgeLastSeen, verifyJudgeCredential } from '@qhhoj/db';
-import { describeError } from '@qhhoj/observability';
+import { createDb, touchJudgeLastSeen, verifyJudgeCredential } from '@duckoj/db';
+import { describeError } from '@duckoj/observability';
 import { loadConfig } from './config.js';
 import { startHealthServer } from './health.js';
 import { JobStore } from './job-store.js';
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   const bridge = new BridgeServer({
     languageToExecutor: (key) => (key === 'cpp17' ? 'CPP17' : key.toUpperCase()),
     // Same check, same table, as the API's `JudgeGuard` — see
-    // `verifyJudgeCredential`'s doc comment in `@qhhoj/db`.
+    // `verifyJudgeCredential`'s doc comment in `@duckoj/db`.
     verifyJudge: (id, key) => verifyJudgeCredential(db, id, key),
     // Design §8: "`lastSeen` gets written on handshake and heartbeat" — see
     // `touchJudgeLastSeen`'s and `BridgeOptions.recordLastSeen`'s doc

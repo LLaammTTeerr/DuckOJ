@@ -9,11 +9,11 @@
 // `workspace:` dependency edge) and forget the matching `COPY` line, and a
 // real image build fails while every unit test — including this repo's own
 // 264 — stays green, because nothing in the suite builds an image. This has
-// already happened twice for `@qhhoj/package-format`.
+// already happened twice for `@duckoj/package-format`.
 //
 // This test closes that gap without touching Docker: for each Dockerfile,
 // it discovers which workspace app the image builds (the `pnpm --filter
-// "@qhhoj/X..."` line already in the file), computes X's full transitive
+// "@duckoj/X..."` line already in the file), computes X's full transitive
 // `workspace:` dependency closure from the real package.json graph, and
 // asserts every package in that closure has a `COPY .../package.json` line
 // — and, for Dockerfiles that never `COPY . .` (so a missing *source* copy
@@ -140,15 +140,15 @@ describe('Dockerfile deps-stage manifests', () => {
   it.each(dockerfiles)('%s COPYs every package.json its build actually needs', (dockerfilePath) => {
     const content = readFileSync(join(repoRoot, dockerfilePath), 'utf8');
 
-    const filterMatch = content.match(/RUN\s+pnpm\s+--filter\s+"@qhhoj\/([\w.-]+)\.\.\."/);
+    const filterMatch = content.match(/RUN\s+pnpm\s+--filter\s+"@duckoj\/([\w.-]+)\.\.\."/);
     if (!filterMatch) {
       throw new Error(
-        `${dockerfilePath}: no \`RUN pnpm --filter "@qhhoj/<name>..."\` line found — cannot ` +
+        `${dockerfilePath}: no \`RUN pnpm --filter "@duckoj/<name>..."\` line found — cannot ` +
           'determine which workspace app this image builds. Update this test if the ' +
           'Dockerfile\'s build command shape changed.',
       );
     }
-    const targetName = `@qhhoj/${filterMatch[1]}`;
+    const targetName = `@duckoj/${filterMatch[1]}`;
     const needed = [...transitiveClosure(registry, targetName)].map((name) => registry.get(name)!.dir);
 
     const copiedPackageJson = new Set(

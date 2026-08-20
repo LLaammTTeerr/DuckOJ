@@ -1,6 +1,6 @@
 # Runbook note: Caddy serves ./apps/web/dist as a bind mount (read-only). Build the
 # SPA before bringing the stack up, or Caddy will serve an empty/missing directory:
-#   corepack pnpm --filter @qhhoj/web exec vite build
+#   corepack pnpm --filter @duckoj/web exec vite build
 #
 # MinIO is intentionally not defined here — it arrives in Phase 2.
 services:
@@ -8,13 +8,13 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: qhhoj
+      POSTGRES_USER: duckoj
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      POSTGRES_DB: qhhoj
+      POSTGRES_DB: duckoj
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U qhhoj']
+      test: ['CMD-SHELL', 'pg_isready -U duckoj']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -39,7 +39,7 @@ services:
     # `podman run --network none` (see task-15-report.md).
     command: ['packages/db/node_modules/.bin/tsx', 'scripts/migrate.ts']
     environment:
-      DATABASE_URL: postgres://qhhoj:${POSTGRES_PASSWORD}@postgres:5432/qhhoj
+      DATABASE_URL: postgres://duckoj:${POSTGRES_PASSWORD}@postgres:5432/duckoj
     depends_on:
       postgres: { condition: service_healthy }
     restart: 'no'
@@ -50,7 +50,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: '3000'
-      DATABASE_URL: postgres://qhhoj:${POSTGRES_PASSWORD}@postgres:5432/qhhoj
+      DATABASE_URL: postgres://duckoj:${POSTGRES_PASSWORD}@postgres:5432/duckoj
       # Required since Task 11 (the WebSocket gateway's Redis subscriber needs
       # it) — this was a known, deliberately-deferred gap until this task
       # added the `redis` service (see task-14-brief.md addendum E9).
@@ -63,9 +63,9 @@ services:
       # next `podman-compose up` (a fresh container gets a fresh overlay
       # filesystem). apps/api/Dockerfile pre-creates and chowns this path so
       # the unprivileged `node` user can write to it on first use.
-      PACKAGE_STORE_DIR: /var/lib/qhhoj/packages
+      PACKAGE_STORE_DIR: /var/lib/duckoj/packages
     volumes:
-      - package_store:/var/lib/qhhoj/packages
+      - package_store:/var/lib/duckoj/packages
     # This condition is correct per the Compose spec and is left in place for
     # tools that honor it, but podman-compose 1.5 does NOT reliably enforce it:
     # `api` was observed, by container timestamp, to start before `migrate`
@@ -90,7 +90,7 @@ services:
     build: { context: ., dockerfile: apps/judged/Dockerfile }
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://qhhoj:${POSTGRES_PASSWORD}@postgres:5432/qhhoj
+      DATABASE_URL: postgres://duckoj:${POSTGRES_PASSWORD}@postgres:5432/duckoj
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       LOG_LEVEL: info
       # apps/judged/src/config.ts defaults AGENT_ORIGIN to

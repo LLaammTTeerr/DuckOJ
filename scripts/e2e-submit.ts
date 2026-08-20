@@ -12,7 +12,7 @@
 // and fail outright.
 const BASE = process.env.E2E_BASE_URL ?? 'https://localhost:8443';
 
-const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? 'qhhoj_session';
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? 'duckoj_session';
 
 // The stack terminates TLS with a self-signed certificate under Caddy. This
 // disables certificate verification for the WHOLE process, not just this

@@ -1,7 +1,7 @@
 import { readFile, writeFile, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { API_PREFIX } from '@qhhoj/api-prefix';
-import { unpackArchive, parseManifest, renderInitYml } from '@qhhoj/package-format';
+import { API_PREFIX } from '@duckoj/api-prefix';
+import { unpackArchive, parseManifest, renderInitYml } from '@duckoj/package-format';
 
 /**
  * The hash becomes two path components under `PROBLEMS_DIR` — the final
@@ -89,7 +89,7 @@ export class Materializer {
       // API-prefixed — every route in apps/api sits behind NestJS's global
       // `API_PREFIX` (`apps/api/src/app.setup.ts`'s `setGlobalPrefix`,
       // which excludes only `healthz`/`readyz`), including this judge-only
-      // archive route. `@qhhoj/api-prefix` is the single shared source for
+      // archive route. `@duckoj/api-prefix` is the single shared source for
       // that literal — `apps/web/src/api.ts` builds its base URL from the
       // same constant. Discovered missing here (a bare `/internal/packages/
       // ...` with no prefix at all) at Task 13's integration bring-up: every

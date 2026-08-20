@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { describeError } from '@qhhoj/observability';
+import { describeError } from '@duckoj/observability';
 import { loadConfig } from './config.js';
 import { Materializer, PACKAGE_HASH_PATTERN } from './materializer.js';
 

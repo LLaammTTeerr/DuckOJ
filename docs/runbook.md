@@ -50,19 +50,19 @@ after a run may show them still alive mid-reap — that is expected, not a leak.
     # docker-compose.yml's `postgres` service has no host port mapping (it's only
     # reachable from other Compose services), so it is not useful for running the
     # API against by hand. Run a standalone container instead:
-    podman run -d --name qhhoj-pg -p 5432:5432 \
-      -e POSTGRES_USER=qhhoj -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=qhhoj \
+    podman run -d --name duckoj-pg -p 5432:5432 \
+      -e POSTGRES_USER=duckoj -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=duckoj \
       postgres:16-alpine
     # (substitute `docker run` on a Docker-equipped machine)
 
-    export DATABASE_URL=postgres://qhhoj:dev@localhost:5432/qhhoj
-    corepack pnpm --filter @qhhoj/db migrate
+    export DATABASE_URL=postgres://duckoj:dev@localhost:5432/duckoj
+    corepack pnpm --filter @duckoj/db migrate
     export TOTP_ENC_KEY=$(openssl rand -hex 32)
     export PUBLIC_ORIGIN=http://localhost:5173
-    corepack pnpm --filter @qhhoj/api dev
-    corepack pnpm --filter @qhhoj/web dev
+    corepack pnpm --filter @duckoj/api dev
+    corepack pnpm --filter @duckoj/web dev
 
-`@qhhoj/db`'s `migrate` script and `@qhhoj/api`'s `dev` script are already defined
+`@duckoj/db`'s `migrate` script and `@duckoj/api`'s `dev` script are already defined
 in their `package.json`s (`tsx ../../scripts/migrate.ts` and `tsx watch src/main.ts`
 respectively) — no separate `pnpm exec` incantation is needed. `TOTP_ENC_KEY` and
 `PUBLIC_ORIGIN` are both required by `apps/api/src/config/config.schema.ts`; the API
@@ -114,11 +114,11 @@ A submission's journey, `POST /submissions` to a verdict in the browser:
 
 ### `judged` importing guarded tables directly is legitimate, not a lapse
 
-`apps/api/src/**` may not import `@qhhoj/db/guarded` outside `authz/**`
+`apps/api/src/**` may not import `@duckoj/db/guarded` outside `authz/**`
 (ESLint's `no-restricted-imports`, scoped to `files: ['apps/api/src/**/*.ts']`
 in `eslint.config.js`), because guarded tables are visibility-filtered and
 only `authz/**` is allowed to decide who sees what. `apps/judged/src/event-writer.ts`
-imports `@qhhoj/db/guarded` directly (`submissions`, `submissionCases`) and
+imports `@duckoj/db/guarded` directly (`submissions`, `submissionCases`) and
 sits entirely outside that rule's file scope. This is correct, not a hole:
 `judged` serves no user request and makes no visibility decision — it writes
 grading results as the system, not on behalf of any particular actor. The
@@ -265,7 +265,7 @@ by nothing, and what it should mean is a Phase 1 decision.
    must be visibility-filtered through `apps/api/src/authz/**` rather than queried
    directly.
 2. From the repo root:
-   `corepack pnpm --filter @qhhoj/db exec drizzle-kit generate --name <change>`
+   `corepack pnpm --filter @duckoj/db exec drizzle-kit generate --name <change>`
 3. Commit the generated SQL under `packages/db/migrations/` as-is. **Never
    hand-edit a migration that has already been committed** — generate a new one
    for further changes instead.
@@ -303,8 +303,8 @@ by nothing, and what it should mean is a Phase 1 decision.
 
 ## Regenerating contracts — do this after any change under `packages/contracts`
 
-    corepack pnpm --filter @qhhoj/contracts openapi
-    corepack pnpm --filter @qhhoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
+    corepack pnpm --filter @duckoj/contracts openapi
+    corepack pnpm --filter @duckoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
 
 This writes `openapi.json` (repo root) and `packages/sdk/src/generated.ts`. CI's
 "Verify OpenAPI and SDK are up to date" step runs the same two commands and then
@@ -313,7 +313,7 @@ forgotten regeneration fails CI, not just a lint pass locally.
 
 ## Reading a guarded table
 
-`@qhhoj/db/guarded` may only be imported from `apps/api/src/authz/**`; ESLint's
+`@duckoj/db/guarded` may only be imported from `apps/api/src/authz/**`; ESLint's
 `no-restricted-imports` rule (`eslint.config.js`) enforces this over all of
 `apps/api/src/**`, with `authz/**` exempted. Add a method to the relevant
 `*.access.ts` service (e.g. `OrgAccessService.listVisible`) instead of querying
@@ -335,13 +335,13 @@ stack with that tooling, including a fresh (just-created) `pgdata` volume — se
 describes untested behavior; anything not run is called out explicitly in that
 section's last paragraph.
 
-The web bundle imports `@qhhoj/sdk`, which is a workspace package with no
+The web bundle imports `@duckoj/sdk`, which is a workspace package with no
 prebuilt `dist/` checked in — build it (or run the repo-wide typecheck, which
 also emits it via `tsc -b`) before building the web bundle, or Vite fails with
-`Failed to resolve entry for package "@qhhoj/sdk"`:
+`Failed to resolve entry for package "@duckoj/sdk"`:
 
-    corepack pnpm --filter @qhhoj/sdk typecheck
-    corepack pnpm --filter @qhhoj/web exec vite build
+    corepack pnpm --filter @duckoj/sdk typecheck
+    corepack pnpm --filter @duckoj/web exec vite build
 
 **Caddy bind-mounts `./apps/web/dist`.** If you skip the `vite build` step, Caddy
 starts fine but serves nothing (an empty or missing directory) — build the SPA
@@ -459,7 +459,7 @@ down`. Observed directly:
 - **Failure mode was also exercised**, not just the success path: with
   `POSTGRES_PASSWORD` in `.env` deliberately changed to a value that did not
   match the already-initialized database, `./scripts/compose-up.sh` printed
-  the real `password authentication failed for user "qhhoj"` error from
+  the real `password authentication failed for user "duckoj"` error from
   `migrate`, then `FATAL: migrate exited with code 1`, and exited `1` itself
   (confirmed via `echo $?` on the un-piped invocation, not inferred from
   output). `podman ps -a` afterward showed only `postgres` and the failed
@@ -514,10 +514,10 @@ named volume `api`'s `PACKAGE_STORE_DIR` uses so both containers see the
 same bytes:
 
     podman run --rm --network <project>_default --env-file .env \
-      -v <project>_package_store:/var/lib/qhhoj/packages \
-      -e PACKAGE_STORE_DIR=/var/lib/qhhoj/packages \
+      -v <project>_package_store:/var/lib/duckoj/packages \
+      -e PACKAGE_STORE_DIR=/var/lib/duckoj/packages \
       localhost/<project>_migrate:latest \
-      sh -c 'DATABASE_URL="postgres://qhhoj:$POSTGRES_PASSWORD@postgres:5432/qhhoj" packages/db/node_modules/.bin/tsx scripts/seed-problem.ts'
+      sh -c 'DATABASE_URL="postgres://duckoj:$POSTGRES_PASSWORD@postgres:5432/duckoj" packages/db/node_modules/.bin/tsx scripts/seed-problem.ts'
 
 `--env-file .env` is what carries `JUDGE_TOKEN` into the container — make
 sure it's set in `.env` (copied from `.env.example`), not just exported in
@@ -600,10 +600,10 @@ the database rows a raw upload alone does not create (`problems`,
 running stack:
 
     podman run --rm --network <project>_default --env-file .env \
-      -v <project>_package_store:/var/lib/qhhoj/packages \
-      -e PACKAGE_STORE_DIR=/var/lib/qhhoj/packages \
+      -v <project>_package_store:/var/lib/duckoj/packages \
+      -e PACKAGE_STORE_DIR=/var/lib/duckoj/packages \
       localhost/<project>_migrate:latest \
-      sh -c 'DATABASE_URL="postgres://qhhoj:$POSTGRES_PASSWORD@postgres:5432/qhhoj" packages/db/node_modules/.bin/tsx scripts/seed-problem.ts hello'
+      sh -c 'DATABASE_URL="postgres://duckoj:$POSTGRES_PASSWORD@postgres:5432/duckoj" packages/db/node_modules/.bin/tsx scripts/seed-problem.ts hello'
 
 Identical to "Seed the problem before submitting" above, with one added
 argument: the directory name under `problems/` to seed (defaults to
@@ -669,7 +669,7 @@ the system would otherwise treat as a "new" problem.
    never had the bytes" from "the judge failed to fetch what the API did
    have":
 
-       podman exec <project>_api_1 sh -c 'ls -la /var/lib/qhhoj/packages/<hash prefix>/<hash>'
+       podman exec <project>_api_1 sh -c 'ls -la /var/lib/duckoj/packages/<hash prefix>/<hash>'
 
    (shard directory is the hash's first two hex characters) or, without a
    container shell, `GET /api/v1/packages/<hash>` (any authenticated
@@ -730,7 +730,7 @@ reclaim. Check, in order:
 
 1. **`grading_jobs.state` and `lease_until` vs. `now()`:**
 
-       podman exec <project>_postgres_1 psql -U qhhoj -d qhhoj \
+       podman exec <project>_postgres_1 psql -U duckoj -d duckoj \
          -c "select id, submission_id, state, lease_until, now(), attempt from grading_jobs order by id desc limit 5;"
 
    `lease_until` still advancing on repeated queries means a worker is
@@ -923,7 +923,7 @@ script may be correct and simply not the one that ran.
 ### The OpenAPI `servers` URL is a fourth, unenforced copy of the API prefix
 
 `packages/contracts/src/registry.ts:9` hardcodes `servers: [{ url: '/api/v1' }]`
-rather than importing `API_PREFIX` from `@qhhoj/api-prefix` — the package
+rather than importing `API_PREFIX` from `@duckoj/api-prefix` — the package
 that exists specifically so the real routing prefix has exactly one source
 (see that package's own doc comment for why it was created: a prefix once
 silently missing from `apps/judge-agent/src/materializer.ts` broke every

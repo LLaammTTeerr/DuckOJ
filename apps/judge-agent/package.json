@@ -1,5 +1,5 @@
 {
-  "name": "@qhhoj/judge-agent",
+  "name": "@duckoj/judge-agent",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,9 +11,9 @@
     "dev": "tsx watch src/main.ts"
   },
   "dependencies": {
-    "@qhhoj/api-prefix": "workspace:^",
-    "@qhhoj/observability": "workspace:^",
-    "@qhhoj/package-format": "workspace:^",
+    "@duckoj/api-prefix": "workspace:^",
+    "@duckoj/observability": "workspace:^",
+    "@duckoj/package-format": "workspace:^",
     "zod": "^4.4.3"
   },
   "devDependencies": {

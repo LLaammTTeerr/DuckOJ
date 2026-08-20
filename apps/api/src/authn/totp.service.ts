@@ -2,12 +2,12 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { authenticator } from '@otplib/preset-default';
 import { eq } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 import { APP_CONFIG, DB } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 
-const ISSUER = 'QHH Online Judge';
+const ISSUER = 'DuckOJ';
 
 /**
  * RFC 4226 §4 R6 requires a shared secret of at least 128 bits and recommends

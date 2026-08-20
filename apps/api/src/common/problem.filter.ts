@@ -1,8 +1,8 @@
 import { Catch, HttpException, Logger } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import type { ProblemDetailsDto } from '@qhhoj/contracts';
-import { describeError } from '@qhhoj/observability';
+import type { ProblemDetailsDto } from '@duckoj/contracts';
+import { describeError } from '@duckoj/observability';
 import { AppError } from './app.error.js';
 
 /**
@@ -26,7 +26,7 @@ const TITLES: Record<number, string> = {
 /**
  * Machine-readable codes, declared independently of `TITLES`.
  *
- * `@qhhoj/contracts` promises that `code` is "stable across wording changes".
+ * `@duckoj/contracts` promises that `code` is "stable across wording changes".
  * This map is what makes that true: the previous implementation snake-cased the
  * *title*, so editing a display string silently rewrote the wire contract, and
  * every status outside the nine listed collapsed to a single indistinguishable

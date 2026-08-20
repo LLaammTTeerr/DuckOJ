@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, Param, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
-import { PackageHash } from '@qhhoj/contracts';
+import { PackageHash } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { JudgeGuard, JudgeRoute } from '../authn/judge.guard.js';
 import { PackagesService } from './packages.service.js';

@@ -36,7 +36,7 @@ jobs:
       # packages/* (pnpm-workspace.yaml) — it never reaches scripts/, which
       # has no package.json of its own but holds migrate.ts and
       # seed-problem.ts, both load-bearing for deployment. Run after the
-      # recursive typecheck above so @qhhoj/db's dist/ (which scripts/
+      # recursive typecheck above so @duckoj/db's dist/ (which scripts/
       # imports) has already been built.
       - name: Typecheck scripts/
         run: pnpm run typecheck:scripts
@@ -56,9 +56,9 @@ jobs:
 
       - name: Verify OpenAPI and SDK are up to date
         run: |
-          pnpm --filter @qhhoj/contracts openapi
-          pnpm --filter @qhhoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
+          pnpm --filter @duckoj/contracts openapi
+          pnpm --filter @duckoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts
           git diff --exit-code -- openapi.json packages/sdk/src/generated.ts
 
       - name: Build
-        run: pnpm --filter @qhhoj/web exec vite build
+        run: pnpm --filter @duckoj/web exec vite build

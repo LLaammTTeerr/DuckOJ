@@ -1,5 +1,5 @@
 import type { Redis } from 'ioredis';
-import { SUBMISSION_CHANNEL } from '@qhhoj/realtime';
+import { SUBMISSION_CHANNEL } from '@duckoj/realtime';
 
 /**
  * The ONLY thing in this service that publishes.

@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { schema, type Db } from '@qhhoj/db';
-import { problems, problemRevisions } from '@qhhoj/db/guarded';
+import { schema, type Db } from '@duckoj/db';
+import { problems, problemRevisions } from '@duckoj/db/guarded';
 import { JobStore } from '../src/job-store.js';
 import { withTestDb } from './db.harness.js';
 

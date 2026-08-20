@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
-import { schema, type Db } from '@qhhoj/db';
-import { describeError } from '@qhhoj/observability';
-import { hashFile, packageHash, parseManifest, unpackArchive, type PackageFile } from '@qhhoj/package-format';
-import type { PackageSummaryDto, UploadPackageResponseDto } from '@qhhoj/contracts';
+import { schema, type Db } from '@duckoj/db';
+import { describeError } from '@duckoj/observability';
+import { hashFile, packageHash, parseManifest, unpackArchive, type PackageFile } from '@duckoj/package-format';
+import type { PackageSummaryDto, UploadPackageResponseDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { PACKAGE_STORE, type PackageStore } from './package.store.js';
@@ -14,7 +14,7 @@ import { PACKAGE_STORE, type PackageStore } from './package.store.js';
 /**
  * Walks an unpacked package directory computing `{ path, size, sha256 }` for
  * every regular file, in the same POSIX-relative-path shape
- * `@qhhoj/package-format`'s `packDirectory` produces — deliberately
+ * `@duckoj/package-format`'s `packDirectory` produces — deliberately
  * hand-rolled rather than calling `packDirectory` on the extracted tree,
  * because `packDirectory` silently *skips* anything that is not a plain file
  * or directory. A hostile archive can smuggle a symlink past

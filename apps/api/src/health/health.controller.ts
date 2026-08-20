@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import type { Db } from '@qhhoj/db';
+import type { Db } from '@duckoj/db';
 import { DB } from '../config/config.module.js';
 import { Public } from '../authn/auth.guard.js';
 

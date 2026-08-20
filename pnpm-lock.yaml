@@ -8,10 +8,10 @@ importers:
 
   .:
     dependencies:
-      '@qhhoj/db':
+      '@duckoj/db':
         specifier: workspace:*
         version: link:packages/db
-      '@qhhoj/package-format':
+      '@duckoj/package-format':
         specifier: workspace:*
         version: link:packages/package-format
       drizzle-orm:
@@ -42,6 +42,24 @@ importers:
 
   apps/api:
     dependencies:
+      '@duckoj/api-prefix':
+        specifier: workspace:^
+        version: link:../../packages/api-prefix
+      '@duckoj/contracts':
+        specifier: workspace:^
+        version: link:../../packages/contracts
+      '@duckoj/db':
+        specifier: workspace:^
+        version: link:../../packages/db
+      '@duckoj/observability':
+        specifier: workspace:^
+        version: link:../../packages/observability
+      '@duckoj/package-format':
+        specifier: workspace:^
+        version: link:../../packages/package-format
+      '@duckoj/realtime':
+        specifier: workspace:^
+        version: link:../../packages/realtime
       '@nestjs/common':
         specifier: ^11.2.1
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -57,24 +75,6 @@ importers:
       '@otplib/preset-default':
         specifier: ^12.0.1
         version: 12.0.1
-      '@qhhoj/api-prefix':
-        specifier: workspace:^
-        version: link:../../packages/api-prefix
-      '@qhhoj/contracts':
-        specifier: workspace:^
-        version: link:../../packages/contracts
-      '@qhhoj/db':
-        specifier: workspace:^
-        version: link:../../packages/db
-      '@qhhoj/observability':
-        specifier: workspace:^
-        version: link:../../packages/observability
-      '@qhhoj/package-format':
-        specifier: workspace:^
-        version: link:../../packages/package-format
-      '@qhhoj/realtime':
-        specifier: workspace:^
-        version: link:../../packages/realtime
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -136,13 +136,13 @@ importers:
 
   apps/judge-agent:
     dependencies:
-      '@qhhoj/api-prefix':
+      '@duckoj/api-prefix':
         specifier: workspace:^
         version: link:../../packages/api-prefix
-      '@qhhoj/observability':
+      '@duckoj/observability':
         specifier: workspace:^
         version: link:../../packages/observability
-      '@qhhoj/package-format':
+      '@duckoj/package-format':
         specifier: workspace:^
         version: link:../../packages/package-format
       zod:
@@ -155,16 +155,16 @@ importers:
 
   apps/judged:
     dependencies:
-      '@qhhoj/db':
+      '@duckoj/db':
         specifier: workspace:^
         version: link:../../packages/db
-      '@qhhoj/judge-protocol':
+      '@duckoj/judge-protocol':
         specifier: workspace:^
         version: link:../../packages/judge-protocol
-      '@qhhoj/observability':
+      '@duckoj/observability':
         specifier: workspace:^
         version: link:../../packages/observability
-      '@qhhoj/realtime':
+      '@duckoj/realtime':
         specifier: workspace:^
         version: link:../../packages/realtime
       drizzle-orm:
@@ -186,10 +186,10 @@ importers:
 
   apps/web:
     dependencies:
-      '@qhhoj/api-prefix':
+      '@duckoj/api-prefix':
         specifier: workspace:^
         version: link:../../packages/api-prefix
-      '@qhhoj/sdk':
+      '@duckoj/sdk':
         specifier: workspace:^
         version: link:../../packages/sdk
       '@tanstack/react-query':

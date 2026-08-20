@@ -6,8 +6,8 @@ import {
   type GradingJob,
   type JudgeDriver,
   type JudgeToBridgePacket,
-} from '@qhhoj/judge-protocol';
-import { describeError } from '@qhhoj/observability';
+} from '@duckoj/judge-protocol';
+import { describeError } from '@duckoj/observability';
 import type { AgentClient } from './agent-client.js';
 import type { BridgeServer } from './bridge-server.js';
 

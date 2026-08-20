@@ -2,7 +2,7 @@ import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { WebSocket, WebSocketServer } from 'ws';
-import { describeError } from '@qhhoj/observability';
+import { describeError } from '@duckoj/observability';
 import { SessionService } from '../authn/session.service.js';
 import { TokenService } from '../authn/token.service.js';
 import { SubmissionAccessService } from '../authz/submission.access.js';

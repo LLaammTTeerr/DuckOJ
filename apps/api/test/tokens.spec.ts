@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { schema, type Db } from '@qhhoj/db';
+import { schema, type Db } from '@duckoj/db';
 import { TokenService } from '../src/authn/token.service.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
