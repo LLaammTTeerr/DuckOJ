@@ -92,23 +92,22 @@ describe('personal access tokens (HTTP)', () => {
         expect(typeof token).toBe('string');
 
         // A fresh, cookie-less client authenticates purely off the bearer
-        // token: `/auth/me` carries no `@RequireScope`, so `ScopeGuard`'s
-        // deny-by-default now refuses it — 403 `scope_required`, not 401.
-        // That distinction is the point: an unrecognized or revoked token
-        // still fails 401 `invalid_token` (see below), so resolving to 403
-        // here is itself proof the token authenticated.
+        // token: `/auth/me` is `@NoScopeRequired()`, so a token reaches it
+        // regardless of declared scopes and gets back its own identity — a
+        // 200 carrying the right username is itself proof the token
+        // authenticated, stronger than a bare status code would be.
         const me = await request(app.getHttpServer())
           .get('/auth/me')
           .set('Authorization', `Bearer ${token}`);
-        expect(me.status).toBe(403);
-        expect(me.body.code).toBe('scope_required');
+        expect(me.status).toBe(200);
+        expect(me.body.username).toBe('wren');
 
         // RFC 6750: the scheme token is case-insensitive — same outcome.
         const meLowerScheme = await request(app.getHttpServer())
           .get('/auth/me')
           .set('Authorization', `bearer ${token}`);
-        expect(meLowerScheme.status).toBe(403);
-        expect(meLowerScheme.body.code).toBe('scope_required');
+        expect(meLowerScheme.status).toBe(200);
+        expect(meLowerScheme.body.username).toBe('wren');
 
         // list() returns metadata only — never the raw token or its hash.
         const list = await agent.get('/auth/tokens');

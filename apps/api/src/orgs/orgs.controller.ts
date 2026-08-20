@@ -7,6 +7,7 @@ import {
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { MaybeActor, Public } from '../authn/auth.guard.js';
+import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { OrgAccessService } from '../authz/org.access.js';
 
@@ -24,6 +25,7 @@ export class OrgsController {
   // hand anonymous access to the next handler added here.
   @Get()
   @Public()
+  @RequireScope('orgs:read')
   list(
     @MaybeActor() actor: Actor | null,
     @Query(new ZodValidationPipe(PaginationQuery)) query: PaginationQueryDto,
@@ -33,6 +35,7 @@ export class OrgsController {
 
   @Get(':slug')
   @Public()
+  @RequireScope('orgs:read')
   get(@MaybeActor() actor: Actor | null, @Param('slug') slug: string): Promise<OrgSummaryDto> {
     return this.orgs.getVisible(actor, slug);
   }

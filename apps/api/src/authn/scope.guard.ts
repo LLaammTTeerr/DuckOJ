@@ -4,7 +4,7 @@ import { Reflector } from '@nestjs/core';
 import { hasScope, type Scope } from '@duckoj/contracts';
 import { AppError } from '../common/app.error.js';
 import type { AuthedRequest } from './auth.guard.js';
-import { REQUIRED_SCOPE } from './require-scope.decorator.js';
+import { NO_SCOPE_REQUIRED, REQUIRED_SCOPE } from './require-scope.decorator.js';
 import { IS_SESSION_ONLY } from './session-only.guard.js';
 
 /**
@@ -28,6 +28,15 @@ import { IS_SESSION_ONLY } from './session-only.guard.js';
  * `scope_required`, which sends an operator hunting for a scope that does
  * not exist. `IS_SESSION_ONLY` — set by `@SessionOnly()`, never by itself —
  * is how this guard is told to step aside instead of guessing.
+ *
+ * Deferral to `@NoScopeRequired()`. A handful of routes (currently only
+ * `GET /auth/me`) report the caller's own state and grant nothing, so a
+ * token may reach them regardless of what it declares. Leaving such a route
+ * undecorated would produce the same refusal by accident — deny-by-default
+ * still fires — but would be indistinguishable from a route nobody
+ * reviewed. `NO_SCOPE_REQUIRED` is the explicit, positive marker for "a
+ * human decided this needs no scope"; see `require-scope.decorator.ts` for
+ * the admission criterion.
  */
 @Injectable()
 export class ScopeGuard implements CanActivate {
@@ -54,6 +63,16 @@ export class ScopeGuard implements CanActivate {
         context.getClass(),
       ]) ?? false;
     if (sessionOnly) return true;
+
+    // Defer to @NoScopeRequired(): an explicit, positive "no scope needed"
+    // — not the same state as forgetting the decorator, even though both
+    // currently admit the request. See the class doc comment.
+    const noScopeRequired =
+      this.reflector.getAllAndOverride<boolean | undefined>(NO_SCOPE_REQUIRED, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? false;
+    if (noScopeRequired) return true;
 
     const required = this.reflector.getAllAndOverride<Scope | undefined>(REQUIRED_SCOPE, [
       context.getHandler(),

@@ -8,6 +8,7 @@ import {
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { CurrentActor } from '../authn/auth.guard.js';
+import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { SubmissionAccessService } from '../authz/submission.access.js';
 
@@ -19,6 +20,7 @@ export class SubmissionsController {
 
   @Post()
   @HttpCode(201)
+  @RequireScope('submissions:write')
   create(
     @CurrentActor() actor: Actor,
     @Body(new ZodValidationPipe(CreateSubmissionRequest)) body: CreateSubmissionRequestDto,
@@ -27,6 +29,7 @@ export class SubmissionsController {
   }
 
   @Get(':id')
+  @RequireScope('submissions:read')
   get(
     @CurrentActor() actor: Actor,
     @Param('id', new ZodValidationPipe(SubmissionIdParam)) id: number,

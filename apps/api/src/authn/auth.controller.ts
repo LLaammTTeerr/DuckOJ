@@ -16,6 +16,7 @@ import { AuthService, toMe } from './auth.service.js';
 import { SessionService } from './session.service.js';
 import { TotpService } from './totp.service.js';
 import { CurrentActor, Public } from './auth.guard.js';
+import { NoScopeRequired } from './require-scope.decorator.js';
 
 @Controller('auth')
 export class AuthController {
@@ -26,6 +27,13 @@ export class AuthController {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
+  // Neither this route nor `login`/`logout` below carries `@RequireScope` or
+  // `@NoScopeRequired()`: none of the three is something a token should ever
+  // call (registering, logging in, and logging out are all session-cookie
+  // concerns), so a stray `Authorization` header on one of these requests
+  // hits `ScopeGuard`'s deny-by-default and gets 403 `scope_required` before
+  // the handler runs. That is the decided outcome, not an oversight — there
+  // is no legitimate token use of these three routes to accommodate.
   @Post('register')
   @Public()
   @HttpCode(201)
@@ -78,7 +86,17 @@ export class AuthController {
     res.clearCookie(this.config.sessionCookieName, { path: '/' });
   }
 
+  // `@NoScopeRequired()`, not left undecorated: reports the caller's own
+  // identity and grants nothing, so any token may reach it regardless of
+  // declared scopes — the same shape as `aws sts get-caller-identity` or
+  // `gh auth status`. Refusing it would make a token hard to debug (a CI
+  // script cannot ask "is my token still valid and who does it belong to")
+  // in exchange for guarding a route that admits no privilege either way.
+  // Deny-by-default would produce the same refusal by accident if this were
+  // simply left undecorated — the marker is what makes "no scope needed"
+  // a decision instead of an oversight indistinguishable from one.
   @Get('me')
+  @NoScopeRequired()
   async me(@CurrentActor() actor: Actor): Promise<MeResponseDto> {
     const user = await this.auth.loadUser(actor.userId);
     return toMe(user, await this.totp.isEnabled(user.id));
