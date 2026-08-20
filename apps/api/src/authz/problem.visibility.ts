@@ -11,7 +11,17 @@ export interface ProblemViewContext {
   memberRoles: ProblemRole[];
   /** Organizations this problem is shared with. */
   sharedOrgIds: number[];
-  /** Organizations the actor belongs to. */
+  /**
+   * Organizations the actor belongs to **that this problem is also shared
+   * with** — the intersection, not the actor's full membership list.
+   * `loadProblemContext` computes it with a join against this problem's
+   * `problem_orgs` rows, so an actor in ten unrelated organizations arrives
+   * here with an empty array.
+   *
+   * That is exactly what `canViewProblem` needs, and it is a trap for any
+   * future consumer that wants "which orgs is this user in" — that question
+   * has a different answer and needs a different query.
+   */
   actorOrgIds: number[];
 }
 

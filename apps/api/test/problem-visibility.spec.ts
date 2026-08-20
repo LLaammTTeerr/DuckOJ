@@ -14,7 +14,12 @@ const admin = (id: number): Actor => ({ ...user(id), globalRole: 'admin' });
 const ctx = (over: Partial<ProblemViewContext> = {}): ProblemViewContext =>
   ({ memberRoles: [], sharedOrgIds: [], actorOrgIds: [], ...over });
 
-// One case per cell of spec §2.4.
+// Spec §2.4's table has 15 cells; 10 are listed here directly. The other
+// five (admin/public, admin/org, member/public, member/org,
+// shared-org/public) reach `true` through an unconditional early return —
+// the admin check, the membership check, or the public branch — that a case
+// below already exercises. Adding them would assert the same `return true`
+// a second time, not cover new behaviour.
 const CASES: Array<[string, Actor | null, ProblemVisibility, ProblemViewContext, boolean]> = [
   ['anon sees public',            ANON,     'public',  ctx(), true],
   ['anon cannot see org',         ANON,     'org',     ctx(), false],

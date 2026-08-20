@@ -16,7 +16,7 @@ Copied verbatim from the spec §3. Every task's requirements implicitly include 
 
 1. **One visibility predicate, two consumers.** `SubmissionAccessService.create`'s inline check (`apps/api/src/authz/submission.access.ts:31`, `visibility !== 'public'`) must be *replaced* by the shared predicate, not shadowed by it. Task 8 owns this and is not optional.
 2. **404 over 403 on reads.** A problem the actor may not see returns `problem_not_found`. On writes against a problem the actor *can* see, 403 `problem_forbidden` is correct.
-3. **`ProblemAccessService` is the only importer of guarded problem tables** (`problems`, `problemRevisions`, `problemMembers`, `problemOrgs`) — with the single exception of `SubmissionAccessService`, which already owns `submissions` and reads `problems` through the shared predicate.
+3. **`ProblemAccessService` is the only *service* importing guarded problem tables** (`problems`, `problemRevisions`, `problemMembers`, `problemOrgs`). Two files are explicitly not violations: `apps/api/src/authz/problem.visibility.ts`, which the spec mandates hold these imports so the predicate and its loader live together; and `SubmissionAccessService`, which already owns `submissions` and reaches problems only through that predicate.
 4. **Statements are Markdown**, stored raw, rendered client-side, and **sanitized** before insertion into the DOM.
 5. **No new hardcoded API prefix.** Every URL derives from `@duckoj/api-prefix`.
 6. **Every new workspace dependency of a Dockerised app updates that Dockerfile's COPY manifest**, and `apps/api/test/dockerfile-manifest.spec.ts` stays green.
@@ -369,9 +369,12 @@ Expected: all pass.
 
 - [ ] **Step 5: Prove the suite discriminates**
 
-Temporarily change `canViewProblem`'s org branch to `return true`. Re-run.
-Expect `anon cannot see org`, `user cannot see org`, and `non-shared org
-member cannot see org` to fail. Revert. **Report the observed failures** —
+Temporarily make `canViewProblem`'s org branch unconditionally `return true`
+— **including dropping its `&& actor` guard**. Re-run. Expect `anon cannot see
+org`, `user cannot see org`, and `non-shared org member cannot see org` to
+fail. Changing only the inner return leaves the `&& actor` guard standing and
+produces two failures, not three; if you see two, you have not broken enough.
+Revert. **Report the observed failures** —
 a matrix test that passes under a broken predicate is worthless, and this
 project has shipped three such tests before.
 
