@@ -206,6 +206,31 @@ describe('ProblemAccessService.create', () => {
     });
   }, 120_000);
 
+  // Regression guard for the "retain without re-proving membership" fix
+  // below (`ProblemAccessService.update`'s `alreadyAttachedIds` parameter):
+  // `create` passes no third argument to `resolveOrgIds`, so it defaults to
+  // an empty set and every org named is necessarily treated as a new
+  // addition. This must keep failing exactly like the two tests above.
+  it('create still requires membership for every org — there is no "already attached" set to exempt', async () => {
+    await withTestDb(async (db) => {
+      const setter = await insertUser(db, 'create-membership-setter');
+      await db
+        .insert(organizations)
+        .values({ slug: 'create-membership-org', name: 'Create Membership Org', visibility: 'private' });
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      await expect(
+        service.create(actorFor(setter.id, 'setter'), {
+          code: 'creatememship',
+          name: 'X',
+          statement: 'statement',
+          visibility: 'org',
+          orgSlugs: ['create-membership-org'],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: 'problem_org_unknown' });
+    });
+  }, 120_000);
+
   it('a member can share with an organization they belong to, resolved case-insensitively', async () => {
     await withTestDb(async (db) => {
       const setter = await insertUser(db, 'member-share-setter');
@@ -383,6 +408,106 @@ describe('ProblemAccessService.update', () => {
       const orgs = await db.select().from(problemOrgs).where(eq(problemOrgs.problemId, id));
       expect(orgs).toHaveLength(1);
       expect(orgs[0]).toMatchObject({ orgId: orgA!.id });
+    });
+  }, 120_000);
+
+  it('an editor who is not a member of an already-attached private org can PATCH while retaining it', async () => {
+    await withTestDb(async (db) => {
+      const admin = await insertUser(db, 'retain-admin', 'admin');
+      const author = await insertUser(db, 'retain-author');
+      const [org] = await db
+        .insert(organizations)
+        .values({ slug: 'retain-org', name: 'Retain Org', visibility: 'private' })
+        .returning();
+      const { id } = await seedProblem(db, {
+        code: 'retainorg',
+        name: 'Retain Org Problem',
+        visibility: 'org',
+        createdBy: admin.id,
+      });
+      await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
+      // `author` is an editor of this problem (an admin added them, or
+      // another author did) but was never made a member of `retain-org` —
+      // exactly the setter this fix protects.
+      await db.insert(problemMembers).values({ problemId: id, userId: author.id, role: 'author' });
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      // Pre-fix, this rejected with 400 problem_org_unknown: resolveOrgIds
+      // required membership even for an org merely being RETAINED, not
+      // added, so the full set the read path now returns (spec §4.1)
+      // could never be resubmitted unchanged.
+      const detail = await service.update(actorFor(author.id), 'retainorg', {
+        name: 'Retain Org Problem (renamed)',
+        orgSlugs: ['retain-org'],
+      });
+      expect(detail.name).toBe('Retain Org Problem (renamed)');
+
+      const orgs = await db.select().from(problemOrgs).where(eq(problemOrgs.problemId, id));
+      expect(orgs).toHaveLength(1);
+      expect(orgs[0]).toMatchObject({ orgId: org!.id });
+    });
+  }, 120_000);
+
+  it('the same non-member editor still cannot ADD an org they do not belong to', async () => {
+    await withTestDb(async (db) => {
+      const admin = await insertUser(db, 'addcheck-admin', 'admin');
+      const author = await insertUser(db, 'addcheck-author');
+      const [retained] = await db
+        .insert(organizations)
+        .values({ slug: 'addcheck-retained', name: 'Retained', visibility: 'private' })
+        .returning();
+      // `author` is never made a member of this one — it's the org the
+      // patch below tries (and must fail) to ADD.
+      await db.insert(organizations).values({ slug: 'addcheck-target', name: 'Target', visibility: 'private' });
+      const { id } = await seedProblem(db, {
+        code: 'addcheck',
+        name: 'Add Check',
+        visibility: 'org',
+        createdBy: admin.id,
+      });
+      await db.insert(problemOrgs).values({ problemId: id, orgId: retained!.id });
+      await db.insert(problemMembers).values({ problemId: id, userId: author.id, role: 'author' });
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      // Retaining `addcheck-retained` alongside a genuinely new org
+      // (`addcheck-target`, which `author` does not belong to) must still be
+      // rejected — the fix exempts only orgs already attached to THIS
+      // problem, not every org named in a patch that happens to also
+      // include one.
+      await expect(
+        service.update(actorFor(author.id), 'addcheck', {
+          orgSlugs: ['addcheck-retained', 'addcheck-target'],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: 'problem_org_unknown' });
+
+      // And the rejected request must not have half-applied.
+      const orgs = await db.select().from(problemOrgs).where(eq(problemOrgs.problemId, id));
+      expect(orgs.map((o) => o.orgId)).toEqual([retained!.id]);
+    });
+  }, 120_000);
+
+  it('removing an org you are not a member of is allowed — a removal is not an addition', async () => {
+    await withTestDb(async (db) => {
+      const admin = await insertUser(db, 'removecheck-admin', 'admin');
+      const author = await insertUser(db, 'removecheck-author');
+      const [org] = await db
+        .insert(organizations)
+        .values({ slug: 'removecheck-org', name: 'Remove Check', visibility: 'private' })
+        .returning();
+      const { id } = await seedProblem(db, {
+        code: 'removecheck',
+        name: 'Remove Check',
+        visibility: 'private',
+        createdBy: admin.id,
+      });
+      await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
+      await db.insert(problemMembers).values({ problemId: id, userId: author.id, role: 'author' });
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      await service.update(actorFor(author.id), 'removecheck', { orgSlugs: [] });
+
+      const orgs = await db.select().from(problemOrgs).where(eq(problemOrgs.problemId, id));
+      expect(orgs).toHaveLength(0);
     });
   }, 120_000);
 

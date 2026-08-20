@@ -277,7 +277,7 @@ export class ProblemAccessService {
    * set rather than merging with what is already there.
    */
   async update(actor: Actor | null, code: string, patch: UpdateProblemPatch): Promise<ProblemDetailDto> {
-    const { problem: row } = await this.loadForEdit(actor, code);
+    const { problem: row, ctx } = await this.loadForEdit(actor, code);
 
     // --- validate the patch ---
     if ('code' in patch) {
@@ -292,8 +292,23 @@ export class ProblemAccessService {
     // request never half-applies. `actor!`: `loadForEdit` already threw 403
     // for a null actor before returning, so this is non-null past that
     // point — TypeScript just can't see that across the method boundary.
+    //
+    // `resolveOrgIds`'s third argument — `ctx.sharedOrgIds`, the problem's
+    // CURRENT org ids, already loaded by `loadForEdit` — is what makes this
+    // a whole-set *replacement* rather than a whole-set *re-grant*. Two
+    // rules were once wrongly fused into one membership check applied to
+    // every requested slug: "you may not SHARE with a group you don't
+    // belong to" (security) and "you may not silently UNSHARE a group you
+    // can't see" (safety). Only the first is actually about membership. An
+    // org already attached may always be retained by any editor, member or
+    // not — see `resolveOrgIds`'s doc comment for why requiring membership
+    // on retention made the only PATCH a locked-out editor could get
+    // accepted the one that silently dropped an org they never chose to
+    // remove.
     const memberRows = patch.members ? await this.resolveMemberIds(patch.members) : undefined;
-    const orgIds = patch.orgSlugs ? await this.resolveOrgIds(actor!, patch.orgSlugs) : undefined;
+    const orgIds = patch.orgSlugs
+      ? await this.resolveOrgIds(actor!, patch.orgSlugs, new Set(ctx.sharedOrgIds))
+      : undefined;
 
     const effectiveVisibility = patch.visibility ?? row.visibility;
     if (effectiveVisibility === 'org') {
@@ -700,20 +715,40 @@ export class ProblemAccessService {
   /**
    * Resolves org slugs to ids, case-insensitively (matching
    * `organizations_slug_lower_idx`), then requires the actor to belong to
-   * every one of them — in any role — before a problem may be shared with
-   * it. An organization that does not exist and one the actor is not a
-   * member of are indistinguishable to the caller: both throw
-   * `ORG_UNKNOWN_MESSAGE`, so a slug can't be used to probe for a private
-   * organization's existence or membership. Admins bypass the membership
-   * requirement (the organization must still exist), consistent with every
-   * other `isAdmin` bypass in this file.
+   * every one of them being newly ADDED — in any role — before a problem
+   * may be shared with it. An organization that does not exist and one the
+   * actor is not a member of are indistinguishable to the caller: both
+   * throw `ORG_UNKNOWN_MESSAGE`, so a slug can't be used to probe for a
+   * private organization's existence or membership. Admins bypass the
+   * membership requirement (the organization must still exist), consistent
+   * with every other `isAdmin` bypass in this file.
+   *
+   * `alreadyAttachedIds` (empty for `create`, where every org is
+   * necessarily an addition; the problem's current `problemOrgs` ids for
+   * `update`) is what keeps two rules that were once wrongly fused apart:
+   * "you may not SHARE a problem with a group you don't belong to"
+   * (security — membership is still required for every id NOT in this set)
+   * versus "you may not silently UNSHARE a group you happen not to belong
+   * to" (safety — membership is never required for an id already here).
+   * Before this distinction existed, an editor who could see (spec §4.1)
+   * but not join a private org the problem was already shared with had NO
+   * way to PATCH without dropping it: resubmitting the full set they were
+   * shown was rejected outright, and the only request that could succeed
+   * was the one omitting that org — which silently unshared it. This
+   * parameter closes that hole without weakening the security rule: an id
+   * only skips the membership check because it was already attached to
+   * THIS problem, not because the caller merely claims it should be exempt.
    *
    * Deduplicates on the *resolved* id, not the input slug string: because
    * resolution is case-insensitive, `['org-a', 'ORG-A']` are two spellings
    * of one id, and inserting `problemOrgs` once per input string would hit
    * its `(problemId, orgId)` primary key twice and surface as a 500.
    */
-  private async resolveOrgIds(actor: Actor, slugs: string[]): Promise<number[]> {
+  private async resolveOrgIds(
+    actor: Actor,
+    slugs: string[],
+    alreadyAttachedIds: ReadonlySet<number> = new Set(),
+  ): Promise<number[]> {
     if (slugs.length === 0) return [];
     const uniqueSlugs = [...new Set(slugs)];
     const ids: number[] = [];
@@ -730,8 +765,9 @@ export class ProblemAccessService {
     }
     const uniqueIds = [...new Set(ids)];
     if (!isAdmin(actor)) {
-      const membership = await loadOrgMembership(this.db, actor, uniqueIds);
-      for (const id of uniqueIds) {
+      const addedIds = uniqueIds.filter((id) => !alreadyAttachedIds.has(id));
+      const membership = await loadOrgMembership(this.db, actor, addedIds);
+      for (const id of addedIds) {
         if (!membership.has(id)) {
           throw new AppError(400, 'problem_org_unknown', ORG_UNKNOWN_MESSAGE);
         }
