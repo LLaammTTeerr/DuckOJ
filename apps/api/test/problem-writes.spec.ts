@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { schema } from '@duckoj/db';
 import type { Db } from '@duckoj/db';
-import { organizations, problemMembers, problemOrgs, problemRevisions, problems } from '@duckoj/db/guarded';
+import { organizations, orgMembers, problemMembers, problemOrgs, problemRevisions, problems } from '@duckoj/db/guarded';
 import type { Actor } from '../src/authz/actor.js';
 import { ProblemAccessService } from '../src/authz/problem.access.js';
 import { withTestDb } from './db.harness.js';
@@ -131,6 +131,108 @@ describe('ProblemAccessService.create', () => {
       ).rejects.toMatchObject({ status: 400, code: 'problem_org_required' });
     });
   }, 120_000);
+
+  it('a non-member cannot share with a private org', async () => {
+    await withTestDb(async (db) => {
+      const setter = await insertUser(db, 'private-share-setter');
+      await db.insert(organizations).values({ slug: 'private-club', name: 'Private Club', visibility: 'private' });
+      const service = new ProblemAccessService(db);
+
+      await expect(
+        service.create(actorFor(setter.id, 'setter'), {
+          code: 'privateshare',
+          name: 'X',
+          statement: 'statement',
+          visibility: 'org',
+          orgSlugs: ['private-club'],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: 'problem_org_unknown' });
+    });
+  }, 120_000);
+
+  it('a non-member cannot share with a public org', async () => {
+    await withTestDb(async (db) => {
+      const setter = await insertUser(db, 'public-share-setter');
+      await db.insert(organizations).values({ slug: 'public-club', name: 'Public Club', visibility: 'public' });
+      const service = new ProblemAccessService(db);
+
+      // Being nameable and browsable via GET /orgs does not make an org a
+      // valid share target — sharing still requires membership.
+      await expect(
+        service.create(actorFor(setter.id, 'setter'), {
+          code: 'publicshare',
+          name: 'X',
+          statement: 'statement',
+          visibility: 'org',
+          orgSlugs: ['public-club'],
+        }),
+      ).rejects.toMatchObject({ status: 400, code: 'problem_org_unknown' });
+    });
+  }, 120_000);
+
+  it('a member can share with an organization they belong to, resolved case-insensitively', async () => {
+    await withTestDb(async (db) => {
+      const setter = await insertUser(db, 'member-share-setter');
+      const [org] = await db
+        .insert(organizations)
+        .values({ slug: 'Secret-Org', name: 'Secret Org', visibility: 'private' })
+        .returning();
+      await db.insert(orgMembers).values({ orgId: org!.id, userId: setter.id, role: 'member' });
+      const service = new ProblemAccessService(db);
+
+      const detail = await service.create(actorFor(setter.id, 'setter'), {
+        code: 'membershare',
+        name: 'X',
+        statement: 'statement',
+        visibility: 'org',
+        // Deliberately different case than the stored slug.
+        orgSlugs: ['secret-org'],
+      });
+
+      const orgs = await db.select().from(problemOrgs).where(eq(problemOrgs.problemId, detail.id));
+      expect(orgs).toEqual([{ problemId: detail.id, orgId: org!.id }]);
+    });
+  }, 120_000);
+
+  it('the private-org and nonexistent-org errors are identical', async () => {
+    await withTestDb(async (db) => {
+      const setter = await insertUser(db, 'org-oracle-setter');
+      await db.insert(organizations).values({ slug: 'oracle-private', name: 'Oracle Private', visibility: 'private' });
+      // `setter` is never made a member of `oracle-private`.
+      const service = new ProblemAccessService(db);
+
+      const privateOrgError = await service
+        .create(actorFor(setter.id, 'setter'), {
+          code: 'oracle-private-share',
+          name: 'X',
+          statement: 'statement',
+          visibility: 'org',
+          orgSlugs: ['oracle-private'],
+        })
+        .catch((e: unknown) => e);
+
+      const nonexistentOrgError = await service
+        .create(actorFor(setter.id, 'setter'), {
+          code: 'oracle-nonexistent-share',
+          name: 'X',
+          statement: 'statement',
+          visibility: 'org',
+          orgSlugs: ['no-such-org-at-all'],
+        })
+        .catch((e: unknown) => e);
+
+      // Compared against each other, not each against a hardcoded literal:
+      // two separate literal assertions can drift apart from each other
+      // without either one failing on its own.
+      const shapeOf = (e: unknown) => {
+        const err = e as { status?: unknown; code?: unknown; message?: unknown };
+        return { status: err.status, code: err.code, message: err.message };
+      };
+      expect(privateOrgError).toBeInstanceOf(Error);
+      expect(nonexistentOrgError).toBeInstanceOf(Error);
+      expect(shapeOf(privateOrgError)).toEqual(shapeOf(nonexistentOrgError));
+    });
+  }, 120_000);
 });
 
 describe('ProblemAccessService.update', () => {
@@ -217,6 +319,9 @@ describe('ProblemAccessService.update', () => {
       const tester = await insertUser(db, 'replace-tester');
       const [orgA] = await db.insert(organizations).values({ slug: 'org-a', name: 'Org A', visibility: 'private' }).returning();
       const [orgB] = await db.insert(organizations).values({ slug: 'org-b', name: 'Org B', visibility: 'private' }).returning();
+      // The owner must belong to any org they attach the problem to.
+      await db.insert(orgMembers).values({ orgId: orgA!.id, userId: owner.id, role: 'member' });
+      await db.insert(orgMembers).values({ orgId: orgB!.id, userId: owner.id, role: 'member' });
       const { id } = await seedProblem(db, {
         code: 'replaceall',
         name: 'Name',
@@ -265,6 +370,89 @@ describe('ProblemAccessService.update', () => {
       await expect(
         service.update(actorFor(stranger.id), 'oracle', { code: 'stolen' }),
       ).rejects.toMatchObject({ status: 404, code: 'problem_not_found' });
+    });
+  }, 120_000);
+
+  it('resolves a member username case-insensitively', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'MixedCaseOwner');
+      const { id } = await seedProblem(db, { code: 'casetest', name: 'Name', createdBy: owner.id });
+      await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
+      const service = new ProblemAccessService(db);
+
+      await service.update(actorFor(owner.id), 'casetest', {
+        // Deliberately different case than the stored username.
+        members: [{ username: 'mixedcaseowner', role: 'author' }],
+      });
+
+      const members = await db.select().from(problemMembers).where(eq(problemMembers.problemId, id));
+      expect(members).toEqual([{ problemId: id, userId: owner.id, role: 'author' }]);
+    });
+  }, 120_000);
+
+  it('a duplicate members entry does not crash, and a user with two roles keeps both', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'dedupe-owner');
+      const other = await insertUser(db, 'dedupe-other');
+      const { id } = await seedProblem(db, { code: 'dedupe', name: 'Name', createdBy: owner.id });
+      await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
+      const service = new ProblemAccessService(db);
+
+      await service.update(actorFor(owner.id), 'dedupe', {
+        members: [
+          { username: 'dedupe-owner', role: 'author' },
+          // Exact duplicate of the row above: must be deduped before the
+          // INSERT, or `problemMembers`'s (problemId, userId, role) primary
+          // key rejects it as a 500.
+          { username: 'dedupe-owner', role: 'author' },
+          // Same duplicate again, but case-varied: resolution is
+          // case-insensitive, so this resolves to the identical row and
+          // must be caught by the SAME dedupe — not skipped because the
+          // input strings themselves differ.
+          { username: 'DEDUPE-OWNER', role: 'author' },
+          { username: 'dedupe-other', role: 'author' },
+          // Same user, a different role: legitimately two rows, not a duplicate.
+          { username: 'dedupe-other', role: 'curator' },
+        ],
+      });
+
+      const members = await db.select().from(problemMembers).where(eq(problemMembers.problemId, id));
+      expect(members).toHaveLength(3);
+      expect(members).toEqual(
+        expect.arrayContaining([
+          { problemId: id, userId: owner.id, role: 'author' },
+          { problemId: id, userId: other.id, role: 'author' },
+          { problemId: id, userId: other.id, role: 'curator' },
+        ]),
+      );
+    });
+  }, 120_000);
+
+  it('falls back to counting already-attached orgs when orgSlugs is absent from the patch', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'org-fallback-owner');
+      const [org] = await db
+        .insert(organizations)
+        .values({ slug: 'fallback-org', name: 'Fallback Org', visibility: 'private' })
+        .returning();
+      const { id } = await seedProblem(db, {
+        code: 'orgfallback',
+        name: 'Name',
+        visibility: 'org',
+        createdBy: owner.id,
+      });
+      await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
+      await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
+      const service = new ProblemAccessService(db);
+
+      // No `orgSlugs` key in the patch at all — the `problem_org_required`
+      // check must fall back to counting the org already attached in the
+      // database, rather than treating the key's absence as zero orgs.
+      const detail = await service.update(actorFor(owner.id), 'orgfallback', { visibility: 'org' });
+      expect(detail.visibility).toBe('org');
+
+      const orgs = await db.select().from(problemOrgs).where(eq(problemOrgs.problemId, id));
+      expect(orgs).toHaveLength(1);
     });
   }, 120_000);
 });

@@ -1,31 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, sql } from 'drizzle-orm';
 import { organizations, orgMembers } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import type { OrgPageDto, OrgSummaryDto, PaginationQueryDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
-import { isAdmin, type Actor } from './actor.js';
+import type { Actor } from './actor.js';
+import { visibleOrgsWhere } from './org.visibility.js';
 
 /**
- * The ONLY module permitted to import `@duckoj/db/guarded`. Every read of an
- * organization anywhere in the API goes through here, so visibility cannot be
- * forgotten at a call site.
+ * The ONLY *service* permitted to import `@duckoj/db/guarded` for
+ * organizations — with `org.visibility.ts` holding the shared visibility
+ * condition and membership loader, exactly as `problem.visibility.ts` does
+ * for problems. Every read of an organization anywhere in the API goes
+ * through here, so visibility cannot be forgotten at a call site.
  */
 @Injectable()
 export class OrgAccessService {
   constructor(@Inject(DB) private readonly db: Db) {}
-
-  /** An org is visible when it is public, the actor is a member, or the actor is an admin. */
-  private visibilityCondition(actor: Actor | null) {
-    if (isAdmin(actor)) return sql`true`;
-    if (!actor) return eq(organizations.visibility, 'public');
-    const memberOrgIds = this.db
-      .select({ orgId: orgMembers.orgId })
-      .from(orgMembers)
-      .where(eq(orgMembers.userId, actor.userId));
-    return or(eq(organizations.visibility, 'public'), inArray(organizations.id, memberOrgIds))!;
-  }
 
   async listVisible(
     actor: Actor | null,
@@ -38,7 +30,7 @@ export class OrgAccessService {
     const rows = await this.db
       .select()
       .from(organizations)
-      .where(and(this.visibilityCondition(actor), gt(organizations.id, after)))
+      .where(and(visibleOrgsWhere(this.db, actor), gt(organizations.id, after)))
       .orderBy(asc(organizations.id))
       .limit(page.limit + 1);
 
@@ -52,7 +44,7 @@ export class OrgAccessService {
       .select()
       .from(organizations)
       .where(
-        and(this.visibilityCondition(actor), sql`lower(${organizations.slug}) = lower(${slug})`),
+        and(visibleOrgsWhere(this.db, actor), sql`lower(${organizations.slug}) = lower(${slug})`),
       )
       .limit(1);
 

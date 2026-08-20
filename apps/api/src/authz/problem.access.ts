@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
 import { organizations, problemMembers, problemOrgs, problemRevisions, problems } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import type { PaginationQueryDto } from '@duckoj/contracts';
@@ -14,11 +14,22 @@ import {
   type ProblemRole,
   type ProblemVisibility,
 } from './problem.visibility.js';
-import type { Actor } from './actor.js';
+import { isAdmin, type Actor } from './actor.js';
+import { loadOrgMembership } from './org.visibility.js';
 
 /** Postgres SQLSTATE for a unique-constraint violation. */
 const UNIQUE_VIOLATION = '23505';
 const PROBLEM_CODE_CONSTRAINT = 'problems_code_lower_idx';
+
+/**
+ * Deliberately identical whether a slug names no organization at all or
+ * names one the actor may not share with (not a member, in any role). Two
+ * distinct messages here would be exactly the existence oracle
+ * `problem_not_found` already avoids for problems themselves: a private
+ * organization's existence must not leak through which error a non-member
+ * gets back.
+ */
+const ORG_UNKNOWN_MESSAGE = 'No such organization.';
 
 export interface ProblemSummaryDto {
   id: number;
@@ -214,7 +225,7 @@ export class ProblemAccessService {
       throw new AppError(400, 'problem_org_required', 'An org-visible problem needs at least one organization.');
     }
 
-    const orgIds = await this.resolveOrgIds(body.orgSlugs ?? []);
+    const orgIds = await this.resolveOrgIds(actor, body.orgSlugs ?? []);
 
     let problemId: number;
     try {
@@ -264,7 +275,7 @@ export class ProblemAccessService {
     if (!canViewProblem(actor, { id: row.id, visibility: row.visibility }, ctx)) {
       throw new AppError(404, 'problem_not_found', 'No such problem.');
     }
-    if (!canEditProblem(actor, ctx)) {
+    if (!actor || !canEditProblem(actor, ctx)) {
       throw new AppError(403, 'problem_forbidden', 'You may not edit this problem.');
     }
 
@@ -280,7 +291,7 @@ export class ProblemAccessService {
     // Resolve usernames/slugs to ids before the transaction, so a bad
     // request never half-applies.
     const memberRows = patch.members ? await this.resolveMemberIds(patch.members) : undefined;
-    const orgIds = patch.orgSlugs ? await this.resolveOrgIds(patch.orgSlugs) : undefined;
+    const orgIds = patch.orgSlugs ? await this.resolveOrgIds(actor, patch.orgSlugs) : undefined;
 
     const effectiveVisibility = patch.visibility ?? row.visibility;
     if (effectiveVisibility === 'org') {
@@ -372,41 +383,86 @@ export class ProblemAccessService {
     };
   }
 
-  /** Resolves org slugs to ids, failing on the first slug that names no organization. */
-  private async resolveOrgIds(slugs: string[]): Promise<number[]> {
+  /**
+   * Resolves org slugs to ids, case-insensitively (matching
+   * `organizations_slug_lower_idx`), then requires the actor to belong to
+   * every one of them — in any role — before a problem may be shared with
+   * it. An organization that does not exist and one the actor is not a
+   * member of are indistinguishable to the caller: both throw
+   * `ORG_UNKNOWN_MESSAGE`, so a slug can't be used to probe for a private
+   * organization's existence or membership. Admins bypass the membership
+   * requirement (the organization must still exist), consistent with every
+   * other `isAdmin` bypass in this file.
+   *
+   * Deduplicates on the *resolved* id, not the input slug string: because
+   * resolution is case-insensitive, `['org-a', 'ORG-A']` are two spellings
+   * of one id, and inserting `problemOrgs` once per input string would hit
+   * its `(problemId, orgId)` primary key twice and surface as a 500.
+   */
+  private async resolveOrgIds(actor: Actor, slugs: string[]): Promise<number[]> {
     if (slugs.length === 0) return [];
     const uniqueSlugs = [...new Set(slugs)];
-    const rows = await this.db
-      .select({ id: organizations.id, slug: organizations.slug })
-      .from(organizations)
-      .where(inArray(organizations.slug, uniqueSlugs));
-    const idBySlug = new Map(rows.map((r) => [r.slug, r.id]));
-    return uniqueSlugs.map((slug) => {
-      const id = idBySlug.get(slug);
-      if (id === undefined) {
-        throw new AppError(400, 'problem_org_unknown', `No such organization: ${slug}.`);
+    const ids: number[] = [];
+    for (const slug of uniqueSlugs) {
+      const row = (
+        await this.db
+          .select({ id: organizations.id })
+          .from(organizations)
+          .where(sql`lower(${organizations.slug}) = lower(${slug})`)
+          .limit(1)
+      )[0];
+      if (!row) throw new AppError(400, 'problem_org_unknown', ORG_UNKNOWN_MESSAGE);
+      ids.push(row.id);
+    }
+    const uniqueIds = [...new Set(ids)];
+    if (!isAdmin(actor)) {
+      const membership = await loadOrgMembership(this.db, actor, uniqueIds);
+      for (const id of uniqueIds) {
+        if (!membership.has(id)) {
+          throw new AppError(400, 'problem_org_unknown', ORG_UNKNOWN_MESSAGE);
+        }
       }
-      return id;
-    });
+    }
+    return uniqueIds;
   }
 
-  /** Resolves member usernames to ids, failing on the first username that names no user. */
+  /**
+   * Resolves member usernames to ids, case-insensitively (matching
+   * `users_username_lower_idx`), failing on the first username that names no
+   * user. Deduplicates on the *resolved* `(userId, role)` pair, not the
+   * input `(username, role)` pair: because resolution is case-insensitive,
+   * `{alice, author}` and `{ALICE, author}` resolve to the same row, and
+   * inserting it twice would hit `problemMembers`'s `(problemId, userId,
+   * role)` primary key and surface as a 500. `{alice, author}` plus
+   * `{alice, curator}` still both survive: `role` is part of the key they
+   * are deduplicated on, so the two are legitimately distinct rows.
+   */
   private async resolveMemberIds(
     members: ProblemMemberInput[],
   ): Promise<{ userId: number; role: ProblemRole }[]> {
-    const usernames = [...new Set(members.map((m) => m.username))];
-    const rows = await this.db
-      .select({ id: schema.users.id, username: schema.users.username })
-      .from(schema.users)
-      .where(inArray(schema.users.username, usernames));
-    const idByUsername = new Map(rows.map((r) => [r.username, r.id]));
-    return members.map((m) => {
-      const userId = idByUsername.get(m.username);
-      if (userId === undefined) {
-        throw new AppError(400, 'problem_member_unknown', `No such user: ${m.username}.`);
-      }
-      return { userId, role: m.role };
-    });
+    const idByUsername = new Map<string, number>();
+    for (const username of new Set(members.map((m) => m.username))) {
+      const row = (
+        await this.db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(sql`lower(${schema.users.username}) = lower(${username})`)
+          .limit(1)
+      )[0];
+      if (!row) throw new AppError(400, 'problem_member_unknown', `No such user: ${username}.`);
+      idByUsername.set(username, row.id);
+    }
+
+    const seen = new Set<string>();
+    const resolved: { userId: number; role: ProblemRole }[] = [];
+    for (const m of members) {
+      const userId = idByUsername.get(m.username)!;
+      const key = `${userId}\u0000${m.role}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      resolved.push({ userId, role: m.role });
+    }
+    return resolved;
   }
 }
 
