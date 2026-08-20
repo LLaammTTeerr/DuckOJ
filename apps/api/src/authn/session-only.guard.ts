@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { applyDecorators, Injectable, SetMetadata, UseGuards } from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { AppError } from '../common/app.error.js';
 import type { AuthedRequest } from './auth.guard.js';
@@ -28,6 +28,15 @@ import type { AuthedRequest } from './auth.guard.js';
  * exists so this guard is still fail-closed if it is ever used somewhere the
  * global guard is not.
  *
+ * `ScopeGuard` is also a global guard, and therefore runs before this one too.
+ * Left alone, its deny-by-default would shadow this guard entirely: every
+ * route here carries no `@RequireScope`, so `ScopeGuard` would refuse every
+ * token with `scope_required` before this guard ever ran, and the accurate
+ * `session_required` message above would become unreachable — a real
+ * regression to the operator debugging a refused token, even though the
+ * refusal itself stays correct. `IS_SESSION_ONLY` is how `ScopeGuard` is told
+ * to defer instead: see `ScopeGuard.canActivate`.
+ *
  * No constructor parameters, deliberately — see the runbook's `@Inject`
  * convention; a dependency-free guard sidesteps it entirely and can be named
  * directly in `@UseGuards()`.
@@ -49,3 +58,20 @@ export class SessionOnlyGuard implements CanActivate {
     return true;
   }
 }
+
+export const IS_SESSION_ONLY = 'duckoj:session-only';
+
+/**
+ * Marks a route (or a whole controller) as reserved for interactive
+ * sessions, and wires `SessionOnlyGuard` onto it in the same place — one
+ * decorator, both effects, so the marker and the guard can never drift apart.
+ * `ScopeGuard` reads `IS_SESSION_ONLY` and defers (`return true`) when it is
+ * set, letting `SessionOnlyGuard` produce its own, more accurate refusal
+ * instead of being shadowed by `ScopeGuard`'s deny-by-default.
+ *
+ * Do not add `SetMetadata(IS_SESSION_ONLY, true)` and `@UseGuards(SessionOnlyGuard)`
+ * as two separate decorators on a controller — that is two things to
+ * remember, and the next controller that needs this will forget one of them.
+ */
+export const SessionOnly = (): ClassDecorator & MethodDecorator =>
+  applyDecorators(SetMetadata(IS_SESSION_ONLY, true), UseGuards(SessionOnlyGuard));

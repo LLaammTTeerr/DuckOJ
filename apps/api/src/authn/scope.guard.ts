@@ -5,6 +5,7 @@ import { hasScope, type Scope } from '@duckoj/contracts';
 import { AppError } from '../common/app.error.js';
 import type { AuthedRequest } from './auth.guard.js';
 import { REQUIRED_SCOPE } from './require-scope.decorator.js';
+import { IS_SESSION_ONLY } from './session-only.guard.js';
 
 /**
  * Enforces `@RequireScope()` against the actor `AuthGuard` already attached
@@ -17,6 +18,16 @@ import { REQUIRED_SCOPE } from './require-scope.decorator.js';
  * a session already permits, so a route nobody thought to annotate is a hole
  * a token could otherwise walk through unnoticed. Forgetting the decorator
  * therefore fails closed, exactly like forgetting `@Public()` on `AuthGuard`.
+ *
+ * Deferral to `@SessionOnly()`. `TokensController`, `TotpController` and
+ * `AdminUsersController` carry no `@RequireScope` either, so deny-by-default
+ * would otherwise shadow `SessionOnlyGuard`'s own, more specific refusal —
+ * `ScopeGuard` is global and runs first, `SessionOnlyGuard` is applied at the
+ * controller level and would never get a turn. The outcome (unreachable by
+ * any token) would still be correct, but the reported code would become
+ * `scope_required`, which sends an operator hunting for a scope that does
+ * not exist. `IS_SESSION_ONLY` — set by `@SessionOnly()`, never by itself —
+ * is how this guard is told to step aside instead of guessing.
  */
 @Injectable()
 export class ScopeGuard implements CanActivate {
@@ -33,6 +44,16 @@ export class ScopeGuard implements CanActivate {
     // checked here too so a session never depends on the route being
     // decorated, or on the metadata lookup below running at all.
     if (actor.via === 'session') return true;
+
+    // Defer to SessionOnlyGuard: it owns the refusal for these routes, and
+    // produces a more accurate one (`session_required`) than deny-by-default
+    // would (`scope_required`). See the class doc comment.
+    const sessionOnly =
+      this.reflector.getAllAndOverride<boolean | undefined>(IS_SESSION_ONLY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? false;
+    if (sessionOnly) return true;
 
     const required = this.reflector.getAllAndOverride<Scope | undefined>(REQUIRED_SCOPE, [
       context.getHandler(),

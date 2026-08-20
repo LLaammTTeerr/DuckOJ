@@ -53,19 +53,13 @@ describe('credential management requires an interactive session', () => {
         const bearer = (path: string) =>
           request(app.getHttpServer()).post(path).set('Authorization', `Bearer ${token}`);
 
-        // `ScopeGuard` is a global guard and `SessionOnlyGuard` is applied at
-        // the controller level, so `ScopeGuard` now runs first and denies by
-        // default before `SessionOnlyGuard` ever gets a turn — the route
-        // stays unreachable by any token (Global Constraint 4's effect), but
-        // the code reported is `scope_required`, not `session_required`:
-        // `ScopeGuard` shadows `SessionOnlyGuard` for every token caller here.
         const mintByToken = await bearer('/auth/tokens').send({ name: 'replacement', scopes: [] });
         expect(mintByToken.status).toBe(403);
-        expect(mintByToken.body.code).toBe('scope_required');
+        expect(mintByToken.body.code).toBe('session_required');
 
         const totpByToken = await bearer('/auth/totp/begin');
         expect(totpByToken.status).toBe(403);
-        expect(totpByToken.body.code).toBe('scope_required');
+        expect(totpByToken.body.code).toBe('session_required');
 
         // The whole controller is covered, not just the two routes above.
         const listByToken = await request(app.getHttpServer())

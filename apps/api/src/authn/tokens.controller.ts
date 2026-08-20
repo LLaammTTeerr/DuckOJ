@@ -8,7 +8,6 @@ import {
   Param,
   ParseIntPipe,
   Post,
-  UseGuards,
 } from '@nestjs/common';
 import {
   CreateTokenRequest,
@@ -19,7 +18,7 @@ import {
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import type { Actor } from '../authz/actor.js';
 import { CurrentActor } from './auth.guard.js';
-import { SessionOnlyGuard } from './session-only.guard.js';
+import { SessionOnly } from './session-only.guard.js';
 import { TokenService } from './token.service.js';
 
 // Applied to the whole controller, not per handler: minting, listing and
@@ -27,7 +26,7 @@ import { TokenService } from './token.service.js';
 // the next route added here is covered by default rather than by remembering.
 // A leaked access token must not be able to mint its own replacements.
 @Controller('auth/tokens')
-@UseGuards(SessionOnlyGuard)
+@SessionOnly()
 export class TokensController {
   constructor(@Inject(TokenService) private readonly tokens: TokenService) {}
 

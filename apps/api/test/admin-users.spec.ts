@@ -151,7 +151,7 @@ describe('PATCH /admin/users/:username over HTTP', () => {
   }, 120_000);
 
   it(
-    "a scoped access token gets 403 scope_required on the grant route (ScopeGuard denies by default before SessionOnlyGuard ever runs); the same admin's session gets 200",
+    "a scoped access token gets 403 session_required on the grant route; the same admin's session gets 200",
     async () => {
       await withTestDb(async (db) => {
         const app = await buildApp(db);
@@ -163,14 +163,12 @@ describe('PATCH /admin/users/:username over HTTP', () => {
           await registerAndLogin(request.agent(app.getHttpServer()), 'token-guard-victim');
 
           // Minted over the session — deliberately scoped narrowly
-          // (`submissions:read`), to make the point that no scope a token
-          // carries admits it here: the grant route has no `@RequireScope`
-          // at all, so the global `ScopeGuard` denies by default before the
-          // controller-level `SessionOnlyGuard` ever runs. The route stays
-          // unreachable by any token from this admin regardless of its
-          // declared scopes — Global Constraint 4's effect — but the code
-          // reported is `scope_required`, not `session_required`:
-          // `ScopeGuard` shadows `SessionOnlyGuard` here.
+          // (`submissions:read`), to make the point that `Actor.scopes`
+          // constrains nothing outside `SessionOnlyGuard` itself: any valid
+          // token from this admin carries their full authority regardless of
+          // its declared scopes. `AdminUsersController` is `@SessionOnly()`,
+          // which also tells `ScopeGuard` to defer rather than shadow it
+          // with its own deny-by-default `scope_required`.
           const minted = await adminAgent.post('/auth/tokens').send({ name: 'probe', scopes: ['submissions:read'] });
           expect(minted.status).toBe(201);
           const { token } = minted.body as { token: string };
@@ -180,7 +178,7 @@ describe('PATCH /admin/users/:username over HTTP', () => {
             .set('Authorization', `Bearer ${token}`)
             .send({ globalRole: 'admin' });
           expect(byToken.status).toBe(403);
-          expect(byToken.body.code).toBe('scope_required');
+          expect(byToken.body.code).toBe('session_required');
 
           const [victimAfterToken] = await db.select().from(schema.users).where(eq(schema.users.username, 'token-guard-victim'));
           expect(victimAfterToken!.globalRole).toBe('user');

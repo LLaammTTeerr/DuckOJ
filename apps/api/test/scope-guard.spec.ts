@@ -10,6 +10,7 @@ import { schema } from '@duckoj/db';
 import { AuthGuard } from '../src/authn/auth.guard.js';
 import { ScopeGuard } from '../src/authn/scope.guard.js';
 import { RequireScope } from '../src/authn/require-scope.decorator.js';
+import { SessionOnly, SessionOnlyGuard } from '../src/authn/session-only.guard.js';
 import { SessionService } from '../src/authn/session.service.js';
 import { TokenService } from '../src/authn/token.service.js';
 import { JudgeService } from '../src/authn/judge.service.js';
@@ -19,9 +20,11 @@ import { withTestDb } from './db.harness.js';
 import { TEST_CONFIG } from './app.harness.js';
 
 /**
- * A minimal probe controller: one route declares `@RequireScope`, the other
+ * A minimal probe controller: one route declares `@RequireScope`, one
  * declares none at all — the second is what pins deny-by-default, since a
- * route nobody annotated must still refuse a token.
+ * route nobody annotated must still refuse a token — and one declares
+ * `@SessionOnly()`, which pins that `ScopeGuard` defers to `SessionOnlyGuard`
+ * on those routes instead of shadowing it with its own deny-by-default.
  */
 @Controller('probe')
 class ScopeProbeController {
@@ -33,6 +36,12 @@ class ScopeProbeController {
 
   @Get('unscoped')
   unscoped(): { ok: true } {
+    return { ok: true };
+  }
+
+  @Get('session-only')
+  @SessionOnly()
+  sessionOnly(): { ok: true } {
     return { ok: true };
   }
 }
@@ -53,6 +62,7 @@ async function buildProbeApp(db: Db): Promise<INestApplication> {
       JudgeService,
       AuthGuard,
       ScopeGuard,
+      SessionOnlyGuard,
       { provide: DB, useValue: db },
       { provide: APP_CONFIG, useValue: TEST_CONFIG },
       { provide: APP_GUARD, useExisting: AuthGuard },
@@ -179,6 +189,25 @@ describe('ScopeGuard', () => {
         const res = await request(app.getHttpServer()).get('/probe/scoped');
         expect(res.status).toBe(401);
         expect(res.body.code).toBe('authentication_required');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('defers to SessionOnlyGuard: a token hitting a @SessionOnly() route gets 403 session_required, not scope_required', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildProbeApp(db);
+      try {
+        const userId = await makeUser(db, 'faiz');
+        // Deliberately no scopes at all: if ScopeGuard did not defer, this
+        // would hit its own deny-by-default and report scope_required.
+        const token = await bearerToken(db, userId, []);
+        const res = await request(app.getHttpServer())
+          .get('/probe/session-only')
+          .set('Authorization', `Bearer ${token}`);
+        expect(res.status).toBe(403);
+        expect(res.body.code).toBe('session_required');
       } finally {
         await app.close();
       }
