@@ -11,6 +11,7 @@ import { TotpController } from './totp.controller.js';
 import { TotpService } from './totp.service.js';
 import { AuthGuard } from './auth.guard.js';
 import { SessionOnlyGuard } from './session-only.guard.js';
+import { ScopeGuard } from './scope.guard.js';
 import { JudgeGuard } from './judge.guard.js';
 import { JudgeService } from './judge.service.js';
 
@@ -29,6 +30,14 @@ import { JudgeService } from './judge.service.js';
  * `auth.guard.ts` and `judge.guard.ts`), and any controller that wants
  * `@UseGuards(JudgeGuard)` needs it resolvable from its own module graph —
  * both are exported for exactly that.
+ *
+ * `ScopeGuard` is registered as a *second* `APP_GUARD`, listed after
+ * `AuthGuard`. Nest runs global guards in registration order, so `AuthGuard`
+ * always resolves `req.actor` (and rejects an unauthenticated caller with
+ * 401) before `ScopeGuard` ever reads it — an anonymous request to a scoped
+ * route therefore reports "not signed in", not "wrong scope". Reordering
+ * this pair would let `ScopeGuard` observe a request `AuthGuard` has not yet
+ * judged.
  */
 @Module({
   imports: [ConfigModule],
@@ -43,7 +52,9 @@ import { JudgeService } from './judge.service.js';
     JudgeGuard,
     AuthGuard,
     SessionOnlyGuard,
+    ScopeGuard,
     { provide: APP_GUARD, useExisting: AuthGuard },
+    { provide: APP_GUARD, useExisting: ScopeGuard },
   ],
   exports: [
     AuthService,

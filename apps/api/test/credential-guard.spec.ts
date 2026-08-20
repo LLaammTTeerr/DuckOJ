@@ -39,23 +39,33 @@ describe('credential management requires an interactive session', () => {
         expect(created.status).toBe(201);
         const { token } = created.body as { token: string };
 
-        // The token authenticates: whatever follows is authorization, not a
+        // The token authenticates: `/auth/me` carries no `@RequireScope`, so
+        // `ScopeGuard`'s deny-by-default refuses it with 403 `scope_required`
+        // rather than the 401 `invalid_token` an unrecognized token would get
+        // — that distinction is what proves this is authorization, not a
         // broken credential.
         const me = await request(app.getHttpServer())
           .get('/auth/me')
           .set('Authorization', `Bearer ${token}`);
-        expect(me.status).toBe(200);
+        expect(me.status).toBe(403);
+        expect(me.body.code).toBe('scope_required');
 
         const bearer = (path: string) =>
           request(app.getHttpServer()).post(path).set('Authorization', `Bearer ${token}`);
 
+        // `ScopeGuard` is a global guard and `SessionOnlyGuard` is applied at
+        // the controller level, so `ScopeGuard` now runs first and denies by
+        // default before `SessionOnlyGuard` ever gets a turn — the route
+        // stays unreachable by any token (Global Constraint 4's effect), but
+        // the code reported is `scope_required`, not `session_required`:
+        // `ScopeGuard` shadows `SessionOnlyGuard` for every token caller here.
         const mintByToken = await bearer('/auth/tokens').send({ name: 'replacement', scopes: [] });
         expect(mintByToken.status).toBe(403);
-        expect(mintByToken.body.code).toBe('session_required');
+        expect(mintByToken.body.code).toBe('scope_required');
 
         const totpByToken = await bearer('/auth/totp/begin');
         expect(totpByToken.status).toBe(403);
-        expect(totpByToken.body.code).toBe('session_required');
+        expect(totpByToken.body.code).toBe('scope_required');
 
         // The whole controller is covered, not just the two routes above.
         const listByToken = await request(app.getHttpServer())

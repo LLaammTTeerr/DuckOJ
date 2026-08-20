@@ -66,10 +66,14 @@ describe('request logging redacts credentials', () => {
         expect(created.status).toBe(201);
         const accessToken = (created.body as { token: string }).token;
 
+        // `/auth/me` carries no `@RequireScope`, so `ScopeGuard`'s
+        // deny-by-default refuses this token with 403 — but `AuthGuard` has
+        // already resolved and logged the request by then, which is all
+        // this test cares about.
         const viaToken = await request(app.getHttpServer())
           .get('/auth/me')
           .set('Authorization', `Bearer ${accessToken}`);
-        expect(viaToken.status).toBe(200);
+        expect(viaToken.status).toBe(403);
 
         const output = log.lines();
 
