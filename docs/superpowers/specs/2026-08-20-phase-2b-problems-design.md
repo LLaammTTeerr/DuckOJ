@@ -137,15 +137,32 @@ and every read path calls it. It lives in
 
 ```ts
 /** For list queries: a SQL predicate restricting `problems` to the visible set. */
-export function visibleProblemsWhere(actor: Actor | null): SQL;
+export function visibleProblemsWhere(db: Db, actor: Actor | null): SQL;
 
 /** For single-row reads and for the submission path. */
 export function canViewProblem(
   actor: Actor | null,
   problem: { id: number; visibility: ProblemVisibility },
-  ctx: { memberRoles: ProblemRole[]; sharedOrgIds: number[] },
+  ctx: ProblemViewContext,
 ): boolean;
+
+export interface ProblemViewContext {
+  /** The actor's roles on THIS problem. Empty for a non-member. */
+  memberRoles: ProblemRole[];
+  /** Organizations this problem is shared with. */
+  sharedOrgIds: number[];
+  /** Organizations the actor belongs to. */
+  actorOrgIds: number[];
+}
 ```
+
+The SQL form takes `db` because it builds correlated subqueries over
+`problem_members` and `problem_orgs`. The row form takes all three id sets
+rather than a boolean, so the *decision* stays pure and testable without a
+database while the *loading* is one shared helper,
+`loadProblemContext(db, actor, problemId)`, that every single-problem path
+calls — reads and writes alike. Authorization therefore never depends on
+which handler the request arrived through.
 
 Rules, deny-by-default:
 
