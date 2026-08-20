@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { api } from '../api.js';
 import { renderStatement } from '../markdown.js';
 
@@ -64,13 +65,17 @@ export function ProblemPage(props: { code: string }) {
           DOMPurify.sanitize. */}
       <div dangerouslySetInnerHTML={{ __html: renderStatement(problem.statement) }} />
       <p>
-        {/* Deliberately a plain `<a>`, not `<Link>`: this component is
-            unit-tested by rendering it directly with `code` as a prop (see
-            this file's own doc comment above and test/problems.spec.tsx),
-            with no `RouterProvider` above it, and `<Link>` throws outside
-            one. A full page load here is unchanged behaviour, not a
-            regression — see router.tsx and this task's report. */}
-        <a href={`/submit?problem=${encodeURIComponent(problem.code)}`}>Submit a solution</a>
+        {/* `search` is a structured object, not a hand-built query string —
+            TanStack Router owns serializing it (see router.tsx's
+            `submitRoute.validateSearch` and submit.tsx's `SubmitPage` doc
+            comment for why that distinction is load-bearing for a problem
+            code, not cosmetic). This component is unit-tested by rendering
+            it directly (test/problems.spec.tsx's `ProblemPage` describe
+            block), so that test now wraps its render in a router context
+            for `<Link>` to resolve — see that file. */}
+        <Link to="/submit" search={{ problem: problem.code }}>
+          Submit a solution
+        </Link>
       </p>
     </section>
   );

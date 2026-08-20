@@ -144,7 +144,7 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
 // driver key that reaches a real dmoj executor (see scripts/seed-problem.ts's
 // `languageDriverKeys` insert), and there is still no language catalog
 // endpoint to populate it from.
-const DEFAULT_PROBLEM_CODE = 'aplusb';
+export const DEFAULT_PROBLEM_CODE = 'aplusb';
 const LANGUAGES = ['cpp17'];
 
 /**
@@ -291,11 +291,33 @@ export function useSubmissionSocket(
   }, [submissionId, fetchSubmission, terminalRef, onSubscriptionError]);
 }
 
-export function SubmitPage() {
-  // Read once per render from `window.location`, matching `main.tsx`'s
-  // routing: there is no History API listener anywhere in this app, so the
-  // search string only ever changes on a real page load.
-  const problemCode = problemCodeFromSearch(window.location.search);
+/**
+ * `problemCode` is supplied by the caller (`router.tsx`'s `/submit` route,
+ * via `validateSearch` + `useSearch`) rather than read from
+ * `window.location.search` directly here, as it was before this app adopted
+ * a router.
+ *
+ * That is not a cosmetic change: TanStack Router's default search
+ * serializer (`defaultStringifySearch`, `@tanstack/router-core`) quotes a
+ * search value with `JSON.stringify` whenever the raw string would itself
+ * `JSON.parse` successfully on the other end — verified directly against
+ * the installed version rather than assumed. Most problem codes (`aplusb`,
+ * `triangle`, `hello`) are not valid JSON on their own and pass through
+ * unquoted, but contracts' `PROBLEM_CODE` grammar
+ * (`/^[a-z0-9][a-z0-9_-]{1,63}$/`) also permits a code that IS — an
+ * all-digit code like `123`, or the literal `true`/`false`/`null` — and
+ * those round-trip as `?problem=%22123%22`, quotes included. The router's
+ * own `useSearch`/`validateSearch` pipeline JSON-decodes that back to the
+ * bare string (confirmed for exactly this case); a hand-rolled `new
+ * URLSearchParams(...).get('problem')` (what `problemCodeFromSearch` below
+ * still does, correctly, for a *raw* query string someone typed by hand)
+ * would not, and would silently submit against a code with literal quote
+ * characters in it for that narrow case — the same shape of bug Task 13 of
+ * Phase 2b found here already, just with a different cause. See
+ * `router.tsx`'s `submitRoute` for where the value actually comes from.
+ */
+export function SubmitPage(props: { problemCode: string }) {
+  const { problemCode } = props;
   const [submissionId, setSubmissionId] = useState<number | null>(null);
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null);
   const [busy, setBusy] = useState(false);

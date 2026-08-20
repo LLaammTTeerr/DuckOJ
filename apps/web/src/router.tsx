@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, Outlet, createRootRoute, createRoute, createRouter, useParams } from '@tanstack/react-router';
+import { Link, Outlet, createRootRoute, createRoute, createRouter, useParams, useSearch } from '@tanstack/react-router';
 import { LoginForm, type LoginValues } from './routes/login.js';
-import { SubmitPage } from './routes/submit.js';
+import { DEFAULT_PROBLEM_CODE, SubmitPage } from './routes/submit.js';
 import { ProblemsPage } from './routes/problems.js';
 import { ProblemPage } from './routes/problem.js';
 import { ProblemEditPage } from './routes/problem-edit.js';
@@ -114,8 +114,15 @@ function IndexComponent() {
  * `/submit`. Submitting needs a session; browsing does not — see the
  * pre-router `App`'s doc comment (this file's history) for why the problems
  * and authoring routes are never gated the same way.
+ *
+ * `problem` comes from `useSearch`, not `window.location.search` — the
+ * route's own `validateSearch` (below) is what actually parses it, and
+ * `SubmitPage`'s doc comment explains why that distinction matters for a
+ * problem code that collides with TanStack Router's default search
+ * serializer's JSON-detection heuristic.
  */
 function SubmitRouteComponent() {
+  const { problem } = useSearch({ from: '/submit' });
   const { me, loginError, needsTotp, handleLogin } = useAuthGate();
   if (me.isLoading) return <p>Loading…</p>;
   if (!me.data) {
@@ -126,7 +133,7 @@ function SubmitRouteComponent() {
       </>
     );
   }
-  return <SubmitPage />;
+  return <SubmitPage problemCode={problem} />;
 }
 
 /**
@@ -190,7 +197,17 @@ const problemRevisionsRoute = createRoute({
   path: '/problems/$code/revisions',
   component: ProblemRevisionsRouteComponent,
 });
-const submitRoute = createRoute({ getParentRoute: () => rootRoute, path: '/submit', component: SubmitRouteComponent });
+const submitRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/submit',
+  // Same default as `submit.tsx`'s `problemCodeFromSearch`/`DEFAULT_PROBLEM_CODE`:
+  // absent `?problem=` still means `aplusb`, matching pre-router behaviour for
+  // bare `/submit`.
+  validateSearch: (search: Record<string, unknown>): { problem: string } => ({
+    problem: typeof search.problem === 'string' ? search.problem : DEFAULT_PROBLEM_CODE,
+  }),
+  component: SubmitRouteComponent,
+});
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
