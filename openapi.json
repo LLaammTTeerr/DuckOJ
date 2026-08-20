@@ -1223,6 +1223,36 @@
                     "createdAt": {
                       "type": "string",
                       "format": "date-time"
+                    },
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "author",
+                              "curator",
+                              "tester"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "role"
+                        ]
+                      }
+                    },
+                    "orgSlugs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
                   "required": [
@@ -1237,7 +1267,9 @@
                     "testCount",
                     "totalPoints",
                     "checkerKind",
-                    "createdAt"
+                    "createdAt",
+                    "members",
+                    "orgSlugs"
                   ]
                 }
               }
@@ -1503,6 +1535,36 @@
                     "createdAt": {
                       "type": "string",
                       "format": "date-time"
+                    },
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "author",
+                              "curator",
+                              "tester"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "role"
+                        ]
+                      }
+                    },
+                    "orgSlugs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
                   "required": [
@@ -1517,7 +1579,9 @@
                     "testCount",
                     "totalPoints",
                     "checkerKind",
-                    "createdAt"
+                    "createdAt",
+                    "members",
+                    "orgSlugs"
                   ]
                 }
               }
@@ -1705,6 +1769,36 @@
                     "createdAt": {
                       "type": "string",
                       "format": "date-time"
+                    },
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "author",
+                              "curator",
+                              "tester"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "role"
+                        ]
+                      }
+                    },
+                    "orgSlugs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
                   "required": [
@@ -1719,7 +1813,9 @@
                     "testCount",
                     "totalPoints",
                     "checkerKind",
-                    "createdAt"
+                    "createdAt",
+                    "members",
+                    "orgSlugs"
                   ]
                 }
               }

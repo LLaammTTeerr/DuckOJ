@@ -651,6 +651,12 @@ export interface paths {
                             checkerKind: string | null;
                             /** Format: date-time */
                             createdAt: string;
+                            members: {
+                                username: string;
+                                /** @enum {string} */
+                                role: "author" | "curator" | "tester";
+                            }[];
+                            orgSlugs: string[];
                         };
                     };
                 };
@@ -782,6 +788,12 @@ export interface paths {
                             checkerKind: string | null;
                             /** Format: date-time */
                             createdAt: string;
+                            members: {
+                                username: string;
+                                /** @enum {string} */
+                                role: "author" | "curator" | "tester";
+                            }[];
+                            orgSlugs: string[];
                         };
                     };
                 };
@@ -860,6 +872,12 @@ export interface paths {
                             checkerKind: string | null;
                             /** Format: date-time */
                             createdAt: string;
+                            members: {
+                                username: string;
+                                /** @enum {string} */
+                                role: "author" | "curator" | "tester";
+                            }[];
+                            orgSlugs: string[];
                         };
                     };
                 };

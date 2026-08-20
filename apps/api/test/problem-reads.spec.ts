@@ -242,6 +242,147 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
   }, 120_000);
 });
 
+describe('getVisible — members and orgSlugs (spec §4.1)', () => {
+  it('an author sees a private organization the problem is shared with, even one they do not personally belong to', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'credit-owner');
+      const coauthor = await insertUser(db, 'credit-coauthor');
+      const [org] = await db
+        .insert(organizations)
+        .values({ slug: 'hazard-org', name: 'Hazard Org', visibility: 'private' })
+        .returning();
+      const { id } = await seedProblem(db, {
+        code: 'credit1',
+        name: 'Credit One',
+        visibility: 'public',
+        createdBy: owner.id,
+      });
+      await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
+      // `coauthor` is added as an author directly (bypassing `update`, which
+      // would itself require org membership to attach `hazard-org` — not
+      // what this test is about) and is deliberately never made a member of
+      // it. This is the case that actually distinguishes "editors get the
+      // unfiltered set" from "just reuse `visibleOrgsWhere` for everyone":
+      // `visibleOrgsWhere` alone would hide this org from `coauthor`, since
+      // neither publicness nor personal membership applies to them — only
+      // being an editor of the problem does.
+      await db.insert(problemMembers).values([
+        { problemId: id, userId: owner.id, role: 'author' },
+        { problemId: id, userId: coauthor.id, role: 'author' },
+      ]);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      const detail = await service.getVisible(actorFor(coauthor.id), 'credit1');
+      expect(detail.orgSlugs).toEqual(['hazard-org']);
+    });
+  }, 120_000);
+
+  it('a non-member viewer of the same public problem does not see the private organization', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'credit-owner2');
+      const stranger = await insertUser(db, 'credit-stranger2');
+      const [org] = await db
+        .insert(organizations)
+        .values({ slug: 'hazard-org2', name: 'Hazard Org 2', visibility: 'private' })
+        .returning();
+      const { id } = await seedProblem(db, {
+        code: 'credit2',
+        name: 'Credit Two',
+        visibility: 'public',
+        createdBy: owner.id,
+      });
+      await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
+      await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      // The problem itself IS visible to the stranger (not a 404) — the
+      // point is a viewable problem with an invisible org name, not a
+      // hidden problem.
+      const detail = await service.getVisible(actorFor(stranger.id), 'credit2');
+      expect(detail.code).toBe('credit2');
+      expect(detail.orgSlugs).toEqual([]);
+    });
+  }, 120_000);
+
+  it('an author and a non-member viewer of the same problem see identical members', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'credit-owner3');
+      const tester = await insertUser(db, 'credit-tester3');
+      const stranger = await insertUser(db, 'credit-stranger3');
+      const { id } = await seedProblem(db, {
+        code: 'credit3',
+        name: 'Credit Three',
+        visibility: 'public',
+        createdBy: owner.id,
+      });
+      await db.insert(problemMembers).values([
+        { problemId: id, userId: owner.id, role: 'author' },
+        { problemId: id, userId: tester.id, role: 'tester' },
+      ]);
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      const ownerView = await service.getVisible(actorFor(owner.id), 'credit3');
+      const strangerView = await service.getVisible(actorFor(stranger.id), 'credit3');
+      expect(strangerView.members).toEqual(ownerView.members);
+      expect(strangerView.members).toEqual([
+        { username: 'credit-owner3', role: 'author' },
+        { username: 'credit-tester3', role: 'tester' },
+      ]);
+    });
+  }, 120_000);
+
+  it("an editor's orgSlugs round-trips through PATCH without dropping anything", async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'credit-owner4');
+      const [orgA] = await db
+        .insert(organizations)
+        .values({ slug: 'hazard-org4a', name: 'Hazard 4a', visibility: 'private' })
+        .returning();
+      const [orgB] = await db
+        .insert(organizations)
+        .values({ slug: 'hazard-org4b', name: 'Hazard 4b', visibility: 'public' })
+        .returning();
+      // `resolveOrgIds` (used by both `create` and `update`) requires actor
+      // membership in every org named in `orgSlugs` regardless of that
+      // org's own visibility — see problem-writes.spec.ts's "a non-member
+      // cannot share with a public org". So `owner` must belong to both, or
+      // the round-trip PATCH below would fail on that unrelated constraint
+      // rather than exercising the one this test is actually about.
+      await db.insert(orgMembers).values([
+        { orgId: orgA!.id, userId: owner.id, role: 'member' },
+        { orgId: orgB!.id, userId: owner.id, role: 'member' },
+      ]);
+      const { id } = await seedProblem(db, {
+        code: 'credit4',
+        name: 'Credit Four',
+        visibility: 'public',
+        createdBy: owner.id,
+      });
+      await db.insert(problemOrgs).values([
+        { problemId: id, orgId: orgA!.id },
+        { problemId: id, orgId: orgB!.id },
+      ]);
+      await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const actor = actorFor(owner.id);
+
+      const before = await service.getVisible(actor, 'credit4');
+      expect(before.orgSlugs.slice().sort()).toEqual(['hazard-org4a', 'hazard-org4b']);
+
+      // The whole-set-replacement hazard: PATCHing back exactly what GET
+      // returned must not drop anything. If `getVisible` had given an
+      // editor the same filtered view a plain viewer gets, `before.orgSlugs`
+      // above would already have silently lost `hazard-org4a`'s counterpart
+      // in some other case — the failure would show up here instead, as an
+      // org present before the round trip going missing after it.
+      await service.update(actor, 'credit4', { orgSlugs: before.orgSlugs });
+
+      const after = await service.getVisible(actor, 'credit4');
+      expect(after.orgSlugs.slice().sort()).toEqual(['hazard-org4a', 'hazard-org4b']);
+    });
+  }, 120_000);
+});
+
 describe('likeEscape', () => {
   it('escapes % and _ so they are matched literally', () => {
     expect(likeEscape('100%')).toBe('100\\%');

@@ -71,6 +71,13 @@ export const ProblemDetail = ProblemSummary.extend({
   totalPoints: z.number().nullable(),
   checkerKind: z.string().nullable(),
   createdAt: Timestamp,
+  // `members` is credit (spec §4.1): visible to anyone who may see the
+  // problem at all, same as DMOJ's public authorship display. `orgSlugs` is
+  // NOT symmetric with it — see `ProblemAccessService.loadMembersAndOrgs`'s
+  // doc comment for why returning the full organization list to every
+  // viewer would leak private organizations' names/existence.
+  members: z.array(ProblemMember),
+  orgSlugs: z.array(z.string()),
 });
 export type ProblemDetailDto = z.infer<typeof ProblemDetail>;
 

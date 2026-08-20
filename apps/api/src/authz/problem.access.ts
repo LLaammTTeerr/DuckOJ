@@ -30,7 +30,7 @@ import {
   type ProblemVisibility,
 } from './problem.visibility.js';
 import { isAdmin, type Actor } from './actor.js';
-import { loadOrgMembership } from './org.visibility.js';
+import { loadOrgMembership, visibleOrgsWhere } from './org.visibility.js';
 
 /** Postgres SQLSTATE for a unique-constraint violation. */
 const UNIQUE_VIOLATION = '23505';
@@ -202,6 +202,8 @@ export class ProblemAccessService {
       throw new AppError(404, 'problem_not_found', 'No such problem.');
     }
 
+    const { members, orgSlugs } = await this.loadMembersAndOrgs(row.id, actor, canEditProblem(actor, ctx));
+
     return {
       ...toSummary(row),
       statement: row.statement,
@@ -209,6 +211,8 @@ export class ProblemAccessService {
       totalPoints: row.revisionId === null ? null : row.totalPoints,
       checkerKind: row.revisionId === null ? null : row.checkerKind,
       createdAt: row.createdAt.toISOString(),
+      members,
+      orgSlugs,
     };
   }
 
@@ -261,7 +265,7 @@ export class ProblemAccessService {
       throw toCreateConflict(error);
     }
 
-    return this.loadDetailById(problemId);
+    return this.loadDetailById(problemId, actor);
   }
 
   /**
@@ -334,7 +338,7 @@ export class ProblemAccessService {
       }
     });
 
-    return this.loadDetailById(row.id);
+    return this.loadDetailById(row.id, actor);
   }
 
   /**
@@ -598,8 +602,15 @@ export class ProblemAccessService {
    * `getVisible`: re-checking visibility here would 404 an author who just
    * removed themselves from a private problem's membership, even though
    * their own write just succeeded.
+   *
+   * Both callers (`create`, just after inserting `actor` as `author`, and
+   * `update`, only reachable after `loadForEdit` has already required
+   * `canEditProblem`) always act on behalf of an editor of this exact
+   * problem — so `orgSlugs` below is always the unfiltered, editor view
+   * (`loadMembersAndOrgs`'s `isEditor: true`), never the visibility-filtered
+   * one a plain viewer gets from `getVisible`.
    */
-  private async loadDetailById(id: number): Promise<ProblemDetailDto> {
+  private async loadDetailById(id: number, actor: Actor | null): Promise<ProblemDetailDto> {
     const row = (
       await this.db
         .select({
@@ -625,6 +636,8 @@ export class ProblemAccessService {
         .limit(1)
     )[0]!;
 
+    const { members, orgSlugs } = await this.loadMembersAndOrgs(id, actor, true);
+
     return {
       ...toSummary(row),
       statement: row.statement,
@@ -632,7 +645,56 @@ export class ProblemAccessService {
       totalPoints: row.revisionId === null ? null : row.totalPoints,
       checkerKind: row.revisionId === null ? null : row.checkerKind,
       createdAt: row.createdAt.toISOString(),
+      members,
+      orgSlugs,
     };
+  }
+
+  /**
+   * Loads a problem's members and shared-organization slugs for
+   * `ProblemDetail` (spec §4.1). The two fields are deliberately NOT
+   * symmetric:
+   *
+   * - `members` is credit, not a secret — the spec makes it visible to
+   *   anyone who can see the problem at all (DMOJ displays authorship
+   *   publicly too), so it is always the full, unfiltered set.
+   * - `orgSlugs` names organizations, and an organization can be private.
+   *   Returning the full list to every viewer would let anyone probe which
+   *   private organizations a problem is shared with — the same leak class
+   *   Task 4's org-injection fix addressed, flagged there as a loose end
+   *   for this exact read path. So a non-editor only gets the subset
+   *   already visible to them via the shared `visibleOrgsWhere` predicate
+   *   (public organizations, plus ones they belong to) — never a bespoke
+   *   rule of its own.
+   *
+   *   An editor (author/curator on this problem, or an admin) always gets
+   *   the FULL set, bypassing that filter entirely. This is not generosity:
+   *   `update`'s `orgSlugs` is a whole-set *replacement* (see its doc
+   *   comment), so an editor who could only see a partial list and then
+   *   submitted it back would silently unshare every organization they
+   *   could not see — e.g. one a co-author attached before the editor
+   *   joined, or one they have since left.
+   */
+  private async loadMembersAndOrgs(
+    problemId: number,
+    actor: Actor | null,
+    isEditor: boolean,
+  ): Promise<{ members: ProblemMemberInput[]; orgSlugs: string[] }> {
+    const [memberRows, orgRows] = await Promise.all([
+      this.db
+        .select({ username: schema.users.username, role: problemMembers.role })
+        .from(problemMembers)
+        .innerJoin(schema.users, eq(schema.users.id, problemMembers.userId))
+        .where(eq(problemMembers.problemId, problemId))
+        .orderBy(asc(schema.users.username)),
+      this.db
+        .select({ slug: organizations.slug })
+        .from(problemOrgs)
+        .innerJoin(organizations, eq(organizations.id, problemOrgs.orgId))
+        .where(and(eq(problemOrgs.problemId, problemId), isEditor ? sql`true` : visibleOrgsWhere(this.db, actor)))
+        .orderBy(asc(organizations.slug)),
+    ]);
+    return { members: memberRows, orgSlugs: orgRows.map((o) => o.slug) };
   }
 
   /**
