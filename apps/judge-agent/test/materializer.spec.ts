@@ -96,6 +96,90 @@ describe('Materializer', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   }, 30_000);
 
+  it('coalesces concurrent ensure() calls for the same hash into exactly one fetch', async () => {
+    // Three concurrent ensure(sameHash) calls, started before the fetch
+    // resolves, must share one in-flight materialisation rather than each
+    // starting their own fetch.
+    const { archive, hash } = await buildFixturePackage();
+    const problemsDir = await tempProblemsDir();
+    let releaseFetch: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    const fetchImpl = vi.fn(async () => {
+      await gate;
+      return new Response(archive);
+    });
+    const materializer = materializerFor(problemsDir, fetchImpl);
+
+    const p1 = materializer.ensure(hash);
+    const p2 = materializer.ensure(hash);
+    const p3 = materializer.ensure(hash);
+
+    // Wait until the (single) fetch has actually started before releasing
+    // it, so the three calls are genuinely racing against an in-flight
+    // request rather than each starting their own after the gate is freed.
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    releaseFetch!();
+
+    await expect(Promise.all([p1, p2, p3])).resolves.toEqual([undefined, undefined, undefined]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it('does not coalesce concurrent ensure() calls for different hashes', async () => {
+    // Without keying the in-flight map by hash, an implementation that
+    // coalesces everything would also pass the same-hash test above while
+    // being badly wrong. Two distinct hashes started concurrently must each
+    // trigger their own fetch.
+    const { archive } = await buildFixturePackage();
+    const problemsDir = await tempProblemsDir();
+    const hashA = 'c'.repeat(64);
+    const hashB = 'd'.repeat(64);
+    let releaseFetch: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    const fetchImpl = vi.fn(async () => {
+      await gate;
+      return new Response(archive);
+    });
+    const materializer = materializerFor(problemsDir, fetchImpl);
+
+    const pA = materializer.ensure(hashA);
+    const pB = materializer.ensure(hashB);
+
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    releaseFetch!();
+
+    await Promise.all([pA, pB]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  }, 30_000);
+
+  it('does not poison the in-flight map after a failed materialisation, so a later call retries', async () => {
+    // The in-flight entry is deleted in a `.finally()` specifically so a
+    // rejected attempt does not get cached forever. Nothing currently
+    // proves that: assert the second ensure() after a failure fetches again
+    // and succeeds.
+    const { archive, hash } = await buildFixturePackage();
+    const problemsDir = await tempProblemsDir();
+    const fetchImpl = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        throw new Error('network unreachable');
+      })
+      .mockImplementation(async () => new Response(archive));
+    const materializer = materializerFor(problemsDir, fetchImpl);
+
+    await expect(materializer.ensure(hash)).rejects.toThrow('network unreachable');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    await materializer.ensure(hash);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    await expect(readFile(join(problemsDir, hash, 'init.yml'), 'utf8')).resolves.toContain(
+      'tests/01.in',
+    );
+  }, 30_000);
+
   it('leaves no partial directory when the fetch fails', async () => {
     // Stub fetch to reject; assert <problems>/<hash> does not exist and no
     // stray directory matching */init.yml was created. A half-written package
