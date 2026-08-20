@@ -271,4 +271,46 @@ describe('EventWriter', () => {
       errorSpy.mockRestore();
     });
   }, 120_000);
+
+  it('records a compile error as verdict CE with the compile log preserved', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+
+      const log = "error: expected ';' before '}' token";
+
+      await writer.apply(job, { type: 'compileError', message: log });
+
+      const [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      // A compile error is a graded outcome the submitter caused, not a
+      // judge-side failure: it lands on `done`, not `errored`.
+      expect(row?.state).toBe('done');
+      expect(row?.verdict).toBe('CE');
+      // The whole point of distinguishing CE from IE is that the person
+      // fixing their code gets to see why it didn't compile.
+      expect(row?.compileOutput).toBe(log);
+      expect(row?.compileOutput).not.toHaveLength(0);
+    });
+  }, 120_000);
+
+  it('keeps a genuine internal error on verdict IE, distinct from a compile error', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Guards against a "simplification" that maps every judge-side
+      // failure to the same verdict: a test that only proves compileError
+      // -> CE would still pass if internalError were mapped to CE too.
+      await writer.apply(job, { type: 'internalError', message: 'boom' });
+
+      const [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      expect(row?.verdict).toBe('IE');
+      expect(row?.verdict).not.toBe('CE');
+
+      errorSpy.mockRestore();
+    });
+  }, 120_000);
 });
