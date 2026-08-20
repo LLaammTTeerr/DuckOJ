@@ -1,0 +1,10 @@
+# The vendored Scalar viewer bundle is 3.7MB of minified third-party JS. Left
+# in, it produced 3743 AST nodes — 63% of the entire graph, more than the whole
+# rest of the repo — so every "god node" was a minified Scalar internal and the
+# graph described Scalar with DuckOJ as a minority. It also generated 858
+# dangling and 3457 collapsed edges, tripping the health check.
+#
+# It is committed on purpose (the docs viewer must work with no outbound
+# network, see Task 7b) and it is not our code, so it is excluded from the
+# graph rather than from the repo.
+*.js
