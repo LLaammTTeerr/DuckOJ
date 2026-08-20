@@ -155,3 +155,49 @@ All ten criteria verified individually. Highlights:
   replaced.
 - All gates green from a clean tree with `dist/` **and** `tsconfig.tsbuildinfo`
   deleted. 435 tests.
+
+---
+
+## Addendum — the `dist/` trap, reproduced and narrowed
+
+Phase 2b's deferred table describes this hazard as "`apps/api` resolves
+workspace packages through their built `dist/`, not live `src/`, so a
+mid-session mutation check can pass spuriously". True, but **overstated**, and
+an overstated hazard is one people route around unnecessarily. Reproduced
+deliberately, three steps:
+
+1. `tsc -b --force` on `packages/contracts` so `dist` provably matches source
+   (0 mutation markers in `dist`).
+2. Mutate `packages/contracts/src/scopes.ts` only — `hasScope` returns `true`
+   unconditionally. Markers: 1 in `src`, still 0 in `dist`.
+3. Run **bare `vitest run scope-guard`** from `apps/api`, bypassing the package
+   script.
+
+Result: **`Tests 7 passed`.** A mutation that guts the entire scope predicate
+is invisible.
+
+**The correction, and it is the useful part:** running the same mutation
+through `corepack pnpm --filter @duckoj/api test scope-guard` fails **2 tests**
+correctly, because that script is `tsc -b && vitest run` and `packages/contracts`
+is one of `apps/api`'s project references — so `tsc -b` rebuilds `dist` before
+vitest reads it. Every package script in this repo has that shape.
+
+So the trap bites **only** when someone invokes `vitest` directly. It is not a
+property of the test suite; it is a property of skipping the build step.
+
+**Ruling R20: not fixing this by aliasing, and the reason is a real trade-off.**
+The obvious fix — a vitest `resolve.alias` pointing `@duckoj/*` at `src/` —
+would remove the trap entirely and speed the suite up. It would also stop the
+tests exercising the **built artifact**, and packaging errors are a failure
+class this project has already paid for twice: a Dockerfile missing a workspace
+package broke a real image build in two separate phases. An alias would make
+`exports`-map mistakes and missing build output invisible to every test.
+
+Trading a hazard that needs someone to bypass the tooling for a hazard that
+hides real packaging bugs is a bad trade. Documented instead:
+
+**Always run tests through the package script (`corepack pnpm --filter <pkg>
+test`). A bare `vitest` invocation reads stale `dist` and will show you a
+passing mutation.** This applies with most force during a mutation check —
+exactly when a spurious pass is read as "this test cannot fail" and the test
+gets weakened or deleted.
