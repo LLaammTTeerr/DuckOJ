@@ -1,9 +1,21 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
+import type { z } from 'zod';
 import { organizations, problemMembers, problemOrgs, problemRevisions, problems } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { findPathCollision, parseManifest, readArchiveEntry, type PackageManifestDto } from '@duckoj/package-format';
-import type { PaginationQueryDto } from '@duckoj/contracts';
+import {
+  CreateProblemRequest,
+  type AttachRevisionRequestDto,
+  type PaginationQueryDto,
+  type ProblemDetailDto,
+  type ProblemMemberDto,
+  type ProblemPageDto,
+  type ProblemSummaryDto,
+  type RevisionSummaryDto,
+  type RevisionVersionResponseDto,
+  type UpdateProblemRequestDto,
+} from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { PACKAGE_STORE, type PackageStore } from '../packages/package.store.js';
@@ -14,7 +26,6 @@ import {
   canViewRevisions,
   loadProblemContext,
   visibleProblemsWhere,
-  type ProblemRole,
   type ProblemViewContext,
   type ProblemVisibility,
 } from './problem.visibility.js';
@@ -35,85 +46,42 @@ const PROBLEM_CODE_CONSTRAINT = 'problems_code_lower_idx';
  */
 const ORG_UNKNOWN_MESSAGE = 'No such organization.';
 
-export interface ProblemSummaryDto {
-  id: number;
-  code: string;
-  name: string;
-  visibility: ProblemVisibility;
-  hasPublishedRevision: boolean;
-  timeMs: number | null;
-  memoryKb: number | null;
-}
+// The DTOs below are re-exported (or trivially aliased) from
+// `@duckoj/contracts` rather than redeclared here, so the wire contract and
+// what this service actually returns can never drift apart into two
+// independent definitions of the same shape.
+export type { ProblemSummaryDto, ProblemPageDto, ProblemDetailDto, RevisionSummaryDto };
 
-export interface ProblemPageDto {
-  items: ProblemSummaryDto[];
-  nextCursor: string | null;
-}
-
-export interface ProblemDetailDto extends ProblemSummaryDto {
-  statement: string;
-  testCount: number | null;
-  totalPoints: number | null;
-  checkerKind: string | null;
-  createdAt: string;
-}
-
-export interface ProblemMemberInput {
-  username: string;
-  role: ProblemRole;
-}
-
-export interface CreateProblemInput {
-  code: string;
-  name: string;
-  statement: string;
-  visibility?: ProblemVisibility;
-  orgSlugs?: string[];
-}
+export type ProblemMemberInput = ProblemMemberDto;
 
 /**
- * `code` is intentionally a member: it exists so a caller that includes it
- * still type-checks, and `update` rejects the request for it — a problem's
+ * `z.input`, not `z.infer` (`CreateProblemRequestDto`, the parsed *output*):
+ * `visibility` and `orgSlugs` carry zod defaults, so the output type has both
+ * as always-present. `create()` below still applies its own `?? 'public'` /
+ * `?? []` fallback for a direct (non-HTTP) caller that omits them — this
+ * input type is what lets such a caller's object literal, with either field
+ * left out, still type-check.
+ */
+export type CreateProblemInput = z.input<typeof CreateProblemRequest>;
+
+/**
+ * `UpdateProblemRequestDto` (the wire contract) plus a local-only `code?`
+ * escape hatch: the contract itself has no `code` field at all — a stray
+ * `code` in a PATCH body is rejected by `UpdateProblemRequest`'s `.strict()`
+ * before it would ever reach here over HTTP — but `code` stays a member of
+ * this internal type so a direct (non-HTTP) caller that includes it still
+ * type-checks, and `update` below rejects the request for it — a problem's
  * code cannot be changed once created. `members` and `orgSlugs`, when
  * present, are whole-set replacements of `problemMembers` / `problemOrgs`,
  * not merges.
  */
-export interface UpdateProblemPatch {
-  code?: string;
-  name?: string;
-  statement?: string;
-  visibility?: ProblemVisibility;
-  members?: ProblemMemberInput[];
-  orgSlugs?: string[];
-}
+export type UpdateProblemPatch = UpdateProblemRequestDto & { code?: string };
 
-export interface AttachRevisionInput {
-  packageHash: string;
-  notes?: string;
-}
+export type AttachRevisionInput = AttachRevisionRequestDto;
 
-export interface AttachRevisionResult {
-  version: number;
-}
+export type AttachRevisionResult = RevisionVersionResponseDto;
 
-export interface PublishRevisionResult {
-  version: number;
-}
-
-export interface RevisionSummaryDto {
-  id: number;
-  version: number;
-  state: 'draft' | 'published' | 'archived';
-  packageHash: string;
-  notes: string | null;
-  timeMs: number;
-  memoryKb: number;
-  testCount: number;
-  totalPoints: number;
-  checkerKind: string;
-  createdBy: number;
-  createdAt: string;
-}
+export type PublishRevisionResult = RevisionVersionResponseDto;
 
 /**
  * Escapes Postgres `LIKE` metacharacters — the escape character itself,
@@ -715,7 +683,7 @@ export class ProblemAccessService {
    */
   private async resolveMemberIds(
     members: ProblemMemberInput[],
-  ): Promise<{ userId: number; role: ProblemRole }[]> {
+  ): Promise<{ userId: number; role: ProblemMemberInput['role'] }[]> {
     const idByUsername = new Map<string, number>();
     for (const username of new Set(members.map((m) => m.username))) {
       const row = (
@@ -730,7 +698,7 @@ export class ProblemAccessService {
     }
 
     const seen = new Set<string>();
-    const resolved: { userId: number; role: ProblemRole }[] = [];
+    const resolved: { userId: number; role: ProblemMemberInput['role'] }[] = [];
     for (const m of members) {
       const userId = idByUsername.get(m.username)!;
       const key = `${userId}\u0000${m.role}`;

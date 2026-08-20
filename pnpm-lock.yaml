@@ -237,6 +237,9 @@ importers:
       '@asteasolutions/zod-to-openapi':
         specifier: ^9.1.0
         version: 9.1.0(zod@4.4.3)
+      '@duckoj/api-prefix':
+        specifier: workspace:^
+        version: link:../api-prefix
       zod:
         specifier: ^4.4.3
         version: 4.4.3
