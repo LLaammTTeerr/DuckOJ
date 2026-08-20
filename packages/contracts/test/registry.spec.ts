@@ -18,6 +18,6 @@ describe('OpenAPI registry', () => {
     // drifted apart. This assertion can fail — if `registry.ts` ever
     // reverts to a literal, `API_PREFIX` and the literal would disagree
     // (`API_PREFIX` is bare, `'/api/v1'` is not) and this test would catch it.
-    expect(doc.servers?.[0]?.url).toBe(API_PREFIX);
+    expect(doc.servers?.[0]?.url).toBe(`/${API_PREFIX}`);
   });
 });

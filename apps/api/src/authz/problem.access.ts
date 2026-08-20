@@ -57,10 +57,12 @@ export type ProblemMemberInput = ProblemMemberDto;
 /**
  * `z.input`, not `z.infer` (`CreateProblemRequestDto`, the parsed *output*):
  * `visibility` and `orgSlugs` carry zod defaults, so the output type has both
- * as always-present. `create()` below still applies its own `?? 'public'` /
- * `?? []` fallback for a direct (non-HTTP) caller that omits them — this
- * input type is what lets such a caller's object literal, with either field
- * left out, still type-check.
+ * as always-present. `create()` below still applies its own
+ * `?? 'private'` / `?? []` fallback for a direct (non-HTTP) caller that
+ * omits them — this input type is what lets such a caller's object literal,
+ * with either field left out, still type-check. The fallback deliberately
+ * matches the zod default: when the two disagreed, a direct caller silently
+ * got a world-readable problem while every HTTP caller got a private one.
  */
 export type CreateProblemInput = z.input<typeof CreateProblemRequest>;
 

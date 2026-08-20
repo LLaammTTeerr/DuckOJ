@@ -167,7 +167,11 @@ describe('PATCH /problems/:code over HTTP', () => {
 describe('the OpenAPI document', () => {
   it('lists every problem route under API_PREFIX', () => {
     const doc = openApiDocument();
-    expect(doc.servers?.[0]?.url).toBe(API_PREFIX);
+    // Root-relative: `API_PREFIX` is bare (`api/v1`) because
+    // `setGlobalPrefix` wants it bare, but a relative OpenAPI server URL
+    // resolves against wherever the document is served from, which would
+    // break a viewer hosted under a subpath.
+    expect(doc.servers?.[0]?.url).toBe(`/${API_PREFIX}`);
 
     const paths = Object.keys(doc.paths ?? {});
     expect(paths).toEqual(
