@@ -66,6 +66,9 @@ describe('request logging redacts credentials', () => {
         expect(created.status).toBe(201);
         const accessToken = (created.body as { token: string }).token;
 
+        // `/auth/me` is `@NoScopeRequired()`, so this token reaches it and
+        // gets back its own identity — `AuthGuard` has resolved and logged
+        // the request either way, which is all this test cares about.
         const viaToken = await request(app.getHttpServer())
           .get('/auth/me')
           .set('Authorization', `Bearer ${accessToken}`);

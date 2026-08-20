@@ -18,6 +18,7 @@ import {
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { AppError } from '../common/app.error.js';
 import { CurrentActor, MaybeActor, Public } from '../authn/auth.guard.js';
+import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { ProblemAccessService } from '../authz/problem.access.js';
 
@@ -55,6 +56,7 @@ export class ProblemsController {
   // silently hand anonymous access to the next handler added here.
   @Get()
   @Public()
+  @RequireScope('problems:read')
   list(
     @MaybeActor() actor: Actor | null,
     @Query(new ZodValidationPipe(ProblemListQuery)) query: ProblemListQueryDto,
@@ -64,12 +66,20 @@ export class ProblemsController {
 
   @Get(':code')
   @Public()
+  @RequireScope('problems:read')
   get(@MaybeActor() actor: Actor | null, @Param('code') code: string): Promise<ProblemDetailDto> {
     return this.problems.getVisible(actor, code);
   }
 
+  // `@Public()` stays: `canViewRevisions` already 404s an anonymous caller
+  // (spec §3, item 2 — a read never 403s, it 404s), and removing the marker
+  // would replace that 404 with a guard-level 401 for the same caller — a
+  // behaviour change this task does not authorize. `problems:publish`, not
+  // `problems:read`, per spec §2.3: this lists draft/archived revisions
+  // alongside the write endpoints below, not the published statement.
   @Get(':code/revisions')
   @Public()
+  @RequireScope('problems:publish')
   listRevisions(@MaybeActor() actor: Actor | null, @Param('code') code: string): Promise<RevisionSummaryDto[]> {
     return this.problems.listRevisions(actor, code);
   }
@@ -79,6 +89,7 @@ export class ProblemsController {
   // service) ever sees the request.
   @Post()
   @HttpCode(201)
+  @RequireScope('problems:write')
   create(
     @CurrentActor() actor: Actor,
     @Body(new ZodValidationPipe(CreateProblemRequest)) body: CreateProblemRequestDto,
@@ -87,6 +98,7 @@ export class ProblemsController {
   }
 
   @Patch(':code')
+  @RequireScope('problems:write')
   update(
     @CurrentActor() actor: Actor,
     @Param('code') code: string,
@@ -97,6 +109,7 @@ export class ProblemsController {
 
   @Post(':code/revisions')
   @HttpCode(201)
+  @RequireScope('problems:publish')
   attachRevision(
     @CurrentActor() actor: Actor,
     @Param('code') code: string,
@@ -107,6 +120,7 @@ export class ProblemsController {
 
   @Post(':code/revisions/:version/publish')
   @HttpCode(200)
+  @RequireScope('problems:publish')
   publishRevision(
     @CurrentActor() actor: Actor,
     @Param('code') code: string,

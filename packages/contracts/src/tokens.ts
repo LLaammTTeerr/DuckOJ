@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { ProblemDetails, Timestamp } from './common.js';
 import { registry } from './registry.js';
+import { SCOPES } from './scopes.js';
 
 export const CreateTokenRequest = z.object({
   name: z.string().min(1).max(64),
-  scopes: z.array(z.string()).default([]),
+  scopes: z.array(z.enum(SCOPES)).default([]),
   expiresAt: Timestamp.optional(),
 });
 export type CreateTokenRequestDto = z.infer<typeof CreateTokenRequest>;
@@ -19,6 +20,13 @@ export type CreateTokenResponseDto = z.infer<typeof CreateTokenResponse>;
 export const TokenSummary = z.object({
   id: z.number().int(),
   name: z.string(),
+  // Deliberately `string[]`, not `z.enum(SCOPES)`: this is a read-back of
+  // whatever is stored in the `access_tokens.scopes` `text[]` column, which
+  // is untyped at the DB layer. A token minted before `SCOPES` gained (or
+  // lost) an entry would hold a value the enum rejects, and `TokenSummary`
+  // is an output boundary — throwing while listing a caller's own tokens
+  // would be strictly worse than showing them the stale value. `CreateTokenRequest`
+  // is the input boundary and stays strict.
   scopes: z.array(z.string()),
   lastUsedAt: Timestamp.nullable(),
   expiresAt: Timestamp.nullable(),

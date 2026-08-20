@@ -91,14 +91,18 @@ describe('personal access tokens (HTTP)', () => {
         const { id, token } = create.body as { id: number; token: string };
         expect(typeof token).toBe('string');
 
-        // A fresh, cookie-less client authenticates purely off the bearer token.
+        // A fresh, cookie-less client authenticates purely off the bearer
+        // token: `/auth/me` is `@NoScopeRequired()`, so a token reaches it
+        // regardless of declared scopes and gets back its own identity — a
+        // 200 carrying the right username is itself proof the token
+        // authenticated, stronger than a bare status code would be.
         const me = await request(app.getHttpServer())
           .get('/auth/me')
           .set('Authorization', `Bearer ${token}`);
         expect(me.status).toBe(200);
         expect(me.body.username).toBe('wren');
 
-        // RFC 6750: the scheme token is case-insensitive.
+        // RFC 6750: the scheme token is case-insensitive — same outcome.
         const meLowerScheme = await request(app.getHttpServer())
           .get('/auth/me')
           .set('Authorization', `bearer ${token}`);

@@ -39,12 +39,15 @@ describe('credential management requires an interactive session', () => {
         expect(created.status).toBe(201);
         const { token } = created.body as { token: string };
 
-        // The token authenticates: whatever follows is authorization, not a
-        // broken credential.
+        // The token authenticates: `/auth/me` is `@NoScopeRequired()`, so it
+        // is reachable by any token and answers with the caller's own
+        // identity — proof this is a working credential, distinct from the
+        // 401 `invalid_token` an unrecognized token would get.
         const me = await request(app.getHttpServer())
           .get('/auth/me')
           .set('Authorization', `Bearer ${token}`);
         expect(me.status).toBe(200);
+        expect(me.body.username).toBe('xena');
 
         const bearer = (path: string) =>
           request(app.getHttpServer()).post(path).set('Authorization', `Bearer ${token}`);

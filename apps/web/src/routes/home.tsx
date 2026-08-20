@@ -12,6 +12,8 @@
  * list endpoint), no statistics, no activity feed. A landing page advertising
  * features the backend cannot serve is worse than a plain one.
  */
+import { Link } from '@tanstack/react-router';
+
 /**
  * Structural, not imported from `@duckoj/contracts`. `apps/web` deliberately
  * depends on the generated SDK rather than the contracts package — contracts
@@ -38,14 +40,14 @@ export function HomePage({ me }: { me: Viewer | null }) {
       <h2>Start here</h2>
       <ul>
         <li>
-          <a href="/problems">Browse problems</a> — public problems are readable without an account.
+          <Link to="/problems">Browse problems</Link> — public problems are readable without an account.
         </li>
         <li>
           <a href="/api/v1/docs">API reference</a> — every route, with a request builder.
         </li>
         {canAuthor ? (
           <li>
-            <a href="/problems/new">Create a problem</a> — you have the{' '}
+            <Link to="/problems/new">Create a problem</Link> — you have the{' '}
             <code>{me?.globalRole}</code> role.
           </li>
         ) : null}

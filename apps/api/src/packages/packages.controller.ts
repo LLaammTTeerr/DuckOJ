@@ -8,6 +8,7 @@ import {
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { AppError } from '../common/app.error.js';
+import { RequireScope } from '../authn/require-scope.decorator.js';
 import { APP_CONFIG } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { PackagesService } from './packages.service.js';
@@ -71,6 +72,7 @@ export class PackagesController {
 
   @Post()
   @HttpCode(201)
+  @RequireScope('packages:write')
   async upload(
     @Query(new ZodValidationPipe(UploadPackageQuery)) query: { hash: string },
     @Req() req: Request,
@@ -80,6 +82,7 @@ export class PackagesController {
   }
 
   @Get(':hash')
+  @RequireScope('packages:read')
   get(@Param('hash', new ZodValidationPipe(PackageHash)) hash: string): Promise<PackageSummaryDto> {
     return this.packages.getSummary(hash);
   }

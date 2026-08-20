@@ -2,6 +2,13 @@ import type { ReactElement } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  RouterContextProvider,
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} from '@tanstack/react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api.js';
 import { ProblemsPage } from '../src/routes/problems.js';
@@ -19,13 +26,37 @@ vi.mock('../src/api.js', () => ({
 
 const mockedGet = vi.mocked(api.GET);
 
+/**
+ * `ProblemsPage` and `ProblemPage` now render a `<Link>` each (the
+ * problem-row link, "Submit a solution"), and `<Link>` throws when rendered
+ * without a router in context — it reaches into `router.stores.location`
+ * unconditionally. This is a router just for that: a minimal tree with only
+ * the two paths these two components' `<Link>`s target, on an isolated
+ * in-memory history so it neither reads nor writes jsdom's real
+ * `window.location`, and no relation to the app's real route tree in
+ * `router.tsx`. `RouterContextProvider` (not `RouterProvider`) is used
+ * deliberately: it only puts a router into context, without also rendering
+ * the router's own matched-route tree over `ui` below.
+ */
+const testRootRoute = createRootRoute();
+const testProblemRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/problems/$code' });
+const testSubmitRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/submit' });
+const testRouter = createRouter({
+  routeTree: testRootRoute.addChildren([testProblemRoute, testSubmitRoute]),
+  history: createMemoryHistory({ initialEntries: ['/problems'] }),
+});
+
 function renderWithClient(ui: ReactElement) {
   // A fresh, no-retry client per test: without `retry: false` a mocked 404
   // (or any rejected queryFn) retries several times with backoff before
   // settling into its error state, which is exactly the kind of thing that
   // silently turns a fast assertion into a flaky multi-second timeout.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={client}>
+      <RouterContextProvider router={testRouter}>{ui}</RouterContextProvider>
+    </QueryClientProvider>,
+  );
 }
 
 afterEach(() => {

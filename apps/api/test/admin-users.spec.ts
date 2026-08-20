@@ -166,7 +166,9 @@ describe('PATCH /admin/users/:username over HTTP', () => {
           // (`submissions:read`), to make the point that `Actor.scopes`
           // constrains nothing outside `SessionOnlyGuard` itself: any valid
           // token from this admin carries their full authority regardless of
-          // its declared scopes.
+          // its declared scopes. `AdminUsersController` is `@SessionOnly()`,
+          // which also tells `ScopeGuard` to defer rather than shadow it
+          // with its own deny-by-default `scope_required`.
           const minted = await adminAgent.post('/auth/tokens').send({ name: 'probe', scopes: ['submissions:read'] });
           expect(minted.status).toBe(201);
           const { token } = minted.body as { token: string };

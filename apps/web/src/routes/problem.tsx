@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { api } from '../api.js';
 import { renderStatement } from '../markdown.js';
 
@@ -64,8 +65,17 @@ export function ProblemPage(props: { code: string }) {
           DOMPurify.sanitize. */}
       <div dangerouslySetInnerHTML={{ __html: renderStatement(problem.statement) }} />
       <p>
-        <a href={`/submit?problem=${encodeURIComponent(problem.code)}`}>Submit a solution</a>
-
+        {/* `search` is a structured object, not a hand-built query string —
+            TanStack Router owns serializing it (see router.tsx's
+            `submitRoute.validateSearch` and submit.tsx's `SubmitPage` doc
+            comment for why that distinction is load-bearing for a problem
+            code, not cosmetic). This component is unit-tested by rendering
+            it directly (test/problems.spec.tsx's `ProblemPage` describe
+            block), so that test now wraps its render in a router context
+            for `<Link>` to resolve — see that file. */}
+        <Link to="/submit" search={{ problem: problem.code }}>
+          Submit a solution
+        </Link>
       </p>
     </section>
   );
