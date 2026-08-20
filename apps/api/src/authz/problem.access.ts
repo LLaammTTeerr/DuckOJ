@@ -223,7 +223,13 @@ export class ProblemAccessService {
       throw new AppError(403, 'problem_forbidden', 'You may not create problems.');
     }
 
-    const visibility = body.visibility ?? 'public';
+    // `private`, matching `CreateProblemRequest`'s zod default. These two
+    // defaults must agree: over HTTP the zod default always wins and this
+    // fallback is unreachable, but a direct caller — a test, a seed script, a
+    // future import tool — reaches it, and the two disagreeing meant such a
+    // caller silently published a problem to the world. Deny-by-default is
+    // the direction to be wrong in.
+    const visibility = body.visibility ?? 'private';
     if (visibility === 'org' && !(body.orgSlugs && body.orgSlugs.length > 0)) {
       throw new AppError(400, 'problem_org_required', 'An org-visible problem needs at least one organization.');
     }

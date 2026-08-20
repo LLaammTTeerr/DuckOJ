@@ -781,11 +781,18 @@ archives the first" to fail. Revert and report.
 - Create: `packages/contracts/test/route-coverage.spec.ts`
 - Test: `apps/api/test/problems-http.spec.ts`, `packages/contracts/test/registry.spec.ts`
 
-**This is the largest task in the phase** — contracts, controller, the eleven
-unregistered legacy routes, a drift test, and a served docs viewer. If it
-proves unwieldy, split at Step 5: Steps 1-4 and 8 are the problems surface,
-Steps 5-7 are the OpenAPI debt. The drift test (Step 6) is the piece worth
-keeping under any split, because it is what stops the gap reopening.
+**SPLIT, as anticipated.** This grew to contracts, controller, eleven
+unregistered legacy routes, a drift test and a served docs viewer — too much
+for one review surface. Executed as two tasks:
+
+- **7a** — Steps 1-4 and 8: the Phase 2b problems surface. Contracts,
+  controller, the `registry.ts` prefix fix, HTTP tests, module wiring.
+- **7b** — Steps 5-7: the OpenAPI debt. Backfilling the eleven routes, the
+  route-coverage drift test, and serving `/openapi.json` plus `/docs`.
+
+7a is on the phase's critical path; 7b is not, and could slip to Phase 3
+without blocking anything. The drift test is the piece worth keeping under any
+reordering, because it is what stops the gap reopening.
 
 **Interfaces:**
 - Produces: `CreateProblemRequest`, `UpdateProblemRequest`, `AttachRevisionRequest`, `ProblemListQuery`, `ProblemSummary`, `ProblemDetail`, `RevisionSummary` and their DTO types.

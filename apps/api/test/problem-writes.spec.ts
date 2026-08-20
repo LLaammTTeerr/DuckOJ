@@ -71,6 +71,28 @@ async function seedProblem(
 }
 
 describe('ProblemAccessService.create', () => {
+
+  // Guards the two-defaults trap: `CreateProblemRequest` defaults visibility
+  // to 'private' in zod, and the service keeps its own fallback for callers
+  // that bypass the pipe. They disagreed once — zod said 'private', the
+  // service said 'public' — and over HTTP that was invisible, because the zod
+  // default always fills the field before the service sees it. A direct
+  // caller (a seed script, an import tool, this very test) got a
+  // world-readable problem instead.
+  it('defaults a visibility-less direct call to private, not public', async () => {
+    await withTestDb(async (db) => {
+      const setter = await insertUser(db, 'defaults-setter');
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      const detail = await service.create(actorFor(setter.id, 'setter'), {
+        code: 'defaultvis',
+        name: 'Default visibility',
+        statement: 'A statement.',
+      });
+
+      expect(detail.visibility).toBe('private');
+    });
+  }, 120_000);
   it('a setter creates a problem and is inserted as its author', async () => {
     await withTestDb(async (db) => {
       const setter = await insertUser(db, 'setter-create');
