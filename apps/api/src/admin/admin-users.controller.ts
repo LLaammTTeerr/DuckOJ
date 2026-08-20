@@ -1,7 +1,8 @@
-import { Body, Controller, Inject, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Inject, Param, Patch, UseGuards } from '@nestjs/common';
 import { AdminGrantRoleRequest, type AdminGrantRoleRequestDto, type AdminUserSummaryDto } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { CurrentActor } from '../authn/auth.guard.js';
+import { SessionOnlyGuard } from '../authn/session-only.guard.js';
 import type { Actor } from '../authz/actor.js';
 import { AdminUsersService } from './admin-users.service.js';
 
@@ -11,8 +12,19 @@ import { AdminUsersService } from './admin-users.service.js';
  * request, and admin-only is then enforced inside `AdminUsersService`, not by
  * a decorator here — this controller carries no authorization logic of its
  * own.
+ *
+ * `@UseGuards(SessionOnlyGuard)` applied class-wide, exactly as
+ * `TokensController` does it: minting an admin is a strictly stronger case
+ * than the credential-management routes that guard already protects. Without
+ * it, a scoped access token — `Actor.scopes` constrains nothing outside
+ * `SessionOnlyGuard` itself; there is no scope enforcement anywhere else —
+ * carries its owner's full authority, and an admin's leaked token becomes a
+ * permanent admin-minting capability that survives its own revocation (mint a
+ * fresh admin, then revoke nothing). A machine credential must not be able to
+ * rewrite the credentials that govern it.
  */
 @Controller('admin/users')
+@UseGuards(SessionOnlyGuard)
 export class AdminUsersController {
   constructor(@Inject(AdminUsersService) private readonly adminUsers: AdminUsersService) {}
 

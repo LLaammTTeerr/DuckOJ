@@ -27,7 +27,9 @@ const NOT_SIGNED_IN = {
   content: { 'application/problem+json': { schema: ProblemDetails } },
 };
 const FORBIDDEN = {
-  description: 'Signed in, but not an admin',
+  description:
+    'Signed in, but not an admin (`admin_forbidden`), or authenticated by an access token rather than an ' +
+    'interactive session (`session_required`) — this route is session-only, exactly like `/auth/tokens`',
   content: { 'application/problem+json': { schema: ProblemDetails } },
 };
 
@@ -45,7 +47,9 @@ registry.registerPath({
       content: { 'application/json': { schema: AdminUserSummary } },
     },
     400: {
-      description: '`globalRole` is not one of `user`, `setter`, `admin`',
+      description:
+        '`globalRole` is not one of `user`, `setter`, `admin` (`admin_role_invalid`), or the caller tried to ' +
+        'remove their own admin role (`admin_self_demotion`)',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     401: NOT_SIGNED_IN,

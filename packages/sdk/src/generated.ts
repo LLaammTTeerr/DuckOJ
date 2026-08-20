@@ -49,7 +49,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description `globalRole` is not one of `user`, `setter`, `admin` */
+                /** @description `globalRole` is not one of `user`, `setter`, `admin` (`admin_role_invalid`), or the caller tried to remove their own admin role (`admin_self_demotion`) */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -89,7 +89,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Signed in, but not an admin */
+                /** @description Signed in, but not an admin (`admin_forbidden`), or authenticated by an access token rather than an interactive session (`session_required`) — this route is session-only, exactly like `/auth/tokens` */
                 403: {
                     headers: {
                         [name: string]: unknown;

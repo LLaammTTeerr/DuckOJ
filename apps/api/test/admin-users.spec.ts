@@ -149,4 +149,78 @@ describe('PATCH /admin/users/:username over HTTP', () => {
       }
     });
   }, 120_000);
+
+  it(
+    "a scoped access token gets 403 session_required on the grant route; the same admin's session gets 200",
+    async () => {
+      await withTestDb(async (db) => {
+        const app = await buildApp(db);
+        try {
+          const adminAgent = request.agent(app.getHttpServer());
+          await registerAndLogin(adminAgent, 'token-guard-admin');
+          await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'token-guard-admin'));
+
+          await registerAndLogin(request.agent(app.getHttpServer()), 'token-guard-victim');
+
+          // Minted over the session — deliberately scoped narrowly
+          // (`submissions:read`), to make the point that `Actor.scopes`
+          // constrains nothing outside `SessionOnlyGuard` itself: any valid
+          // token from this admin carries their full authority regardless of
+          // its declared scopes.
+          const minted = await adminAgent.post('/auth/tokens').send({ name: 'probe', scopes: ['submissions:read'] });
+          expect(minted.status).toBe(201);
+          const { token } = minted.body as { token: string };
+
+          const byToken = await request(app.getHttpServer())
+            .patch('/admin/users/token-guard-victim')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ globalRole: 'admin' });
+          expect(byToken.status).toBe(403);
+          expect(byToken.body.code).toBe('session_required');
+
+          const [victimAfterToken] = await db.select().from(schema.users).where(eq(schema.users.username, 'token-guard-victim'));
+          expect(victimAfterToken!.globalRole).toBe('user');
+
+          // The same admin's session succeeds — the guard rejects the
+          // credential kind, not the actor.
+          const bySession = await adminAgent.patch('/admin/users/token-guard-victim').send({ globalRole: 'admin' });
+          expect(bySession.status).toBe(200);
+        } finally {
+          await app.close();
+        }
+      });
+    },
+    120_000,
+  );
+
+  it('refuses to let an admin demote themselves out of admin, comparing by id (not username string)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const adminAgent = request.agent(app.getHttpServer());
+        await registerAndLogin(adminAgent, 'SelfDemoteAdmin');
+        await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'SelfDemoteAdmin'));
+
+        // Deliberately different case than the stored username: the
+        // self-demotion check must still recognise this as "self" by
+        // resolving to the same user id, not by comparing strings.
+        const res = await adminAgent.patch('/admin/users/selfdemoteadmin').send({ globalRole: 'setter' });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe('admin_self_demotion');
+
+        const [row] = await db.select().from(schema.users).where(eq(schema.users.username, 'SelfDemoteAdmin'));
+        expect(row!.globalRole).toBe('admin');
+
+        // Demoting a *different* admin is unaffected — only self-demotion is refused.
+        const otherAgent = request.agent(app.getHttpServer());
+        await registerAndLogin(otherAgent, 'other-admin-target');
+        await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'other-admin-target'));
+
+        const demoteOther = await adminAgent.patch('/admin/users/other-admin-target').send({ globalRole: 'setter' });
+        expect(demoteOther.status).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
 });

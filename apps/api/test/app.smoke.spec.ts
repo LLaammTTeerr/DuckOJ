@@ -95,4 +95,19 @@ describe('AppModule composition root', () => {
     );
     expect(res.status).toBe(401);
   });
+
+  // Task 10 review: nothing previously asserted that AdminModule's route
+  // answers behind the real setGlobalPrefix('api/v1', ...) rather than only
+  // in test/app.harness.ts's own subset-of-modules build. 401, not 404, is
+  // the point — same reasoning as the internal-archive-route test just
+  // above: 401 means the route is mounted at this exact prefix and AuthGuard
+  // rejected the anonymous caller before AdminUsersController's own
+  // SessionOnlyGuard ever ran; 404 would mean it isn't reachable here at all.
+  it('reaches PATCH /admin/users/:username at the real /api/v1 prefix', async () => {
+    const res = await request(app.getHttpServer())
+      .patch('/api/v1/admin/users/nobody')
+      .send({ globalRole: 'setter' });
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe('authentication_required');
+  });
 });

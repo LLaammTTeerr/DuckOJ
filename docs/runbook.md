@@ -373,6 +373,14 @@ From then on, that admin can grant `setter` (or further `admin`) to anyone
 else through `PATCH /admin/users/:username` — this one manual step only has
 to happen once per database.
 
+This is also the recovery path if every admin is ever demoted out of the
+role. `AdminUsersService` refuses to let an admin demote *themselves*
+(`admin_self_demotion`), which blocks the realistic accident, but it does not
+close the exotic case of two admins demoting each other in a race — see the
+comment in `admin-users.service.ts` for why that race is left unclosed. If a
+database is ever somehow left with zero admins, the same `UPDATE` above is
+the only way back in.
+
 ### Bringing the stack up under podman-compose — use `scripts/compose-up.sh`
 
 A plain `podman-compose up -d --build` **does not reliably run migrations
