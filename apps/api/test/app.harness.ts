@@ -10,6 +10,7 @@ import type { DestinationStream } from 'pino';
 import type { Db } from '@duckoj/db';
 import { SUBMISSION_CHANNEL } from '@duckoj/realtime';
 import { AuthnModule } from '../src/authn/authn.module.js';
+import { AdminModule } from '../src/admin/admin.module.js';
 import { OrgsModule } from '../src/orgs/orgs.module.js';
 import { ProblemsModule } from '../src/problems/problems.module.js';
 import { SubmissionsModule } from '../src/submissions/submissions.module.js';
@@ -75,7 +76,7 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
   const packageStoreDir = await mkdtemp(join(tmpdir(), 'duckoj-test-packages-'));
 
   const moduleRef = await Test.createTestingModule({
-    imports: [AuthnModule, OrgsModule, ProblemsModule, SubmissionsModule, PackagesModule],
+    imports: [AuthnModule, AdminModule, OrgsModule, ProblemsModule, SubmissionsModule, PackagesModule],
   })
     .overrideProvider(DB)
     .useValue(db)

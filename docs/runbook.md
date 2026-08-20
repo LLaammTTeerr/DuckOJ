@@ -353,6 +353,26 @@ before bringing the stack up, not after.
     sed -i "s/^TOTP_ENC_KEY=.*/TOTP_ENC_KEY=$(openssl rand -hex 32)/" .env
     sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 16)/" .env
 
+### Bootstrapping the first admin
+
+`PATCH /admin/users/:username` (Task 10) lets an existing admin grant
+`setter` or `admin` to another user, but it is admin-only — enforced inside
+`AdminUsersService`, not by the route decorator — so it has no path to
+create the *first* admin on a fresh database. `scripts/seed-problem.ts`'s
+locked `system` account is not usable for this either: it gets no explicit
+`globalRole` on insert, so it defaults to plain `user` like any other row
+(it exists to attribute seeded problems, not to hold privilege, and its
+`passwordHash: '!'` makes it unloggable by construction regardless).
+
+Grant the first admin by hand, directly against the database, after that
+person has registered a normal account through `POST /auth/register`:
+
+    UPDATE users SET global_role = 'admin' WHERE lower(username) = lower('yourname');
+
+From then on, that admin can grant `setter` (or further `admin`) to anyone
+else through `PATCH /admin/users/:username` — this one manual step only has
+to happen once per database.
+
 ### Bringing the stack up under podman-compose — use `scripts/compose-up.sh`
 
 A plain `podman-compose up -d --build` **does not reliably run migrations
