@@ -14,14 +14,21 @@
 // deny-by-default refuses every token that reaches it — but that is
 // indistinguishable from a route nobody thought about, and the next person
 // to add a scope has no marker to imitate. Worse, a route can carry *two*
-// markers that disagree — most dangerously `@RequireScope` alongside
-// `@NoScopeRequired()`, one saying "only this scope", the other "any token
-// at all" — and nothing about the request looks wrong: `ScopeGuard` reads
-// `IS_SESSION_ONLY`, then `NO_SCOPE_REQUIRED`, then `REQUIRED_SCOPE`, in that
-// fixed order, and silently honours whichever it finds first. This test
+// markers that disagree about what a token may do — and nothing about the
+// request looks wrong, because `ScopeGuard` reads `IS_SESSION_ONLY`, then
+// `NO_SCOPE_REQUIRED`, then `REQUIRED_SCOPE`, in that fixed order, and
+// silently honours whichever it finds first, leaving the other marker dead.
+// `@RequireScope`, `@NoScopeRequired()` and `@SessionOnly()` all make a
+// claim on that one axis — "token needs this scope", "any token, unscoped",
+// "no token, ever" — so any two of them together is the same silent-shadow
+// mistake, not just the `@RequireScope`/`@NoScopeRequired()` pair. `@Public()`
+// sits on a different axis entirely (whether an actor is required at all)
+// and combines with at most one of the other three without issue — `GET
+// /orgs` (`@Public()` + `@RequireScope`) is deliberate and legal. This test
 // closes both gaps by walking every route Nest actually registers — not by
 // parsing controller source, see the note below — and asserting each one
-// carries at least one marker and never carries the one contradictory pair.
+// carries at least one marker, and at most one marker from the
+// token-reachability group `{@RequireScope, @NoScopeRequired(), @SessionOnly()}`.
 //
 // Runtime reflection, not source parsing. `packages/contracts/test/route-
 // coverage.spec.ts` and `apps/api/test/dockerfile-manifest.spec.ts` both
@@ -125,6 +132,27 @@ const MARKER_NAMES = {
 } as const;
 
 /**
+ * Every marker in this group makes a claim about the same axis — what a
+ * token may do with this route — so any two of them on one route disagree
+ * with each other, and `ScopeGuard`'s fixed check order (`IS_SESSION_ONLY`,
+ * then `NO_SCOPE_REQUIRED`, then `REQUIRED_SCOPE`) silently resolves the
+ * disagreement instead of surfacing it. `@Public()` is deliberately excluded
+ * — it governs whether an actor is required at all, a different axis, and
+ * legitimately combines with one marker from this group (`@Public()` +
+ * `@RequireScope` on `GET /orgs`, for instance).
+ *
+ * A table of pairs would need one entry per 2-combination and silently miss
+ * a route that somehow carried all three; asserting "at most one from this
+ * group" catches every combination, present or future, without enumerating
+ * them.
+ */
+const MUTUALLY_EXCLUSIVE_GROUP: readonly string[] = [
+  MARKER_NAMES.requireScope,
+  MARKER_NAMES.noScopeRequired,
+  MARKER_NAMES.sessionOnly,
+];
+
+/**
  * The markers present on one route, computed exactly the way `AuthGuard` and
  * `ScopeGuard` compute them at request time — `Reflector.getAllAndOverride`
  * against `[handler, controller]`, handler value winning if present, each of
@@ -198,25 +226,29 @@ describe('route marker coverage', () => {
     expect(unmarked, 'routes with none of @Public()/@RequireScope/@NoScopeRequired()/@SessionOnly()').toEqual([]);
   });
 
-  it('no route carries both @NoScopeRequired() and @RequireScope', () => {
-    // The one contradictory pair: `@Public()` + `@RequireScope` is a
-    // legitimate, common combination (`GET /orgs`, `GET /problems`, ...) —
-    // `@Public()` governs whether an actor is required at all, the scope
-    // governs what a token may do once one is attached, and an anonymous
-    // caller skips both checks. `@NoScopeRequired()` and `@RequireScope`
-    // both govern the same axis — what a token may do — and say opposite
-    // things: "any token" versus "only this scope". `ScopeGuard` checks
-    // `NO_SCOPE_REQUIRED` before `REQUIRED_SCOPE` (see `scope.guard.ts`), so
-    // a route carrying both silently behaves as if only the first were
-    // written, with no error and no visible sign anything is wrong.
+  it('no route carries more than one marker from {@RequireScope, @NoScopeRequired(), @SessionOnly()}', () => {
+    // `@Public()` is deliberately not part of this check — `@Public()` +
+    // `@RequireScope` is a legitimate, common combination (`GET /orgs`,
+    // `GET /problems`, ...): `@Public()` governs whether an actor is
+    // required at all, the scope governs what a token may do once one is
+    // attached, and an anonymous caller skips both checks. Every marker
+    // actually in the group asserts something about that second axis, so
+    // two of them together disagree, and `ScopeGuard`'s fixed check order
+    // (`IS_SESSION_ONLY`, then `NO_SCOPE_REQUIRED`, then `REQUIRED_SCOPE` —
+    // see `scope.guard.ts`) silently honours whichever it finds first, with
+    // no error and no visible sign the other marker was ever written.
     const routes = discoverRoutes(discovery, scanner);
     const contradictory = routes
-      .filter((route) => {
-        const markers = markersOn(reflector, route);
-        return markers.includes(MARKER_NAMES.noScopeRequired) && markers.includes(MARKER_NAMES.requireScope);
-      })
-      .map((route) => `${route.key} (${markersOn(reflector, route).join(', ')})`)
+      .map((route) => ({
+        route,
+        conflicting: markersOn(reflector, route).filter((m) => MUTUALLY_EXCLUSIVE_GROUP.includes(m)),
+      }))
+      .filter(({ conflicting }) => conflicting.length > 1)
+      .map(({ route, conflicting }) => `${route.key} (${conflicting.join(', ')})`)
       .sort();
-    expect(contradictory, 'routes carrying both @NoScopeRequired() and @RequireScope').toEqual([]);
+    expect(
+      contradictory,
+      'routes carrying more than one of @RequireScope/@NoScopeRequired()/@SessionOnly()',
+    ).toEqual([]);
   });
 });
