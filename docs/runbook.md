@@ -174,27 +174,31 @@ transactional outbox is the real fix and is deferred to Phase 2. If you find
 yourself wrapping a transaction around code that calls `apply`, stop and
 re-read this first.
 
-### Three known, deliberate warts
+### Three known, deliberate warts — two since closed
 
-All three are deferred on purpose, not overlooked. Each is the kind of thing
-that costs someone an afternoon if it isn't written down.
+All three were deferred on purpose at Phase 1, not overlooked. Two have since
+been fixed; both entries stay below, corrected in place, because a stale
+"expected, not a bug" note is worse than no note at all — see the `CE` section
+later in this document for exactly that lesson, learned the hard way.
 
-1. **A compile error is reported as verdict `IE`, not `CE`.** `case_verdict`
-   has no `CE` member, so a compile failure writes `IE`. Details, and how the
-   submit page and `scripts/e2e-submit.ts` actually distinguish it (by
-   `compileOutput` being non-empty, not by verdict), are in "The `IE`-for-
-   compile-error wart" section below.
-2. **The bridge does not verify the judge key.** `BridgeServer.accept`
+1. ~~**A compile error is reported as verdict `IE`, not `CE`.** `case_verdict`
+   has no `CE` member, so a compile failure writes `IE`.~~ **Fixed in Phase
+   2b:** migration `0005` added `CE` to `case_verdict` and `EventWriter` now
+   writes it on a `compileError` event. See "A compile error is `CE`" below
+   for the full story, including why the old wording was actively dangerous
+   to leave standing.
+2. ~~**The bridge does not verify the judge key.** `BridgeServer.accept`
    (`apps/judged/src/drivers/dmoj/bridge-server.ts`) replies
    `handshake-success` unconditionally on any `handshake` packet — the `key`
    configured in `judge/judge.yml` is decorative, nothing on the bridge side
-   ever checks it. Anything that can open a TCP connection to `judged`'s
-   bridge port (9999) can register as a judge and be handed submissions,
-   including their source. **Network isolation is the only control**:
-   `docker-compose.yml`'s `judged` service deliberately publishes no ports to
-   the host, and that must stay true — don't "fix" a need to reach 9999 by
-   publishing it. Authenticating the handshake belongs with Phase 2's
-   multi-judge work.
+   ever checks it.~~ **Closed in Phase 2a:** every judge now presents a real
+   `(name, token)` credential at the handshake, checked against `judge_nodes`,
+   fails closed. See "Judges now authenticate" further down (in "End-to-end
+   acceptance against the real judge") for how a wrong token actually
+   surfaces — it looks like a network problem and is not one. Network
+   isolation (`judged`'s bridge port is never published to the host) is now
+   defense in depth rather than the only control, and should stay that way
+   regardless.
 3. **There is no scheduling policy and no attempt cap.** `Worker` takes jobs
    in creation order, one judge, first-come-first-served (see the comment
    above the `Worker` class in `apps/judged/src/worker.ts`). A job that fails
@@ -250,13 +254,20 @@ This is the single most important thing to understand before adding an endpoint.
 **Credential-management routes take a second guard.**
 `@UseGuards(SessionOnlyGuard)` (`apps/api/src/authn/session-only.guard.ts`)
 rejects callers whose `Actor.via` is `'token'` with a 403 `session_required`.
-`TokensController` and `TotpController` carry it at class level. Add it to
-anything that mints, revokes or rewrites a credential: without it, a leaked
-personal access token can disable its owner's TOTP (`POST /auth/totp/begin`
-upserts a new secret with `confirmedAt: null`) and mint its own replacements, so
-revoking the leaked token stops ending the compromise. This is *not* step-up
-re-authentication and it does not check `scopes` — `Actor.scopes` is still read
-by nothing, and what it should mean is a Phase 1 decision.
+`TokensController` and `TotpController` carry it at class level, and so does
+`AdminUsersController` (Phase 2b) — minting an admin is a strictly stronger
+case of "rewrites the credentials that govern it" than anything the first two
+guard, and Task 10 shipped without this guard at first: a scoped access token
+could `PATCH /admin/users/:username` and grant itself `admin`, which meant a
+leaked token became a permanent admin-minting capability surviving its own
+revocation. Caught in review before merge, not after. Add the guard to
+anything that mints, revokes or rewrites a credential, or grants a privilege
+that can be used to do so: without it, a leaked personal access token can
+disable its owner's TOTP (`POST /auth/totp/begin` upserts a new secret with
+`confirmedAt: null`) and mint its own replacements, so revoking the leaked
+token stops ending the compromise. This is *not* step-up re-authentication and
+it does not check `scopes` — `Actor.scopes` is still read by nothing, and what
+it should mean is a decision nobody has made yet.
 
 ## Adding a database table
 
@@ -310,6 +321,48 @@ This writes `openapi.json` (repo root) and `packages/sdk/src/generated.ts`. CI's
 "Verify OpenAPI and SDK are up to date" step runs the same two commands and then
 `git diff --exit-code -- openapi.json packages/sdk/src/generated.ts` — a
 forgotten regeneration fails CI, not just a lint pass locally.
+
+## The API docs viewer — `/api/v1/docs`
+
+The committed `openapi.json` above is a **build artifact**, feeding SDK
+generation, and it can drift from what the running API actually registered
+between a code change and the next `pnpm --filter @duckoj/contracts openapi`.
+`apps/api/src/docs/docs.controller.ts` serves a second copy of the document
+that cannot drift from itself, because it calls `openApiDocument()` fresh on
+every request rather than reading a file: `GET /api/v1/openapi.json`. A
+vendored viewer for it — [Scalar](https://github.com/scalar/scalar)'s
+standalone bundle, shipped from `apps/api/assets/vendor/`, not pulled from a
+CDN, because the Compose stack has no guaranteed outbound network and a docs
+page that silently fails to load offline is worse than no docs page — is
+served alongside at `GET /api/v1/docs`. Both routes are `@Public()`: gating
+the one place a new integrator learns the API behind a session they don't
+have yet would defeat the point.
+
+**Both live under the API's own `/api/v1` prefix, deliberately, not at the
+root.** The `Caddyfile` proxies `/api/*`, `/ws`, and the two health probes to
+the API; everything else falls through to the SPA's catch-all
+(`try_files {path} /index.html`), which answers any unmatched path with
+`index.html` and a `200`. A document served at a bare root `/openapi.json`
+would therefore not 404 — it would silently serve the web app's markup as if
+it were the OpenAPI document, verified directly against the running stack:
+
+    $ curl -sk -o /dev/null -w '%{http_code}\n' https://localhost:8443/openapi.json
+    200
+    $ curl -sk https://localhost:8443/openapi.json | head -c 60
+    <!doctype html><html lang="vi"><head><meta charset="utf-8"
+
+That is a worse failure than the `/ws` bug this project already paid for once
+(see "The live-update path (`/ws`) was broken through Caddy" below): a `200`
+carrying the wrong body looks like success, and the first symptom would be a
+docs viewer that renders nothing with no error anywhere. Serving both routes
+inside the existing `/api/v1` prefix means the Caddyfile's `handle /api/*`
+block already routes them correctly with no edit needed — one less place for
+two configs to disagree. This is also why `openApiDocument()`
+(`packages/contracts/src/registry.ts`) derives its `servers` entry from
+`` `/${API_PREFIX}` `` rather than a bare `api/v1`: a *relative* server URL
+resolves against the location the document was served from, and a bare prefix
+served from `/api/v1/openapi.json` would send every "try it" request in the
+viewer to `/api/v1/api/v1/...`.
 
 ## Reading a guarded table
 
@@ -426,23 +479,51 @@ step fails rather than plowing on:
 
     ./scripts/compose-up.sh
 
-What the script does, in order: `podman-compose build`; `up -d postgres`;
-poll for `postgres` healthy; `up migrate` in the foreground (blocking until it
-exits) and check its container's real exit code, not just podman-compose's
-own return code; `up -d --no-deps api caddy`; poll for `api` healthy before
-exiting. `--no-deps` on the last step is required — without it,
-podman-compose restarts `migrate` as part of bringing `api` up and
-reintroduces the race, even though migrations already applied cleanly.
+What the script does, in order, as of Phase 2b (it grew a redis dependency and
+two more services since this section was first written — read the current
+`scripts/compose-up.sh`, not just this summary, if the two ever disagree):
+`podman-compose build`; `up -d postgres redis`; poll both healthy; `up migrate`
+in the foreground (bounded by `MIGRATE_TIMEOUT`, blocking until it exits) and
+check its container's real exit code, not just podman-compose's own return
+code; `up -d --no-deps --force-recreate api judged caddy`; poll `api` then
+`judged` healthy; `up -d --no-deps --force-recreate judge` (started only after
+`judged` is confirmed healthy, purely so the bring-up log shows a clean
+first-attempt handshake rather than a retry backoff); poll `judge` healthy.
+`--no-deps` is required on every one of those `up` calls — without it,
+podman-compose restarts `migrate` as part of bringing a dependent service up
+and reintroduces the race, even though migrations already applied cleanly.
 (Re-running `migrate` itself is harmless — drizzle's migrator is idempotent,
 confirmed by the "already exists, skipping" Postgres notices on a second run
-— the danger is only `api` starting before that repeat run finishes.)
+— the danger is only a dependent service starting before that repeat run
+finishes.)
 
-`--no-deps` also removes `caddy`'s own `depends_on: api: service_healthy`
-gate, since it's the same flag applied to the same command — which is exactly
-why the script polls `api` itself before exiting, restoring that guarantee
-instead of leaving it to the (broken, under podman-compose) `depends_on`.
+**`--force-recreate` is load-bearing, not belt-and-braces — fixed at `f0c72e5`
+after it bit a real run.** `podman-compose up -d --no-deps` under
+podman-compose 1.5 *starts* a stopped container but does **not** recreate a
+running one whose image has changed. Before this fix, re-running
+`compose-up.sh` after `podman-compose build` picked up new source left the old
+container running the old image — and the script's own `wait_healthy` then
+polled *that* container's still-green healthcheck and reported success. Found
+during Task 7b, when a freshly built `/api/v1/docs` route kept 404ing from a
+container the script had just called healthy: the script did not fail, it
+lied, and every check made after it was against the wrong binary — the exact
+same hazard class as the "stale image silently seeds the wrong thing" entry
+below, this time living in the bring-up script itself rather than a one-off
+`podman run`. An operator who hit this before the fix had no signal to go on:
+`compose-up.sh` exited 0, `podman-compose ps` showed the service "running,"
+and the only symptom was a change that provably shipped behaving as if it
+had not. If a rebuild ever again seems to have no effect, confirm the
+container's actual age (`podman inspect <cid> --format '{{.State.StartedAt}}'`)
+before doubting the change itself.
 
-Override `COMPOSE`, `POSTGRES_TIMEOUT`, or `API_TIMEOUT` (seconds) as
+`--no-deps` on the `api`/`judged`/`caddy` step also removes `caddy`'s own
+`depends_on: api: service_healthy` gate, since it's the same flag applied to
+the same command — which is exactly why the script polls `api` itself before
+moving on, restoring that guarantee instead of leaving it to the (broken,
+under podman-compose) `depends_on`.
+
+Override `COMPOSE`, `POSTGRES_TIMEOUT`, `REDIS_TIMEOUT`, `API_TIMEOUT`,
+`JUDGED_TIMEOUT`, `JUDGE_TIMEOUT`, or `MIGRATE_TIMEOUT` (seconds) as
 environment variables if needed; see the comments at the top of
 `scripts/compose-up.sh`.
 
@@ -843,8 +924,9 @@ tests in `apps/judged/test/dmoj-driver.spec.ts` (`sends periodic ping frames
 to a connected judge on the configured interval`, `drops a judge connection
 that stops answering, and no longer broadcasts to it`) using an injected
 short interval, and by two live end-to-end runs against the real containerized
-judge after the fix (both `AC 3/3`, `WA 1/3`, `IE` with real compiler output
-— no hangs). The real 300s-idle boundary against a live judge container was
+judge after the fix (both `AC 3/3`, `WA 1/3`, `IE` with real compiler output —
+this predates Phase 2b's `CE` fix, see "A compile error is `CE`" below — and
+no hangs). The real 300s-idle boundary against a live judge container was
 **not** separately re-exercised in this session — the injected-short-interval
 unit tests plus the live e2e passes were judged sufficient evidence; if a
 stuck-dispatch incident recurs, re-check this fix first before assuming a new
@@ -906,6 +988,122 @@ running services — it is safe mid-session and does not require tearing down
 the stack or going through `scripts/compose-up.sh` again (that script's
 migration-ordering guarantee is irrelevant to recreating a single already-
 migrated-against service).
+
+## Phase 2b: authoring a problem
+
+The whole path from a fresh database to a public, gradeable problem, by hand,
+over real HTTP against the running stack — no test harness, no script. Every
+command below was run against this repo's own live Compose stack (`podman ps`
+showing all five services healthy) while writing this section; actual output
+is shown, trimmed where noted. `scripts/e2e-problem.ts` (below) automates this
+exact sequence, plus grading a correct and an uncompilable submission at the
+end — read it if you want the same thing scripted and repeatable, or to see
+the role-refusal and visibility checks this walkthrough skips for brevity.
+
+    BASE=https://localhost:8443/api/v1
+    PROJECT=duckoj   # your podman-compose project name; `podman-compose ps` if unsure
+
+**1. Register the setter's account** (whoever will actually author the
+problem — see step 3 for why this is a separate account from the admin):
+
+    curl -sk -c setter.cookies -X POST "$BASE/auth/register" \
+      -H 'content-type: application/json' \
+      -d '{"username":"alice","email":"alice@example.com","password":"a-long-enough-password","displayName":"Alice"}'
+
+**2. Bootstrap the first admin with SQL.** There is no HTTP route that can
+mint the *first* admin — see "Bootstrapping the first admin" above for why —
+so register the admin's own account the same way, then reach into the
+database directly. `postgres` publishes no host port (see "Local
+development"), so this runs as a `podman exec` into the container:
+
+    curl -sk -c admin.cookies -X POST "$BASE/auth/register" \
+      -H 'content-type: application/json' \
+      -d '{"username":"admin1","email":"admin1@example.com","password":"a-long-enough-password","displayName":"Admin"}'
+
+    podman exec "${PROJECT}_postgres_1" psql -U duckoj -d duckoj -v ON_ERROR_STOP=1 \
+      -c "UPDATE users SET global_role = 'admin' WHERE lower(username) = lower('admin1')"
+    # UPDATE 1
+
+    curl -sk -c admin.cookies -X POST "$BASE/auth/login" \
+      -H 'content-type: application/json' \
+      -d '{"usernameOrEmail":"admin1","password":"a-long-enough-password"}'
+    # {"user":{...,"globalRole":"admin",...}}
+
+**3. Grant `setter` through the HTTP route the bootstrap unlocks.** This is
+the one-time-per-database manual step; every promotion after this one goes
+through this route, run by an existing admin:
+
+    curl -sk -b admin.cookies -X PATCH "$BASE/admin/users/alice" \
+      -H 'content-type: application/json' \
+      -d '{"globalRole":"setter"}'
+    # {"id":13,"username":"alice","globalRole":"setter"}
+
+    curl -sk -c setter.cookies -b setter.cookies -X POST "$BASE/auth/login" \
+      -H 'content-type: application/json' \
+      -d '{"usernameOrEmail":"alice","password":"a-long-enough-password"}'
+
+**4. Create the problem, private,** as the setter. `POST /problems` needs
+`setter` or `admin` standing; the response records the caller as an `author`
+member of it:
+
+    curl -sk -b setter.cookies -X POST "$BASE/problems" \
+      -H 'content-type: application/json' \
+      -d '{"code":"aplusb-copy","name":"A plus B (copy)","statement":"# A plus B\n\nRead a and b, print a+b.\n","visibility":"private"}'
+    # {"id":6,"code":"aplusb-copy",...,"visibility":"private","hasPublishedRevision":false,
+    #  "members":[{"username":"alice","role":"author"}],"orgSlugs":[]}
+
+**5. Build a package, and upload it over HTTP.** `scripts/package-build.ts`
+packs a problem directory (`packages/package-format`'s `packDirectory`) into a
+deterministic, zstd-compressed archive and prints its content-addressed hash —
+this repo's own `problems/aplusb/` is a ready-made directory to point it at:
+
+    corepack pnpm run package:build problems/aplusb /tmp/aplusb.tar.zst
+    # {"hash":"73d40a7e62d7019346f137048ee1f251e07cad9e4e34b8593f28a2f42f12e406","files":7,"bytes":389}
+
+    HASH=73d40a7e62d7019346f137048ee1f251e07cad9e4e34b8593f28a2f42f12e406
+    curl -sk -b setter.cookies -X POST "$BASE/packages?hash=$HASH" \
+      -H 'content-type: application/octet-stream' \
+      --data-binary @/tmp/aplusb.tar.zst
+    # {"hash":"73d40a7e62d7019346f137048ee1f251e07cad9e4e34b8593f28a2f42f12e406"}
+
+`PackagesService.upload` re-derives the hash from the files it actually
+unpacks and rejects a mismatch (422), so a stale or hand-edited archive is
+caught here, not silently accepted. Any authenticated session can upload —
+uploading a package and having standing to attach it to a *problem* are
+separate permissions.
+
+**6. Attach it as a draft revision, then publish.** Attach denormalises the
+package manifest's limits onto the revision row (visible immediately, no need
+to open the archive again); publish archives whatever was previously
+published for this problem and promotes the new one, atomically:
+
+    curl -sk -b setter.cookies -X POST "$BASE/problems/aplusb-copy/revisions" \
+      -H 'content-type: application/json' \
+      -d "{\"packageHash\":\"$HASH\",\"notes\":\"first cut\"}"
+    # {"version":1}
+
+    curl -sk -b setter.cookies -X POST "$BASE/problems/aplusb-copy/revisions/1/publish"
+    # {"version":1}
+
+A submission against `aplusb-copy` would still be refused right now
+(`404 problem_not_found`, not a distinct code — see
+`SubmissionAccessService.create`'s comment on why): publishing a revision
+makes it *gradeable*, but the problem itself is still `private`, and
+visibility governs submissions the same way it governs reads.
+
+**7. Make it public.** Any editor (author, curator, admin) can `PATCH` a
+problem's visibility; the response's `hasPublishedRevision`/`testCount`/
+`totalPoints` fields are now populated, read straight from the published
+revision:
+
+    curl -sk -b setter.cookies -X PATCH "$BASE/problems/aplusb-copy" \
+      -H 'content-type: application/json' \
+      -d '{"visibility":"public"}'
+    # {..."visibility":"public","hasPublishedRevision":true,"testCount":3,"totalPoints":3,...}
+
+From here it behaves exactly like any other public problem: it shows up in
+an anonymous `GET /problems` list and detail page, and `POST /submissions`
+against `aplusb-copy` grades against the revision just published.
 
 ## The problems path end to end — `scripts/e2e-problem.ts`
 
@@ -1011,31 +1209,34 @@ fonts as a browser renders them, and any behaviour that depends on a real
 event loop or user input. A jsdom run proves the data path, not the visual
 one.
 
-## Known issues carried into Phase 2b
+## Known issues carried into Phase 3
 
-Four things found while building the package pipeline, judged out of scope
-for Phase 2a, and recorded here so they are not lost.
+Six things worth a new maintainer's attention: two residual risks from
+Phase 2a's Docker/deploy work (one of them since substantially closed, not
+just carried), and four found during Phase 2b itself. Recorded here so none
+of them are lost or, worse, silently believed fixed when they are not.
 
-### The Dockerfile COPY manifest is a recurring trap
+### The Dockerfile COPY manifest is hand-maintained, but no longer silent
 
-**Symptom:** a real `podman-compose build` fails typecheck (or, worse,
-succeeds against a stale set of packages) after a new workspace package is
-added under `packages/*` or `apps/*`, even though `pnpm -r typecheck` is
-green. Nothing in the test suite can see this — it is purely a property of
-`apps/api/Dockerfile` and `judge/Dockerfile`'s deps stages, each of which
-copies workspace `package.json` files by an **explicit, hand-maintained
-list**. A package left off the list breaks the build the moment anything
-imports it.
+**This section previously said nothing catches a missing `COPY` line.**
+That stopped being true between Phase 2a and Phase 2b:
+`apps/api/test/dockerfile-manifest.spec.ts` (commit `5b7865b`) now derives
+each Dockerfile's required `COPY <pkg>/package.json` lines from the real
+workspace dependency graph (`pnpm-workspace.yaml` plus every `package.json`'s
+`workspace:` edges) and asserts every line is present — Global Constraint 8
+of Phase 2b's spec required it stay green, and it did throughout. A package
+left off the list now fails `pnpm -r test`, not just a real image build.
 
-This has now happened **twice**: once in Phase 1 (fixed in that phase's
-final cleanup, commit `0d5e326`), and again in Phase 2a's Task 13 (latent
-since Task 9, fixed in `df56c95`). Both times the fix was the same one-line
-patch to the same kind of list. That repetition is the signal: this needs a
-structural fix, not a third patch next phase. Two candidates, either of
-which removes the failure mode rather than narrowing it: glob the `COPY`
-instead of listing packages by name, or add a build-time check that fails
-loudly when a workspace package is missing from the list. Left for whoever
-picks up Phase 2b's Docker work.
+**What's still true:** the `COPY` lines themselves are still **hand-written**
+— the test verifies completeness, it does not generate the list or glob the
+directory. Adding a workspace package still means remembering to add its
+`COPY` line by hand; the difference Phase 2a-era failures didn't have is that
+forgetting it now fails loudly in the same `pnpm -r test` run that a
+green-suite-but-broken-build symptom used to survive completely. This had
+already caused the exact silent-build-break symptom twice (Phase 1, fixed in
+`0d5e326`; Phase 2a's Task 13, fixed in `df56c95`) before the test existed. If
+a third instance ever reaches an actual image build rather than failing this
+test, that is itself a bug in the test, not a gap it was never meant to cover.
 
 ### A stale image silently seeds the wrong thing
 
@@ -1064,20 +1265,82 @@ migration step ran and did something unexpected, check the image's build
 timestamp against your last edit before chasing the script's logic — the
 script may be correct and simply not the one that ran.
 
-### The OpenAPI `servers` URL is a fourth, unenforced copy of the API prefix
+This is the same hazard class as `scripts/compose-up.sh`'s own stale-image bug
+fixed at `f0c72e5` (see "Bringing the stack up under podman-compose" above) —
+a container that keeps running old code after a rebuild, with nothing
+distinguishing it on the surface from the fresh one. That fix covers `api`,
+`judged`, `caddy`, and `judge`, the services `compose-up.sh` itself manages.
+It does **not** cover this one-off `podman run` seed invocation, which sits
+outside the script entirely — hence this entry stays open.
 
-`packages/contracts/src/registry.ts:9` hardcodes `servers: [{ url: '/api/v1' }]`
-rather than importing `API_PREFIX` from `@duckoj/api-prefix` — the package
-that exists specifically so the real routing prefix has exactly one source
-(see that package's own doc comment for why it was created: a prefix once
-silently missing from `apps/judge-agent/src/materializer.ts` broke every
-real archive fetch behind a fully green test suite). This one is
-documentation metadata inside the generated `openapi.json`, not a routing
-path — nothing breaks at runtime if it drifts from the real prefix, which
-is why it was left alone rather than fixed under time pressure. But it
-means "the prefix is single-sourced" is not literally true of the codebase
-as a whole. A one-line import-and-substitute fix whenever someone is next
-in this file.
+### `dist/`-resolution can make a mutation test lie mid-session
+
+**Symptom:** you deliberately break `src/` to confirm a test fails (a
+mutation check — see Global Constraint 7), the test passes anyway, and you
+conclude the test cannot fail — when actually `apps/api` resolved the
+workspace package you edited through its already-built `dist/`, not the
+`src/` you just changed.
+
+**Cause:** `pretest` hooks (Global Constraint 8) guarantee every package is
+freshly built before *its own* `test` script runs, but they do nothing for a
+manual, mid-session check against a `dist/` built earlier in the same
+session — which is precisely when someone is deliberately breaking source to
+watch a test fail. This has already produced a spurious pass once, in Task
+7a: the implementer hand-edited `@duckoj/contracts`' source and ran a
+mutation demo against `apps/api`, which resolves `@duckoj/contracts` through
+its built `dist/`, not live `src/` — the demo passed spuriously against the
+stale `dist/`, and was caught only because the implementer rebuilt and
+re-ran before trusting it. The user caught the first instance of this exact
+class, independently, before Phase 2b began.
+
+**Not fixed.** The honest fix is a change to the mutation-checking workflow
+itself — something that forces a rebuild of the mutated package before the
+dependent test runs, or makes a stale `dist/` visibly detectable (a build
+timestamp check, for instance) — not a code change to any one package. Until
+that exists: **rebuild the workspace package you just mutated before trusting
+a "this test cannot fail" conclusion**, every time, even when it feels
+redundant.
+
+### No router library is adopted, and the cost of that is now measured
+
+`apps/web`'s five routes (`/`, `/problems`, `/problems/:code`,
+`/problems/new`, `/problems/:code/edit`, `/problems/:code/revisions`) are
+matched by a hand-rolled `parseRoute` against `window.location.pathname`, with
+plain `<a href>` links and no History API listener. `@tanstack/react-router`
+has been a declared dependency since Phase 0 and is imported by nowhere in
+the codebase.
+
+Phase 2b measured what that costs, rather than continuing to guess: taking
+`parseRoute` from two routes to five required an explicit
+static-before-dynamic match order (`/problems/new` must be tried before the
+generic `/problems/:code` capture, or the literal segment `new` parses as a
+problem code) plus three hand-written regexes. Correctness now depends on a
+human reading the file top to bottom in the right order, rather than a router
+resolving path specificity structurally. That is a concrete, measured cost,
+not a hypothetical one, and it is the argument for adopting the already-
+installed router in Phase 3 rather than continuing to hand-extend
+`parseRoute`. If Phase 3 adds routes before that decision is made,
+**extend `parseRoute` — do not invent a second routing mechanism
+alongside it.** Two half-routers would be worse than one hand-rolled one.
+
+### A timing side-channel in org-slug resolution, left open on purpose
+
+`ProblemAccessService.resolveOrgIds` (`apps/api/src/authz/problem.access.ts`)
+fails fast, after one query, when a named organization slug does not exist at
+all — but costs a second, membership-checking query when the slug exists and
+the actor simply isn't allowed to see it. In a request naming several slugs,
+the query count before the first failure scales with *which* slug fails and
+*why*, which is in principle enough for a very patient, very quiet attacker
+to binary-search which private organization slugs exist, by timing alone.
+
+**Left unfixed, deliberately**, for two reasons: it needs many precise timing
+samples to distinguish one extra indexed Postgres query over a network, and it
+is no worse than the `<resource>_not_found`-vs-403 pattern this codebase
+already uses everywhere a 404 stands in for "exists but you can't see it" —
+that path also costs an existence query plus a visibility load. Fixing the
+org-resolution instance alone would buy nothing while the identical shape
+stands in at least three other services. If timing resistance is ever wanted,
+it is a project-wide decision applied consistently, not a one-file patch.
 
 ### A recurring test flake in `apps/judged` — unreproduced and unexplained
 
@@ -1091,13 +1354,21 @@ isolation immediately after, and always on a diff touching nothing in
 3. Phase 2a, Task 14: `dmoj-driver.spec.ts` (a `vi.waitFor` timing
    assertion, under heavy concurrent load).
 
+**The count still stands at three.** Phase 2b watched for it explicitly —
+Task 9's ledger entry records two full-workspace parallel runs immediately
+after touching `apps/judged` (the `CE` verdict fix) with no sighting — and it
+did not recur.
+
 Testcontainer/Podman contention under full-workspace parallelism is the
 leading **hypothesis** for the pattern — not a diagnosis. It has not been
-reproduced deliberately, root-caused, or fixed, and no attempt was made to
-fix it as part of Phase 2a's acceptance: an unreproduced flake "fixed" by
-guessing would be worse than leaving it documented. If it recurs, the
-useful first move is confirming it is this same pattern (full-workspace
-run, fails once, green in isolation, unrelated diff) rather than a real
-regression, and — if it needs a real fix eventually — explicit per-test
-timeouts rather than inherited defaults is the direction Phase 1's notes
-already point at, though that has not been tried.
+reproduced deliberately, root-caused, or fixed, and **no attempt has been made
+to fix it, on purpose**: a speculative fix for an unreproduced flake would
+change the exact conditions under which it has appeared three times, and if
+it then stopped recurring, there would be no way to tell whether it was fixed
+or merely destroyed the evidence that could have diagnosed it. Leave it
+alone until it can be reproduced on demand. If it recurs, the useful first
+move is confirming it is this same pattern (full-workspace run, fails once,
+green in isolation, unrelated diff) rather than a real regression, and — if
+it needs a real fix eventually — explicit per-test timeouts rather than
+inherited defaults is the direction Phase 1's notes already point at, though
+that has not been tried.
