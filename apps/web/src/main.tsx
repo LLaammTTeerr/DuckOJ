@@ -7,6 +7,7 @@ import { ProblemsPage } from './routes/problems.js';
 import { ProblemPage } from './routes/problem.js';
 import { ProblemEditPage } from './routes/problem-edit.js';
 import { ProblemRevisionsPage } from './routes/problem-revisions.js';
+import { HomePage } from './routes/home.js';
 import { api } from './api.js';
 import './app.css';
 
@@ -18,6 +19,7 @@ type Route =
   | { name: 'problem-new' }
   | { name: 'problem-edit'; code: string }
   | { name: 'problem-revisions'; code: string }
+  | { name: 'submit' }
   | { name: 'root' };
 
 // There is still no router — `@tanstack/react-router` remains an open
@@ -55,6 +57,10 @@ function parseRoute(pathname: string): Route {
   if (revisionsMatch) return { name: 'problem-revisions', code: revisionsMatch[1]! };
   const match = /^\/problems\/([^/]+)\/?$/.exec(pathname);
   if (match) return { name: 'problem', code: match[1]! };
+  // `/submit` is its own route now. It used to fall through to `root`, which
+  // is why the home page rendered the submit form: the two were the same
+  // screen. Separating them is what lets `/` say something about the site.
+  if (pathname === '/submit' || pathname === '/submit/') return { name: 'submit' };
   return { name: 'root' };
 }
 
@@ -117,9 +123,30 @@ function App() {
     if (route.name === 'problem') return <ProblemPage code={route.code} />;
 
     if (me.isLoading) return <p>Loading…</p>;
-    if (!me.data) return <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />;
 
-    return <SubmitPage />;
+    // Submitting needs a session; browsing does not. An anonymous visitor who
+    // follows a problem's "Submit a solution" link lands here and is shown the
+    // form to get one, rather than a bare 403 with no way forward.
+    if (route.name === 'submit') {
+      if (!me.data) {
+        return (
+          <>
+            <p>Sign in to submit a solution.</p>
+            <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />
+          </>
+        );
+      }
+      return <SubmitPage />;
+    }
+
+    return (
+      <>
+        <HomePage me={me.data ?? null} />
+        {me.data ? null : (
+          <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />
+        )}
+      </>
+    );
   }
 }
 

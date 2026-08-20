@@ -185,3 +185,25 @@ test('every route carries the shell: one nav, links that work, styles applied', 
     expect(watch.errors, `${path} reported: ${watch.errors.join(' | ')}`).toEqual([]);
   }
 });
+
+test('the home page introduces the site instead of the submit form', async ({ page }) => {
+  // `/` used to render the submit form directly — a Phase 1 scaffold from when
+  // submitting was the only thing the app did. It offered to grade a solution
+  // before showing what there was to solve.
+  const watch = watchForBrokenRequests(page);
+  await page.goto('/');
+
+  await expect(page.getByRole('heading', { level: 1, name: 'DuckOJ' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /browse problems/i })).toBeVisible();
+
+  // The submit form must NOT be here. Its language selector is the part unique
+  // to it — the sign-in form below shares this page, so asserting on "no form"
+  // would be wrong.
+  await expect(page.locator('#language')).toHaveCount(0);
+
+  // …and it must still exist on its own route.
+  await page.goto('/submit');
+  await expect(page.getByLabel(/username or email/i)).toBeVisible();
+
+  expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
+});
