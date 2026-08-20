@@ -3547,7 +3547,17 @@
                   "scopes": {
                     "type": "array",
                     "items": {
-                      "type": "string"
+                      "type": "string",
+                      "enum": [
+                        "problems:read",
+                        "problems:write",
+                        "problems:publish",
+                        "submissions:read",
+                        "submissions:write",
+                        "orgs:read",
+                        "packages:read",
+                        "packages:write"
+                      ]
                     },
                     "default": []
                   },

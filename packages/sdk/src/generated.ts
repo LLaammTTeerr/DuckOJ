@@ -1935,7 +1935,7 @@ export interface paths {
                     "application/json": {
                         name: string;
                         /** @default [] */
-                        scopes?: string[];
+                        scopes?: ("problems:read" | "problems:write" | "problems:publish" | "submissions:read" | "submissions:write" | "orgs:read" | "packages:read" | "packages:write")[];
                         /** Format: date-time */
                         expiresAt?: string;
                     };

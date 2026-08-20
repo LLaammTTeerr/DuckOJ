@@ -6,6 +6,7 @@ export * from './orgs.js';
 export * from './packages.js';
 export * from './problems.js';
 export * from './registry.js';
+export * from './scopes.js';
 export * from './submissions.js';
 export * from './tokens.js';
 export * from './totp.js';
