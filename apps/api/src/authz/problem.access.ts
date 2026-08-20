@@ -474,11 +474,34 @@ export class ProblemAccessService {
    * Safe to archive the previous revision because `submissions.revisionId`
    * pins the revision that graded each submission at creation time — an
    * archived row stays referenced and readable forever, never touched here.
+   *
+   * The `SELECT ... FOR UPDATE` on the problem row is load-bearing, not
+   * decorative: under READ COMMITTED (this project's default, unmodified
+   * anywhere), two concurrent publishes targeting *different* not-yet-
+   * published revisions of the same problem would otherwise see no lock
+   * contention at all — each transaction's archive step only matches rows
+   * already published in its own snapshot, so neither sees the other's
+   * uncommitted target, and both could commit with two revisions left
+   * `published`. The lock serialises publishes per problem so that race
+   * cannot happen; `problem_revisions_one_published_idx` (a partial unique
+   * index on `problem_id` where `state = 'published'`) is the second half of
+   * the pairing, guarding the invariant even if some future caller forgets
+   * the lock — the same belt-and-suspenders Task 1 used for
+   * `(problemId, version)`. Archive-then-publish ordering below matters for
+   * that index: Postgres checks a unique index per-statement, not at commit,
+   * so archiving the old row before publishing the new one means there is
+   * never a moment inside this transaction where two rows are `published`
+   * for one problem.
    */
   async publishRevision(actor: Actor | null, code: string, version: number): Promise<PublishRevisionResult> {
     const { problem } = await this.loadForEdit(actor, code);
 
     return this.db.transaction(async (tx) => {
+      // Locks the problem row so a concurrent publish on the same problem
+      // blocks here until this transaction commits or rolls back — see the
+      // method doc for why this is required, not optional.
+      await tx.select({ id: problems.id }).from(problems).where(eq(problems.id, problem.id)).for('update');
+
       const target = (
         await tx
           .select({ id: problemRevisions.id, state: problemRevisions.state })
@@ -489,6 +512,9 @@ export class ProblemAccessService {
       if (!target) throw new AppError(404, 'revision_not_found', 'No such revision.');
 
       if (target.state !== 'published') {
+        // Archive before publish: a unique index enforces "at most one
+        // published revision per problem" per-statement, so this order never
+        // has both rows published inside the same statement.
         await tx
           .update(problemRevisions)
           .set({ state: 'archived' })

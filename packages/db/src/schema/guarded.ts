@@ -118,7 +118,21 @@ export const problemRevisions = pgTable(
     checkerKind: text('checker_kind').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('problem_revisions_version_idx').on(t.problemId, t.version)],
+  (t) => [
+    uniqueIndex('problem_revisions_version_idx').on(t.problemId, t.version),
+    // At most one published revision per problem at any time — the invariant
+    // publishRevision's archive-then-publish sequencing relies on. A row
+    // lock (`SELECT ... FOR UPDATE` on the parent `problems` row) serialises
+    // concurrent publishes in practice; this index is the second half of
+    // that pairing (mirrors Task 1's `problem_revisions_version_idx`): it
+    // makes the invariant impossible to violate even if some future caller
+    // forgets the lock. Partial on `state = 'published'` so any number of
+    // `draft`/`archived` rows coexist freely — only two 'published' rows for
+    // the same problem collide.
+    uniqueIndex('problem_revisions_one_published_idx')
+      .on(t.problemId)
+      .where(sql`${t.state} = 'published'`),
+  ],
 );
 
 export const problemRole = pgEnum('problem_role', ['author', 'curator', 'tester']);

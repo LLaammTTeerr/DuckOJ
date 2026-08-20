@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
-import { schema } from '@duckoj/db';
+import { and, eq } from 'drizzle-orm';
+import { createDb, schema } from '@duckoj/db';
 import type { Db } from '@duckoj/db';
 import { problemMembers, problemRevisions, problems, submissions } from '@duckoj/db/guarded';
 import type { Actor } from '../src/authz/actor.js';
 import { ProblemAccessService } from '../src/authz/problem.access.js';
 import { SubmissionAccessService } from '../src/authz/submission.access.js';
 import type { PackageStore } from '../src/packages/package.store.js';
-import { withTestDb } from './db.harness.js';
+import { testDbUrl, withTestDb } from './db.harness.js';
 import { insertUser } from './submissions.fixtures.js';
 
 function actorFor(userId: number, globalRole: 'user' | 'setter' | 'admin' = 'user'): Actor {
@@ -118,6 +118,19 @@ describe('ProblemAccessService.publishRevision', () => {
     });
   }, 120_000);
 
+  /**
+   * Nothing in `publishRevision` touches `submissions` at all, so this test
+   * cannot fail against the current implementation — its only real
+   * watch-fail evidence was the pre-implementation `is not a function`
+   * failure. It stays because it is a regression guard against a *future*
+   * change: a "rewrite submissions.revisionId to follow currentRevisionId"
+   * step, a cascade delete of archived revisions, or a submission read that
+   * joins through `problems.currentRevisionId` instead of the pinned
+   * `submissions.revisionId` column. Any of those would silently break the
+   * "an archived revision stays readable forever for the submissions graded
+   * against it" guarantee the whole archive-on-publish design depends on;
+   * this test is what would catch it.
+   */
   it('a submission made against the archived revision still reads back its own revision', async () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'pub-owner3');
@@ -247,5 +260,205 @@ describe('ProblemAccessService.publishRevision', () => {
       expect(list).toHaveLength(1);
       expect(list[0]).toMatchObject({ id: rev1.id, version: 1, state: 'draft' });
     });
+  }, 120_000);
+
+  it('canViewRevisions coverage: author, curator and admin can list; anonymous cannot', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'pub-owner9');
+      const curator = await insertUser(db, 'pub-curator9');
+      const admin = await insertUser(db, 'pub-admin9');
+      const { id } = await seedProblem(db, { code: 'pub9', createdBy: owner.id });
+      await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
+      await db.insert(problemMembers).values({ problemId: id, userId: curator.id, role: 'curator' });
+      const rev1 = await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id });
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      // Author: a member via `problemMembers`, same as the tester case.
+      const authorList = await service.listRevisions(actorFor(owner.id), 'pub9');
+      expect(authorList).toHaveLength(1);
+      expect(authorList[0]).toMatchObject({ id: rev1.id, version: 1 });
+
+      // Curator: also a member, distinct role from author/tester.
+      const curatorList = await service.listRevisions(actorFor(curator.id), 'pub9');
+      expect(curatorList).toHaveLength(1);
+      expect(curatorList[0]).toMatchObject({ id: rev1.id, version: 1 });
+
+      // Admin: not a member of this problem at all — `canViewRevisions`
+      // grants access via `isAdmin`, the same bypass every other predicate
+      // in `problem.visibility.ts` gives admins.
+      const adminList = await service.listRevisions(actorFor(admin.id, 'admin'), 'pub9');
+      expect(adminList).toHaveLength(1);
+      expect(adminList[0]).toMatchObject({ id: rev1.id, version: 1 });
+
+      // Anonymous: `loadProblemContext` returns empty membership for a null
+      // actor, so `canViewRevisions` is false regardless of the problem's
+      // (public, by default) visibility.
+      await expect(service.listRevisions(null, 'pub9')).rejects.toMatchObject({
+        status: 404,
+        code: 'problem_not_found',
+      });
+    });
+  }, 120_000);
+});
+
+
+/** Resolves after `ms` milliseconds — used only to bound how long a test waits to observe that a promise has *not* resolved yet. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Directly exercises `problem_revisions_one_published_idx` (migration 0006),
+ * independent of any concurrency: bypasses `publishRevision` entirely and
+ * issues the two conflicting writes as plain SQL, so this is fast,
+ * deterministic, and fails immediately (not flakily) if the migration is
+ * ever reverted or the index dropped. This is "the index protects the code
+ * someone writes next" half of the Task 6 review's fix, tested in isolation
+ * from "the lock protects the code you wrote" below.
+ */
+describe('problem_revisions_one_published_idx', () => {
+  it('rejects a second published revision for the same problem', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'pub-index-owner');
+      const { id } = await seedProblem(db, { code: 'pubindex', createdBy: owner.id });
+      const rev1 = await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id });
+      const rev2 = await seedRevision(db, { problemId: id, version: 2, createdBy: owner.id });
+
+      await db.update(problemRevisions).set({ state: 'published' }).where(eq(problemRevisions.id, rev1.id));
+
+      await expect(
+        db.update(problemRevisions).set({ state: 'published' }).where(eq(problemRevisions.id, rev2.id)),
+      ).rejects.toMatchObject({ cause: { code: '23505' } });
+    });
+  }, 120_000);
+});
+
+
+/**
+ * `withTestDb` hands every caller a transaction on one connection — two
+ * `publishRevision` calls through it are nested savepoints of the same
+ * transaction (xid), so a sibling savepoint always sees "its own"
+ * uncommitted writes and a `SELECT ... FOR UPDATE` can never block itself.
+ * This test instead opens two independent `createDb` connections against
+ * the same committed rows and commits for real, cleaning up its own rows in
+ * a `finally` rather than relying on rollback — mirrors
+ * `apps/judged/test/job-store.concurrency.spec.ts`.
+ *
+ * Two earlier versions of this test were tried and discarded, empirically,
+ * per the review's own standard ("if it passes without the lock ... I would
+ * rather know that than have a green tick"):
+ *
+ * 1. Two real `publishRevision` calls under a bare `Promise.all` (Task 5's
+ *    `attachRevision` concurrency test's shape), asserting the resulting
+ *    published-row count. Run with the lock removed, it still passed: on
+ *    this fast local Postgres, each transaction's full lifecycle (lock
+ *    attempt, target read, one or two updates, commit) reliably completed
+ *    before the other connection's first statement was even sent — no
+ *    overlap window ever opened.
+ * 2. Connection `a` manually holding *only* the `problems`-row lock
+ *    (idle, touching nothing else) while a real `publishRevision` ran on
+ *    `b`. This also passed with the lock removed: `publishRevision`
+ *    unconditionally writes `problems.currentRevisionId` as its last
+ *    statement regardless of the mutation, and *that* write always
+ *    contends with `a`'s held lock — so the test was silently observing a
+ *    write that exists either way, not the mutation.
+ *
+ * This version has connection `a` replay `publishRevision(v1)`'s exact
+ * statement sequence by hand (the lock, the no-op archive step, the target
+ * update — mirroring the real implementation, not reimplementing its
+ * business logic) and pauses *after* v1 is written but *before* committing.
+ * `b`'s real `publishRevision(v2)` is started while `a` is still
+ * uncommitted, with a short delay before `a` is released so `b` has time to
+ * reach its own critical statements first. This makes the discriminator the
+ * *outcome* of `b`'s call rather than its timing:
+ *
+ * - With the lock, `b`'s first statement is the same `problems`-row
+ *   `FOR UPDATE` `a` already holds, so `b` blocks immediately, before
+ *   touching `problem_revisions` at all, and only proceeds once `a`
+ *   commits — at which point `b`'s archive step correctly sees v1 as
+ *   published. `b` resolves cleanly; exactly one revision ends up
+ *   published (v2, after archiving v1).
+ * - Without the lock, `b` reads `problem_revisions` immediately (nothing
+ *   there blocks it), doesn't see `a`'s still-uncommitted publish of v1
+ *   under READ COMMITTED, and its own `UPDATE ... SET state = 'published'`
+ *   for v2 is left racing `a`'s uncommitted identical write to
+ *   `problem_revisions_one_published_idx`. Once `a` commits, that
+ *   collision resolves as a real unique-violation error and `b`'s call
+ *   rejects — the "confirm it fails" signal for this mutation.
+ */
+describe('ProblemAccessService.publishRevision — concurrency', () => {
+  it('a concurrent publish waits for an in-flight publish on the same problem instead of racing past it', async () => {
+    const url = await testDbUrl();
+    const a = createDb(url);
+    const b = createDb(url);
+    let problemId: number | undefined;
+    let userId: number | undefined;
+    try {
+      const owner = await insertUser(a.db, 'pub-concurrent-owner');
+      userId = owner.id;
+      const { id } = await seedProblem(a.db, { code: 'pubconcurrent', createdBy: owner.id });
+      problemId = id;
+      await a.db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
+      const rev1 = await seedRevision(a.db, { problemId: id, version: 1, createdBy: owner.id });
+      await seedRevision(a.db, { problemId: id, version: 2, createdBy: owner.id });
+
+      const serviceB = new ProblemAccessService(b.db, UNUSED_STORE);
+      const actor = actorFor(owner.id);
+
+      let signalV1Published: () => void = () => {};
+      const v1Published = new Promise<void>((resolve) => {
+        signalV1Published = resolve;
+      });
+      let releaseHolder: () => void = () => {};
+      const releaseGate = new Promise<void>((resolve) => {
+        releaseHolder = resolve;
+      });
+
+      const holderDone = a.db.transaction(async (tx) => {
+        await tx.select({ id: problems.id }).from(problems).where(eq(problems.id, id)).for('update');
+        await tx
+          .update(problemRevisions)
+          .set({ state: 'archived' })
+          .where(and(eq(problemRevisions.problemId, id), eq(problemRevisions.state, 'published')));
+        await tx.update(problemRevisions).set({ state: 'published' }).where(eq(problemRevisions.id, rev1.id));
+        signalV1Published();
+        await releaseGate;
+        await tx.update(problems).set({ currentRevisionId: rev1.id }).where(eq(problems.id, id));
+      });
+      await v1Published;
+
+      const bPromise = serviceB.publishRevision(actor, 'pubconcurrent', 2);
+      // Gives `b` real wall-clock time to reach its own critical statements
+      // (the lock attempt, with the fix; the `problem_revisions` writes,
+      // without it) before `a`'s hold is released — without this, `a` could
+      // commit before `b` has done anything at all, closing the same
+      // overlap window discarded version 1 above ran into.
+      await delay(150);
+      releaseHolder();
+
+      await holderDone;
+      // Resolves cleanly with the lock in place; rejects with a raw
+      // unique-violation error without it (see the file-level comment).
+      await bPromise;
+
+      const publishedRows = await a.db
+        .select({ id: problemRevisions.id, version: problemRevisions.version })
+        .from(problemRevisions)
+        .where(and(eq(problemRevisions.problemId, id), eq(problemRevisions.state, 'published')));
+      expect(publishedRows).toHaveLength(1);
+      expect(publishedRows[0]!.version).toBe(2);
+    } finally {
+      // `problems` cascades to `problem_members` and `problem_revisions` on
+      // delete, so deleting it is enough to take both with it; `users` (and
+      // the shared, idempotently-keyed `packages` rows `seedRevision` wrote)
+      // are cleaned up the same way `job-store.concurrency.spec.ts` does.
+      try {
+        if (problemId !== undefined) await a.db.delete(problems).where(eq(problems.id, problemId));
+        if (userId !== undefined) await a.db.delete(schema.users).where(eq(schema.users.id, userId));
+      } finally {
+        await a.close();
+        await b.close();
+      }
+    }
   }, 120_000);
 });

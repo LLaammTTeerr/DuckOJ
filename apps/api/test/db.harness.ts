@@ -69,6 +69,21 @@ afterAll(async () => {
 }, 30_000);
 
 /**
+ * This spec file's Postgres connection URL, for tests that need real
+ * committed data visible across independent connections — `withTestDb`'s
+ * rollback transaction cannot provide that, and nested `db.transaction()`
+ * calls sharing one connection can't reproduce genuine cross-transaction
+ * locking or snapshot isolation either (they're savepoints of one xid, so a
+ * sibling savepoint always sees "its own" uncommitted writes). Vitest gives
+ * each spec file its own module graph and therefore its own container, so
+ * this is safe to call from any test in this file; nothing here is shared
+ * *across* files. Mirrors `apps/judged/test/db.harness.ts`'s `testDbUrl`.
+ */
+export async function testDbUrl(): Promise<string> {
+  return ensureContainer();
+}
+
+/**
  * Runs `fn` against a migrated database inside a transaction that is always
  * rolled back, so tests share one container without sharing state.
  */
