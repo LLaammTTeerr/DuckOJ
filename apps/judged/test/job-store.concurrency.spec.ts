@@ -26,15 +26,26 @@ import { testDbUrl } from './db.harness.js';
 
 /** Rows this file has committed so far, tracked as they're created so cleanup can run on a partial seed. */
 interface Seeded {
+  userId?: number;
   problemId?: number;
   revisionId?: number;
 }
 
 async function seedJobs(db: Db, count: number, seeded: Seeded): Promise<void> {
   const store = new JobStore(db);
+  const [user] = await db
+    .insert(schema.users)
+    .values({
+      username: `concurrency-${randomUUID()}`,
+      email: `concurrency-${randomUUID()}@e.com`,
+      passwordHash: 'x',
+      displayName: 'C',
+    })
+    .returning();
+  seeded.userId = user!.id;
   const [problem] = await db
     .insert(problems)
-    .values({ code: `concurrency-${randomUUID()}`, name: 'A+B', statement: 's' })
+    .values({ code: `concurrency-${randomUUID()}`, name: 'A+B', statement: 's', createdBy: user!.id })
     .returning();
   seeded.problemId = problem!.id;
   // Not cleaned up by `cleanup()` below — a shared, idempotent 'h' package
@@ -44,7 +55,18 @@ async function seedJobs(db: Db, count: number, seeded: Seeded): Promise<void> {
   await db.insert(schema.packages).values({ hash: 'h', sizeBytes: 1, fileCount: 1 }).onConflictDoNothing();
   const [revision] = await db
     .insert(problemRevisions)
-    .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })
+    .values({
+      problemId: problem!.id,
+      version: 1,
+      packageHash: 'h',
+      state: 'published',
+      createdBy: user!.id,
+      timeMs: 1000,
+      memoryKb: 256_000,
+      testCount: 5,
+      totalPoints: 100,
+      checkerKind: 'wcmp',
+    })
     .returning();
   seeded.revisionId = revision!.id;
   for (let i = 0; i < count; i++) {
@@ -53,9 +75,10 @@ async function seedJobs(db: Db, count: number, seeded: Seeded): Promise<void> {
 }
 
 /**
- * Children first: grading_jobs -> problem_revisions -> problems. Tolerates a
- * partial `seeded` (e.g. `seedJobs` threw after the problem but before the
- * revision) by only deleting what was actually recorded.
+ * Children first: grading_jobs -> problem_revisions -> problems -> users
+ * (`problems.created_by` and `problem_revisions.created_by` are FKs against
+ * it). Tolerates a partial `seeded` (e.g. `seedJobs` threw after the problem
+ * but before the revision) by only deleting what was actually recorded.
  */
 async function cleanup(db: Db, seeded: Seeded): Promise<void> {
   if (seeded.revisionId !== undefined) {
@@ -64,6 +87,9 @@ async function cleanup(db: Db, seeded: Seeded): Promise<void> {
   }
   if (seeded.problemId !== undefined) {
     await db.delete(problems).where(eq(problems.id, seeded.problemId));
+  }
+  if (seeded.userId !== undefined) {
+    await db.delete(schema.users).where(eq(schema.users.id, seeded.userId));
   }
 }
 

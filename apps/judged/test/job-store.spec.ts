@@ -16,14 +16,29 @@ import { withTestDb } from './db.harness.js';
  */
 async function seedJob(db: Db): Promise<JobStore> {
   const store = new JobStore(db);
+  const [user] = await db
+    .insert(schema.users)
+    .values({ username: 'js', email: 'js@e.com', passwordHash: 'x', displayName: 'J' })
+    .returning();
   const [problem] = await db
     .insert(problems)
-    .values({ code: 'aplusb', name: 'A+B', statement: 's' })
+    .values({ code: 'aplusb', name: 'A+B', statement: 's', createdBy: user!.id })
     .returning();
   await db.insert(schema.packages).values({ hash: 'h', sizeBytes: 1, fileCount: 1 });
   const [revision] = await db
     .insert(problemRevisions)
-    .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })
+    .values({
+      problemId: problem!.id,
+      version: 1,
+      packageHash: 'h',
+      state: 'published',
+      createdBy: user!.id,
+      timeMs: 1000,
+      memoryKb: 256_000,
+      testCount: 5,
+      totalPoints: 100,
+      checkerKind: 'wcmp',
+    })
     .returning();
   await store.enqueue({ revisionId: revision!.id, packageHash: 'h', submissionId: null });
   return store;

@@ -20,12 +20,23 @@ async function seedSubmissionAndJob(
     .returning();
   const [problem] = await db
     .insert(problems)
-    .values({ code: 'aplusb', name: 'A+B', statement: 's' })
+    .values({ code: 'aplusb', name: 'A+B', statement: 's', createdBy: user!.id })
     .returning();
   await db.insert(schema.packages).values({ hash: 'h', sizeBytes: 1, fileCount: 1 });
   const [revision] = await db
     .insert(problemRevisions)
-    .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })
+    .values({
+      problemId: problem!.id,
+      version: 1,
+      packageHash: 'h',
+      state: 'published',
+      createdBy: user!.id,
+      timeMs: 1000,
+      memoryKb: 256_000,
+      testCount: 5,
+      totalPoints: 100,
+      checkerKind: 'wcmp',
+    })
     .returning();
   const [submission] = await db
     .insert(submissions)
@@ -196,16 +207,17 @@ describe('EventWriter', () => {
       const writer = new EventWriter(db, store, { publish } as never);
       const { job } = await seedSubmissionAndJob(db, store);
 
-      // Force a real database failure: `case_verdict` is a Postgres enum with
-      // no `CE` member (see the note on `compileError` above), so writing a
-      // case result that claims one is rejected by Postgres itself — not by
-      // `onConflictDoNothing`, which only absorbs a conflict on the
-      // identity index, not an invalid enum literal.
+      // Force a real database failure: `case_verdict` is a Postgres enum, so
+      // writing a case result that claims a verdict outside its member list
+      // is rejected by Postgres itself — not by `onConflictDoNothing`, which
+      // only absorbs a conflict on the identity index, not an invalid enum
+      // literal. `'ZZ'` (not `'CE'`, since Task 1 added that as a real
+      // member) is the poison value here for exactly that reason.
       const badEvent = {
         type: 'caseResult',
         groupIndex: 0,
         caseIndex: 0,
-        verdict: 'CE',
+        verdict: 'ZZ',
         skipped: false,
         flags: [],
         timeMs: 1,

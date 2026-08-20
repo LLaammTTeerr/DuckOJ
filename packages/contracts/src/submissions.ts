@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ProblemDetails, Timestamp } from './common.js';
 import { registry } from './registry.js';
 
-export const Verdict = z.enum(['AC', 'WA', 'TLE', 'MLE', 'OLE', 'RTE', 'IR', 'IE']);
+export const Verdict = z.enum(['AC', 'WA', 'TLE', 'MLE', 'OLE', 'RTE', 'IR', 'CE', 'IE']);
 
 export const CreateSubmissionRequest = z.object({
   problemCode: z.string().min(1).max(64),

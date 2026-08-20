@@ -17,12 +17,23 @@ describe('judging schema', () => {
         .returning();
       const [problem] = await db
         .insert(problems)
-        .values({ code: 'aplusb', name: 'A+B', statement: 'Add two numbers.' })
+        .values({ code: 'aplusb', name: 'A+B', statement: 'Add two numbers.', createdBy: user!.id })
         .returning();
       await db.insert(schema.packages).values({ hash: 'deadbeef', sizeBytes: 1, fileCount: 1 });
       const [revision] = await db
         .insert(problemRevisions)
-        .values({ problemId: problem!.id, version: 1, packageHash: 'deadbeef', state: 'published' })
+        .values({
+          problemId: problem!.id,
+          version: 1,
+          packageHash: 'deadbeef',
+          state: 'published',
+          createdBy: user!.id,
+          timeMs: 1000,
+          memoryKb: 256_000,
+          testCount: 5,
+          totalPoints: 100,
+          checkerKind: 'wcmp',
+        })
         .returning();
 
       const [submission] = await db
@@ -72,12 +83,23 @@ describe('judging schema', () => {
         .returning();
       const [problem] = await db
         .insert(problems)
-        .values({ code: 'p', name: 'P', statement: 's' })
+        .values({ code: 'p', name: 'P', statement: 's', createdBy: user!.id })
         .returning();
       await db.insert(schema.packages).values({ hash: 'h', sizeBytes: 1, fileCount: 1 });
       const [revision] = await db
         .insert(problemRevisions)
-        .values({ problemId: problem!.id, version: 1, packageHash: 'h', state: 'published' })
+        .values({
+          problemId: problem!.id,
+          version: 1,
+          packageHash: 'h',
+          state: 'published',
+          createdBy: user!.id,
+          timeMs: 1000,
+          memoryKb: 256_000,
+          testCount: 5,
+          totalPoints: 100,
+          checkerKind: 'wcmp',
+        })
         .returning();
       const [submission] = await db
         .insert(submissions)
@@ -123,12 +145,23 @@ describe('judging schema', () => {
         .returning();
       const [problem] = await db
         .insert(problems)
-        .values({ code: 'q', name: 'Q', statement: 's' })
+        .values({ code: 'q', name: 'Q', statement: 's', createdBy: user!.id })
         .returning();
       await db.insert(schema.packages).values({ hash: 'h2', sizeBytes: 1, fileCount: 1 });
       const [revision] = await db
         .insert(problemRevisions)
-        .values({ problemId: problem!.id, version: 1, packageHash: 'h2', state: 'published' })
+        .values({
+          problemId: problem!.id,
+          version: 1,
+          packageHash: 'h2',
+          state: 'published',
+          createdBy: user!.id,
+          timeMs: 1000,
+          memoryKb: 256_000,
+          testCount: 5,
+          totalPoints: 100,
+          checkerKind: 'wcmp',
+        })
         .returning();
       const [submission] = await db
         .insert(submissions)
@@ -194,15 +227,28 @@ describe('judging schema', () => {
   // constraint itself must actually reject what it claims to.
   it('rejects a problem_revisions row whose package_hash matches no package', async () => {
     await withTestDb(async (db) => {
+      const [user] = await db
+        .insert(schema.users)
+        .values({ username: 'fk', email: 'fk@e.com', passwordHash: 'x', displayName: 'F' })
+        .returning();
       const [problem] = await db
         .insert(problems)
-        .values({ code: 'r', name: 'R', statement: 's' })
+        .values({ code: 'r', name: 'R', statement: 's', createdBy: user!.id })
         .returning();
 
       await expect(
-        db
-          .insert(problemRevisions)
-          .values({ problemId: problem!.id, version: 1, packageHash: 'no-such-package', state: 'published' }),
+        db.insert(problemRevisions).values({
+          problemId: problem!.id,
+          version: 1,
+          packageHash: 'no-such-package',
+          state: 'published',
+          createdBy: user!.id,
+          timeMs: 1000,
+          memoryKb: 256_000,
+          testCount: 5,
+          totalPoints: 100,
+          checkerKind: 'wcmp',
+        }),
       ).rejects.toThrow();
     });
   }, 120_000);

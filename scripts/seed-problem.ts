@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
-import { problems, problemRevisions } from '@duckoj/db/guarded';
+import { problemMembers, problemRevisions, problems } from '@duckoj/db/guarded';
 import { createDb, hashJudgeToken, schema } from '@duckoj/db';
 import { buildPackage } from './lib/build-package.js';
 import { putPackageArchive } from './lib/package-store.js';
@@ -112,6 +112,27 @@ try {
     await db.select().from(schema.languages).where(eq(schema.languages.key, 'cpp17')).limit(1)
   )[0]!;
 
+  // A locked service account, not a real operator: `created_by` and
+  // `problem_members` are NOT NULL / FK against `users`, and this script
+  // creates no other user to attribute seeded problems to. `passwordHash:
+  // '!'` is not a valid argon2 encoding — `PasswordService.verify` catches
+  // the decode failure and returns `false` — so the account fails closed
+  // rather than being reachable with an invented password.
+  const insertedSystemUser = await db
+    .insert(schema.users)
+    .values({
+      username: 'system',
+      email: 'system@localhost',
+      passwordHash: '!',
+      displayName: 'System',
+    })
+    .onConflictDoNothing()
+    .returning();
+
+  const systemUser = (
+    await db.select().from(schema.users).where(eq(schema.users.username, 'system')).limit(1)
+  )[0]!;
+
   const insertedDriverKey = await db
     .insert(schema.languageDriverKeys)
     .values({ languageId: language.id, driver: 'dmoj', executorKey: 'CPP17' })
@@ -124,6 +145,7 @@ try {
       code: problemMeta.code,
       name: problemMeta.name,
       statement: problemMeta.statement,
+      createdBy: systemUser.id,
     })
     .onConflictDoNothing()
     .returning();
@@ -135,6 +157,15 @@ try {
       .where(sql`lower(${problems.code}) = lower(${problemMeta.code})`)
       .limit(1)
   )[0]!;
+
+  // The system account also holds the problem's `author` membership — the
+  // same identity as `created_by` above, recorded the other way `problem_members`
+  // expects it.
+  const insertedAuthorMembership = await db
+    .insert(problemMembers)
+    .values({ problemId: problem.id, userId: systemUser.id, role: 'author' })
+    .onConflictDoNothing()
+    .returning();
 
   // Register the package before anything can reference its hash — the
   // revision insert/update below is a foreign key against `packages.hash`
@@ -163,24 +194,43 @@ try {
     await db.select().from(problemRevisions).where(eq(problemRevisions.problemId, problem.id)).limit(1)
   )[0];
 
+  // Denormalised from the manifest `buildPackage` already parsed — see
+  // spec §5.1. `built.manifest` is `parseManifest`'s validated output, so
+  // these are never hand-typed sentinels.
+  const revisionMetadata = {
+    timeMs: built.manifest.limits.timeMs,
+    memoryKb: built.manifest.limits.memoryKb,
+    testCount: built.manifest.tests.length,
+    totalPoints: built.manifest.tests.reduce((sum, t) => sum + t.points, 0),
+    checkerKind: built.manifest.checker.kind,
+  };
+
   let revision;
   let revisionRepointed = false;
   if (!existingRevision) {
     revision = (
       await db
         .insert(problemRevisions)
-        .values({ problemId: problem.id, version: 1, packageHash: built.hash, state: 'published' })
+        .values({
+          problemId: problem.id,
+          version: 1,
+          packageHash: built.hash,
+          state: 'published',
+          createdBy: systemUser.id,
+          ...revisionMetadata,
+        })
         .returning()
     )[0]!;
   } else if (existingRevision.packageHash !== built.hash) {
     // The upgrade path: an older run (or Phase 1's fixture) left this
     // revision pointing at a label that satisfies no package row —
     // `phase1-aplusb`, most plausibly. Repoint it at the real hash rather
-    // than inserting a second revision.
+    // than inserting a second revision. The metadata must move with it —
+    // otherwise a repointed revision keeps the previous package's limits.
     revision = (
       await db
         .update(problemRevisions)
-        .set({ packageHash: built.hash })
+        .set({ packageHash: built.hash, ...revisionMetadata })
         .where(eq(problemRevisions.id, existingRevision.id))
         .returning()
     )[0]!;
@@ -204,7 +254,9 @@ try {
     JSON.stringify({
       languageCreated: insertedLanguage.length > 0,
       driverKeyCreated: insertedDriverKey.length > 0,
+      systemUserCreated: insertedSystemUser.length > 0,
       problemCreated: insertedProblem.length > 0,
+      authorMembershipCreated: insertedAuthorMembership.length > 0,
       packageCreated: insertedPackage.length > 0,
       revisionCreated: existingRevision === undefined,
       revisionRepointed,
