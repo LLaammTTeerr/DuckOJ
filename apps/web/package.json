@@ -15,6 +15,9 @@
     "@duckoj/sdk": "workspace:^",
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-router": "^1.170.29",
+    "dompurify": "^3.4.14",
+    "katex": "^0.18.4",
+    "marked": "^18.0.10",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
