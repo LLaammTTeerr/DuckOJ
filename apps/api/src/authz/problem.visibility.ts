@@ -52,6 +52,22 @@ export function canEditProblem(actor: Actor | null, ctx: ProblemViewContext): bo
   return ctx.memberRoles.includes('author') || ctx.memberRoles.includes('curator');
 }
 
+/**
+ * Whether `actor` may see a problem's revision history, including drafts and
+ * archived revisions. Deliberately narrower than `canViewProblem`: a
+ * problem's public/org visibility governs whether its *published* statement
+ * and limits are visible, but says nothing about draft or archived
+ * revisions, which can contain unreleased tests or answer keys. Only a
+ * member (any role — a tester exists precisely to review drafts) or an admin
+ * gets in; every other actor, even on a public problem, is treated as if the
+ * revision history does not exist (spec §3, item 2 — 404, never a distinct
+ * error).
+ */
+export function canViewRevisions(actor: Actor | null, ctx: ProblemViewContext): boolean {
+  if (isAdmin(actor)) return true;
+  return !!actor && ctx.memberRoles.length > 0;
+}
+
 export function canCreateProblem(actor: Actor | null): boolean {
   return actor?.globalRole === 'setter' || isAdmin(actor);
 }

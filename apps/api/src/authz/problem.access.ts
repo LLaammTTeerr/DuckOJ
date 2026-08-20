@@ -11,6 +11,7 @@ import {
   canCreateProblem,
   canEditProblem,
   canViewProblem,
+  canViewRevisions,
   loadProblemContext,
   visibleProblemsWhere,
   type ProblemRole,
@@ -93,6 +94,25 @@ export interface AttachRevisionInput {
 
 export interface AttachRevisionResult {
   version: number;
+}
+
+export interface PublishRevisionResult {
+  version: number;
+}
+
+export interface RevisionSummaryDto {
+  id: number;
+  version: number;
+  state: 'draft' | 'published' | 'archived';
+  packageHash: string;
+  notes: string | null;
+  timeMs: number;
+  memoryKb: number;
+  testCount: number;
+  totalPoints: number;
+  checkerKind: string;
+  createdBy: number;
+  createdAt: string;
 }
 
 /**
@@ -431,17 +451,100 @@ export class ProblemAccessService {
   }
 
   /**
-   * Loads a problem by code and applies the shared 404-then-403 ordering
-   * every write path against an existing problem needs: an invisible problem
-   * 404s (spec §3, item 2 — never a distinct error for "exists but you may
-   * not act on it"), then a visible-but-uneditable problem 403s. Shared by
-   * `update` and `attachRevision` so the ordering can only drift by editing
-   * one place.
+   * Publishes a revision by version, archiving whatever was previously
+   * published and repointing `problems.currentRevisionId` at it — all in one
+   * transaction. Reuses `loadForEdit` for the 404-then-403 ordering: an
+   * invisible problem 404s, a visible-but-uneditable one (a tester, say)
+   * 403s, exactly as `attachRevision` does.
+   *
+   * The target lookup and every write live inside the transaction, including
+   * the 404 for an unknown version: throwing there rolls the transaction
+   * back and rethrows, so a bad version never leaves a half-applied archive.
+   *
+   * Archiving the previously-published revision (if any) is unconditional
+   * except when the target is *already* published, which makes re-publishing
+   * the current revision a no-op rather than a special case: nothing to
+   * archive, nothing to flip, `currentRevisionId` gets set to the value it
+   * already had. Publishing an `archived` revision is exactly "publish a
+   * revision that happens to have `state: 'archived'`" — the same branch
+   * that handles a `draft` runs, archiving whatever is currently published
+   * (including the revision that was published a moment ago) and republishing
+   * the target. This is the rollback path.
+   *
+   * Safe to archive the previous revision because `submissions.revisionId`
+   * pins the revision that graded each submission at creation time — an
+   * archived row stays referenced and readable forever, never touched here.
    */
-  private async loadForEdit(
-    actor: Actor | null,
-    code: string,
-  ): Promise<{ problem: { id: number; visibility: ProblemVisibility }; ctx: ProblemViewContext }> {
+  async publishRevision(actor: Actor | null, code: string, version: number): Promise<PublishRevisionResult> {
+    const { problem } = await this.loadForEdit(actor, code);
+
+    return this.db.transaction(async (tx) => {
+      const target = (
+        await tx
+          .select({ id: problemRevisions.id, state: problemRevisions.state })
+          .from(problemRevisions)
+          .where(and(eq(problemRevisions.problemId, problem.id), eq(problemRevisions.version, version)))
+          .limit(1)
+      )[0];
+      if (!target) throw new AppError(404, 'revision_not_found', 'No such revision.');
+
+      if (target.state !== 'published') {
+        await tx
+          .update(problemRevisions)
+          .set({ state: 'archived' })
+          .where(and(eq(problemRevisions.problemId, problem.id), eq(problemRevisions.state, 'published')));
+        await tx.update(problemRevisions).set({ state: 'published' }).where(eq(problemRevisions.id, target.id));
+      }
+      await tx.update(problems).set({ currentRevisionId: target.id }).where(eq(problems.id, problem.id));
+      return { version };
+    });
+  }
+
+  /**
+   * Lists every revision of a problem — draft, published and archived alike
+   * — for a member (any role) or an admin. Everyone else gets 404, the same
+   * code `getVisible` uses for an invisible problem: unlike `canViewProblem`,
+   * `canViewRevisions` does not grant access on public/org visibility alone,
+   * so a plain user 404s here even on a problem whose statement they can
+   * read (spec §3, item 2 — a read never 403s, it 404s).
+   */
+  async listRevisions(actor: Actor | null, code: string): Promise<RevisionSummaryDto[]> {
+    const row = await this.findProblemRow(code);
+    const ctx = await loadProblemContext(this.db, actor, row.id);
+    if (!canViewRevisions(actor, ctx)) {
+      throw new AppError(404, 'problem_not_found', 'No such problem.');
+    }
+
+    const rows = await this.db
+      .select({
+        id: problemRevisions.id,
+        version: problemRevisions.version,
+        state: problemRevisions.state,
+        packageHash: problemRevisions.packageHash,
+        notes: problemRevisions.notes,
+        timeMs: problemRevisions.timeMs,
+        memoryKb: problemRevisions.memoryKb,
+        testCount: problemRevisions.testCount,
+        totalPoints: problemRevisions.totalPoints,
+        checkerKind: problemRevisions.checkerKind,
+        createdBy: problemRevisions.createdBy,
+        createdAt: problemRevisions.createdAt,
+      })
+      .from(problemRevisions)
+      .where(eq(problemRevisions.problemId, row.id))
+      .orderBy(asc(problemRevisions.version));
+
+    return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+  }
+
+  /**
+   * Loads a problem's `{ id, visibility }` by code, 404ing if no problem has
+   * that code (case-insensitively) — the first half of the 404-then-403
+   * ordering every write path needs. Split out of `loadForEdit` so
+   * `listRevisions`, which needs the same lookup but a different permission
+   * check (never a 403 — spec §3, item 2), does not duplicate it.
+   */
+  private async findProblemRow(code: string): Promise<{ id: number; visibility: ProblemVisibility }> {
     const row = (
       await this.db
         .select({ id: problems.id, visibility: problems.visibility })
@@ -450,6 +553,22 @@ export class ProblemAccessService {
         .limit(1)
     )[0];
     if (!row) throw new AppError(404, 'problem_not_found', 'No such problem.');
+    return row;
+  }
+
+  /**
+   * Loads a problem by code and applies the shared 404-then-403 ordering
+   * every write path against an existing problem needs: an invisible problem
+   * 404s (spec §3, item 2 — never a distinct error for "exists but you may
+   * not act on it"), then a visible-but-uneditable problem 403s. Shared by
+   * `update`, `attachRevision` and `publishRevision` so the ordering can only
+   * drift by editing one place.
+   */
+  private async loadForEdit(
+    actor: Actor | null,
+    code: string,
+  ): Promise<{ problem: { id: number; visibility: ProblemVisibility }; ctx: ProblemViewContext }> {
+    const row = await this.findProblemRow(code);
 
     const ctx = await loadProblemContext(this.db, actor, row.id);
     if (!canViewProblem(actor, { id: row.id, visibility: row.visibility }, ctx)) {
