@@ -65,6 +65,9 @@ export interface CreateContestInput {
 /** `ContestParticipation.LIVE`. Named so the three uses below read as one rule. */
 const LIVE_VIRTUAL = 0;
 
+/** A `contests` row as `select()` returns it — what the scoreboard needs. */
+type ContestRow = typeof contests.$inferSelect;
+
 /**
  * The one service permitted to reach the contest tables, exactly as
  * `ProblemAccessService` is for problems.
@@ -118,8 +121,27 @@ export class ContestAccessService {
    * the orders that mapping documents as load-bearing.
    */
   async getScoreboard(actor: Actor | null, key: string): Promise<Scoreboard> {
-    const contest = await this.loadVisible(actor, key);
+    return this.computeScoreboard(await this.loadVisible(actor, key));
+  }
 
+  /**
+   * The scoreboard of a contest already resolved, with **no visibility check**.
+   *
+   * For system work that is not acting on behalf of a caller — today, the
+   * rating replay, which folds over every rated contest regardless of who may
+   * see it. Deliberately takes a row rather than a key, so it cannot be reached
+   * with user input by mistake, and deliberately named so that calling it from
+   * a request path looks wrong.
+   */
+  async scoreboardForSystem(contestId: number): Promise<Scoreboard> {
+    const contest = (
+      await this.db.select().from(contests).where(eq(contests.id, contestId)).limit(1)
+    )[0];
+    if (!contest) throw NOT_FOUND;
+    return this.computeScoreboard(contest);
+  }
+
+  private async computeScoreboard(contest: ContestRow): Promise<Scoreboard> {
     const [problemRows, participationRows] = await Promise.all([
       this.loadProblemRows(contest.id),
       this.db

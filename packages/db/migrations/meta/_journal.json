@@ -78,6 +78,13 @@
       "when": 1787326273245,
       "tag": "0010_drop_contest_submission_points",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1787330347504,
+      "tag": "0011_rating_events",
+      "breakpoints": true
     }
   ]
 }

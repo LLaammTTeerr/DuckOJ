@@ -5,6 +5,7 @@ import {
   type UpdateMeRequestDto,
   type UserListQueryDto,
   type UserPageDto,
+  type RatingHistoryDto,
   type UserProfileDto,
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
@@ -12,13 +13,17 @@ import { CurrentActor, Public } from '../authn/auth.guard.js';
 import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { UserAccessService } from '../authz/user.access.js';
+import { RatingService } from '../authz/rating.service.js';
 
 @Controller('users')
 export class UsersController {
   // Explicit `@Inject`, like every other controller here: this build does not
   // emit decorator metadata, so implicit constructor injection resolves to
   // `undefined` and fails at the first request rather than at module init.
-  constructor(@Inject(UserAccessService) private readonly users: UserAccessService) {}
+  constructor(
+    @Inject(UserAccessService) private readonly users: UserAccessService,
+    @Inject(RatingService) private readonly ratings: RatingService,
+  ) {}
 
   /**
    * `/me` is declared before `/:username` so Nest matches it first — otherwise
@@ -50,5 +55,13 @@ export class UsersController {
   @RequireScope('users:read')
   get(@Param('username') username: string): Promise<UserProfileDto> {
     return this.users.getByUsername(username);
+  }
+
+  /** Under `users:read`: a rating history is part of a public profile. */
+  @Get(':username/rating')
+  @Public()
+  @RequireScope('users:read')
+  rating(@Param('username') username: string): Promise<RatingHistoryDto> {
+    return this.ratings.historyFor(username);
   }
 }

@@ -306,5 +306,66 @@ registry.registerPath({
   },
 });
 
+/** One entry in a user's rating history. */
+export const RatingEvent = z.object({
+  contestKey: z.string(),
+  contestName: z.string(),
+  endTime: Timestamp,
+  rank: z.number().int(),
+  ratingBefore: z.number().int(),
+  ratingAfter: z.number().int(),
+  /** `ratingAfter - ratingBefore`, served rather than left to every client. */
+  delta: z.number().int(),
+});
+export type RatingEventDto = z.infer<typeof RatingEvent>;
+
+export const RatingHistory = z.array(RatingEvent);
+export type RatingHistoryDto = z.infer<typeof RatingHistory>;
+
+registry.registerPath({
+  method: 'get',
+  path: '/users/{username}/rating',
+  summary: "A user's rating history, oldest first",
+  responses: {
+    200: {
+      description: 'The history; empty for a user who has never been rated',
+      content: { 'application/json': { schema: RatingHistory } },
+    },
+    404: { description: 'No such user', content: { 'application/problem+json': { schema: ProblemDetails } } },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/admin/contests/{key}/rate',
+  summary: 'Mark a contest rated and replay the whole rating history (admin, session only)',
+  request: { params: ContestKeyParam },
+  responses: {
+    200: {
+      description: 'How many contests produced rating events',
+      content: { 'application/json': { schema: z.object({ contestsRated: z.number().int() }) } },
+    },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: CONTEST_NOT_FOUND,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/admin/contests/{key}/unrate',
+  summary: 'Mark a contest unrated and replay forward (admin, session only)',
+  request: { params: ContestKeyParam },
+  responses: {
+    200: {
+      description: 'How many contests produced rating events',
+      content: { 'application/json': { schema: z.object({ contestsRated: z.number().int() }) } },
+    },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: CONTEST_NOT_FOUND,
+  },
+});
+
 export const ContestListQuery = PaginationQuery;
 export type ContestListQueryDto = z.infer<typeof ContestListQuery>;

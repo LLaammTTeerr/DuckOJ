@@ -54,6 +54,9 @@ importers:
       '@duckoj/db':
         specifier: workspace:^
         version: link:../../packages/db
+      '@duckoj/glicko2':
+        specifier: workspace:*
+        version: link:../../packages/glicko2
       '@duckoj/observability':
         specifier: workspace:^
         version: link:../../packages/observability

@@ -250,6 +250,10 @@ export async function seedGoldenContest(db: Db, input: ContestInput): Promise<Se
   const userIds = new Map<string, number>();
   const participationIds = new Map<string, number>();
   for (const participant of input.participants) {
+    // Reused if the username already exists, so two contests can be seeded
+    // with the *same* people — which the rating fold needs, since a rating
+    // carried from one contest into the next is the whole point of it. Each
+    // golden has distinct names within itself, so this changes nothing there.
     const [user] = await db
       .insert(schema.users)
       .values({
@@ -258,18 +262,28 @@ export async function seedGoldenContest(db: Db, input: ContestInput): Promise<Se
         passwordHash: 'x',
         displayName: participant.name,
       })
+      .onConflictDoNothing()
       .returning({ id: schema.users.id });
+    const userId =
+      user?.id ??
+      (
+        await db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.username, participant.name))
+          .limit(1)
+      )[0]!.id;
     const [participation] = await db
       .insert(contestParticipations)
       .values({
         contestId: contest!.id,
-        userId: user!.id,
+        userId,
         startTime: new Date(participant.real_start),
         virtual: participant.virtual,
         isDisqualified: participant.is_disqualified ?? false,
       })
       .returning({ id: contestParticipations.id });
-    userIds.set(participant.name, user!.id);
+    userIds.set(participant.name, userId);
     participationIds.set(participant.name, participation!.id);
   }
 

@@ -11,6 +11,7 @@
     { "path": "../../packages/db" },
     { "path": "../../packages/api-prefix" },
     { "path": "../../packages/contest-formats" },
+    { "path": "../../packages/glicko2" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/observability" },
     { "path": "../../packages/package-format" },

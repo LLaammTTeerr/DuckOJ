@@ -287,6 +287,14 @@ export const contests = pgTable(
     /** `null` means "no per-participant time limit", which also pins `start`. */
     timeLimitSeconds: integer('time_limit_seconds'),
     visibility: contestVisibility('visibility').notNull().default('private'),
+    /**
+     * Whether this contest's results feed the rating system.
+     *
+     * Set by an administrator, never by the contest ending: "the contest is
+     * over" and "the results are final" are different claims, and the gap
+     * between them is where broken test data gets found.
+     */
+    isRated: boolean('is_rated').notNull().default(false),
     createdBy: bigint('created_by', { mode: 'number' })
       .notNull()
       .references(() => users.id),
@@ -377,4 +385,36 @@ export const contestSubmissions = pgTable(
       .references(() => submissions.id, { onDelete: 'cascade' }),
   },
   (t) => [uniqueIndex('contest_submissions_submission_idx').on(t.submissionId)],
+);
+
+/**
+ * The materialized result of the rating fold — an audit trail, **not an input**.
+ *
+ * Dropping every row here and replaying must reproduce them exactly; 4f's
+ * design §2 makes that the phase's acceptance criterion. Rankings are
+ * recomputed during a replay rather than snapshotted, because foundation §9
+ * requires a corrected scoreboard to propagate forward into every rating that
+ * followed it.
+ */
+export const ratingEvents = pgTable(
+  'rating_event',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    contestId: bigint('contest_id', { mode: 'number' })
+      .notNull()
+      .references(() => contests.id, { onDelete: 'cascade' }),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    ratingBefore: integer('rating_before').notNull(),
+    rdBefore: doublePrecision('rd_before').notNull(),
+    volatilityBefore: doublePrecision('volatility_before').notNull(),
+    ratingAfter: integer('rating_after').notNull(),
+    rdAfter: doublePrecision('rd_after').notNull(),
+    volatilityAfter: doublePrecision('volatility_after').notNull(),
+    /** The rank this rating was computed from, as the scoreboard reported it. */
+    rank: integer('rank').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('rating_event_identity_idx').on(t.contestId, t.userId)],
 );
