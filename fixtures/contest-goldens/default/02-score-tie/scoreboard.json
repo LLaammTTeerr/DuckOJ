@@ -1,0 +1,111 @@
+{
+  "format": "default",
+  "format_config": {},
+  "label_by_problem": {
+    "a": "1",
+    "b": "2",
+    "c": "3"
+  },
+  "problems": [
+    {
+      "code": "a",
+      "first_solve": "alice",
+      "label": "1",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 3
+    },
+    {
+      "code": "b",
+      "first_solve": "bob",
+      "label": "2",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 3
+    },
+    {
+      "code": "c",
+      "first_solve": null,
+      "label": "3",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 0
+    }
+  ],
+  "ranking": [
+    {
+      "cumtime": 2400,
+      "format_data": {
+        "a": {
+          "points": 100.0,
+          "time": 600.0
+        },
+        "b": {
+          "points": 100.0,
+          "time": 1800.0
+        }
+      },
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "alice",
+      "rank": 1,
+      "score": 200.0,
+      "submission_count": 2,
+      "tiebreaker": 0.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 2700,
+      "format_data": {
+        "a": {
+          "points": 100.0,
+          "time": 1500.0
+        },
+        "b": {
+          "points": 100.0,
+          "time": 1200.0
+        },
+        "c": {
+          "points": 0.0,
+          "time": 3000.0
+        }
+      },
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "bob",
+      "rank": 2,
+      "score": 200.0,
+      "submission_count": 3,
+      "tiebreaker": 0.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 2700,
+      "format_data": {
+        "a": {
+          "points": 100.0,
+          "time": 1200.0
+        },
+        "b": {
+          "points": 100.0,
+          "time": 1500.0
+        }
+      },
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "carol",
+      "rank": 2,
+      "score": 200.0,
+      "submission_count": 2,
+      "tiebreaker": 0.0,
+      "virtual": 0
+    }
+  ],
+  "scenario": "02-score-tie"
+}

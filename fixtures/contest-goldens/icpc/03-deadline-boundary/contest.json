@@ -1,0 +1,179 @@
+{
+  "contest": {
+    "end_time": "2026-03-01T14:00:00Z",
+    "frozen_last_minutes": 0,
+    "key": "icpc-03",
+    "name": "icpc-03",
+    "points_precision": 3,
+    "start_time": "2026-03-01T09:00:00Z",
+    "time_limit_seconds": null
+  },
+  "description": "Accepts at the deadline, one second after, 59 seconds after, and a minute after.",
+  "findings": [
+    "Because solve time is floored to minutes, a submission ONE SECOND after the deadline scores an identical cumtime and tiebreaker. Only format_data.time differs. This is the sharpest divergence from a seconds-based reimplementation.",
+    "Nothing filters submissions by the contest end.",
+    "Three rows tie on every ranking key and are ordered by -submission_count; the ranker then jumps straight from rank 1 to rank 4."
+  ],
+  "format": "icpc",
+  "format_config": {
+    "penalty": 20
+  },
+  "participants": [
+    {
+      "name": "alice",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "bob",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "carol",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "dave",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    }
+  ],
+  "problems": [
+    {
+      "code": "a",
+      "name": "a",
+      "partial": false,
+      "points": 100,
+      "problem_partial": false
+    },
+    {
+      "code": "b",
+      "name": "b",
+      "partial": false,
+      "points": 100,
+      "problem_partial": false
+    }
+  ],
+  "scenario": "03-deadline-boundary",
+  "sensitivity": {
+    "shift_seconds": 1,
+    "submission_index": 3,
+    "why": "carol's accept crosses the 14:01:00 minute boundary, so her cumtime and tiebreaker each rise by one and she loses the tie."
+  },
+  "submissions": [
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T14:00:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T14:00:01Z",
+      "participant": "bob",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:05:00Z",
+      "participant": "bob",
+      "problem": "b",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T14:00:59Z",
+      "participant": "carol",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:06:00Z",
+      "participant": "carol",
+      "problem": "b",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:07:00Z",
+      "participant": "carol",
+      "problem": "b",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T14:01:00Z",
+      "participant": "dave",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    }
+  ]
+}

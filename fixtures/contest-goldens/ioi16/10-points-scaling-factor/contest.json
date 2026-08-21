@@ -1,0 +1,299 @@
+{
+  "contest": {
+    "end_time": "2026-03-01T14:00:00Z",
+    "frozen_last_minutes": 0,
+    "key": "ioi16-10",
+    "name": "ioi16-10",
+    "points_precision": 3,
+    "start_time": "2026-03-01T09:00:00Z",
+    "time_limit_seconds": null
+  },
+  "description": "Two problems whose ContestProblem.points differ from their dataset totals, one scaling to an integer factor and one to a repeating decimal.",
+  "findings": [
+    "points_scaling_factor = ContestProblem.points / sum of the dataset batch points, computed from ProblemTestCase rows — NOT from the submission. Every batch score is multiplied by it before summing.",
+    "Problem b scales 100/3, so the per-batch products are non-terminating and the total is rounded by contest.points_precision. Getting the rounding point wrong (per batch instead of per total) shows up here.",
+    "If a problem has no dataset rows the factor divides by zero; every ioi16 problem must have ProblemTestCase rows."
+  ],
+  "format": "ioi16",
+  "format_config": {},
+  "participants": [
+    {
+      "name": "alice",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "bob",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    }
+  ],
+  "problems": [
+    {
+      "code": "a",
+      "name": "a",
+      "partial": true,
+      "points": 200,
+      "problem_partial": true,
+      "problem_test_cases": [
+        {
+          "points": 40,
+          "type": "S"
+        },
+        {
+          "points": 0,
+          "type": "C"
+        },
+        {
+          "points": 0,
+          "type": "C"
+        },
+        {
+          "points": 0,
+          "type": "E"
+        },
+        {
+          "points": 60,
+          "type": "S"
+        },
+        {
+          "points": 0,
+          "type": "C"
+        },
+        {
+          "points": 0,
+          "type": "C"
+        },
+        {
+          "points": 0,
+          "type": "E"
+        }
+      ]
+    },
+    {
+      "code": "b",
+      "name": "b",
+      "partial": true,
+      "points": 100,
+      "problem_partial": true,
+      "problem_test_cases": [
+        {
+          "points": 1,
+          "type": "S"
+        },
+        {
+          "points": 0,
+          "type": "C"
+        },
+        {
+          "points": 0,
+          "type": "C"
+        },
+        {
+          "points": 0,
+          "type": "E"
+        },
+        {
+          "points": 1,
+          "type": "S"
+        },
+        {
+          "points": 0,
+          "type": "C"
+        },
+        {
+          "points": 0,
+          "type": "C"
+        },
+        {
+          "points": 0,
+          "type": "E"
+        },
+        {
+          "points": 1,
+          "type": "S"
+        },
+        {
+          "points": 0,
+          "type": "C"
+        },
+        {
+          "points": 0,
+          "type": "C"
+        },
+        {
+          "points": 0,
+          "type": "E"
+        }
+      ]
+    }
+  ],
+  "scenario": "10-points-scaling-factor",
+  "sensitivity": {
+    "batch_flip": {
+      "batch": 3,
+      "points": 1
+    },
+    "shift_seconds": 0,
+    "submission_index": 1,
+    "why": "alice's third batch on b flips from 0 to 1, adding one scaled batch (100/3) to her score."
+  },
+  "submissions": [
+    {
+      "cases": [
+        {
+          "batch": 1,
+          "points": 40,
+          "status": "AC",
+          "total": 40
+        },
+        {
+          "batch": 1,
+          "points": 40,
+          "status": "AC",
+          "total": 40
+        },
+        {
+          "batch": 2,
+          "points": 60,
+          "status": "AC",
+          "total": 60
+        },
+        {
+          "batch": 2,
+          "points": 60,
+          "status": "AC",
+          "total": 60
+        }
+      ],
+      "date": "2026-03-01T09:10:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": 1,
+          "points": 1,
+          "status": "AC",
+          "total": 1
+        },
+        {
+          "batch": 1,
+          "points": 1,
+          "status": "AC",
+          "total": 1
+        },
+        {
+          "batch": 2,
+          "points": 1,
+          "status": "AC",
+          "total": 1
+        },
+        {
+          "batch": 2,
+          "points": 1,
+          "status": "AC",
+          "total": 1
+        },
+        {
+          "batch": 3,
+          "points": 0,
+          "status": "WA",
+          "total": 1
+        },
+        {
+          "batch": 3,
+          "points": 0,
+          "status": "WA",
+          "total": 1
+        }
+      ],
+      "date": "2026-03-01T09:20:00Z",
+      "participant": "alice",
+      "problem": "b",
+      "result": "AC",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": 1,
+          "points": 40,
+          "status": "AC",
+          "total": 40
+        },
+        {
+          "batch": 1,
+          "points": 40,
+          "status": "AC",
+          "total": 40
+        },
+        {
+          "batch": 2,
+          "points": 0,
+          "status": "WA",
+          "total": 60
+        },
+        {
+          "batch": 2,
+          "points": 0,
+          "status": "WA",
+          "total": 60
+        }
+      ],
+      "date": "2026-03-01T09:15:00Z",
+      "participant": "bob",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": 1,
+          "points": 1,
+          "status": "AC",
+          "total": 1
+        },
+        {
+          "batch": 1,
+          "points": 1,
+          "status": "AC",
+          "total": 1
+        },
+        {
+          "batch": 2,
+          "points": 1,
+          "status": "AC",
+          "total": 1
+        },
+        {
+          "batch": 2,
+          "points": 1,
+          "status": "AC",
+          "total": 1
+        },
+        {
+          "batch": 3,
+          "points": 1,
+          "status": "AC",
+          "total": 1
+        },
+        {
+          "batch": 3,
+          "points": 1,
+          "status": "AC",
+          "total": 1
+        }
+      ],
+      "date": "2026-03-01T09:25:00Z",
+      "participant": "bob",
+      "problem": "b",
+      "result": "AC",
+      "status": "D"
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "format": "icpc",
+  "format_config": {
+    "penalty": 20
+  },
+  "label_by_problem": {
+    "a": "A"
+  },
+  "problems": [
+    {
+      "code": "a",
+      "first_solve": "bob",
+      "label": "A",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 2
+    }
+  ],
+  "ranking": [
+    {
+      "cumtime": 20,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 1200.0,
+          "tries": 1
+        }
+      },
+      "frozen_cumtime": 20,
+      "frozen_score": 100.0,
+      "frozen_tiebreaker": 20.0,
+      "is_disqualified": false,
+      "participant": "bob",
+      "rank": 1,
+      "score": 100.0,
+      "submission_count": 1,
+      "tiebreaker": 20.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 30,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 1800.0,
+          "tries": 1
+        }
+      },
+      "frozen_cumtime": 30,
+      "frozen_score": 100.0,
+      "frozen_tiebreaker": 30.0,
+      "is_disqualified": false,
+      "participant": "alice",
+      "rank": 2,
+      "score": 100.0,
+      "submission_count": 1,
+      "tiebreaker": 30.0,
+      "virtual": 0
+    }
+  ],
+  "scenario": "04-late-joiner"
+}

@@ -1,0 +1,116 @@
+{
+  "format": "icpc",
+  "format_config": {
+    "penalty": 20
+  },
+  "label_by_problem": {
+    "a": "A",
+    "b": "B"
+  },
+  "problems": [
+    {
+      "code": "a",
+      "first_solve": "alice",
+      "label": "A",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 3
+    },
+    {
+      "code": "b",
+      "first_solve": null,
+      "label": "B",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 0
+    }
+  ],
+  "ranking": [
+    {
+      "cumtime": 15,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 900.0,
+          "tries": 1
+        },
+        "b": {
+          "frozen_points": 0,
+          "frozen_tries": 2,
+          "is_frozen": false,
+          "points": 0.0,
+          "time": 4800.0,
+          "tries": 2
+        }
+      },
+      "frozen_cumtime": 15,
+      "frozen_score": 100.0,
+      "frozen_tiebreaker": 15.0,
+      "is_disqualified": false,
+      "participant": "alice",
+      "rank": 1,
+      "score": 100.0,
+      "submission_count": 3,
+      "tiebreaker": 15.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 35,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 2100.0,
+          "tries": 1
+        },
+        "b": {
+          "frozen_points": 0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 0.0,
+          "time": 3600.0,
+          "tries": 1
+        }
+      },
+      "frozen_cumtime": 35,
+      "frozen_score": 100.0,
+      "frozen_tiebreaker": 35.0,
+      "is_disqualified": false,
+      "participant": "bob",
+      "rank": 2,
+      "score": 100.0,
+      "submission_count": 2,
+      "tiebreaker": 35.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 50,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 3000.0,
+          "tries": 1
+        }
+      },
+      "frozen_cumtime": 50,
+      "frozen_score": 100.0,
+      "frozen_tiebreaker": 50.0,
+      "is_disqualified": false,
+      "participant": "carol",
+      "rank": 3,
+      "score": 100.0,
+      "submission_count": 1,
+      "tiebreaker": 50.0,
+      "virtual": 0
+    }
+  ],
+  "scenario": "08-problem-nobody-solves"
+}

@@ -1,0 +1,157 @@
+{
+  "contest": {
+    "end_time": "2026-03-01T14:00:00Z",
+    "frozen_last_minutes": 0,
+    "key": "icpc-08",
+    "name": "icpc-08",
+    "points_precision": 3,
+    "start_time": "2026-03-01T09:00:00Z",
+    "time_limit_seconds": null
+  },
+  "description": "Two problems: one solved by everyone, one solved by nobody, with a participant who never attempted it at all.",
+  "findings": [
+    "total_ac is 0 and first_solve is null for the unsolved problem.",
+    "A participant with NO submission on a problem has no format_data key for it at all (the raw SQL INNER JOINs judge_contestsubmission), while a participant who attempted and failed has a key with points 0 and tries > 0. \"Absent\" and \"zero\" are different states."
+  ],
+  "format": "icpc",
+  "format_config": {
+    "penalty": 20
+  },
+  "participants": [
+    {
+      "name": "alice",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "bob",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "carol",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    }
+  ],
+  "problems": [
+    {
+      "code": "a",
+      "name": "a",
+      "partial": false,
+      "points": 100,
+      "problem_partial": false
+    },
+    {
+      "code": "b",
+      "name": "b",
+      "partial": false,
+      "points": 100,
+      "problem_partial": false
+    }
+  ],
+  "scenario": "08-problem-nobody-solves",
+  "sensitivity": {
+    "shift_seconds": 1800,
+    "submission_index": 0,
+    "why": "alice's accept moves 30 minutes later, transferring the first solve on a to bob and reordering the board."
+  },
+  "submissions": [
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:15:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T10:20:00Z",
+      "participant": "alice",
+      "problem": "b",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T10:35:00Z",
+      "participant": "alice",
+      "problem": "b",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:35:00Z",
+      "participant": "bob",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T10:00:00Z",
+      "participant": "bob",
+      "problem": "b",
+      "result": "TLE",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:50:00Z",
+      "participant": "carol",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "format": "default",
+  "format_config": {},
+  "label_by_problem": {
+    "a": "1",
+    "b": "2"
+  },
+  "problems": [
+    {
+      "code": "a",
+      "first_solve": null,
+      "label": "1",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 0
+    },
+    {
+      "code": "b",
+      "first_solve": null,
+      "label": "2",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 0
+    }
+  ],
+  "ranking": [
+    {
+      "cumtime": 0,
+      "format_data": {
+        "a": {
+          "points": 0.0,
+          "time": 900.0
+        },
+        "b": {
+          "points": 0.0,
+          "time": 1500.0
+        }
+      },
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "alice",
+      "rank": 1,
+      "score": 0.0,
+      "submission_count": 3,
+      "tiebreaker": 0.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 0,
+      "format_data": {
+        "a": {
+          "points": 0.0,
+          "time": 600.0
+        }
+      },
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "bob",
+      "rank": 1,
+      "score": 0.0,
+      "submission_count": 1,
+      "tiebreaker": 0.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 0,
+      "format_data": {},
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "carol",
+      "rank": 1,
+      "score": 0.0,
+      "submission_count": 0,
+      "tiebreaker": 0.0,
+      "virtual": 0
+    }
+  ],
+  "scenario": "01-nobody-solves"
+}

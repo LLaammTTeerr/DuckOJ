@@ -1,0 +1,6 @@
+node_modules
+dist
+pnpm-lock.yaml
+
+# Golden scoreboards must stay byte-identical to what the generator emits.
+fixtures/contest-goldens/

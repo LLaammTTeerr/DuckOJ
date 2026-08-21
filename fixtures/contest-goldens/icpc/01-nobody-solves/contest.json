@@ -1,0 +1,132 @@
+{
+  "contest": {
+    "end_time": "2026-03-01T14:00:00Z",
+    "frozen_last_minutes": 0,
+    "key": "icpc-01",
+    "name": "icpc-01",
+    "points_precision": 3,
+    "start_time": "2026-03-01T09:00:00Z",
+    "time_limit_seconds": null
+  },
+  "description": "Failed attempts only. Tests that unsolved problems carry no penalty.",
+  "findings": [
+    "Penalty is added ONLY inside the `if points:` branch. Attempts on a problem you never solve add ZERO penalty — a reimplementation that charges 20 minutes per wrong answer regardless is wrong.",
+    "tries is still recorded (and displayed) for unsolved problems.",
+    "The golden corrected a misreading: for an unsolved problem icpc reassigns the local `time` to Max(date), but `dt_second` — the value that reaches format_data — was already computed from the raw SQL's Min(date). The reassignment only feeds the frozen-scoreboard flag, so format_data.time records the FIRST attempt, not the last. Moving the last attempt an hour later changes nothing at all (see the null probe)."
+  ],
+  "format": "icpc",
+  "format_config": {
+    "penalty": 20
+  },
+  "null_probe": {
+    "because": "for a zero-score problem the time that reaches format_data was already computed from Min(date); the later reassignment to Max(date) only affects the frozen-scoreboard flag.",
+    "shift_seconds": 3600,
+    "submission_index": 2,
+    "why": "alice's LAST failed attempt moves an hour later."
+  },
+  "participants": [
+    {
+      "name": "alice",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "bob",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "carol",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    }
+  ],
+  "problems": [
+    {
+      "code": "a",
+      "name": "a",
+      "partial": false,
+      "points": 100,
+      "problem_partial": false
+    },
+    {
+      "code": "b",
+      "name": "b",
+      "partial": false,
+      "points": 100,
+      "problem_partial": false
+    }
+  ],
+  "scenario": "01-nobody-solves",
+  "sensitivity": {
+    "shift_seconds": 60,
+    "submission_index": 0,
+    "why": "alice's FIRST failed attempt moves one minute later; the recorded time for an unsolved problem follows the earliest attempt."
+  },
+  "submissions": [
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:05:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:15:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:25:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "TLE",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:10:00Z",
+      "participant": "bob",
+      "problem": "b",
+      "result": "RTE",
+      "status": "D"
+    }
+  ]
+}

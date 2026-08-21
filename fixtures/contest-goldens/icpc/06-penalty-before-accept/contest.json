@@ -1,0 +1,146 @@
+{
+  "contest": {
+    "end_time": "2026-03-01T14:00:00Z",
+    "frozen_last_minutes": 0,
+    "key": "icpc-06",
+    "name": "icpc-06",
+    "points_precision": 3,
+    "start_time": "2026-03-01T09:00:00Z",
+    "time_limit_seconds": null
+  },
+  "description": "Wrong answers before an accept, plus a compile error and an internal error that must not be counted.",
+  "findings": [
+    "tries counts every graded submission dated at or before the accept, INCLUDING the accept itself; penalty is (tries - 1) * penalty_minutes.",
+    "Compile errors (CE) and internal errors (IE), and submissions with a NULL result, are excluded from tries — so they are free. Most reimplementations charge for compile errors.",
+    "Penalty can invert the standings: alice solved 35 minutes earlier than bob and still loses."
+  ],
+  "format": "icpc",
+  "format_config": {
+    "penalty": 20
+  },
+  "participants": [
+    {
+      "name": "alice",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "bob",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    }
+  ],
+  "problems": [
+    {
+      "code": "a",
+      "name": "a",
+      "partial": false,
+      "points": 100,
+      "problem_partial": false
+    }
+  ],
+  "scenario": "06-penalty-before-accept",
+  "sensitivity": {
+    "shift_seconds": 900,
+    "submission_index": 3,
+    "why": "alice's second wrong answer moves to 25 minutes, AFTER her accept, so it stops counting: her penalty drops by 20 minutes and she wins."
+  },
+  "submissions": [
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:03:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "CE",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:04:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": null,
+      "status": "IE"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:05:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:10:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:20:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:55:00Z",
+      "participant": "bob",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    }
+  ]
+}

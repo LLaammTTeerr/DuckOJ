@@ -1,0 +1,91 @@
+{
+  "format": "icpc",
+  "format_config": {
+    "penalty": 20
+  },
+  "label_by_problem": {
+    "a": "A",
+    "b": "B"
+  },
+  "problems": [
+    {
+      "code": "a",
+      "first_solve": null,
+      "label": "A",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 0
+    },
+    {
+      "code": "b",
+      "first_solve": null,
+      "label": "B",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 0
+    }
+  ],
+  "ranking": [
+    {
+      "cumtime": 0,
+      "format_data": {
+        "a": {
+          "frozen_points": 0,
+          "frozen_tries": 3,
+          "is_frozen": false,
+          "points": 0.0,
+          "time": 300.0,
+          "tries": 3
+        }
+      },
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "alice",
+      "rank": 1,
+      "score": 0.0,
+      "submission_count": 3,
+      "tiebreaker": 0.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 0,
+      "format_data": {
+        "b": {
+          "frozen_points": 0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 0.0,
+          "time": 600.0,
+          "tries": 1
+        }
+      },
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "bob",
+      "rank": 1,
+      "score": 0.0,
+      "submission_count": 1,
+      "tiebreaker": 0.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 0,
+      "format_data": {},
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "carol",
+      "rank": 1,
+      "score": 0.0,
+      "submission_count": 0,
+      "tiebreaker": 0.0,
+      "virtual": 0
+    }
+  ],
+  "scenario": "01-nobody-solves"
+}
