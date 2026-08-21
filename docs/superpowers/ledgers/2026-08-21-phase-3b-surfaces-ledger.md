@@ -9,7 +9,7 @@
 |---|---|
 | **The `me` column shows the *latest* verdict, not the best.** One `GET /submissions?user=<self>&limit=100` per page render, never per row. A problem outside the most recent 100 submissions shows nothing even when a verdict exists | R8 — "best" needs either an aggregate the API does not expose or a scan the list must not do, and a wrong "best" is worse than an honest "latest" |
 | **Membership mutation for organizations** — invite, approve, remove. `POST /orgs` and `PATCH /orgs/:slug` were specced and are **not built**; only the read side and the scope exist | Spec §2.3 — it needs the join-request state machine `org_join_requests` already models, and half-implementing that is worse than not starting |
-| **No Playwright coverage for the revisions page.** Fresh registrations cannot reach setter/admin, `test:e2e` is not in CI, and the `e2eset*` accounts are non-reproducible dev-DB debris. Covered by vitest instead | B3's ruling, accepted: a committed browser test coupled to a hand-made dev account is fragile in a way that will fail for the next person, not for us |
+| **No Playwright coverage for the revisions page.** Fresh registrations cannot reach setter/admin, `test:e2e` is not in CI, and the `e2eset*` accounts are non-reproducible dev-DB debris. Covered by vitest instead | R12 — accepted: a committed browser test coupled to a hand-made dev account is fragile in a way that fails for the next person, not for us |
 | **A throwaway problem `e2erevtest1787293732` is permanent dev-stack data** — the screenshot subject for the draft-only null case | Dev data is disposable by the project's founding constraint; recorded so nobody mistakes it for a fixture |
 | **`GET /submissions` has no aggregate**, so "solved count" and "best verdict per problem" are not answerable without scanning | Named here because two Phase 4 features (scoreboards, problem statistics) both need it |
 | Everything in Phase 3a's deferred table that 3b did not touch | Carried unchanged |
@@ -98,6 +98,25 @@ and got 296 nodes truncated to 59, including ledger rulings about package
 hashing, because the edges are imports and a BFS from a 69-edge hub returns
 most of the repo. Rule now reads structural → grep, cross-document → graph.
 A rule nobody follows is worse than no rule.
+
+**R12 — the deferred Playwright coverage, and a citation that pointed nowhere.**
+The revisions page has no browser test: fresh registrations cannot reach
+setter or admin, `test:e2e` is not in CI, and the `e2eset*` accounts are
+non-reproducible dev-DB debris, so a committed test coupled to one is fragile
+in a way that fails for the next person rather than for us. Covered by vitest
+instead.
+
+This ruling exists because the deferred table originally cited "B3's ruling" —
+and B3 is a task whose report lives under `.superpowers/`, which is gitignored.
+The citation pointed at something no reader of this repository can open. Found
+by the knowledge graph's extraction pass, which flagged it AMBIGUOUS rather
+than resolving it silently: *"no such task/ruling is defined anywhere in this
+corpus."*
+
+Worth recording as a rule, not an incident: **a ledger may only cite something
+a reader can reach.** Task reports are working notes and are deliberately not
+committed; anything in one that matters must be restated in the ledger, not
+referenced from it.
 
 ---
 
