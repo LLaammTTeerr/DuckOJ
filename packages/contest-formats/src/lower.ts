@@ -14,13 +14,7 @@ import {
   participationEndMs,
   participationStartMs,
 } from './window.js';
-import type {
-  ContestInput,
-  ContestSpec,
-  ParticipantSpec,
-  ProblemSpec,
-  TestCaseSpec,
-} from './types.js';
+import type { ContestInput, ContestSpec, ProblemSpec, TestCaseSpec } from './types.js';
 
 export { LIVE, SPECTATE } from './window.js';
 
