@@ -1,49 +1,177 @@
 /*
- * The minimal shell. Deliberately not a framework.
+ * The retro terminal. IBM Plex Mono only, self-hosted, no glass, no blur, no
+ * gradients, no shadows, no rounded corners.
  *
- * Every page in this app was written as unstyled semantic HTML while the data
- * model was still moving — the problem page's shape changed three times in
- * Phase 2b alone. This file makes those pages presentable without committing
- * to Tailwind, CSS modules, or a component library, because that choice
- * deserves its own design pass rather than being settled by whoever needed a
- * button first.
+ * Reference: docs/design/mockup-v1.html (approved). Two rules from it are
+ * structural, not cosmetic, and this file exists to keep them intact:
  *
- * Two rules keep it honest:
- *   1. Style ELEMENTS, not classes. The pages carry no `className` and should
- *      not have to. When a real front-end phase arrives it replaces this file
- *      wholesale instead of unpicking class names threaded through 1,200
- *      lines of TSX.
- *   2. No layout that assumes a design. A max-width column, readable type,
- *      and legible tables — nothing that has to be undone later.
+ *   1. COLOUR IS RESERVED FOR VERDICTS. Chrome is monochrome — a green- or
+ *      amber-phosphor chrome would collide with AC-green and TLE-amber, and
+ *      on a judge the verdict must read before anything else. Every verdict
+ *      carries a GLYPH as well as a hue (`.badge::before` / `.case::before`
+ *      below), never colour alone, so it survives colour-blindness and a
+ *      monochrome screenshot.
+ *   2. THE STATEMENT IS THE ONLY NON-DENSE SURFACE: 68ch measure, 1.7
+ *      line-height (`main > section > div`, below — the problem statement's
+ *      `dangerouslySetInnerHTML` container). Everything else is a table
+ *      meant for scanning.
+ *
+ * Mechanism, unchanged from before this file: style ELEMENTS, not classes.
+ * The app carries exactly one pre-existing `className` (`shell-nav`, on the
+ * shell's own `<nav>` — Playwright's e2e suite selects it by that name) plus
+ * a small number of class families, because a handful of things genuinely
+ * cannot be expressed on an element alone:
+ *   - `.badge` (+ a lowercase verdict-code modifier, e.g. `.badge.wa`) — the
+ *     verdict glyph. Reused for the submit page's live verdict, the
+ *     revisions table's state column (`published` maps to the same "good"
+ *     modifier as `AC`; `draft`/`archived` map to the same neutral modifier
+ *     as a pending verdict — two different domains, one visual language),
+ *     the problem list's `me` column, and the submissions list's `verdict`
+ *     column — every screen that shows a verdict-shaped result shares this
+ *     one mapper (`verdictToken`, submit.tsx) and this one class, never a
+ *     second copy of either.
+ *   - `.cases`/`.case` (+ the same verdict-code modifiers, + `.skip`) — the
+ *     case grid, and `.sr-only` for the fully-scoped-per-case text a
+ *     colour+number box can't carry directly (kept in the DOM for screen
+ *     readers and for the "skipped is faint, not absent" property to be
+ *     assertable at all).
+ *   - `.num` (Phase 3b Stream B part 2) — a right-aligned, tabular-numerals
+ *     table cell/header, matching mockup-v1.html's `.num`. Added because the
+ *     problem list originally concatenated `1000 ms / 65536 KB` into one
+ *     free-text cell, throwing away the entire reason a dense table uses
+ *     tabular numerals: magnitudes lining up vertically down a column. Used
+ *     wherever a table shows a number meant to be scanned down a column —
+ *     the problem list's time/mem columns, the submissions list's id/points
+ *     columns.
+ * No other class is added beyond these.
  */
 
+/* ── font: self-hosted IBM Plex Mono ──────────────────────────────────────
+ * NOT Google's CDN. The compose stack has no guaranteed outbound network —
+ * the same reason Task 7b vendored the Scalar bundle — and a webfont that
+ * silently fails to load falls back to a system monospace whose Vietnamese
+ * diacritics may be unstyled or absent.
+ *
+ * These six @font-face blocks are copied verbatim (unicode-range included)
+ * from @fontsource/ibm-plex-mono@5.3.0's 400.css/600.css — OFL-1.1, see
+ * ./assets/fonts/LICENSE-IBM-Plex-Mono.txt. Only the `url()`s were rewritten
+ * to point at the six .woff2 files vendored under ./assets/fonts (weights
+ * 400/600, latin + latin-ext + vietnamese subsets only — no other weight, no
+ * italic, no other script). The .woff fallback source was dropped: every
+ * browser this app targets supports .woff2.
+ *
+ * The three subsets per weight are NOT redundant with each other — dropping
+ * unicode-range here is the "half-done self-hosting" the spec warns about:
+ * without it the last @font-face wins outright and Latin text silently
+ * loses the font. Each subset owns a disjoint codepoint range and the
+ * browser picks whichever one actually covers the character being set.
+ *
+ * Relative `url()`s here (not `public/`) so Vite's asset pipeline
+ * fingerprints these files into `dist/assets/*.woff2` and rewrites the
+ * reference — a `public/` copy would be served byte-identical on every
+ * deploy, uncachable and unproven by the build.
+ */
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('./assets/fonts/ibm-plex-mono-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('./assets/fonts/ibm-plex-mono-latin-ext-400.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('./assets/fonts/ibm-plex-mono-vietnamese-400.woff2') format('woff2');
+  unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('./assets/fonts/ibm-plex-mono-latin-600.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('./assets/fonts/ibm-plex-mono-latin-ext-600.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('./assets/fonts/ibm-plex-mono-vietnamese-600.woff2') format('woff2');
+  unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB;
+}
+
+/* ── palette ──────────────────────────────────────────────────────────────
+ * Light is the default (`:root`), dark under `prefers-color-scheme: dark` —
+ * same structure the old file used. `color-scheme: light dark` is kept so
+ * native form controls (date pickers etc., none in this app today but this
+ * is a shared shell) still pick a matching UA chrome.
+ */
 :root {
   color-scheme: light dark;
 
-  --bg: #ffffff;
-  --fg: #1a1a1a;
-  --muted: #5c5c5c;
-  --border: #d9d9d9;
-  --surface: #f6f6f6;
-  --accent: #1c5d99;
-  --accent-fg: #ffffff;
-  --danger: #a11b1b;
+  --bg: #f5f3ee;
+  --panel: #ffffff;
+  --fg: #1a1d22;
+  --dim: #5c6470;
+  --faint: #b8bec7;
+  --line: #d9d5cc;
+  --sel: #ebe7de;
+
+  --ac: #1a7f37;
+  --wa: #cf222e;
+  --tle: #9a6700;
+  --mle: #bc4c00;
+  --ole: #7a5900;
+  --rte: #b31d28;
+  --ir: #d1242f;
+  --ie: #8250df;
+  --ce: #0969da;
+  --pend: #5c6470;
 
   --space: 1rem;
-  --radius: 4px;
   --measure: 68ch;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #16181c;
-    --fg: #e8e8e8;
-    --muted: #9aa0a8;
-    --border: #333840;
-    --surface: #1e2126;
-    --accent: #6ba7dd;
-    --accent-fg: #10141a;
-    --danger: #ef6b6b;
+    --bg: #0b0d10;
+    --panel: #12151a;
+    --fg: #d6d3cd;
+    --dim: #7e8894;
+    --faint: #3a424e;
+    --line: #242a33;
+    --sel: #1b2029;
+
+    --ac: #3fb950;
+    --wa: #f85149;
+    --tle: #d29922;
+    --mle: #db6d28;
+    --ole: #bf8700;
+    --rte: #cf222e;
+    --ir: #ff7b72;
+    --ie: #a371f7;
+    --ce: #58a6ff;
+    --pend: #7e8894;
   }
 }
 
@@ -51,57 +179,127 @@
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
+  padding: 0;
+}
+
+body {
   background: var(--bg);
   color: var(--fg);
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  font-size: 16px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 14px;
   line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* --- shell ------------------------------------------------------------- */
+a {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid var(--faint);
+}
+a:hover {
+  border-bottom-color: var(--fg);
+}
+:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 1px;
+}
+
+/* --- shell --------------------------------------------------------------
+ * `.shell-nav` is the one pre-existing className — see router.tsx and
+ * e2e/smoke.spec.ts, which selects it by name. Everything under it is
+ * plain elements.
+ */
 
 .shell-nav {
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
 }
 
-.shell-nav > div,
-main {
-  max-width: 60rem;
+.shell-nav > div {
+  max-width: 960px;
   margin: 0 auto;
-  padding: var(--space);
-}
-
-.shell-nav a {
-  margin-right: var(--space);
-  font-weight: 500;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 38px;
 }
 
 .shell-nav strong {
-  margin-right: calc(var(--space) * 1.5);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.shell-nav a {
+  border: 0;
+  color: var(--dim);
+  font-size: 13px;
+  padding: 2px 0;
+  border-bottom: 1px solid transparent;
+}
+.shell-nav a:hover {
+  color: var(--fg);
+}
+/* TanStack Router's <Link> sets aria-current="page" on the active route by
+   default — no extra prop, no extra class. The plain <a> to /api/v1/docs
+   (Scalar's own page, outside this router) never gets it, which is correct:
+   it is never "the current route" as far as this router is concerned. */
+.shell-nav a[aria-current='page'] {
+  color: var(--fg);
+  border-bottom-color: var(--fg);
+}
+
+/* The trailing "Signed in as …" / "Sign in" slot (router.tsx's
+   RootComponent) is a <span> in one branch and a <Link> (an <a>) in the
+   other — targeted by position, not tag, so both get pushed right. */
+.shell-nav > div > :last-child {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 13px;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 16px 56px;
 }
 
 main > section > h1:first-child {
   margin-top: 0;
 }
 
-/* --- type -------------------------------------------------------------- */
+/* --- type ----------------------------------------------------------------- */
 
 h1 {
-  font-size: 1.6rem;
-  line-height: 1.25;
+  font-size: 19px;
+  font-weight: 600;
+  margin: 0 0 2px;
+  letter-spacing: 0.01em;
 }
 h2 {
-  font-size: 1.25rem;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 22px 0 8px;
 }
 h3 {
-  font-size: 1.05rem;
+  font-size: 13px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-weight: 500;
+  margin: 20px 0 6px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
 }
 
+small {
+  color: var(--dim);
+  font-size: 0.85em;
+}
 h1 small {
-  color: var(--muted);
   font-size: 0.6em;
   font-weight: 400;
 }
@@ -111,25 +309,40 @@ li {
   max-width: var(--measure);
 }
 
-a {
-  color: var(--accent);
-}
-
 code,
 pre {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: inherit;
   font-size: 0.9em;
 }
 
 pre {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--space);
+  background: var(--sel);
+  border: 1px solid var(--line);
+  padding: 9px 11px;
   overflow-x: auto;
 }
 
-/* --- tables ------------------------------------------------------------ */
+/* --- the statement: the one surface that is NOT dense ---------------------
+ * Scoped to `main > section > div` — the problem page's
+ * `dangerouslySetInnerHTML` container, one level below the page's own
+ * <section>. Deliberately NOT a bare `section > div` or `section div`: the
+ * submit page's verdict panel is also a nested <section> containing <div>s
+ * (compiler output, the case grid's wrapper) that must stay dense, not gain
+ * 68ch/1.7 reading typography.
+ */
+main > section > div {
+  max-width: var(--measure);
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+main > section > div p {
+  margin: 0 0 12px;
+}
+main > section > div pre {
+  margin: 0 0 12px;
+}
+
+/* --- tables ----------------------------------------------------------------- */
 
 table {
   border-collapse: collapse;
@@ -137,27 +350,47 @@ table {
   margin: var(--space) 0;
 }
 
-th,
-td {
+th {
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--dim);
   text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+  padding: 0 12px 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+td {
+  padding: 5px 12px 5px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
   vertical-align: top;
 }
 
-th {
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+tr:hover td {
+  background: var(--sel);
+}
+
+/* Right-aligned, tabular numerals — mockup-v1.html's `.num`. Applied to both
+   the `<th>` and the `<td>`s of a numeric column so the header and its
+   values share the same right edge; `font-variant-numeric: tabular-nums`
+   is what makes digits line up vertically column-over-column instead of
+   each row's width drifting with proportional-width digits like `1`/`0`. */
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- forms ------------------------------------------------------------- */
 
 label {
   display: block;
-  margin-top: var(--space);
-  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin: 12px 0 4px;
 }
 
 input,
@@ -165,18 +398,18 @@ select,
 textarea {
   font: inherit;
   color: inherit;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.4rem 0.55rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 5px 9px;
   width: 100%;
   max-width: 32rem;
+  outline: none;
 }
 
 textarea {
   max-width: none;
-  min-height: 12rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-height: 150px;
+  resize: vertical;
 }
 
 /* `:disabled` is load-bearing, not decoration: the problem code field is
@@ -184,44 +417,254 @@ textarea {
    looks editable but silently discards input is worse than one that does
    not. */
 input:disabled {
-  background: var(--surface);
-  color: var(--muted);
+  background: var(--sel);
+  color: var(--dim);
   cursor: not-allowed;
 }
 
 button {
   font: inherit;
-  background: var(--accent);
-  color: var(--accent-fg);
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  padding: 0.4rem 0.9rem;
+  font-size: 13px;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--fg);
+  padding: 4px 14px;
   margin-top: var(--space);
   cursor: pointer;
 }
 
 button:hover {
-  filter: brightness(1.1);
+  background: var(--fg);
+  color: var(--bg);
 }
 
 button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+  background: transparent;
+  color: var(--dim);
+  border-color: var(--line);
 }
 
-/* --- state ------------------------------------------------------------- */
+/* A per-row action (the revisions table's Publish button, one per revision)
+   is not a page-level call to action — the global `margin-top` above would
+   give every row a ~1rem-tall button block; compact instead, matching the
+   mockup's row-button treatment. */
+td button {
+  margin-top: 0;
+  padding: 1px 8px;
+  font-size: 12px;
+}
 
+/* --- panels: any <section> nested inside this app's page-level <section>
+   is a self-contained block — today, the submit page's live verdict panel
+   and the edit page's read-only members list. Its first paragraph (the
+   verdict panel's "Status: …" line) reads as the panel's header. */
+
+section section {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 12px;
+  margin-top: 12px;
+}
+section section > p:first-child {
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  margin: -12px -12px 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  max-width: none;
+}
+
+/* --- verdicts: the only colour in the system ---------------------------
+ * `.badge` is applied to whatever element is showing a verdict-shaped
+ * result (a <strong> on the submit page, a <span> in the revisions state
+ * column) alongside a lowercase modifier class matching the verdict code —
+ * `ac wa tle mle ole rte ir ce ie`, plus `pend` for "no verdict yet" /
+ * "not the live revision". Colour AND a glyph, never colour alone — see
+ * this file's header comment.
+ */
+.badge {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.badge::before {
+  margin-right: 5px;
+  opacity: 0.9;
+}
+.badge.ac {
+  color: var(--ac);
+}
+.badge.ac::before {
+  content: '+';
+}
+.badge.wa {
+  color: var(--wa);
+}
+.badge.wa::before {
+  content: 'x';
+}
+.badge.tle {
+  color: var(--tle);
+}
+.badge.tle::before {
+  content: '>';
+}
+.badge.mle {
+  color: var(--mle);
+}
+.badge.mle::before {
+  content: '^';
+}
+.badge.ole {
+  color: var(--ole);
+}
+.badge.ole::before {
+  content: '%';
+}
+.badge.rte {
+  color: var(--rte);
+}
+.badge.rte::before {
+  content: '~';
+}
+.badge.ir {
+  color: var(--ir);
+}
+.badge.ir::before {
+  content: '?';
+}
+.badge.ce {
+  color: var(--ce);
+}
+.badge.ce::before {
+  content: '#';
+}
+.badge.ie {
+  color: var(--ie);
+}
+.badge.ie::before {
+  content: '!';
+}
+.badge.pend {
+  color: var(--pend);
+}
+.badge.pend::before {
+  content: '.';
+}
+
+/* --- case grid -----------------------------------------------------------
+ * The densest thing in the design and the most useful: dozens of tests fit
+ * in a couple of rows, and a wrong answer partway through with the rest
+ * skipped tells the whole story before reading a word.
+ *
+ * Still a real <ul>/<li> list (role=list/listitem) — this is a styled list,
+ * not a div soup, and each <li> carries a visually-hidden (`.sr-only`)
+ * description alongside the compact on-screen glyph: "skipped is faint, not
+ * absent" has to survive to screen readers and to anything that reads DOM
+ * text, not just to sighted colour vision.
+ */
+.cases {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 4px 0 12px;
+  padding: 0;
+  max-width: none;
+}
+.case {
+  position: relative;
+  width: 26px;
+  height: 22px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  max-width: none;
+}
+.case.ac {
+  color: var(--ac);
+  border-color: var(--ac);
+}
+.case.wa {
+  color: var(--wa);
+  border-color: var(--wa);
+}
+.case.tle {
+  color: var(--tle);
+  border-color: var(--tle);
+}
+.case.mle {
+  color: var(--mle);
+  border-color: var(--mle);
+}
+.case.ole {
+  color: var(--ole);
+  border-color: var(--ole);
+}
+.case.rte {
+  color: var(--rte);
+  border-color: var(--rte);
+}
+.case.ir {
+  color: var(--ir);
+  border-color: var(--ir);
+}
+.case.ce {
+  color: var(--ce);
+  border-color: var(--ce);
+}
+.case.ie {
+  color: var(--ie);
+  border-color: var(--ie);
+}
+.case.pend {
+  color: var(--pend);
+}
+/* Skipped: faint, not absent. No border colour of its own (unlike every
+   verdict above) — the point is that it visually recedes, not that it reads
+   as another verdict. */
+.case.skip {
+  color: var(--faint);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- state -------------------------------------------------------------
+ * Deliberately NOT colour: "colour is reserved for verdicts" (this file's
+ * header comment), and a red alert competing for attention with a WA badge
+ * on the same screen (submit) is exactly the collision that rule exists to
+ * prevent. Weight and a border carry it instead.
+ */
 [role='alert'] {
-  color: var(--danger);
-  font-weight: 500;
+  font-weight: 600;
+  border-left: 2px solid var(--fg);
+  padding-left: 9px;
 }
 
 /* The revisions and submit screens surface the server's error `code`
    verbatim — `package_not_found`, not "Something went wrong". Monospace
-   because it is an identifier a setter will paste into a search, not prose. */
+   because it is an identifier a setter will paste into a search, not prose;
+   already true of every `code`/`pre` in this file, kept explicit here since
+   it sits inside an alert rather than a panel. */
 [role='alert'] code {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--sel);
+  border: 1px solid var(--line);
   padding: 0.05em 0.35em;
 }

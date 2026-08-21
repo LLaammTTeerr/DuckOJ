@@ -59,6 +59,14 @@ export const ProblemSummary = z.object({
   hasPublishedRevision: z.boolean(),
   timeMs: z.number().int().nullable(),
   memoryKb: z.number().int().nullable(),
+  /**
+   * Nullable for the same reason `timeMs`/`memoryKb` are: all three come from
+   * the published revision, and a problem whose only revision is still a draft
+   * has none. Carried on the *summary* so the list can show it without a
+   * request per row — deriving it from `ProblemDetail` would be exactly the
+   * N+1 the list must not do.
+   */
+  testCount: z.number().int().nullable(),
 });
 export type ProblemSummaryDto = z.infer<typeof ProblemSummary>;
 

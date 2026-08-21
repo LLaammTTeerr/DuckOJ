@@ -10,6 +10,7 @@ import { ProblemsModule } from './problems/problems.module.js';
 import { SubmissionsModule } from './submissions/submissions.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
 import { PackagesModule } from './packages/packages.module.js';
+import { LanguagesModule } from './languages/languages.module.js';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { PackagesModule } from './packages/packages.module.js';
     SubmissionsModule,
     RealtimeModule,
     PackagesModule,
+    LanguagesModule,
   ],
 })
 export class AppModule {}

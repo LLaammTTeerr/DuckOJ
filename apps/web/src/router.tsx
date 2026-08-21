@@ -7,23 +7,14 @@ import { ProblemsPage } from './routes/problems.js';
 import { ProblemPage } from './routes/problem.js';
 import { ProblemEditPage } from './routes/problem-edit.js';
 import { ProblemRevisionsPage } from './routes/problem-revisions.js';
+import { SubmissionsPage } from './routes/submissions.js';
 import { HomePage } from './routes/home.js';
 import { api } from './api.js';
-
-/**
- * `/auth/me`, as a shared query-options object rather than inlined at every
- * call site. Every route component below that calls `useQuery(meQueryOptions)`
- * reads and writes the *same* react-query cache entry (`['me']`) through the
- * one `QueryClient` created in `main.tsx` — this is what makes the session
- * check shared across client-side transitions instead of re-fetched on every
- * one, unlike before this task (see this file's history / the task report
- * for why that is a deliberate, not accidental, behaviour change).
- */
-function fetchMe() {
-  return api.GET('/auth/me').then(({ data }) => data ?? null);
-}
-
-const meQueryOptions = { queryKey: ['me'] as const, queryFn: fetchMe };
+// `meQueryOptions` moved to `./me.js` (see that file's doc comment) so
+// `routes/problems.tsx` — which needs the viewer's username for the `me`
+// verdict column, but is not itself part of the route tree — can share the
+// same `['me']` cache entry without importing this file.
+import { meQueryOptions } from './me.js';
 
 /**
  * Sign-in wiring shared by the two places that can show `LoginForm`: the
@@ -80,6 +71,7 @@ function RootComponent() {
         <div>
           <strong>DuckOJ</strong>
           <Link to="/problems">Problems</Link>
+          <Link to="/submissions">Submissions</Link>
           <a href="/api/v1/docs">API</a>
           {me.data ? <span>Signed in as {me.data.displayName}</span> : <Link to="/">Sign in</Link>}
         </div>
@@ -163,6 +155,30 @@ function ProblemNewRouteComponent() {
 }
 
 /**
+ * `/submissions`. `GET /submissions` answers 401 signed-out (contracts'
+ * `SubmissionListQuery` registration) — unlike `/problems`, which is
+ * readable without a session — so this is gated exactly like `/submit`
+ * above, via the same `useAuthGate`. Without this gate, a signed-out visit
+ * would fire a request that 401s, which `smoke.spec.ts`'s
+ * `watchForBrokenRequests` does NOT whitelist for any path but
+ * `/auth/me` — an unguarded query here would turn every e2e test that
+ * walks this route while signed out red.
+ */
+function SubmissionsRouteComponent() {
+  const { me, loginError, needsTotp, handleLogin } = useAuthGate();
+  if (me.isLoading) return <p>Loading…</p>;
+  if (!me.data) {
+    return (
+      <>
+        <p>Sign in to see submissions.</p>
+        <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />
+      </>
+    );
+  }
+  return <SubmissionsPage />;
+}
+
+/**
  * The route tree. Static segments (`/problems/new`) are declared exactly
  * like dynamic ones (`/problems/$code`) — no manual ordering is needed, and
  * none is done here. TanStack Router resolves path specificity
@@ -208,6 +224,11 @@ const submitRoute = createRoute({
   }),
   component: SubmitRouteComponent,
 });
+const submissionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/submissions',
+  component: SubmissionsRouteComponent,
+});
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
@@ -217,6 +238,7 @@ const routeTree = rootRoute.addChildren([
   problemEditRoute,
   problemRevisionsRoute,
   submitRoute,
+  submissionsRoute,
 ]);
 
 export const router = createRouter({ routeTree });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CreateTokenRequest, hasScope } from '../src/index.js';
+import { CreateTokenRequest, hasScope, SCOPES } from '../src/index.js';
 
 const session = (scopes: string[] = []) => ({ userId: 1, globalRole: 'user', via: 'session' as const, scopes });
 const token = (scopes: string[] = []) => ({ userId: 1, globalRole: 'user', via: 'token' as const, scopes });
@@ -21,6 +21,28 @@ describe('hasScope', () => {
 
   it('a token with NO scopes fails — empty means "declared nothing", not "unrestricted"', () => {
     expect(hasScope(token([]), 'problems:write')).toBe(false);
+  });
+});
+
+// Pinned by hand, one literal entry per scope — never regenerated from
+// `SCOPES` itself (that would make this test tautological) and never a
+// snapshot (a snapshot accepts any change on `-u`, including a scope quietly
+// dropped). Phase 3b spec §2.1 adds `languages:read`; extend this list by
+// hand again the next time a scope is added or removed, so a reviewer sees
+// the vocabulary change in the diff rather than trusting a regenerated file.
+describe('scope vocabulary', () => {
+  it('is exactly this list — extend by hand, never by regenerating a snapshot', () => {
+    expect(SCOPES).toEqual([
+      'problems:read',
+      'problems:write',
+      'problems:publish',
+      'submissions:read',
+      'submissions:write',
+      'orgs:read',
+      'packages:read',
+      'packages:write',
+      'languages:read',
+    ]);
   });
 });
 

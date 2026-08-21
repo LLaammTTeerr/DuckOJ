@@ -2,9 +2,32 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { formatMemoryMb } from './problems.js';
 
 type Revision =
   paths['/problems/{code}/revisions']['get']['responses'][200]['content']['application/json'][number];
+
+// Head…tail, never middle-elided (mockup-v1.html, screen 4's note): the head
+// is what a setter pastes into a search, the tail is what distinguishes two
+// rebuilds of the same problem that would otherwise share a head. Real
+// package hashes are 64 hex characters (contracts' AttachRevisionRequest),
+// always long enough to truncate; the length guard just keeps this safe for
+// anything shorter without producing a negative-length slice.
+const HASH_HEAD = 8;
+const HASH_TAIL = 4;
+function truncateHash(hash: string): string {
+  if (hash.length <= HASH_HEAD + HASH_TAIL) return hash;
+  return `${hash.slice(0, HASH_HEAD)}…${hash.slice(-HASH_TAIL)}`;
+}
+
+// app.css's `.badge` colour+glyph system, reused here across a different
+// domain than a verdict: `published` maps to the same "good" token as `AC`
+// (it is the only row answering "which one is actually grading"); `draft`
+// and `archived` both map to the neutral `pend` token. See app.css's header
+// comment.
+function stateToken(state: Revision['state']): string {
+  return state === 'published' ? 'ac' : 'pend';
+}
 
 /**
  * `/problems/:code/revisions`: every revision — draft, published and
@@ -114,8 +137,10 @@ export function ProblemRevisionsPage(props: { code: string }) {
             <tr>
               <th>Version</th>
               <th>State</th>
-              <th>Limits</th>
-              <th>Tests</th>
+              <th>Package</th>
+              <th className="num">Time</th>
+              <th className="num">Mem</th>
+              <th className="num">Tests</th>
               <th>Notes</th>
               <th />
             </tr>
@@ -124,11 +149,20 @@ export function ProblemRevisionsPage(props: { code: string }) {
             {revisions.map((r) => (
               <tr key={r.id}>
                 <td>{r.version}</td>
-                <td>{r.state}</td>
                 <td>
-                  {r.timeMs} ms / {r.memoryKb} KB
+                  <span className={`badge ${stateToken(r.state)}`}>{r.state}</span>
                 </td>
-                <td>{r.testCount}</td>
+                {/* `title` carries the full 64-character hash — truncation
+                    is a display choice, not a loss of the value someone
+                    might need to paste in full. */}
+                <td title={r.packageHash}>{truncateHash(r.packageHash)}</td>
+                {/* Two right-aligned numeric columns, not one free-text
+                    cell — same fix as the problem list's limits columns
+                    (problems.tsx), reusing its `formatMemoryMb` rather than
+                    a second copy of "how do we render a memory limit". */}
+                <td className="num">{r.timeMs} ms</td>
+                <td className="num">{formatMemoryMb(r.memoryKb)}</td>
+                <td className="num">{r.testCount}</td>
                 <td>{r.notes ?? '—'}</td>
                 <td>
                   {/* Publish is only ever offered for a revision that is

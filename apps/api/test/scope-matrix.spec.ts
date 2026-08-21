@@ -265,6 +265,44 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
   );
 
   it(
+    "languages:read — GET /languages, and the anonymous half of its @Public()",
+    async () => {
+      await withTestDb(async (db) => {
+        await seedProblemAndLanguage(db);
+        const app = await buildApp(db);
+        try {
+          const agent = request.agent(app.getHttpServer());
+          await registerAndLogin(agent, 'sm-languages-read');
+
+          // The one route in this matrix that is also @Public(): an
+          // anonymous caller reaches it with no actor at all, so ScopeGuard
+          // never even runs its scope check (see scope.guard.ts's `if
+          // (!actor) return true`).
+          const anonymous = await request(app.getHttpServer()).get('/languages');
+          expect(anonymous.status).toBe(200);
+
+          const session = await agent.get('/languages');
+          expect(session.status).toBe(200);
+
+          const withScope = await bearer(app, await mintToken(agent, ['languages:read'])).get('/languages');
+          expect(withScope.status).toBe(200);
+
+          const withoutScope = await bearer(app, await mintToken(agent, ['submissions:read'])).get('/languages');
+          expect(withoutScope.status).toBe(403);
+          expect(withoutScope.body.code).toBe('scope_required');
+
+          const empty = await bearer(app, await mintToken(agent, [])).get('/languages');
+          expect(empty.status).toBe(403);
+          expect(empty.body.code).toBe('scope_required');
+        } finally {
+          await app.close();
+        }
+      });
+    },
+    120_000,
+  );
+
+  it(
     'orgs:read — GET /orgs',
     async () => {
       await withTestDb(async (db) => {

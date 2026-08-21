@@ -218,6 +218,33 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
     });
   }, 120_000);
 
+  it('carries testCount on the summary, and nulls it for a draft-only problem', async () => {
+    // testCount lives on the SUMMARY so the problem list can show it without a
+    // request per row — deriving it from ProblemDetail would be the N+1 the
+    // list must not do.
+    //
+    // What this test does NOT pin, stated so nobody assumes otherwise: the
+    // `row.revisionId === null ? null : ...` guard in `toSummary`. Verified by
+    // mutation — removing that guard leaves all 15 tests green, because a
+    // draft-only problem has no `currentRevisionId` at all, so the leftJoin
+    // matches nothing and every revision column is already SQL NULL. The guard
+    // is belt-and-braces behind the join, and the join's `state = 'published'`
+    // term is what actually carries the weight (Phase 2b R17). Pinning the
+    // guard needs a problem whose `currentRevisionId` points at a NON-published
+    // revision, which no fixture here can currently build.
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'tc-owner');
+      await seedProblem(db, { code: 'tcpub', name: 'Published', createdBy: owner.id });
+      await seedProblem(db, { code: 'tcdraft', name: 'Draft only', createdBy: owner.id, publish: false });
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      const page = await service.listVisible(null, { limit: 50 });
+      const byCode = new Map(page.items.map((p) => [p.code, p]));
+      expect(byCode.get('tcpub')!.testCount).toBe(5);
+      expect(byCode.get('tcdraft')!.testCount).toBeNull();
+    });
+  }, 120_000);
+
   it('reports hasPublishedRevision false and null limits for a draft-only problem', async () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'owner-draft');

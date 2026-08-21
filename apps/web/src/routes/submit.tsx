@@ -63,6 +63,32 @@ function caseLabel(c: SubmissionCase): string {
 }
 
 /**
+ * Maps a verdict (or the absence of one) to the lowercase token app.css keys
+ * its `.badge`/`.case` colour+glyph rules on — see that file's header
+ * comment. `null` (no verdict yet) maps to the same neutral `pend` token
+ * app.css also uses for an unpublished revision (problem-revisions.tsx).
+ *
+ * Exported so every other screen that renders a verdict — the problem
+ * list's `me` column and the submissions list (routes/problems.tsx,
+ * routes/submissions.tsx) — maps it through this one function rather than
+ * a second copy of the same `.toLowerCase() / 'pend'` rule. "Verdicts use
+ * the same badge glyph+colour system you already built" covers the mapper,
+ * not just the CSS classes it feeds.
+ */
+export function verdictToken(verdict: SubmissionDetail['verdict']): string {
+  return verdict ? verdict.toLowerCase() : 'pend';
+}
+
+/** Hover text for a case-grid cell — the on-screen glyph is just a number
+ * and a colour; this is where the actual verdict, timing and memory live
+ * for anyone who points at a box instead of reading the `.sr-only` text. */
+function caseTitle(c: SubmissionCase): string {
+  const label = `Case ${c.groupIndex}.${c.caseIndex}`;
+  if (c.skipped) return `${label}: skipped`;
+  return `${label}: ${c.verdict ?? 'pending'} · ${c.timeMs} ms · ${c.memoryKb} KB`;
+}
+
+/**
  * Renders whatever the API currently knows about a submission. The caller is
  * responsible for keeping `submission` fresh (see `SubmitPage` below) — this
  * component only renders a snapshot.
@@ -98,14 +124,18 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
       <p>Status: {stateLabel}</p>
       {isCompileError ? (
         <p>
-          Verdict: <strong>Compile error</strong>
+          Verdict: <strong className="badge ce">Compile error</strong>
         </p>
       ) : submission.verdict ? (
         <p>
-          Verdict: <strong>{submission.verdict}</strong>
-          {typeof submission.points === 'number' && typeof submission.maxPoints === 'number'
-            ? ` — ${submission.points}/${submission.maxPoints}`
-            : null}
+          Verdict:{' '}
+          <strong className={`badge ${verdictToken(submission.verdict)}`}>{submission.verdict}</strong>
+          {typeof submission.points === 'number' && typeof submission.maxPoints === 'number' ? (
+            <small>
+              {' '}
+              — {submission.points}/{submission.maxPoints}
+            </small>
+          ) : null}
         </p>
       ) : null}
       {submission.compileOutput ? (
@@ -118,10 +148,25 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
         </div>
       ) : null}
       {submission.cases.length > 0 ? (
-        <ul>
-          {submission.cases.map((c) => (
-            <li key={`${c.groupIndex}-${c.caseIndex}`}>
-              Case {c.groupIndex}.{c.caseIndex}: {caseLabel(c)}
+        // A real <ul>/<li> list — role=list/listitem, asserted directly by
+        // test/submit.spec.tsx — styled by app.css's `.cases`/`.case` into a
+        // dense grid. Each cell's visible content is just the case's
+        // sequential position and a colour; the full "Case G.C: verdict"
+        // sentence (including the literal word "skipped" for a case that
+        // never ran — that word is asserted directly, and skipped MUST say
+        // so rather than merely looking faint to a sighted reader) lives in
+        // `.sr-only` text and in `title` for anyone hovering.
+        <ul className="cases">
+          {submission.cases.map((c, i) => (
+            <li
+              key={`${c.groupIndex}-${c.caseIndex}`}
+              className={`case ${c.skipped ? 'skip' : verdictToken(c.verdict)}`}
+              title={caseTitle(c)}
+            >
+              <span aria-hidden="true">{i + 1}</span>
+              <span className="sr-only">
+                Case {c.groupIndex}.{c.caseIndex}: {caseLabel(c)}
+              </span>
             </li>
           ))}
         </ul>
