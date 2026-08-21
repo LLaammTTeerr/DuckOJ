@@ -1,9 +1,10 @@
-import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, type SQL } from 'drizzle-orm';
 import { orgMembers, problemMembers, problemOrgs, problems } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { isAdmin, type Actor } from './actor.js';
+import { canViewVisible, visibleRowsWhere, type Visibility } from './visibility.js';
 
-export type ProblemVisibility = 'private' | 'org' | 'public';
+export type ProblemVisibility = Visibility;
 export type ProblemRole = 'author' | 'curator' | 'tester';
 
 export interface ProblemViewContext {
@@ -26,24 +27,25 @@ export interface ProblemViewContext {
 }
 
 /**
- * The single visibility predicate. Every read path in the codebase shares
- * this function (and its list-query twin, `visibleProblemsWhere`) so
- * visibility is never implemented twice.
+ * Whether `actor` may see `problem`. The decision itself lives in
+ * `canViewVisible` (`visibility.ts`) — this only translates a problem's
+ * membership model into it: any role at all counts, because a tester exists
+ * precisely so a private problem can be proofread before it is public.
+ *
+ * Phase 4c moved the decision out of this file so contests could share it
+ * rather than reimplement it. Behaviour is unchanged, which
+ * `problem-visibility.spec.ts` is the proof of.
  */
 export function canViewProblem(
   actor: Actor | null,
   problem: { id: number; visibility: ProblemVisibility },
   ctx: ProblemViewContext,
 ): boolean {
-  if (isAdmin(actor)) return true;
-  // Membership outranks visibility: a tester exists precisely so a private
-  // problem can be proofread before it is public.
-  if (actor && ctx.memberRoles.length > 0) return true;
-  if (problem.visibility === 'public') return true;
-  if (problem.visibility === 'org' && actor) {
-    return ctx.sharedOrgIds.some((id) => ctx.actorOrgIds.includes(id));
-  }
-  return false;
+  return canViewVisible(actor, problem.visibility, {
+    isMember: ctx.memberRoles.length > 0,
+    sharedOrgIds: ctx.sharedOrgIds,
+    actorOrgIds: ctx.actorOrgIds,
+  });
 }
 
 export function canEditProblem(actor: Actor | null, ctx: ProblemViewContext): boolean {
@@ -73,30 +75,29 @@ export function canCreateProblem(actor: Actor | null): boolean {
 }
 
 /**
- * The list-query form of `canViewProblem`. Kept in the same file as the
- * row-wise form on purpose: the two must agree, and agreement is easier to
- * audit when they are eight lines apart than when they live in two services.
+ * The list-query form of `canViewProblem`. The condition's *shape* is
+ * `visibleRowsWhere`'s, shared with contests; this supplies the two problem
+ * subqueries it cannot know about. Kept in the same file as the row-wise form
+ * on purpose: the two must agree, and agreement is easier to audit when they
+ * are eight lines apart than when they live in two services.
  */
 export function visibleProblemsWhere(db: Db, actor: Actor | null): SQL {
-  if (isAdmin(actor)) return sql`true`;
-  if (!actor) return eq(problems.visibility, 'public');
-
-  const memberOf = db
-    .select({ problemId: problemMembers.problemId })
-    .from(problemMembers)
-    .where(eq(problemMembers.userId, actor.userId));
-
-  const sharedWithMyOrgs = db
-    .select({ problemId: problemOrgs.problemId })
-    .from(problemOrgs)
-    .innerJoin(orgMembers, eq(orgMembers.orgId, problemOrgs.orgId))
-    .where(eq(orgMembers.userId, actor.userId));
-
-  return or(
-    eq(problems.visibility, 'public'),
-    inArray(problems.id, memberOf),
-    and(eq(problems.visibility, 'org'), inArray(problems.id, sharedWithMyOrgs)),
-  )!;
+  const userId = actor?.userId ?? 0;
+  return visibleRowsWhere(
+    actor,
+    { visibility: problems.visibility, id: problems.id },
+    {
+      memberOf: db
+        .select({ problemId: problemMembers.problemId })
+        .from(problemMembers)
+        .where(eq(problemMembers.userId, userId)),
+      sharedWithMyOrgs: db
+        .select({ problemId: problemOrgs.problemId })
+        .from(problemOrgs)
+        .innerJoin(orgMembers, eq(orgMembers.orgId, problemOrgs.orgId))
+        .where(eq(orgMembers.userId, userId)),
+    },
+  );
 }
 
 /**

@@ -336,6 +336,84 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
   );
 
   it(
+    'contests:read — GET /contests',
+    async () => {
+      await withTestDb(async (db) => {
+        const app = await buildApp(db);
+        try {
+          const agent = request.agent(app.getHttpServer());
+          const cookie = await registerAndLogin(agent, 'sm-contests-read');
+
+          const session = await request(app.getHttpServer()).get('/contests').set('Cookie', cookie);
+          expect(session.status).toBe(200);
+
+          const withScope = await bearer(app, await mintToken(agent, ['contests:read'])).get('/contests');
+          expect(withScope.status).toBe(200);
+
+          const withoutScope = await bearer(app, await mintToken(agent, ['orgs:read'])).get('/contests');
+          expect(withoutScope.status).toBe(403);
+          expect(withoutScope.body.code).toBe('scope_required');
+
+          const empty = await bearer(app, await mintToken(agent, [])).get('/contests');
+          expect(empty.status).toBe(403);
+          expect(empty.body.code).toBe('scope_required');
+        } finally {
+          await app.close();
+        }
+      });
+    },
+    120_000,
+  );
+
+  it(
+    'contests:write — POST /contests (setter role)',
+    async () => {
+      await withTestDb(async (db) => {
+        const app = await buildApp(db);
+        try {
+          const agent = request.agent(app.getHttpServer());
+          await registerAndLogin(agent, 'sm-contests-write');
+          await db
+            .update(schema.users)
+            .set({ globalRole: 'setter' })
+            .where(eq(schema.users.username, 'sm-contests-write'));
+
+          const create = (key: string) => ({
+            key,
+            name: 'Scope matrix contest',
+            startTime: '2026-03-01T09:00:00.000Z',
+            endTime: '2026-03-01T14:00:00.000Z',
+            format: 'icpc',
+          });
+
+          const session = await agent.post('/contests').send(create('sm-cw-session'));
+          expect(session.status).toBe(201);
+
+          const withScope = await bearer(app, await mintToken(agent, ['contests:write']))
+            .post('/contests')
+            .send(create('sm-cw-token'));
+          expect(withScope.status).toBe(201);
+
+          const withoutScope = await bearer(app, await mintToken(agent, ['contests:read']))
+            .post('/contests')
+            .send(create('sm-cw-no'));
+          expect(withoutScope.status).toBe(403);
+          expect(withoutScope.body.code).toBe('scope_required');
+
+          const empty = await bearer(app, await mintToken(agent, []))
+            .post('/contests')
+            .send(create('sm-cw-empty'));
+          expect(empty.status).toBe(403);
+          expect(empty.body.code).toBe('scope_required');
+        } finally {
+          await app.close();
+        }
+      });
+    },
+    120_000,
+  );
+
+  it(
     'orgs:read — GET /orgs',
     async () => {
       await withTestDb(async (db) => {

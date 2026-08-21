@@ -45,6 +45,9 @@ importers:
       '@duckoj/api-prefix':
         specifier: workspace:^
         version: link:../../packages/api-prefix
+      '@duckoj/contest-formats':
+        specifier: workspace:^
+        version: link:../../packages/contest-formats
       '@duckoj/contracts':
         specifier: workspace:^
         version: link:../../packages/contracts

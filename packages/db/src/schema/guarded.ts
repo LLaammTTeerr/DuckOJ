@@ -5,6 +5,7 @@ import {
   boolean,
   doublePrecision,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -236,4 +237,141 @@ export const submissionCases = pgTable(
     // Makes at-least-once delivery harmless: a redelivered case collides.
     uniqueIndex('submission_cases_identity_idx').on(t.submissionId, t.attempt, t.groupIndex, t.caseIndex),
   ],
+);
+
+/**
+ * Contests mirror problems on visibility — the same three states, decided by
+ * the same predicate (`apps/api/src/authz/visibility.ts`). A private contest
+ * 404s rather than 403s, exactly as a private problem does.
+ */
+export const contestVisibility = pgEnum('contest_visibility', ['private', 'org', 'public']);
+
+export const contests = pgTable(
+  'contests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    key: text('key').notNull(),
+    name: text('name').notNull(),
+    startTime: timestamp('start_time', { withTimezone: true }).notNull(),
+    endTime: timestamp('end_time', { withTimezone: true }).notNull(),
+    /**
+     * Plain text, deliberately not an enum (design §3): formats are pluggable,
+     * and an enum would make adding one a migration. `CONTEST_FORMATS` in
+     * `@duckoj/contest-formats` is the authority on valid values, and an
+     * unknown one is refused at write time — never stored.
+     */
+    format: text('format').notNull(),
+    formatConfig: jsonb('format_config'),
+    pointsPrecision: integer('points_precision').notNull().default(3),
+    /**
+     * Always 0 for now, and refused at write time when it is not: the formats
+     * throw on a freeze window because `Contest.is_frozen` reads the wall
+     * clock (4b ledger). A contest that accepted a freeze it does not honour
+     * would be worse than one that refuses it.
+     */
+    frozenLastMinutes: integer('frozen_last_minutes').notNull().default(0),
+    /** `null` means "no per-participant time limit", which also pins `start`. */
+    timeLimitSeconds: integer('time_limit_seconds'),
+    visibility: contestVisibility('visibility').notNull().default('private'),
+    createdBy: bigint('created_by', { mode: 'number' })
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('contests_key_lower_idx').on(sql`lower(${t.key})`)],
+);
+
+/** Which organizations an `org`-visibility contest is shared with — mirrors `problem_orgs`. */
+export const contestOrgs = pgTable(
+  'contest_orgs',
+  {
+    contestId: bigint('contest_id', { mode: 'number' })
+      .notNull()
+      .references(() => contests.id, { onDelete: 'cascade' }),
+    orgId: bigint('org_id', { mode: 'number' })
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.contestId, t.orgId] })],
+);
+
+export const contestProblems = pgTable(
+  'contest_problems',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    contestId: bigint('contest_id', { mode: 'number' })
+      .notNull()
+      .references(() => contests.id, { onDelete: 'cascade' }),
+    problemId: bigint('problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => problems.id),
+    /**
+     * The setter's display label. NOT what a scoreboard shows: the format owns
+     * that (`icpc` labels A, B, C; everyone else 1, 2, 3), and the goldens pin
+     * the format's answer. This is here because design §3 asks for it and a
+     * later listing screen will want it, not because the scoreboard reads it.
+     */
+    label: text('label').notNull(),
+    /**
+     * `ContestProblem.points` — the contest-scaled value, which is NOT the
+     * problem's own total. The same problem is worth 200 here and 100 there;
+     * scoring against the problem's own value passes every scenario where the
+     * two happen to be equal (design §7).
+     */
+    points: doublePrecision('points').notNull(),
+    partial: boolean('partial').notNull().default(true),
+    order: integer('order').notNull(),
+  },
+  (t) => [uniqueIndex('contest_problems_problem_idx').on(t.contestId, t.problemId)],
+);
+
+export const contestParticipations = pgTable(
+  'contest_participations',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    contestId: bigint('contest_id', { mode: 'number' })
+      .notNull()
+      .references(() => contests.id, { onDelete: 'cascade' }),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    startTime: timestamp('start_time', { withTimezone: true }).notNull(),
+    /**
+     * An integer, not a boolean (design §3): `0` is live, `-1` spectates, and
+     * `n > 0` is the n-th virtual attempt. `default` excludes `virtual != 0`
+     * from first-solve, and a boolean could not represent a second virtual
+     * attempt at all.
+     */
+    virtual: integer('virtual').notNull().default(0),
+    isDisqualified: boolean('is_disqualified').notNull().default(false),
+  },
+  (t) => [uniqueIndex('contest_participations_identity_idx').on(t.contestId, t.userId, t.virtual)],
+);
+
+export const contestSubmissions = pgTable(
+  'contest_submissions',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    participationId: bigint('participation_id', { mode: 'number' })
+      .notNull()
+      .references(() => contestParticipations.id, { onDelete: 'cascade' }),
+    contestProblemId: bigint('contest_problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => contestProblems.id, { onDelete: 'cascade' }),
+    submissionId: bigint('submission_id', { mode: 'number' })
+      .notNull()
+      .references(() => submissions.id, { onDelete: 'cascade' }),
+    /**
+     * `ContestSubmission.points` — the contest-scaled score of this submission.
+     *
+     * Denormalised per design §3. Note that the scoreboard does NOT read it:
+     * 4b's `lower()` recomputes it from `submission_cases` on every read, and
+     * `ioi16` ignores it entirely in favour of per-batch aggregation. It is
+     * written with the same arithmetic (`contestSubmissionPoints`, exported
+     * from `@duckoj/contest-formats`) so the two can never disagree, and is
+     * kept for the record of what was scored and for the listing screens.
+     */
+    points: doublePrecision('points').notNull(),
+  },
+  (t) => [uniqueIndex('contest_submissions_submission_idx').on(t.submissionId)],
 );

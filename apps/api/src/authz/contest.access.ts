@@ -1,0 +1,518 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { and, asc, eq, gt, inArray, max, sql } from 'drizzle-orm';
+import {
+  contestOrgs,
+  contestParticipations,
+  contestProblems,
+  contestSubmissions,
+  contests,
+  organizations,
+  problemRevisions,
+  problems,
+  submissionCases,
+  submissions,
+} from '@duckoj/db/guarded';
+import { schema, type Db } from '@duckoj/db';
+import { CONTEST_FORMATS, computeContestScoreboard } from '@duckoj/contest-formats';
+import type { Scoreboard } from '@duckoj/contest-formats';
+import type {
+  ContestDetailDto,
+  ContestPageDto,
+  ContestProblemInputDto,
+  ContestSummaryDto,
+  ContestVisibilityDto,
+  PaginationQueryDto,
+} from '@duckoj/contracts';
+import { DB } from '../config/config.module.js';
+import { AppError } from '../common/app.error.js';
+import { isAdmin, type Actor } from './actor.js';
+import {
+  canCreateContest,
+  canViewContest,
+  loadContestContext,
+  visibleContestsWhere,
+} from './contest.visibility.js';
+import { mapContest, type ContestCaseRow, type ContestSubmissionRow } from './contest.mapping.js';
+import { loadOrgMembership } from './org.visibility.js';
+import { canViewProblem, loadProblemContext } from './problem.visibility.js';
+
+const UNIQUE_VIOLATION = '23505';
+const CONTEST_KEY_CONSTRAINT = 'contests_key_lower_idx';
+const NOT_FOUND = new AppError(404, 'contest_not_found', 'No such contest.');
+
+export interface CreateContestInput {
+  key: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  format: string;
+  formatConfig?: Record<string, unknown> | null | undefined;
+  pointsPrecision?: number | undefined;
+  frozenLastMinutes?: number | undefined;
+  timeLimitSeconds?: number | null | undefined;
+  visibility?: ContestVisibilityDto | undefined;
+  orgSlugs?: string[] | undefined;
+  problems?: ContestProblemInputDto[] | undefined;
+}
+
+/**
+ * The one service permitted to reach the contest tables, exactly as
+ * `ProblemAccessService` is for problems.
+ *
+ * Reads answer 404 — never 403 — for a contest the actor may not see, and the
+ * decision is `canViewContest`, which is `canViewVisible`, which is the same
+ * function `canViewProblem` calls. There is one visibility predicate in this
+ * codebase (design §5).
+ */
+@Injectable()
+export class ContestAccessService {
+  constructor(@Inject(DB) private readonly db: Db) {}
+
+  async listVisible(
+    actor: Actor | null,
+    page: Pick<PaginationQueryDto, 'limit'> & { cursor?: string | undefined },
+  ): Promise<ContestPageDto> {
+    const after = parseCursor(page.cursor);
+    const rows = await this.db
+      .select()
+      .from(contests)
+      .where(and(visibleContestsWhere(this.db, actor), gt(contests.id, after)))
+      .orderBy(asc(contests.id))
+      .limit(page.limit + 1);
+
+    const items = rows.slice(0, page.limit).map(toSummary);
+    const nextCursor = rows.length > page.limit ? String(items.at(-1)!.id) : null;
+    return { items, nextCursor };
+  }
+
+  async getVisible(actor: Actor | null, key: string): Promise<ContestDetailDto> {
+    const contest = await this.loadVisible(actor, key);
+    const problemRows = await this.loadProblemRows(contest.id);
+    return {
+      ...toSummary(contest),
+      formatConfig: contest.formatConfig as Record<string, unknown> | null,
+      problems: problemRows.map((row) => ({
+        code: row.code,
+        name: row.name,
+        label: row.label,
+        points: row.points,
+        partial: row.partial,
+        order: row.order,
+      })),
+    };
+  }
+
+  /**
+   * The scoreboard, computed by the contest's own format from rows in this
+   * database. Everything interesting is in `mapContest`; this only fetches, in
+   * the orders that mapping documents as load-bearing.
+   */
+  async getScoreboard(actor: Actor | null, key: string): Promise<Scoreboard> {
+    const contest = await this.loadVisible(actor, key);
+
+    const [problemRows, participationRows] = await Promise.all([
+      this.loadProblemRows(contest.id),
+      this.db
+        .select({
+          id: contestParticipations.id,
+          username: schema.users.username,
+          startTime: contestParticipations.startTime,
+          virtual: contestParticipations.virtual,
+          isDisqualified: contestParticipations.isDisqualified,
+        })
+        .from(contestParticipations)
+        .innerJoin(schema.users, eq(schema.users.id, contestParticipations.userId))
+        .where(eq(contestParticipations.contestId, contest.id))
+        .orderBy(asc(contestParticipations.id)),
+    ]);
+
+    // An `ioi16` problem with no published revision has no dataset, and
+    // `points_scaling_factor` divides by the dataset's total. 4b throws for
+    // it; a bare throw would surface as a 500, so it is named here instead.
+    if (contest.format === 'ioi16') {
+      const missing = problemRows.find((row) => row.datasetTotalPoints === null);
+      if (missing) {
+        throw new AppError(
+          409,
+          'contest_problem_missing_dataset',
+          `Problem "${missing.code}" has no published revision, so this ioi16 contest cannot ` +
+            'scale its points.',
+        );
+      }
+    }
+
+    const submissionRows = await this.loadSubmissionRows(contest.id);
+
+    return computeContestScoreboard(
+      mapContest({
+        contest: {
+          key: contest.key,
+          name: contest.name,
+          startTime: contest.startTime,
+          endTime: contest.endTime,
+          format: contest.format,
+          formatConfig: contest.formatConfig as Record<string, unknown> | null,
+          pointsPrecision: contest.pointsPrecision,
+          frozenLastMinutes: contest.frozenLastMinutes,
+          timeLimitSeconds: contest.timeLimitSeconds,
+        },
+        problems: problemRows,
+        participations: participationRows,
+        submissions: submissionRows,
+      }),
+    );
+  }
+
+  /**
+   * Creates a contest, its org shares and its problems in one transaction.
+   *
+   * Two refusals are the point of this method, both from design §6:
+   * a format the registry does not know, and a non-zero freeze window. Both
+   * are rejected *before* anything is written — a contest that stores either
+   * is a contest whose scoreboard throws on every read.
+   */
+  async create(actor: Actor | null, body: CreateContestInput): Promise<ContestDetailDto> {
+    if (!actor || !canCreateContest(actor)) {
+      throw new AppError(403, 'contest_forbidden', 'You may not create contests.');
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(CONTEST_FORMATS, body.format)) {
+      throw new AppError(
+        400,
+        'unknown_contest_format',
+        `Unknown contest format "${body.format}"; expected one of ` +
+          `${Object.keys(CONTEST_FORMATS).join(', ')}.`,
+      );
+    }
+
+    const frozenLastMinutes = body.frozenLastMinutes ?? 0;
+    if (frozenLastMinutes !== 0) {
+      // Refused, never stored and ignored: `Contest.is_frozen` compares the
+      // wall clock to the freeze instant, so the formats reject a freeze
+      // window outright (4b ledger). Accepting one here would produce a
+      // contest whose scoreboard is a 500.
+      throw new AppError(
+        400,
+        'contest_freeze_unsupported',
+        'A frozen scoreboard is not implemented yet; frozenLastMinutes must be 0.',
+      );
+    }
+
+    const startTime = new Date(body.startTime);
+    const endTime = new Date(body.endTime);
+    if (endTime.getTime() <= startTime.getTime()) {
+      throw new AppError(400, 'contest_window_invalid', 'A contest must end after it starts.');
+    }
+
+    const visibility = body.visibility ?? 'private';
+    const orgSlugs = body.orgSlugs ?? [];
+    if (visibility === 'org' && orgSlugs.length === 0) {
+      throw new AppError(
+        400,
+        'contest_org_required',
+        'An org-visible contest needs at least one organization.',
+      );
+    }
+    const orgIds = await this.resolveOrgIds(actor, orgSlugs);
+    const problemInputs = body.problems ?? [];
+    const problemIds = await this.resolveProblemIds(actor, problemInputs);
+
+    try {
+      await this.db.transaction(async (tx) => {
+        const [contest] = await tx
+          .insert(contests)
+          .values({
+            key: body.key,
+            name: body.name,
+            startTime,
+            endTime,
+            format: body.format,
+            formatConfig: body.formatConfig ?? null,
+            pointsPrecision: body.pointsPrecision ?? 3,
+            frozenLastMinutes,
+            timeLimitSeconds: body.timeLimitSeconds ?? null,
+            visibility,
+            createdBy: actor.userId,
+          })
+          .returning({ id: contests.id });
+        if (orgIds.length > 0) {
+          await tx.insert(contestOrgs).values(orgIds.map((orgId) => ({ contestId: contest!.id, orgId })));
+        }
+        if (problemInputs.length > 0) {
+          await tx.insert(contestProblems).values(
+            problemInputs.map((problem, index) => ({
+              contestId: contest!.id,
+              problemId: problemIds[index]!,
+              label: problem.label ?? String(index + 1),
+              points: problem.points,
+              partial: problem.partial ?? true,
+              order: index,
+            })),
+          );
+        }
+      });
+    } catch (error) {
+      throw toCreateConflict(error);
+    }
+
+    return this.getVisible(actor, body.key);
+  }
+
+  /** Loads a contest by key, or 404s — for absence and invisibility alike. */
+  private async loadVisible(actor: Actor | null, key: string) {
+    const contest = (
+      await this.db
+        .select()
+        .from(contests)
+        .where(sql`lower(${contests.key}) = lower(${key})`)
+        .limit(1)
+    )[0];
+    if (!contest) throw NOT_FOUND;
+
+    const ctx = await loadContestContext(this.db, actor, contest);
+    if (!canViewContest(actor, contest, ctx)) throw NOT_FOUND;
+    return contest;
+  }
+
+  /**
+   * The contest's problems, ordered by `order` then id — the order the format
+   * assigns labels in. `datasetTotalPoints` comes from the **published**
+   * revision (the `state` term is not redundant; see `ProblemAccessService`),
+   * and is null when there is none, which is what makes
+   * `points_scaling_factor` null.
+   */
+  private async loadProblemRows(contestId: number) {
+    return this.db
+      .select({
+        code: problems.code,
+        name: problems.name,
+        label: contestProblems.label,
+        points: contestProblems.points,
+        partial: contestProblems.partial,
+        order: contestProblems.order,
+        datasetTotalPoints: problemRevisions.totalPoints,
+      })
+      .from(contestProblems)
+      .innerJoin(problems, eq(problems.id, contestProblems.problemId))
+      .leftJoin(
+        problemRevisions,
+        and(
+          eq(problems.currentRevisionId, problemRevisions.id),
+          eq(problemRevisions.state, 'published'),
+        ),
+      )
+      .where(eq(contestProblems.contestId, contestId))
+      .orderBy(asc(contestProblems.order), asc(contestProblems.id));
+  }
+
+  /**
+   * Every contest submission with its cases, in `contest_submissions.id` and
+   * `submission_cases.id` order — both load-bearing, per `mapContest`.
+   *
+   * Cases are restricted to each submission's **latest attempt**. A regrade
+   * writes a second attempt's rows beside the first's (the identity index
+   * makes redelivery harmless, it never deletes), and summing both would
+   * double every loose case. No golden covers this — the goldens are
+   * single-attempt — so it is a decision made here rather than a test result.
+   */
+  private async loadSubmissionRows(contestId: number): Promise<ContestSubmissionRow[]> {
+    const rows = await this.db
+      .select({
+        id: contestSubmissions.id,
+        participationId: contestSubmissions.participationId,
+        problemCode: problems.code,
+        submissionId: submissions.id,
+        date: submissions.createdAt,
+        verdict: submissions.verdict,
+        state: submissions.state,
+      })
+      .from(contestSubmissions)
+      .innerJoin(
+        contestParticipations,
+        eq(contestParticipations.id, contestSubmissions.participationId),
+      )
+      .innerJoin(contestProblems, eq(contestProblems.id, contestSubmissions.contestProblemId))
+      .innerJoin(problems, eq(problems.id, contestProblems.problemId))
+      .innerJoin(submissions, eq(submissions.id, contestSubmissions.submissionId))
+      .where(eq(contestParticipations.contestId, contestId))
+      .orderBy(asc(contestSubmissions.id));
+
+    if (rows.length === 0) return [];
+
+    const submissionIds = rows.map((row) => row.submissionId);
+    const latestAttempt = this.db
+      .select({
+        submissionId: submissionCases.submissionId,
+        // Aliased away from `attempt`: an `attempt` on both sides of the
+        // join is an ambiguous column reference to Postgres.
+        maxAttempt: max(submissionCases.attempt).as('max_attempt'),
+      })
+      .from(submissionCases)
+      .where(inArray(submissionCases.submissionId, submissionIds))
+      .groupBy(submissionCases.submissionId)
+      .as('latest_attempt');
+
+    const caseRows = await this.db
+      .select({
+        id: submissionCases.id,
+        submissionId: submissionCases.submissionId,
+        groupIndex: submissionCases.groupIndex,
+        caseIndex: submissionCases.caseIndex,
+        points: submissionCases.points,
+        maxPoints: submissionCases.maxPoints,
+        verdict: submissionCases.verdict,
+      })
+      .from(submissionCases)
+      .innerJoin(
+        latestAttempt,
+        and(
+          eq(latestAttempt.submissionId, submissionCases.submissionId),
+          eq(latestAttempt.maxAttempt, submissionCases.attempt),
+        ),
+      )
+      .where(inArray(submissionCases.submissionId, submissionIds))
+      .orderBy(asc(submissionCases.id));
+
+    const casesBySubmission = new Map<number, ContestCaseRow[]>();
+    for (const row of caseRows) {
+      const bucket = casesBySubmission.get(row.submissionId);
+      const testCase: ContestCaseRow = {
+        groupIndex: row.groupIndex,
+        caseIndex: row.caseIndex,
+        points: row.points,
+        maxPoints: row.maxPoints,
+        verdict: row.verdict,
+      };
+      if (bucket === undefined) casesBySubmission.set(row.submissionId, [testCase]);
+      else bucket.push(testCase);
+    }
+
+    return rows.map((row) => ({
+      participationId: row.participationId,
+      problemCode: row.problemCode,
+      date: row.date,
+      verdict: row.verdict,
+      state: row.state,
+      cases: casesBySubmission.get(row.submissionId) ?? [],
+    }));
+  }
+
+  /**
+   * Mirrors `ProblemAccessService.resolveOrgIds`: an unknown slug and one the
+   * actor may not share with are deliberately indistinguishable, so a slug
+   * cannot probe for a private organization's existence.
+   */
+  private async resolveOrgIds(actor: Actor, slugs: string[]): Promise<number[]> {
+    if (slugs.length === 0) return [];
+    const ids: number[] = [];
+    for (const slug of [...new Set(slugs)]) {
+      const row = (
+        await this.db
+          .select({ id: organizations.id })
+          .from(organizations)
+          .where(sql`lower(${organizations.slug}) = lower(${slug})`)
+          .limit(1)
+      )[0];
+      if (!row) throw new AppError(400, 'contest_org_unknown', 'No such organization.');
+      ids.push(row.id);
+    }
+    const uniqueIds = [...new Set(ids)];
+    if (!isAdmin(actor)) {
+      const membership = await loadOrgMembership(this.db, actor, uniqueIds);
+      for (const id of uniqueIds) {
+        if (!membership.has(id)) throw new AppError(400, 'contest_org_unknown', 'No such organization.');
+      }
+    }
+    return uniqueIds;
+  }
+
+  /**
+   * Resolves problem codes to ids, refusing any the actor may not see — a
+   * contest must not become a side channel for a private problem's existence,
+   * so the error is the same whether the code names nothing or names something
+   * hidden. Positional: the returned ids line up with `inputs`.
+   */
+  private async resolveProblemIds(actor: Actor, inputs: ContestProblemInputDto[]): Promise<number[]> {
+    const ids: number[] = [];
+    for (const input of inputs) {
+      const row = (
+        await this.db
+          .select({ id: problems.id, visibility: problems.visibility })
+          .from(problems)
+          .where(sql`lower(${problems.code}) = lower(${input.code})`)
+          .limit(1)
+      )[0];
+      if (!row) throw new AppError(400, 'contest_problem_unknown', 'No such problem.');
+      const ctx = await loadProblemContext(this.db, actor, row.id);
+      if (!canViewProblem(actor, row, ctx)) {
+        throw new AppError(400, 'contest_problem_unknown', 'No such problem.');
+      }
+      ids.push(row.id);
+    }
+    if (new Set(ids).size !== ids.length) {
+      throw new AppError(400, 'contest_problem_duplicate', 'A problem may appear in a contest once.');
+    }
+    return ids;
+  }
+}
+
+function toSummary(row: {
+  id: number;
+  key: string;
+  name: string;
+  startTime: Date;
+  endTime: Date;
+  format: string;
+  visibility: ContestVisibilityDto;
+  pointsPrecision: number;
+  frozenLastMinutes: number;
+  timeLimitSeconds: number | null;
+  createdAt: Date;
+}): ContestSummaryDto {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    startTime: row.startTime.toISOString(),
+    endTime: row.endTime.toISOString(),
+    format: row.format,
+    visibility: row.visibility,
+    pointsPrecision: row.pointsPrecision,
+    frozenLastMinutes: row.frozenLastMinutes,
+    timeLimitSeconds: row.timeLimitSeconds,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function parseCursor(cursor: string | undefined): number {
+  if (cursor === undefined) return 0;
+  const after = Number(cursor);
+  if (!Number.isSafeInteger(after) || after < 0) {
+    throw new AppError(422, 'invalid_cursor', 'That page cursor is not valid.');
+  }
+  return after;
+}
+
+/** A racing duplicate key surfaces as the unique violation, never a pre-check SELECT. */
+function toCreateConflict(error: unknown): unknown {
+  const violation = asUniqueViolation(error);
+  if (violation && (violation.constraint_name ?? '') === CONTEST_KEY_CONSTRAINT) {
+    return new AppError(409, 'contest_key_taken', 'That contest key is already taken.');
+  }
+  return error;
+}
+
+function asUniqueViolation(error: unknown): { code: string; constraint_name?: string } | undefined {
+  if (isUniqueViolationShape(error)) return error;
+  const cause = error instanceof Error ? error.cause : undefined;
+  return isUniqueViolationShape(cause) ? cause : undefined;
+}
+
+function isUniqueViolationShape(value: unknown): value is { code: string; constraint_name?: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'code' in value &&
+    (value as { code?: unknown }).code === UNIQUE_VIOLATION
+  );
+}

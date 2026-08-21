@@ -1,4 +1,5 @@
 export * from './common.js';
+export * from './contests.js';
 export * from './admin.js';
 export * from './auth.js';
 export * from './docs.js';
