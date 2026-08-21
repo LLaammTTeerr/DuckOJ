@@ -6,6 +6,28 @@ import { api } from '../api.js';
 type Revision =
   paths['/problems/{code}/revisions']['get']['responses'][200]['content']['application/json'][number];
 
+// Head…tail, never middle-elided (mockup-v1.html, screen 4's note): the head
+// is what a setter pastes into a search, the tail is what distinguishes two
+// rebuilds of the same problem that would otherwise share a head. Real
+// package hashes are 64 hex characters (contracts' AttachRevisionRequest),
+// always long enough to truncate; the length guard just keeps this safe for
+// anything shorter without producing a negative-length slice.
+const HASH_HEAD = 8;
+const HASH_TAIL = 4;
+function truncateHash(hash: string): string {
+  if (hash.length <= HASH_HEAD + HASH_TAIL) return hash;
+  return `${hash.slice(0, HASH_HEAD)}…${hash.slice(-HASH_TAIL)}`;
+}
+
+// app.css's `.badge` colour+glyph system, reused here across a different
+// domain than a verdict: `published` maps to the same "good" token as `AC`
+// (it is the only row answering "which one is actually grading"); `draft`
+// and `archived` both map to the neutral `pend` token. See app.css's header
+// comment.
+function stateToken(state: Revision['state']): string {
+  return state === 'published' ? 'ac' : 'pend';
+}
+
 /**
  * `/problems/:code/revisions`: every revision — draft, published and
  * archived alike (the API's `listRevisions` deliberately does not filter
@@ -114,6 +136,7 @@ export function ProblemRevisionsPage(props: { code: string }) {
             <tr>
               <th>Version</th>
               <th>State</th>
+              <th>Package</th>
               <th>Limits</th>
               <th>Tests</th>
               <th>Notes</th>
@@ -124,7 +147,13 @@ export function ProblemRevisionsPage(props: { code: string }) {
             {revisions.map((r) => (
               <tr key={r.id}>
                 <td>{r.version}</td>
-                <td>{r.state}</td>
+                <td>
+                  <span className={`badge ${stateToken(r.state)}`}>{r.state}</span>
+                </td>
+                {/* `title` carries the full 64-character hash — truncation
+                    is a display choice, not a loss of the value someone
+                    might need to paste in full. */}
+                <td title={r.packageHash}>{truncateHash(r.packageHash)}</td>
                 <td>
                   {r.timeMs} ms / {r.memoryKb} KB
                 </td>
