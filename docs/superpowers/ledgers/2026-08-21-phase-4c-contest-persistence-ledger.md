@@ -152,3 +152,63 @@ drizzle-kit has got wrong here before was never in play.
 `apps/api/test/scope-matrix.spec.ts`. Nothing was regenerated from a snapshot.
 `openapi.json` and `packages/sdk/src/generated.ts` **were** regenerated and are
 committed.
+
+---
+
+## Coordinator rulings
+
+**C1 — the replay works, and its perturbations are precise.** 23/23 goldens
+reproduce through Postgres. Four mapping perturbations each reddened exactly
+the goldens that pin that rule:
+
+    virtual -> 0                        3 failed  (default/05, icpc/05, ioi16/05)
+    points from the problem's own total 1 failed  (ioi16/10-points-scaling-factor)
+    dataset synthesis removed           5 failed  (all ioi16 + legacy_ioi/09)
+    contest_problems.partial ignored    0 failed  <- reported, not hidden
+
+The third line corrected my mental model: the dataset rule is per **problem**,
+not per format — `legacy_ioi/09` carries one — so a format-conditional
+synthesis would have been wrong invisibly.
+
+**C2 — a perturbation that found nothing was reported as a gap.** Ignoring
+`contest_problems.partial` reddens no golden. The honest reading is that the
+corpus does not cover it, and it was reported rather than left as an implied
+pass. Same shape as 4b-R3, and the same correct instinct: a perturbation with
+no effect is information about the *corpus*, not a licence.
+
+**C3 — the implementer generalised my instruction, correctly.** I wrote "reuse
+the existing visibility shape; if it does not fit, say why". It went further and
+made the decision literal: `apps/api/src/authz/visibility.ts` now holds
+`canViewVisible` and `visibleRowsWhere`, consumed by both
+`problem.visibility.ts` and `contest.visibility.ts`. Verified — those are the
+only two importers.
+
+"Same shape" is a convention that drifts. One function cannot. Short-circuiting
+it to `true` reddens 21 tests across both entities, which is the proof the
+sharing is real rather than cosmetic.
+
+**C4 — spec defect #17, mine, and it is a contradiction rather than an
+omission.** §3 justified denormalising `contest_submissions.points` as
+"pinning what was scored". 4b's own implementation contradicts that: it
+recomputes points from `submission_cases` on every read, and `ioi16` ignores
+the stored value entirely. So the column's stated rationale was false when I
+wrote it — I justified a schema decision against behaviour I had already
+specified elsewhere and not re-read.
+
+Column kept (submission routing will need a writer), but the rationale is
+withdrawn. Recorded because it is a new failure shape for me: not describing a
+file I had not opened, but contradicting a file I had *written*.
+
+**C5 — spec defect #18: §3 omitted `contest_orgs`.** Without it §5's `org`
+visibility has nothing to resolve against, so the spec was internally
+unsatisfiable. Added mirroring `problem_orgs`.
+
+**C6 — the implementer caught its own vacuous test.** Its first regrade test
+asserted on an *identical* second attempt, which is ratio-invariant and
+therefore passed against a mapping with no attempt filter at all. It found this
+by perturbing the filter away, saw nothing redden, and rewrote the test to
+halve the second attempt so all three readings separate.
+
+That is the fifth self-falsification in this project and the most subtle: the
+test was not merely weak, it was *structurally incapable* of failing, and only
+a perturbation revealed it.
