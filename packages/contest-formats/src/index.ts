@@ -6,6 +6,13 @@
  * Mapping database rows into `ContestInput` is a separate, independently
  * testable job.
  *
+ * DuckOJ deliberately diverges from the original in two places — it drops
+ * submissions outside a participation's window, and `default` times a problem
+ * by its best submission rather than its last. Both are recorded in
+ * `docs/superpowers/specs/2026-08-21-contest-divergences-design.md`, and the
+ * original behaviour remains reachable as `dmojCompat` so the goldens keep
+ * pinning it.
+ *
  * Behaviour is pinned by the 23 goldens under `fixtures/contest-goldens/`,
  * frozen from the original DMOJ/VNOJ `update_participation()`. Where this code
  * and an intuition about "how contests work" disagree, the goldens win; see the
@@ -38,6 +45,14 @@ export type {
 export { contestSubmissionPoints } from './lower.js';
 
 /**
+ * Which semantics to compute under. Everything defaults to `duckoj`, so no
+ * caller can select the bug-compatible path by forgetting an argument;
+ * `dmojCompat` is named in exactly one place, the golden suite.
+ */
+export type { FormatSemantics } from './lower.js';
+export { participationEndMs, participationStartMs } from './window.js';
+
+/**
  * CPython's `round(value, digits)`. Exported for one reason: anything
  * comparing a computed scoreboard against a golden must normalise it the way
  * `_generator/generate.py` normalised the goldens — round to nine places —
@@ -52,6 +67,7 @@ export { legacyIoiFormat } from './legacy-ioi.js';
 export { ioi16Format } from './ioi16.js';
 
 import type { ContestFormat, ContestInput, Scoreboard } from './types.js';
+import type { FormatSemantics } from './lower.js';
 import { defaultFormat } from './default.js';
 import { icpcFormat } from './icpc.js';
 import { legacyIoiFormat } from './legacy-ioi.js';
@@ -76,7 +92,10 @@ export function isContestFormatName(name: string): name is ContestFormatName {
 }
 
 /** Computes a scoreboard with the format named by `input.format`. */
-export function computeContestScoreboard(input: ContestInput): Scoreboard {
+export function computeContestScoreboard(
+  input: ContestInput,
+  semantics: FormatSemantics = 'duckoj',
+): Scoreboard {
   const format = CONTEST_FORMATS[input.format];
   if (format === undefined) {
     throw new Error(
@@ -84,5 +103,5 @@ export function computeContestScoreboard(input: ContestInput): Scoreboard {
         `${Object.keys(CONTEST_FORMATS).join(', ')}`,
     );
   }
-  return format(input);
+  return format(input, semantics);
 }

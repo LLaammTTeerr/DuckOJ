@@ -26,7 +26,7 @@
  */
 
 import { groupByProblem, secondsSinceStart } from './lower.js';
-import type { LoweredContest, LoweredParticipation } from './lower.js';
+import type { FormatSemantics, LoweredContest, LoweredParticipation } from './lower.js';
 import { pyRound, toIntegerField } from './numeric.js';
 import { computeScoreboard, numericLabel } from './scoreboard.js';
 import type { FormatDefinition, ParticipationResult } from './scoreboard.js';
@@ -108,6 +108,9 @@ export function legacyIoiFormatDefinition(
   };
 }
 
-export function legacyIoiFormat(input: ContestInput): Scoreboard {
-  return computeScoreboard(input, legacyIoiFormatDefinition(input.format_config));
+export function legacyIoiFormat(
+  input: ContestInput,
+  semantics: FormatSemantics = 'duckoj',
+): Scoreboard {
+  return computeScoreboard(input, legacyIoiFormatDefinition(input.format_config), semantics);
 }

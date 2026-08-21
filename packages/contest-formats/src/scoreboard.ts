@@ -8,6 +8,7 @@
  */
 
 import { SPECTATE, lower } from './lower.js';
+import type { FormatSemantics } from './lower.js';
 import type { LoweredContest, LoweredParticipation } from './lower.js';
 import type {
   ContestInput,
@@ -156,8 +157,12 @@ function firstSolvesAndTotalAc(
 }
 
 /** Runs one format over one contest and assembles the golden's output shape. */
-export function computeScoreboard(input: ContestInput, definition: FormatDefinition): Scoreboard {
-  const contest = lower(input);
+export function computeScoreboard(
+  input: ContestInput,
+  definition: FormatDefinition,
+  semantics: FormatSemantics = 'duckoj',
+): Scoreboard {
+  const contest = lower(input, semantics);
 
   const rows: ComputedRow[] = contest.participations
     .filter((participation) => participation.virtual > SPECTATE)

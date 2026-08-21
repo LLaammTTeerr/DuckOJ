@@ -15,8 +15,8 @@ import { contestSubmissions, submissionCases } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { ContestAccessService } from '../src/authz/contest.access.js';
 import { withTestDb } from './db.harness.js';
-import { discoverFixtures, readContest, readJson, seedGoldenContest } from './contest-golden.fixtures.js';
-import { join } from 'node:path';
+import { discoverFixtures, readContest, seedGoldenContest } from './contest-golden.fixtures.js';
+import { computeContestScoreboard } from '@duckoj/contest-formats';
 import type { Scoreboard } from '@duckoj/contest-formats';
 
 const FIXTURE = discoverFixtures().find((f) => f.id === 'default/02-score-tie')!;
@@ -61,7 +61,11 @@ describe('a regraded submission is scored on its latest attempt only', () => {
   it('a second attempt scoring half wins outright — the two are never mixed', async () => {
     await withTestDb(async (db) => {
       const { key } = await seedGoldenContest(db, readContest(FIXTURE));
-      const golden = readJson(join(FIXTURE.dir, 'scoreboard.json')) as Scoreboard;
+      // The same input through the production formats, not the frozen
+      // `scoreboard.json`. This fixture is not one of the four DuckOJ diverges
+      // on, so today the two agree — but depending on that is a coupling to a
+      // file that no longer describes production output.
+      const golden = computeContestScoreboard(readContest(FIXTURE)) as Scoreboard;
       // Guards against a vacuous "half of nothing is nothing".
       expect(golden.ranking.some((row) => row.score > 0)).toBe(true);
 

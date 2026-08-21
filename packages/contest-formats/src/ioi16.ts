@@ -36,7 +36,7 @@
  */
 
 import { groupByProblem } from './lower.js';
-import type { LoweredContest, LoweredParticipation } from './lower.js';
+import type { FormatSemantics, LoweredContest, LoweredParticipation } from './lower.js';
 import { pyRound } from './numeric.js';
 import { NO_FROZEN_FIELDS, computeScoreboard, numericLabel } from './scoreboard.js';
 import type { FormatDefinition, ParticipationResult } from './scoreboard.js';
@@ -122,6 +122,9 @@ export const ioi16FormatDefinition: FormatDefinition = {
   labelForProblem: numericLabel,
 };
 
-export function ioi16Format(input: ContestInput): Scoreboard {
-  return computeScoreboard(input, ioi16FormatDefinition);
+export function ioi16Format(
+  input: ContestInput,
+  semantics: FormatSemantics = 'duckoj',
+): Scoreboard {
+  return computeScoreboard(input, ioi16FormatDefinition, semantics);
 }

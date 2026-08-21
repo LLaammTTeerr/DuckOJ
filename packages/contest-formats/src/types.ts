@@ -15,7 +15,11 @@ export type Instant = string;
 export interface ContestSpec {
   key: string;
   name?: string;
-  /** Inclusive contest window. Nothing in any format filters submissions by it. */
+  /**
+   * Inclusive contest window. No *format* filters by it — DuckOJ filters during
+   * lowering instead, against each participation's own window, which for a
+   * virtual entrant legitimately extends past `end_time` (DIV-1).
+   */
   start_time: Instant;
   end_time: Instant;
   /** `null` means "no per-participant time limit", which also pins `start`. */
@@ -136,4 +140,7 @@ export interface Scoreboard {
 }
 
 /** A contest format: a pure function from the input shape to the output shape. */
-export type ContestFormat = (input: ContestInput) => Scoreboard;
+export type ContestFormat = (
+  input: ContestInput,
+  semantics?: 'duckoj' | 'dmojCompat',
+) => Scoreboard;

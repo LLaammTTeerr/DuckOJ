@@ -32,7 +32,7 @@
  */
 
 import { groupByProblem, secondsSinceStart } from './lower.js';
-import type { LoweredContest, LoweredParticipation, LoweredSubmission } from './lower.js';
+import type { FormatSemantics, LoweredContest, LoweredParticipation, LoweredSubmission } from './lower.js';
 import { pyRound, toIntegerField } from './numeric.js';
 import { alphabeticLabel, computeScoreboard } from './scoreboard.js';
 import type { FormatDefinition, ParticipationResult } from './scoreboard.js';
@@ -163,6 +163,9 @@ export function icpcFormatDefinition(config: Record<string, unknown> | null): Fo
   };
 }
 
-export function icpcFormat(input: ContestInput): Scoreboard {
-  return computeScoreboard(input, icpcFormatDefinition(input.format_config));
+export function icpcFormat(
+  input: ContestInput,
+  semantics: FormatSemantics = 'duckoj',
+): Scoreboard {
+  return computeScoreboard(input, icpcFormatDefinition(input.format_config), semantics);
 }

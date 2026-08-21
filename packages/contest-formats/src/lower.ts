@@ -8,6 +8,12 @@
  */
 
 import { pyRound } from './numeric.js';
+import {
+  isWithinWindow,
+  parseInstant,
+  participationEndMs,
+  participationStartMs,
+} from './window.js';
 import type {
   ContestInput,
   ContestSpec,
@@ -16,8 +22,15 @@ import type {
   TestCaseSpec,
 } from './types.js';
 
-export const SPECTATE = -1;
-export const LIVE = 0;
+export { LIVE, SPECTATE } from './window.js';
+
+/**
+ * Which semantics to compute under. `duckoj` is the default everywhere;
+ * `dmojCompat` reproduces the original's behaviour bug-for-bug and exists for
+ * one consumer, the golden suite. See
+ * `docs/superpowers/specs/2026-08-21-contest-divergences-design.md`.
+ */
+export type FormatSemantics = 'duckoj' | 'dmojCompat';
 
 export interface LoweredProblem {
   code: string;
@@ -47,6 +60,8 @@ export interface LoweredParticipation {
   isDisqualified: boolean;
   /** `ContestParticipation.start`, in epoch milliseconds. */
   startMs: number;
+  /** `ContestParticipation.end_time`, in epoch milliseconds. */
+  endMs: number;
   /** This participation's `ContestSubmission` rows, in insertion order. */
   submissions: LoweredSubmission[];
 }
@@ -61,12 +76,8 @@ export interface LoweredContest {
   participations: LoweredParticipation[];
   /** `Contest.is_frozen`. Always false: the formats reject a freeze window. */
   isFrozen: boolean;
-}
-
-function parseInstant(value: string): number {
-  const ms = Date.parse(value);
-  if (Number.isNaN(ms)) throw new Error(`not an ISO-8601 instant: ${value}`);
-  return ms;
+  /** Which semantics this lowering was performed under. `default` reads it. */
+  semantics: FormatSemantics;
 }
 
 /**
@@ -149,22 +160,10 @@ export function contestSubmissionPoints(
   return points;
 }
 
-/**
- * `ContestParticipation.start`. A live or spectating participation in a contest
- * with no time limit starts when the *contest* does, so joining late costs
- * nothing — `real_start` is only honoured for virtual participations and for
- * time-limited contests.
- */
-function participationStartMs(participant: ParticipantSpec, contest: ContestSpec): number {
-  const live = participant.virtual === LIVE;
-  const spectate = participant.virtual === SPECTATE;
-  if (contest.time_limit_seconds === null && (live || spectate)) {
-    return parseInstant(contest.start_time);
-  }
-  return parseInstant(participant.real_start);
-}
-
-export function lower(input: ContestInput): LoweredContest {
+export function lower(
+  input: ContestInput,
+  semantics: FormatSemantics = 'duckoj',
+): LoweredContest {
   const spec = input.contest;
   if (spec.frozen_last_minutes !== 0) {
     throw new Error(
@@ -188,6 +187,7 @@ export function lower(input: ContestInput): LoweredContest {
     virtual: participant.virtual,
     isDisqualified: participant.is_disqualified ?? false,
     startMs: participationStartMs(participant, spec),
+    endMs: participationEndMs(participant, spec),
     submissions: [],
   }));
   const byName = new Map(
@@ -203,9 +203,19 @@ export function lower(input: ContestInput): LoweredContest {
     if (problem === undefined) {
       throw new Error(`submission to unknown problem: ${submission.problem}`);
     }
+    const dateMs = parseInstant(submission.date);
+    // DIV-1. Nothing upstream filters by time, so `icpc/03-deadline-boundary`
+    // scores a submission a full minute past the deadline as a solve. The
+    // window is per-participation and inclusive at both ends; see window.ts.
+    if (
+      semantics === 'duckoj' &&
+      !isWithinWindow(dateMs, participation.startMs, participation.endMs)
+    ) {
+      continue;
+    }
     participation.submissions.push({
       problemCode: submission.problem,
-      dateMs: parseInstant(submission.date),
+      dateMs,
       result: submission.result,
       cases: submission.cases,
       points: contestSubmissionPoints(submission.cases, problem),
@@ -219,6 +229,7 @@ export function lower(input: ContestInput): LoweredContest {
     problemsByCode,
     participations,
     isFrozen: false,
+    semantics,
   };
 }
 

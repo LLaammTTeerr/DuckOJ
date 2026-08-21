@@ -13,6 +13,14 @@
  * 3. Floats are normalised exactly the way the generator normalised the
  *    goldens — `round(value, 9)`, with `-0` folded to `0` — and never compared
  *    with `toBe`.
+ *
+ * The goldens are frozen from DMOJ, and **DuckOJ deliberately diverges from it
+ * in two places** (`docs/superpowers/specs/2026-08-21-contest-divergences-design.md`).
+ * So this suite computes under `dmojCompat`: it is the compatibility baseline,
+ * the evidence that we read the original correctly before changing it. The
+ * divergences themselves are measured against this baseline in
+ * `divergences.spec.ts`. **No fixture is ever edited to match new behaviour** —
+ * that would destroy the provenance that makes them worth having.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -75,7 +83,7 @@ function readJson(path: string): unknown {
 
 function compute(fixture: Fixture): unknown {
   const input = readJson(join(fixture.dir, 'contest.json')) as ContestInput;
-  return norm(computeContestScoreboard(input));
+  return norm(computeContestScoreboard(input, 'dmojCompat'));
 }
 
 function golden(fixture: Fixture): Scoreboard {

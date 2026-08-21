@@ -4,7 +4,18 @@
  * Every golden's `contest.json` is a complete contest: problems, participants,
  * submissions with per-case batches and timings. So each one is seeded into a
  * real Postgres, its scoreboard is computed through the real service, and the
- * result is compared against that same golden's `scoreboard.json`.
+ * result is compared against the **same input run directly through the same
+ * production semantics** — differing only in whether it travelled through the
+ * database.
+ *
+ * It is deliberately *not* compared against the golden's `scoreboard.json`.
+ * DuckOJ diverges from DMOJ in two places
+ * (`docs/superpowers/specs/2026-08-21-contest-divergences-design.md`), so four
+ * goldens no longer describe production output. This suite's job is the
+ * mapping, not format arithmetic; pinning the frozen bytes stays in
+ * `packages/contest-formats`' `dmojCompat` suite, which is where it belongs.
+ * Editing a fixture to match new behaviour would destroy the provenance that
+ * makes the corpus worth having, and is never the fix.
  *
  * That reuses 23 fixtures for something they were never built for. 4b's tests
  * prove the formats are right *given correct input*; these prove the mapping
@@ -19,18 +30,18 @@
  *    `label_by_problem` in full, never field-picked.
  * 3. Floats are normalised exactly the way the generator normalised the
  *    goldens (`pyRound(value, 9)`, `-0` folded to `0`), using the *golden's*
- *    normalisation imported from the package, never a re-derived one.
+ *    normalisation imported from the package, never a re-derived one. Both
+ *    sides are normalised here, since neither is a frozen file any more.
  *
  * The scoreboard is read as an **anonymous** actor against a public contest,
  * so the visibility predicate is inside the loop rather than beside it.
  */
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { pyRound } from '@duckoj/contest-formats';
+import { computeContestScoreboard, pyRound } from '@duckoj/contest-formats';
 import type { Scoreboard } from '@duckoj/contest-formats';
 import { ContestAccessService } from '../src/authz/contest.access.js';
 import { withTestDb } from './db.harness.js';
-import { discoverFixtures, readContest, readJson, seedGoldenContest } from './contest-golden.fixtures.js';
+import { discoverFixtures, readContest, seedGoldenContest } from './contest-golden.fixtures.js';
 
 /** `_generator/generate.py:norm()`, applied to the computed side only. */
 function norm(value: unknown): unknown {
@@ -63,7 +74,9 @@ describe('golden replay through Postgres', () => {
 
       const service = new ContestAccessService(db);
       const actual = norm(await service.getScoreboard(null, key)) as Scoreboard;
-      const expected = readJson(join(fixture.dir, 'scoreboard.json')) as Scoreboard;
+      // The same input, the same formats, without the round trip. A mismatch
+      // therefore isolates to the mapping and nothing else.
+      const expected = norm(computeContestScoreboard(input)) as Scoreboard;
 
       // Whole objects, not selected fields.
       expect(actual.ranking).toEqual(expected.ranking);
