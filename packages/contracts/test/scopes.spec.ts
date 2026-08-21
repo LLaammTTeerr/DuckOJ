@@ -30,7 +30,9 @@ describe('hasScope', () => {
 // dropped). Phase 3b spec §2.1 added `languages:read`; Phase 3c §2.3 adds
 // `orgs:write` — extend this list by hand again the next time a scope is
 // added or removed, so a reviewer sees the vocabulary change in the diff
-// rather than trusting a regenerated file.
+// rather than trusting a regenerated file. Phase 4c §4 adds `contests:read`
+// and `contests:write` — typed in by hand here and in `src/scopes.ts`, two
+// files, neither generated from the other.
 describe('scope vocabulary', () => {
   it('is exactly this list — extend by hand, never by regenerating a snapshot', () => {
     expect(SCOPES).toEqual([
@@ -44,6 +46,8 @@ describe('scope vocabulary', () => {
       'packages:write',
       'languages:read',
       'orgs:write',
+      'contests:read',
+      'contests:write',
     ]);
   });
 });

@@ -30,6 +30,22 @@ export type {
   TestCaseSpec,
 } from './types.js';
 
+/**
+ * The one piece of 4b's lowering a *writer* needs: `ContestSubmission.points`.
+ * Exported so persistence computes the stored value with this arithmetic
+ * instead of a second copy that could drift from what the formats recompute.
+ */
+export { contestSubmissionPoints } from './lower.js';
+
+/**
+ * CPython's `round(value, digits)`. Exported for one reason: anything
+ * comparing a computed scoreboard against a golden must normalise it the way
+ * `_generator/generate.py` normalised the goldens — round to nine places —
+ * and re-deriving that rounding elsewhere would compare against a second,
+ * subtly different normalisation (design §7).
+ */
+export { pyRound } from './numeric.js';
+
 export { defaultFormat } from './default.js';
 export { icpcFormat } from './icpc.js';
 export { legacyIoiFormat } from './legacy-ioi.js';

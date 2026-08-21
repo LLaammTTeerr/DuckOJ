@@ -5,6 +5,7 @@ import { DocsModule } from './docs/docs.module.js';
 import { AuthnModule } from './authn/authn.module.js';
 import { AuthzModule } from './authz/authz.module.js';
 import { AdminModule } from './admin/admin.module.js';
+import { ContestsModule } from './contests/contests.module.js';
 import { OrgsModule } from './orgs/orgs.module.js';
 import { ProblemsModule } from './problems/problems.module.js';
 import { SubmissionsModule } from './submissions/submissions.module.js';
@@ -21,6 +22,7 @@ import { LanguagesModule } from './languages/languages.module.js';
     AuthzModule,
     AdminModule,
     OrgsModule,
+    ContestsModule,
     ProblemsModule,
     SubmissionsModule,
     RealtimeModule,

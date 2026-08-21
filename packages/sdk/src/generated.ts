@@ -4,6 +4,443 @@
  */
 
 export interface paths {
+    "/contests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Contests visible to the caller */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of contests */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: number;
+                                key: string;
+                                name: string;
+                                /** Format: date-time */
+                                startTime: string;
+                                /** Format: date-time */
+                                endTime: string;
+                                format: string;
+                                /** @enum {string} */
+                                visibility: "private" | "org" | "public";
+                                pointsPrecision: number;
+                                frozenLastMinutes: number;
+                                timeLimitSeconds: number | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Create a contest (setter or admin) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        key: string;
+                        name: string;
+                        /** Format: date-time */
+                        startTime: string;
+                        /** Format: date-time */
+                        endTime: string;
+                        format: string;
+                        /** @default null */
+                        formatConfig?: {
+                            [key: string]: unknown;
+                        } | null;
+                        /** @default 3 */
+                        pointsPrecision?: number;
+                        /** @default 0 */
+                        frozenLastMinutes?: number;
+                        /** @default null */
+                        timeLimitSeconds?: number | null;
+                        /**
+                         * @default private
+                         * @enum {string}
+                         */
+                        visibility?: "private" | "org" | "public";
+                        /** @default [] */
+                        orgSlugs?: string[];
+                        /** @default [] */
+                        problems?: {
+                            code: string;
+                            points: number;
+                            /** @default true */
+                            partial?: boolean;
+                            label?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The created contest */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            key: string;
+                            name: string;
+                            /** Format: date-time */
+                            startTime: string;
+                            /** Format: date-time */
+                            endTime: string;
+                            format: string;
+                            /** @enum {string} */
+                            visibility: "private" | "org" | "public";
+                            pointsPrecision: number;
+                            frozenLastMinutes: number;
+                            timeLimitSeconds: number | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            formatConfig: {
+                                [key: string]: unknown;
+                            } | null;
+                            problems: {
+                                code: string;
+                                name: string;
+                                label: string;
+                                points: number;
+                                partial: boolean;
+                                order: number;
+                            }[];
+                        };
+                    };
+                };
+                /** @description An unknown format (`unknown_contest_format`), a non-zero freeze window (`contest_freeze_unsupported`), an end before the start, or an unknown problem */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not permitted to create a contest */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description That contest key is already taken */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contests/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A single contest visible to the caller, with its problems */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The contest */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            key: string;
+                            name: string;
+                            /** Format: date-time */
+                            startTime: string;
+                            /** Format: date-time */
+                            endTime: string;
+                            format: string;
+                            /** @enum {string} */
+                            visibility: "private" | "org" | "public";
+                            pointsPrecision: number;
+                            frozenLastMinutes: number;
+                            timeLimitSeconds: number | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            formatConfig: {
+                                [key: string]: unknown;
+                            } | null;
+                            problems: {
+                                code: string;
+                                name: string;
+                                label: string;
+                                points: number;
+                                partial: boolean;
+                                order: number;
+                            }[];
+                        };
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contests/{key}/scoreboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The contest's scoreboard, computed by its format */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The scoreboard — snake_case, mirroring the goldens field for field */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            label_by_problem: {
+                                [key: string]: string;
+                            };
+                            problems: {
+                                code: string;
+                                label: string;
+                                points: number;
+                                points_scaling_factor: number | null;
+                                total_ac: number;
+                                first_solve: string | null;
+                            }[];
+                            ranking: {
+                                rank: number;
+                                participant: string;
+                                virtual: number;
+                                is_disqualified: boolean;
+                                score: number;
+                                cumtime: number;
+                                tiebreaker: number;
+                                frozen_score: number;
+                                frozen_cumtime: number;
+                                frozen_tiebreaker: number;
+                                submission_count: number;
+                                format_data: {
+                                    [key: string]: {
+                                        points: number;
+                                        time: number;
+                                        frozen_points?: number;
+                                        tries?: number;
+                                        frozen_tries?: number;
+                                        is_frozen?: boolean;
+                                    };
+                                };
+                            }[];
+                        };
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The contest cannot be scored as configured — an `ioi16` problem with no published revision has no dataset to scale against (`contest_problem_missing_dataset`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users/{username}": {
         parameters: {
             query?: never;
@@ -2411,7 +2848,7 @@ export interface paths {
                     "application/json": {
                         name: string;
                         /** @default [] */
-                        scopes?: ("problems:read" | "problems:write" | "problems:publish" | "submissions:read" | "submissions:write" | "orgs:read" | "packages:read" | "packages:write" | "languages:read" | "orgs:write")[];
+                        scopes?: ("problems:read" | "problems:write" | "problems:publish" | "submissions:read" | "submissions:write" | "orgs:read" | "packages:read" | "packages:write" | "languages:read" | "orgs:write" | "contests:read" | "contests:write")[];
                         /** Format: date-time */
                         expiresAt?: string;
                     };

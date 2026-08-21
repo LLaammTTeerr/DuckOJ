@@ -9,6 +9,8 @@ export const SCOPES = [
   'packages:write',
   'languages:read',
   'orgs:write',
+  'contests:read',
+  'contests:write',
 ] as const;
 export type Scope = (typeof SCOPES)[number];
 

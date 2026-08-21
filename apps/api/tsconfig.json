@@ -10,6 +10,7 @@
   "references": [
     { "path": "../../packages/db" },
     { "path": "../../packages/api-prefix" },
+    { "path": "../../packages/contest-formats" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/observability" },
     { "path": "../../packages/package-format" },

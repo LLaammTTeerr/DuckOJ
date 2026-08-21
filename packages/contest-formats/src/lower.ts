@@ -13,7 +13,6 @@ import type {
   ContestSpec,
   ParticipantSpec,
   ProblemSpec,
-  SubmissionSpec,
   TestCaseSpec,
 } from './types.js';
 
@@ -129,9 +128,22 @@ function aggregateCases(cases: TestCaseSpec[]): { casePoints: number; caseTotal:
   return { casePoints: pyRound(points, 1), caseTotal: pyRound(total, 1) };
 }
 
-/** `Submission.update_contest()` — how `ContestSubmission.points` is derived. */
-function contestSubmissionPoints(submission: SubmissionSpec, problem: LoweredProblem): number {
-  const { casePoints, caseTotal } = aggregateCases(submission.cases);
+/**
+ * `Submission.update_contest()` — how `ContestSubmission.points` is derived.
+ *
+ * Exported (via `index.ts`) so a writer persisting `contest_submissions.points`
+ * uses this arithmetic rather than a second copy of it. `partial` here is the
+ * *effective* flag, `ContestProblem.partial && Problem.partial`, and `points`
+ * is `ContestProblem.points` — never the problem's own total.
+ *
+ * Note that nothing in this package reads a persisted value: `lower()` calls
+ * this on every scoreboard read, and `ioi16` ignores the result entirely.
+ */
+export function contestSubmissionPoints(
+  cases: TestCaseSpec[],
+  problem: { points: number; partial: boolean },
+): number {
+  const { casePoints, caseTotal } = aggregateCases(cases);
   let points = caseTotal > 0 ? pyRound((casePoints / caseTotal) * problem.points, 3) : 0;
   if (!problem.partial && points !== problem.points) points = 0;
   return points;
@@ -196,7 +208,7 @@ export function lower(input: ContestInput): LoweredContest {
       dateMs: parseInstant(submission.date),
       result: submission.result,
       cases: submission.cases,
-      points: contestSubmissionPoints(submission, problem),
+      points: contestSubmissionPoints(submission.cases, problem),
     });
   }
 

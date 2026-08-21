@@ -1,0 +1,74 @@
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from '@nestjs/common';
+import {
+  ContestListQuery,
+  CreateContestRequest,
+  type ContestDetailDto,
+  type ContestListQueryDto,
+  type ContestPageDto,
+  type CreateContestRequestDto,
+  type ScoreboardDto,
+} from '@duckoj/contracts';
+import { ZodValidationPipe } from '../common/zod.pipe.js';
+import { CurrentActor, MaybeActor, Public } from '../authn/auth.guard.js';
+import { RequireScope } from '../authn/require-scope.decorator.js';
+import type { Actor } from '../authz/actor.js';
+import { ContestAccessService } from '../authz/contest.access.js';
+
+/**
+ * Anonymous callers are served on every `GET` here deliberately — they see
+ * public contests only, and a contest they may not see 404s rather than 403s.
+ * What each actor may see is decided entirely in `ContestAccessService`,
+ * never in this controller. Mirrors `ProblemsController` throughout.
+ *
+ * Joining a contest, and routing a live submission into one, are deliberately
+ * absent (design §4): this phase seeds participations directly, exactly as the
+ * golden replay does.
+ */
+@Controller('contests')
+export class ContestsController {
+  constructor(@Inject(ContestAccessService) private readonly contests: ContestAccessService) {}
+
+  // `@Public()` is marked per handler, never on the class: `Public()` only
+  // ever sets true, so a class-level marker is a one-way door that would
+  // silently hand anonymous access to the next handler added here.
+  @Get()
+  @Public()
+  @RequireScope('contests:read')
+  list(
+    @MaybeActor() actor: Actor | null,
+    @Query(new ZodValidationPipe(ContestListQuery)) query: ContestListQueryDto,
+  ): Promise<ContestPageDto> {
+    return this.contests.listVisible(actor, { cursor: query.cursor, limit: query.limit });
+  }
+
+  @Get(':key')
+  @Public()
+  @RequireScope('contests:read')
+  get(@MaybeActor() actor: Actor | null, @Param('key') key: string): Promise<ContestDetailDto> {
+    return this.contests.getVisible(actor, key);
+  }
+
+  /**
+   * The scoreboard, in the goldens' snake_case — see `ScoreboardDto`. Served
+   * under `contests:read`, not a scope of its own: a caller who may see the
+   * contest may see how it stands.
+   */
+  @Get(':key/scoreboard')
+  @Public()
+  @RequireScope('contests:read')
+  scoreboard(@MaybeActor() actor: Actor | null, @Param('key') key: string): Promise<ScoreboardDto> {
+    return this.contests.getScoreboard(actor, key);
+  }
+
+  // Deliberately no @Public(): every write requires authentication at the
+  // guard level, before this controller (or the service) ever sees it.
+  @Post()
+  @HttpCode(201)
+  @RequireScope('contests:write')
+  create(
+    @CurrentActor() actor: Actor,
+    @Body(new ZodValidationPipe(CreateContestRequest)) body: CreateContestRequestDto,
+  ): Promise<ContestDetailDto> {
+    return this.contests.create(actor, body);
+  }
+}
