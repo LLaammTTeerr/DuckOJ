@@ -4,6 +4,7 @@ import {
   bigserial,
   boolean,
   doublePrecision,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -186,32 +187,45 @@ export const problemOrgs = pgTable(
   (t) => [primaryKey({ columns: [t.problemId, t.orgId] })],
 );
 
-export const submissions = pgTable('submissions', {
-  id: bigserial('id', { mode: 'number' }).primaryKey(),
-  userId: bigint('user_id', { mode: 'number' })
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  problemId: bigint('problem_id', { mode: 'number' })
-    .notNull()
-    .references(() => problems.id),
-  /** Pinned: this is which tests actually graded it, forever. */
-  revisionId: bigint('revision_id', { mode: 'number' })
-    .notNull()
-    .references(() => problemRevisions.id),
-  languageId: bigint('language_id', { mode: 'number' })
-    .notNull()
-    .references(() => languages.id),
-  source: text('source').notNull(),
-  state: submissionState('state').notNull().default('queued'),
-  verdict: caseVerdict('verdict'),
-  points: doublePrecision('points'),
-  maxPoints: doublePrecision('max_points'),
-  timeMs: integer('time_ms'),
-  memoryKb: integer('memory_kb'),
-  compileOutput: text('compile_output'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  judgedAt: timestamp('judged_at', { withTimezone: true }),
-});
+export const submissions = pgTable(
+  'submissions',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    problemId: bigint('problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => problems.id),
+    /** Pinned: this is which tests actually graded it, forever. */
+    revisionId: bigint('revision_id', { mode: 'number' })
+      .notNull()
+      .references(() => problemRevisions.id),
+    languageId: bigint('language_id', { mode: 'number' })
+      .notNull()
+      .references(() => languages.id),
+    source: text('source').notNull(),
+    state: submissionState('state').notNull().default('queued'),
+    verdict: caseVerdict('verdict'),
+    points: doublePrecision('points'),
+    maxPoints: doublePrecision('max_points'),
+    timeMs: integer('time_ms'),
+    memoryKb: integer('memory_kb'),
+    compileOutput: text('compile_output'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    judgedAt: timestamp('judged_at', { withTimezone: true }),
+  },
+  // Serves the `me` column's per-(viewer, problem) "best verdict" lookup
+  // (`ProblemAccessService.listVisible`/`getVisible`) — a `LEFT JOIN
+  // LATERAL` filtered to `user_id = ? AND problem_id = ?`, ordered by
+  // `points DESC, id ASC`, `LIMIT 1`. Without this index that lookup
+  // sequentially scans the whole table once per problem row in the list —
+  // 50 scans for one page of results, worsening with every submission the
+  // system ever takes. `points DESC` and `id` (ascending, its default) are
+  // in the index so "max points, ties broken by the earliest submission" is
+  // served by the index's own order, with no separate sort step.
+  (t) => [index('submissions_user_problem_points_idx').on(t.userId, t.problemId, t.points.desc(), t.id)],
+);
 
 export const submissionCases = pgTable(
   'submission_cases',

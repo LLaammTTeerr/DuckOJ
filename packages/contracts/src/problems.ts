@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PaginationQuery, ProblemDetails, Timestamp, cursorPage } from './common.js';
 import { registry } from './registry.js';
+import { Verdict } from './submissions.js';
 
 export const PROBLEM_CODE = /^[a-z0-9][a-z0-9_-]{1,63}$/;
 
@@ -65,6 +66,23 @@ export const AttachRevisionRequest = z.object({
 });
 export type AttachRevisionRequestDto = z.infer<typeof AttachRevisionRequest>;
 
+/**
+ * The viewer's own best submission on this problem — spec
+ * `2026-08-21-best-verdict-design.md` §2/§3. "Best" is maximum `points`,
+ * ties broken by the earliest submission; an accepted submission already
+ * holds maximum points, so this yields `AC` whenever one exists with no
+ * special case for it. `null` for an anonymous caller and for a problem the
+ * viewer has never (successfully graded a) submission to — those read
+ * identically to a viewer and are not distinguished.
+ *
+ * `maxPoints` is the submitting revision's total, not the problem's current
+ * one (§3): a submission graded against revision 2 was scored out of
+ * revision 2's total, and reporting it against revision 3's total would
+ * misreport history, the same reasoning that pins `submissions.revisionId`.
+ */
+export const ProblemMe = z.object({ verdict: Verdict, points: z.number(), maxPoints: z.number() }).nullable();
+export type ProblemMeDto = z.infer<typeof ProblemMe>;
+
 export const ProblemSummary = z.object({
   id: z.number().int(),
   code: z.string(),
@@ -81,6 +99,7 @@ export const ProblemSummary = z.object({
    * N+1 the list must not do.
    */
   testCount: z.number().int().nullable(),
+  me: ProblemMe,
 });
 export type ProblemSummaryDto = z.infer<typeof ProblemSummary>;
 
