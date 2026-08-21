@@ -2971,6 +2971,236 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search users by username or display name prefix */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                    q?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of users */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: number;
+                                username: string;
+                                displayName: string;
+                                /** @enum {string} */
+                                globalRole: "user" | "setter" | "admin";
+                                country: string | null;
+                                rating: number | null;
+                                maxRating: number | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{username}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A user profile, with statistics over public problems */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The profile */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            username: string;
+                            displayName: string;
+                            /** @enum {string} */
+                            globalRole: "user" | "setter" | "admin";
+                            country: string | null;
+                            rating: number | null;
+                            maxRating: number | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            about: string | null;
+                            stats: {
+                                solvedCount: number;
+                                points: number;
+                                submissionCount: number;
+                            };
+                        };
+                    };
+                };
+                /** @description No such user */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit your own profile */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        displayName?: string;
+                        about?: string | null;
+                        country?: string | null;
+                        timezone?: string;
+                        locale?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The updated profile */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            username: string;
+                            displayName: string;
+                            /** @enum {string} */
+                            globalRole: "user" | "setter" | "admin";
+                            country: string | null;
+                            rating: number | null;
+                            maxRating: number | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            about: string | null;
+                            stats: {
+                                solvedCount: number;
+                                points: number;
+                                submissionCount: number;
+                            };
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Validation failed — including an attempt to change an unowned field */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
     "/auth/tokens": {
         parameters: {
             query?: never;
@@ -3063,7 +3293,7 @@ export interface paths {
                     "application/json": {
                         name: string;
                         /** @default [] */
-                        scopes?: ("problems:read" | "problems:write" | "problems:publish" | "submissions:read" | "submissions:write" | "orgs:read" | "packages:read" | "packages:write" | "languages:read" | "orgs:write" | "contests:read" | "contests:write")[];
+                        scopes?: ("problems:read" | "problems:write" | "problems:publish" | "submissions:read" | "submissions:write" | "orgs:read" | "packages:read" | "packages:write" | "languages:read" | "orgs:write" | "contests:read" | "contests:write" | "users:read" | "users:write")[];
                         /** Format: date-time */
                         expiresAt?: string;
                     };

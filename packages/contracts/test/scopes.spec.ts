@@ -48,6 +48,8 @@ describe('scope vocabulary', () => {
       'orgs:write',
       'contests:read',
       'contests:write',
+      'users:read',
+      'users:write',
     ]);
   });
 });

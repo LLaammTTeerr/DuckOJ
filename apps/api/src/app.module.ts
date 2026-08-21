@@ -12,6 +12,7 @@ import { SubmissionsModule } from './submissions/submissions.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
 import { PackagesModule } from './packages/packages.module.js';
 import { LanguagesModule } from './languages/languages.module.js';
+import { UsersModule } from './users/users.module.js';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { LanguagesModule } from './languages/languages.module.js';
     RealtimeModule,
     PackagesModule,
     LanguagesModule,
+    UsersModule,
   ],
 })
 export class AppModule {}

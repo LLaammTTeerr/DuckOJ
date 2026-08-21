@@ -11,6 +11,8 @@ export const SCOPES = [
   'orgs:write',
   'contests:read',
   'contests:write',
+  'users:read',
+  'users:write',
 ] as const;
 export type Scope = (typeof SCOPES)[number];
 

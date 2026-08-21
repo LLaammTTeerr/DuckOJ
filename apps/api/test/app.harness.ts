@@ -18,6 +18,7 @@ import { SubmissionsModule } from '../src/submissions/submissions.module.js';
 import { RealtimeModule } from '../src/realtime/realtime.module.js';
 import { PackagesModule } from '../src/packages/packages.module.js';
 import { LanguagesModule } from '../src/languages/languages.module.js';
+import { UsersModule } from '../src/users/users.module.js';
 import { RedisSubscriber } from '../src/realtime/redis-subscriber.js';
 import { SubmissionsGateway } from '../src/realtime/submissions.gateway.js';
 import { APP_CONFIG, DB } from '../src/config/config.module.js';
@@ -78,7 +79,23 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
   const packageStoreDir = await mkdtemp(join(tmpdir(), 'duckoj-test-packages-'));
 
   const moduleRef = await Test.createTestingModule({
-    imports: [AuthnModule, AdminModule, OrgsModule, ContestsModule, ProblemsModule, SubmissionsModule, PackagesModule, LanguagesModule],
+    // Deliberately NOT `AppModule`'s list, and deliberately not shared with it:
+    // this omits `ConfigModule` (which would build its own database pool
+    // instead of the Testcontainers one overridden below), `RealtimeModule`
+    // (which dials Redis on construction) and `HealthModule`/`DocsModule`.
+    // Sharing one array between the two was tried and broke 127 tests.
+    // The cost is that a new module must be added in both places.
+    imports: [
+      AuthnModule,
+      AdminModule,
+      OrgsModule,
+      ContestsModule,
+      ProblemsModule,
+      SubmissionsModule,
+      PackagesModule,
+      LanguagesModule,
+      UsersModule,
+    ],
   })
     .overrideProvider(DB)
     .useValue(db)
