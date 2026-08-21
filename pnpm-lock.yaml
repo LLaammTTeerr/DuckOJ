@@ -244,6 +244,8 @@ importers:
 
   packages/api-prefix: {}
 
+  packages/contest-formats: {}
+
   packages/contracts:
     dependencies:
       '@asteasolutions/zod-to-openapi':
