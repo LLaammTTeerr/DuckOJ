@@ -1349,6 +1349,8 @@ export interface paths {
                             memoryKb: number | null;
                             testCount: number | null;
                             statement: string;
+                            /** @enum {string} */
+                            sourceAccess: "private" | "solved";
                             totalPoints: number | null;
                             checkerKind: string | null;
                             /** Format: date-time */
@@ -1486,6 +1488,8 @@ export interface paths {
                             memoryKb: number | null;
                             testCount: number | null;
                             statement: string;
+                            /** @enum {string} */
+                            sourceAccess: "private" | "solved";
                             totalPoints: number | null;
                             checkerKind: string | null;
                             /** Format: date-time */
@@ -1543,6 +1547,8 @@ export interface paths {
                         statement?: string;
                         /** @enum {string} */
                         visibility?: "private" | "org" | "public";
+                        /** @enum {string} */
+                        sourceAccess?: "private" | "solved";
                         orgSlugs?: string[];
                         members?: {
                             username: string;
@@ -1570,6 +1576,8 @@ export interface paths {
                             memoryKb: number | null;
                             testCount: number | null;
                             statement: string;
+                            /** @enum {string} */
+                            sourceAccess: "private" | "solved";
                             totalPoints: number | null;
                             checkerKind: string | null;
                             /** Format: date-time */
@@ -2212,6 +2220,7 @@ export interface paths {
                             id: number;
                             problemCode: string;
                             languageKey: string;
+                            source: string;
                             /** @enum {string} */
                             state: "queued" | "compiling" | "grading" | "done" | "errored";
                             /** @enum {string|null} */

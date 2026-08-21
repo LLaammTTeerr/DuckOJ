@@ -1,6 +1,6 @@
 import type { Agent as SupertestAgent } from 'supertest';
 import { eq } from 'drizzle-orm';
-import { problems, problemRevisions } from '@duckoj/db/guarded';
+import { problemMembers, problems, problemRevisions, submissions } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 
 const PASSWORD = 'a-long-enough-password';
@@ -113,4 +113,144 @@ export async function seedPrivateProblem(db: Db): Promise<void> {
     })
     .returning();
   await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problem!.id));
+}
+
+/**
+ * A problem with an explicit `sourceAccess`, its own published revision, and
+ * no members — the corpus building block for the source-visibility tests,
+ * which need several problems differing only in that flag.
+ *
+ * `seedProblemAndLanguage` must have run first: this reuses the `cpp17`
+ * language rather than seeding a second one.
+ */
+export async function seedProblemWithSourceAccess(
+  db: Db,
+  opts: {
+    code: string;
+    sourceAccess?: 'private' | 'solved';
+    visibility?: 'private' | 'org' | 'public';
+  },
+): Promise<{ id: number; revisionId: number }> {
+  const owner = await insertUser(db, `${opts.code}-owner`);
+  const [problem] = await db
+    .insert(problems)
+    .values({
+      code: opts.code,
+      name: opts.code,
+      statement: 's',
+      visibility: opts.visibility ?? 'public',
+      // Left unset when the caller passes nothing, so a corpus entry can
+      // exercise the migration's DEFAULT rather than a value this fixture
+      // restated — design §4.3's "the default is closed".
+      ...(opts.sourceAccess ? { sourceAccess: opts.sourceAccess } : {}),
+      createdBy: owner.id,
+    })
+    .returning();
+  await db.insert(schema.packages).values({ hash: `pkg-${opts.code}`, sizeBytes: 1, fileCount: 1 });
+  const [revision] = await db
+    .insert(problemRevisions)
+    .values({
+      problemId: problem!.id,
+      version: 1,
+      packageHash: `pkg-${opts.code}`,
+      state: 'published',
+      createdBy: owner.id,
+      timeMs: 1000,
+      memoryKb: 256_000,
+      testCount: 5,
+      totalPoints: 100,
+      checkerKind: 'wcmp',
+    })
+    .returning();
+  await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problem!.id));
+  return { id: problem!.id, revisionId: revision!.id };
+}
+
+/** Grants `username` a role on a problem — author, curator or tester. */
+export async function grantProblemRole(
+  db: Db,
+  problemId: number,
+  userId: number,
+  role: 'author' | 'curator' | 'tester',
+): Promise<void> {
+  await db.insert(problemMembers).values({ problemId, userId, role });
+}
+
+/**
+ * Publishes a second revision of `problemId`, archiving the first — so a
+ * submission graded `AC` against the old one is an AC on a revision that is
+ * no longer current. Design §2.4 fixes "has an AC" as *not* revision-scoped,
+ * and this is the fixture that lets a test tell the two readings apart.
+ */
+export async function publishNextRevision(db: Db, problemId: number, code: string): Promise<number> {
+  const owner = await insertUser(db, `${code}-owner-v2`);
+  await db.insert(schema.packages).values({ hash: `pkg-${code}-v2`, sizeBytes: 1, fileCount: 1 });
+  await db
+    .update(problemRevisions)
+    .set({ state: 'archived' })
+    .where(eq(problemRevisions.problemId, problemId));
+  const [revision] = await db
+    .insert(problemRevisions)
+    .values({
+      problemId,
+      version: 2,
+      packageHash: `pkg-${code}-v2`,
+      state: 'published',
+      createdBy: owner.id,
+      timeMs: 1000,
+      memoryKb: 256_000,
+      testCount: 5,
+      totalPoints: 100,
+      checkerKind: 'wcmp',
+    })
+    .returning();
+  await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problemId));
+  return revision!.id;
+}
+
+/**
+ * Inserts a submission row directly, with an optional verdict — bypassing
+ * `SubmissionAccessService.create` (and therefore its problem-visibility
+ * check and its grading job), so a corpus can contain a graded submission on
+ * a problem the seeder is not a member of.
+ */
+export async function insertGradedSubmission(
+  db: Db,
+  opts: { userId: number; problemId: number; revisionId?: number; verdict?: 'AC' | 'WA' },
+): Promise<number> {
+  const [language] = await db
+    .select({ id: schema.languages.id })
+    .from(schema.languages)
+    .where(eq(schema.languages.key, 'cpp17'));
+  let revisionId = opts.revisionId;
+  if (revisionId === undefined) {
+    const [problem] = await db
+      .select({ currentRevisionId: problems.currentRevisionId })
+      .from(problems)
+      .where(eq(problems.id, opts.problemId));
+    if (!problem?.currentRevisionId) throw new Error(`no published revision for problem ${opts.problemId}`);
+    revisionId = problem.currentRevisionId;
+  }
+  const [row] = await db
+    .insert(submissions)
+    .values({
+      userId: opts.userId,
+      problemId: opts.problemId,
+      revisionId,
+      languageId: language!.id,
+      source: `src-${opts.userId}-${opts.problemId}`,
+      ...(opts.verdict ? { verdict: opts.verdict, state: 'done' as const } : {}),
+    })
+    .returning({ id: submissions.id });
+  return row!.id;
+}
+
+/** The `users.id` for a username — every fixture below keys off it. */
+export async function userIdOf(db: Db, username: string): Promise<number> {
+  const [user] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.username, username));
+  if (!user) throw new Error(`no such user: ${username}`);
+  return user.id;
 }

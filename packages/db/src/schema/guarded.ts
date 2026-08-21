@@ -65,6 +65,18 @@ export const orgJoinRequests = pgTable('org_join_requests', {
 });
 
 export const problemVisibility = pgEnum('problem_visibility', ['private', 'org', 'public']);
+
+/**
+ * Who, beyond the submitter, an admin, and the problem's authors/curators,
+ * may read submissions to this problem — including their source.
+ *
+ * `private` is the default and the state every pre-existing problem migrates
+ * into: nobody else. `solved` additionally admits anyone holding an `AC` on
+ * this problem. There is deliberately no `public` member (design §2.3):
+ * adding an enum member later is cheap — this schema has done it once
+ * already for `CE` — and granting access nobody asked for is not.
+ */
+export const problemSourceAccess = pgEnum('problem_source_access', ['private', 'solved']);
 export const revisionState = pgEnum('revision_state', ['draft', 'published', 'archived']);
 export const submissionState = pgEnum('submission_state', [
   'queued',
@@ -85,6 +97,12 @@ export const problems = pgTable(
     name: text('name').notNull(),
     statement: text('statement').notNull(),
     visibility: problemVisibility('visibility').notNull().default('public'),
+    /**
+     * Deny by default, unlike `visibility` above: submissions to a problem
+     * are readable only by their submitter, an admin, and the problem's
+     * authors/curators until someone opts this problem into `solved`.
+     */
+    sourceAccess: problemSourceAccess('source_access').notNull().default('private'),
     currentRevisionId: bigint('current_revision_id', { mode: 'number' }),
     createdBy: bigint('created_by', { mode: 'number' })
       .notNull()

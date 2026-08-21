@@ -34,6 +34,16 @@ export const SubmissionDetail = z.object({
   id: z.number().int(),
   problemCode: z.string(),
   languageKey: z.string(),
+  /**
+   * The code as submitted. Present on every submission this route answers
+   * 200 for and never null — it is not a field with its own visibility rule
+   * bolted on beside the submission's (design §2.1). `canViewSubmission`
+   * decides whether the *submission* is visible; the source is part of it.
+   *
+   * Deliberately absent from `SubmissionSummary`: a page of 25 submissions
+   * would otherwise carry 25 source files, and a list has no use for them.
+   */
+  source: z.string(),
   state: SubmissionState,
   verdict: Verdict.nullable(),
   points: z.number().nullable(),
