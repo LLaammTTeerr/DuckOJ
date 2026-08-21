@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DuckOJ — monospace font candidates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=IBM+Plex+Mono:wght@400;700&family=Space+Mono:wght@400;700&family=Cousine:wght@400;700&family=Inconsolata:wght@400;700&family=Victor+Mono:wght@400;700&family=Overpass+Mono:wght@400;700&family=Geist+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0F172A; --fg:#E2E8F0; --dim:#94A3B8; --line:#334155;
+    --card:#161F33; --ac:#22C55E; --warn:#FBBF24; --bad:#EF4444;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font-family:'JetBrains Mono',monospace;font-size:14px;line-height:1.5;padding:24px}
+  header{max-width:1100px;margin:0 auto 28px}
+  h1{font-size:18px;margin:0 0 6px}
+  .sub{color:var(--dim);font-size:13px;max-width:80ch}
+  .grid{max-width:1100px;margin:0 auto;display:grid;gap:20px}
+  .card{border:1px solid var(--line);background:var(--card);padding:0}
+  .hd{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+      padding:10px 14px;border-bottom:1px solid var(--line);background:#0d1526}
+  .name{font-weight:700;font-size:15px}
+  .tag{color:var(--dim);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  .body{padding:14px}
+  .row{margin:0 0 12px}
+  .lbl{color:var(--dim);font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
+  .vi{font-size:16px}
+  .big{font-size:22px;font-weight:700}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:3px 10px 3px 0;border-bottom:1px dotted var(--line)}
+  th{color:var(--dim);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  .ac{color:var(--ac)} .wa{color:var(--bad)} .tle{color:var(--warn)}
+  pre{margin:0;font-size:13px;color:var(--dim);white-space:pre}
+  .box{color:var(--dim);font-size:13px;white-space:pre;line-height:1.25}
+  .amb{letter-spacing:0}
+  footer{max-width:1100px;margin:28px auto 0;color:var(--dim);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+  code{color:var(--ac)}
+</style>
+</head>
+<body>
+<header>
+  <h1>DuckOJ — monospace candidates</h1>
+  <p class="sub">Every family below ships a <strong>vietnamese</strong> subset on Google Fonts <em>and</em> has a
+  Nerd Font patched build (v3.5.0). Each card renders the same five things: Vietnamese with heavy diacritics,
+  a dense problem-list row, box-drawing chrome, a code sample, and the characters that most often
+  collide in a monospace face — <code>0O il1 {}[]() &lt;&gt;</code>.</p>
+</header>
+
+<div class="grid" id="grid"></div>
+
+<footer>
+  <p><strong>What to look for.</strong> Vietnamese stacked diacritics (ế ộ ữ ặ) should not clip or crowd the
+  line above. Digits should be unmistakable at 13px in the table. <code>0</code> vs <code>O</code> and
+  <code>l</code> vs <code>1</code> vs <code>I</code> should be instantly separable — a judge shows problem
+  codes and hashes constantly.</p>
+  <p>Not shown: the Nerd Font icon glyphs. Those need a self-hosted patched build, which is a separate
+  decision — a full patched font is 2–8 MB, subset to the icons actually used it is roughly 20–40 KB.</p>
+</footer>
+
+<script>
+const FONTS = [
+  ['JetBrains Mono', 'modern · tall x-height · the safe pick'],
+  ['IBM Plex Mono',  'corporate-retro · slab serifs · distinctive'],
+  ['Space Mono',     'genuinely retro · quirky · 1970s grotesque'],
+  ['Cousine',        'typewriter · Courier metrics · most retro'],
+  ['Inconsolata',    'humanist classic · compact · very legible'],
+  ['Victor Mono',    'semi-retro · cursive italics · narrow'],
+  ['Overpass Mono',  'highway-gothic derived · unusual'],
+  ['Geist Mono',     'modern Vercel · clean · least retro'],
+];
+
+const VI  = 'Đường lối những kẻ ưu tiên — hoặc khuyết điểm, tuyệt vời!';
+const VIU = 'ĐƯỜNG LỐI NHỮNG KẺ ƯU TIÊN';
+const AMB = '0O oØ il1I |¦ {}[]() <>= ~-_ 5S 8B 2Z';
+
+const BOX = `┌──────────┬──────────────────┬────────┬────────┐
+│ MÃ ĐỀ    │ TÊN              │ TL     │ KẾT    │
+├──────────┼──────────────────┼────────┼────────┤
+│ aplusb   │ A cộng B         │ 1.0s   │ AC     │
+└──────────┴──────────────────┴────────┴────────┘`;
+
+const CODE = `for (int i = 0; i < n; ++i) {
+  if (a[i] != b[i]) { ok = false; break; }
+}`;
+
+document.getElementById('grid').innerHTML = FONTS.map(([f, note]) => `
+  <section class="card" style="font-family:'${f}',monospace">
+    <div class="hd"><span class="name">${f}</span><span class="tag">${note}</span></div>
+    <div class="body">
+      <div class="row"><div class="lbl">Tiếng Việt — dấu chồng</div>
+        <div class="vi">${VI}</div>
+        <div class="vi">${VIU}</div>
+        <div class="big">Đề bài · Nộp bài · Kết quả</div>
+      </div>
+      <div class="row"><div class="lbl">Dense data row</div>
+        <table>
+          <tr><th>CODE</th><th>NAME</th><th>TL</th><th>ML</th><th>TESTS</th><th>ME</th></tr>
+          <tr><td>aplusb</td><td>A plus B</td><td>1000ms</td><td>64MB</td><td>3</td><td class="ac">AC</td></tr>
+          <tr><td>twosum</td><td>Two Sum</td><td>2000ms</td><td>128MB</td><td>12</td><td class="wa">WA</td></tr>
+          <tr><td>lis0117</td><td>Longest Increasing</td><td>1500ms</td><td>256MB</td><td>40</td><td class="tle">TLE</td></tr>
+        </table>
+      </div>
+      <div class="row"><div class="lbl">Box chrome</div><div class="box">${BOX}</div></div>
+      <div class="row"><div class="lbl">Code</div><pre>${CODE.replace(/</g,'&lt;')}</pre></div>
+      <div class="row"><div class="lbl">Ambiguous glyphs</div><div class="amb" style="font-size:17px">${AMB.replace(/</g,'&lt;')}</div></div>
+    </div>
+  </section>`).join('');
+</script>
+</body>
+</html>

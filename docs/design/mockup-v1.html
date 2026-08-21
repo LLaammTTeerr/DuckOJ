@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DuckOJ — retro terminal mockup v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   DuckOJ — retro terminal. IBM Plex Mono only. No glass, no blur, no
+   gradients, no shadows, no rounded corners.
+
+   THE ONE RULE: colour is reserved for verdicts. Chrome is monochrome.
+   A green- or amber-phosphor chrome would collide with AC-green and
+   TLE-amber, and on a judge the verdict must read before anything else.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#0B0D10;          /* near-black, not pure — pure black smears on OLED */
+  --panel:#12151A;
+  --fg:#D6D3CD;          /* warm off-white: paper-white terminal, not blue-white */
+  --dim:#7E8894;
+  --faint:#3A424E;
+  --line:#242A33;
+  --sel:#1B2029;
+
+  --ac:#3FB950;  --wa:#F85149;  --tle:#D29922;  --mle:#DB6D28;
+  --ie:#A371F7;  --ce:#58A6FF;  --pend:#7E8894;
+
+  --sp:8px;
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#F5F3EE; --panel:#FFFFFF; --fg:#1A1D22; --dim:#5C6470;
+    --faint:#B8BEC7; --line:#D9D5CC; --sel:#EBE7DE;
+    --ac:#1A7F37; --wa:#CF222E; --tle:#9A6700; --mle:#BC4C00;
+    --ie:#8250DF; --ce:#0969DA; --pend:#5C6470;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--fg);
+  font-family:'IBM Plex Mono',ui-monospace,monospace;
+  font-size:14px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none;border-bottom:1px solid var(--faint)}
+a:hover{border-bottom-color:var(--fg)}
+:focus-visible{outline:2px solid var(--fg);outline-offset:1px}
+
+/* ── chrome ────────────────────────────────────────────────────────────── */
+.top{border-bottom:1px solid var(--line);background:var(--panel)}
+.top .in{max-width:1060px;margin:0 auto;padding:0 16px;display:flex;align-items:center;gap:20px;height:38px}
+.brand{font-weight:600;letter-spacing:.04em}
+.brand .k{color:var(--dim)}
+.nav{display:flex;gap:16px;font-size:13px}
+.nav a{border:0;color:var(--dim);padding:2px 0;border-bottom:1px solid transparent}
+.nav a.on{color:var(--fg);border-bottom-color:var(--fg)}
+.nav a:hover{color:var(--fg)}
+.who{margin-left:auto;color:var(--dim);font-size:13px}
+
+main{max-width:1060px;margin:0 auto;padding:20px 16px 56px}
+.screen{margin-bottom:44px}
+.cap{color:var(--dim);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+     border-bottom:1px dashed var(--faint);padding-bottom:5px;margin-bottom:14px}
+h1{font-size:19px;font-weight:600;margin:0 0 2px;letter-spacing:.01em}
+h2{font-size:15px;font-weight:600;margin:22px 0 8px}
+.meta{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+
+/* ── field / input ─────────────────────────────────────────────────────── */
+.field{display:flex;align-items:center;gap:8px;border:1px solid var(--line);
+       background:var(--panel);padding:5px 9px;max-width:420px;margin-bottom:14px}
+.field span{color:var(--dim)}
+.field input{flex:1;background:transparent;border:0;color:var(--fg);font:inherit;outline:none}
+
+/* ── table ─────────────────────────────────────────────────────────────── */
+table{border-collapse:collapse;width:100%}
+th{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);
+   text-align:left;font-weight:500;padding:0 12px 6px 0;border-bottom:1px solid var(--line)}
+td{padding:5px 12px 5px 0;border-bottom:1px solid var(--line);font-size:13.5px;vertical-align:top}
+tr:hover td{background:var(--sel)}
+.num{text-align:right;padding-right:16px;font-variant-numeric:tabular-nums}
+th.num{text-align:right;padding-right:16px}
+
+/* ── verdicts: the only colour in the system ───────────────────────────── */
+.v{font-weight:600;font-size:12.5px}
+.v.ac{color:var(--ac)} .v.wa{color:var(--wa)} .v.tle{color:var(--tle)}
+.v.mle{color:var(--mle)} .v.ie{color:var(--ie)} .v.ce{color:var(--ce)}
+.v.pend{color:var(--pend)}
+/* Never colour alone — every verdict carries a glyph, for colour-blind
+   readers and for anyone scanning a monochrome print/screenshot. */
+.v::before{margin-right:5px;opacity:.9}
+.v.ac::before{content:'+'} .v.wa::before{content:'x'} .v.tle::before{content:'>'}
+.v.mle::before{content:'^'} .v.ie::before{content:'!'} .v.ce::before{content:'#'}
+.v.pend::before{content:'.'}
+
+/* ── panels ────────────────────────────────────────────────────────────── */
+.panel{border:1px solid var(--line);background:var(--panel)}
+.panel .ph{border-bottom:1px solid var(--line);padding:6px 12px;color:var(--dim);
+           font-size:11px;letter-spacing:.09em;text-transform:uppercase}
+.panel .pb{padding:12px}
+
+/* ── statement: the one place that is NOT dense ────────────────────────── */
+.stmt{max-width:68ch;font-size:14.5px;line-height:1.7}
+.stmt p{margin:0 0 12px}
+.stmt h3{font-size:13px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);
+         font-weight:500;margin:20px 0 6px;border-bottom:1px solid var(--line);padding-bottom:4px}
+.stmt pre{background:var(--sel);border:1px solid var(--line);padding:9px 11px;margin:0 0 12px;
+          font-size:13px;overflow-x:auto}
+.m{font-style:italic}
+
+/* ── case grid ─────────────────────────────────────────────────────────── */
+.cases{display:flex;flex-wrap:wrap;gap:3px;margin:4px 0 12px}
+.case{width:26px;height:22px;border:1px solid var(--line);display:flex;align-items:center;
+      justify-content:center;font-size:11px;font-weight:600;background:var(--panel)}
+.case.ac{color:var(--ac);border-color:var(--ac)}
+.case.wa{color:var(--wa);border-color:var(--wa)}
+.case.tle{color:var(--tle);border-color:var(--tle)}
+.case.skip{color:var(--faint)}
+
+.btn{border:1px solid var(--fg);background:transparent;color:var(--fg);font:inherit;
+     font-size:13px;padding:4px 14px;cursor:pointer}
+.btn:hover{background:var(--fg);color:var(--bg)}
+.btn.ghost{border-color:var(--line);color:var(--dim)}
+.btn.ghost:hover{background:var(--sel);color:var(--fg)}
+
+textarea{width:100%;background:var(--panel);border:1px solid var(--line);color:var(--fg);
+         font:inherit;font-size:13px;padding:9px;min-height:150px;outline:none;resize:vertical}
+select{background:var(--panel);border:1px solid var(--line);color:var(--fg);font:inherit;
+       font-size:13px;padding:4px 8px;outline:none}
+label{display:block;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+      color:var(--dim);margin:12px 0 4px}
+
+.note{border-left:2px solid var(--faint);padding:2px 0 2px 11px;color:var(--dim);
+      font-size:12.5px;margin:10px 0;max-width:74ch}
+.kv{color:var(--dim)}
+.rule{border:0;border-top:1px solid var(--line);margin:16px 0}
+</style>
+</head>
+<body>
+
+<div class="top"><div class="in">
+  <span class="brand">DuckOJ<span class="k">_</span></span>
+  <nav class="nav">
+    <a href="#" class="on">problems</a><a href="#">submissions</a><a href="#">orgs</a><a href="#">api</a>
+  </nav>
+  <span class="who">alice · setter</span>
+</div></div>
+
+<main>
+
+<!-- 1 ───────────────────────────────────────────────────────────────────── -->
+<section class="screen">
+  <div class="cap">screen 1 — problem list</div>
+  <h1>Problems</h1>
+  <p class="meta">142 problems · 38 solved</p>
+
+  <div class="field"><span>/</span><input placeholder="tìm đề bài…" value=""></div>
+
+  <table>
+    <thead><tr>
+      <th style="width:110px">code</th><th>name</th>
+      <th class="num" style="width:70px">time</th><th class="num" style="width:70px">mem</th>
+      <th class="num" style="width:60px">tests</th><th style="width:80px">me</th>
+    </tr></thead>
+    <tbody>
+      <tr><td><a href="#">aplusb</a></td><td>A cộng B</td><td class="num">1.0s</td><td class="num">64M</td><td class="num">3</td><td><span class="v ac">AC</span></td></tr>
+      <tr><td><a href="#">hello</a></td><td>Hello World</td><td class="num">1.0s</td><td class="num">64M</td><td class="num">3</td><td><span class="v ac">AC</span></td></tr>
+      <tr><td><a href="#">twosum</a></td><td>Tổng hai số</td><td class="num">2.0s</td><td class="num">128M</td><td class="num">12</td><td><span class="v wa">WA</span></td></tr>
+      <tr><td><a href="#">lis0117</a></td><td>Dãy con tăng dài nhất</td><td class="num">1.5s</td><td class="num">256M</td><td class="num">40</td><td><span class="v tle">TLE</span></td></tr>
+      <tr><td><a href="#">knap02</a></td><td>Xếp ba lô</td><td class="num">2.0s</td><td class="num">256M</td><td class="num">25</td><td><span class="v pend">—</span></td></tr>
+      <tr><td><a href="#">strhash</a></td><td>Băm chuỗi</td><td class="num">1.0s</td><td class="num">64M</td><td class="num">18</td><td><span class="v pend">—</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">Chrome is monochrome on purpose. The only saturated colour on this screen is the
+  verdict column, so the eye lands there first — and every verdict carries a glyph as well as a hue,
+  so it survives colour-blindness and a monochrome screenshot.</div>
+</section>
+
+<!-- 2 ───────────────────────────────────────────────────────────────────── -->
+<section class="screen">
+  <div class="cap">screen 2 — problem detail</div>
+  <h1>A cộng B</h1>
+  <p class="meta">aplusb · 1.0 s · 64 MB · 3 tests · checker: standard · rev 3</p>
+
+  <div class="stmt">
+    <p>Cho hai số nguyên <span class="m">a</span> và <span class="m">b</span>. Hãy tính tổng của chúng.</p>
+    <h3>Đầu vào</h3>
+    <p>Một dòng duy nhất chứa hai số nguyên <span class="m">a</span>, <span class="m">b</span>
+       (−10<sup>9</sup> ≤ <span class="m">a</span>, <span class="m">b</span> ≤ 10<sup>9</sup>).</p>
+    <h3>Đầu ra</h3>
+    <p>In ra một số nguyên duy nhất — tổng <span class="m">a + b</span>.</p>
+    <h3>Ví dụ</h3>
+    <pre>2 3
+5</pre>
+  </div>
+
+  <hr class="rule">
+  <button class="btn">nộp bài</button>
+  <button class="btn ghost">bài nộp của tôi</button>
+
+  <div class="note">The statement is the one surface that is <em>not</em> dense: 68ch measure,
+  1.7 line-height. Everything else on the site is a table meant for scanning; this is the only
+  thing meant for reading.</div>
+</section>
+
+<!-- 3 ───────────────────────────────────────────────────────────────────── -->
+<section class="screen">
+  <div class="cap">screen 3 — submit &amp; live verdict</div>
+  <h1>Nộp bài <span class="kv">· aplusb</span></h1>
+
+  <label for="lang">ngôn ngữ</label>
+  <select id="lang"><option>cpp17 — C++17</option><option>py3 — Python 3</option></select>
+
+  <label for="src">mã nguồn</label>
+  <textarea id="src">#include &lt;bits/stdc++.h&gt;
+int main(){ long long a,b; std::cin&gt;&gt;a&gt;&gt;b; std::cout&lt;&lt;a+b; }</textarea>
+  <p style="margin:10px 0 0"><button class="btn">gửi</button></p>
+
+  <hr class="rule">
+
+  <div class="panel">
+    <div class="ph">submission #4187 · đang chấm</div>
+    <div class="pb">
+      <div class="cases">
+        <span class="case ac">1</span><span class="case ac">2</span><span class="case ac">3</span>
+        <span class="case ac">4</span><span class="case wa">5</span><span class="case skip">6</span>
+        <span class="case skip">7</span><span class="case skip">8</span>
+      </div>
+      <div><span class="v wa">WA</span> <span class="kv">· test 5 · 12 ms · 3.2 MB · 40/100 điểm</span></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <div class="ph">submission #4186 · biên dịch lỗi</div>
+    <div class="pb">
+      <div><span class="v ce">CE</span></div>
+      <pre style="margin:9px 0 0;background:var(--sel);border:1px solid var(--line);padding:9px 11px;font-size:12.5px;overflow-x:auto">main.cpp: In function 'int main()':
+main.cpp:2:31: error: 'cin' was not declared in this scope
+    2 | int main(){ long long a,b; cin&gt;&gt;a&gt;&gt;b; }
+      |                            ^~~</pre>
+    </div>
+  </div>
+
+  <div class="note">The case grid is the densest thing in the design and the most useful: 40 tests
+  fit in two rows, and a wrong answer at test 5 with 6–8 skipped tells the whole story before you
+  read a word. Skipped cases are faint, not absent — a gap would read as a rendering bug.</div>
+</section>
+
+<!-- 4 ───────────────────────────────────────────────────────────────────── -->
+<section class="screen">
+  <div class="cap">screen 4 — authoring · revisions</div>
+  <h1>Revisions <span class="kv">· aplusb</span></h1>
+  <p class="meta">author: alice · curator: bob · shared with: qhh-clb</p>
+
+  <table>
+    <thead><tr>
+      <th class="num" style="width:50px">ver</th><th style="width:90px">state</th>
+      <th style="width:170px">package</th><th class="num" style="width:70px">time</th>
+      <th class="num" style="width:70px">mem</th><th class="num" style="width:60px">tests</th>
+      <th>notes</th><th style="width:80px"></th>
+    </tr></thead>
+    <tbody>
+      <tr><td class="num">3</td><td><span class="v ac">live</span></td><td>789987f5…4392</td><td class="num">1.0s</td><td class="num">64M</td><td class="num">3</td><td>thêm test biên</td><td></td></tr>
+      <tr><td class="num">2</td><td><span class="v pend">archived</span></td><td>1c0ffee0…ab12</td><td class="num">1.0s</td><td class="num">64M</td><td class="num">3</td><td>sửa lời đề</td><td><button class="btn ghost" style="padding:1px 8px;font-size:12px">publish</button></td></tr>
+      <tr><td class="num">1</td><td><span class="v pend">archived</span></td><td>deadbeef…7701</td><td class="num">1.0s</td><td class="num">64M</td><td class="num">2</td><td>bản đầu</td><td><button class="btn ghost" style="padding:1px 8px;font-size:12px">publish</button></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Đính kèm gói mới</h2>
+  <div class="field" style="max-width:520px"><span>#</span><input placeholder="package hash (64 hex)"></div>
+  <button class="btn">attach</button>
+
+  <div class="note">Package hashes are truncated head…tail, never middle-elided — the head is what
+  you paste to search and the tail is what distinguishes two rebuilds of the same problem.
+  The live revision is the only row with colour, because "which one is actually grading" is the
+  only question this screen exists to answer.</div>
+</section>
+
+<div class="note" style="border-left-color:var(--line);margin-top:36px">
+  <strong>Not in this mockup, deliberately.</strong> Nerd Font icons — they need a self-hosted subset
+  and I did not want to decide the icon set before the layout is agreed. The <code>+ x &gt; ^ ! #</code>
+  verdict glyphs above are plain ASCII placeholders and would become proper icons.
+  Also absent: any animation, shadow, gradient, blur or rounded corner.
+</div>
+
+</main>
+</body>
+</html>
