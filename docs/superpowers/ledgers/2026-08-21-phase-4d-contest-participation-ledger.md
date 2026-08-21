@@ -117,6 +117,39 @@ M2 is the one worth noting: only the SQL form was broken, and only the list
 half of `hides a private contest problem … in both the read and the list`
 caught it. Asserting both halves is what makes a one-sided widening visible.
 
+## R9 — the end-to-end run, which is the phase's real acceptance test
+
+Spec §8.10 said nothing else proves this phase works, and the in-suite
+scoreboard test does not: it hand-writes the verdict and the cases, so it
+proves the mapping, not the pipeline. `scripts/e2e-contest.ts` runs the whole
+thing against the compose stack with a real judge and a real sandbox:
+
+```
+ 1. registered e2eadm… (admin), e2eset… (setter), e2ecmp…
+ 2. published a private problem e2e-cst-… (9 package files)
+ 3. POST /contests created e2e-contest-… (icpc, public, 1 problem)
+ 4. the contest problem is invisible (404) to a competitor who has not joined
+ 5. submitting before joining is refused at the problem, not at the participation
+ 6. joined … (idempotently), and the private problem is now visible in read and list
+ 7. submission 23 graded AC 10/10 by a real judge
+ 8. the scoreboard scores e2ecmp… 100 — derived from submission_cases, not a stored column
+ 9. an AC submitted without contestKey grades normally and does NOT touch the scoreboard
+```
+
+Three of those steps are not reachable from the test suite at all. **Step 7**
+is the only proof that dropping `contest_submissions.points` left the pipeline
+whole — `judged` was never told about contests, and the score still arrived.
+**Step 9** is R1's cost measured through the whole stack rather than asserted
+in a unit test. **Step 5** recorded a behaviour I had not predicted: submitting
+before joining answers `problem_not_found`, not `contest_not_joined`, because
+the problem is still invisible and the request never reaches the participation
+check. The narrower error would have meant the problem had leaked.
+
+The stack was redeployed first and migration `0010` verified applied by
+querying `information_schema` rather than trusting the script's own
+"Stack is up" — that message has reported success over a stale migrate
+container once before.
+
 ## Deferred
 
 **Spectating (`virtual = -1`)** is unreachable through `join` and stays that
@@ -129,3 +162,7 @@ second attempt, and that is the correct reading of a request made twice.
 
 **Contest UI.** The API is complete; no contest screens exist. Until they do,
 the `contestKey` obligation from R1 is unmet in the browser.
+
+**The three `scripts/e2e-*.ts` each carry their own copy** of the session and
+assertion harness. That is the existing convention — the older two say so — but
+a third copy is the point at which it should move into `scripts/lib/`.
