@@ -5,6 +5,7 @@ import type { Actor } from '../src/authz/actor.js';
 import type { PackageStore } from '../src/packages/package.store.js';
 import { testDbUrl, withTestDb } from './db.harness.js';
 import {
+  grantProblemRole,
   insertGradedSubmission,
   insertUser,
   publishNextRevision,
@@ -252,6 +253,26 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       const page = await service.listVisible(actorFor(solver.id), { limit: 50 });
       expect(page.items.filter((p) => p.code.startsWith('onestmt-'))).toHaveLength(8);
       expect(log.queries).toHaveLength(1);
+    });
+  }, 120_000);
+
+  it("carries `me` on POST /problems and PATCH /problems/:code responses too, not just GET (loadDetailById)", async () => {
+    // `create`/`update` answer with a `ProblemDetail` via a THIRD query
+    // (`loadDetailById`), separate from `getVisible`'s — easy to miss when
+    // wiring `me` in, and easy for it to silently stay `me: null` forever if
+    // missed, which would be a real drift: the very next `GET
+    // /problems/:code` for the same actor would disagree with what
+    // `PATCH /problems/:code` just answered.
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { id: problemId } = await seedProblemWithSourceAccess(db, { code: 'detailme' });
+      const author = await insertUser(db, 'detailme-author');
+      await grantProblemRole(db, problemId, author.id, 'author');
+      await insertGradedSubmission(db, { userId: author.id, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
+
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const updated = await service.update(actorFor(author.id), 'detailme', { name: 'Detail Me Renamed' });
+      expect(updated.me).toEqual({ verdict: 'AC', points: 100, maxPoints: 100 });
     });
   }, 120_000);
 });

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, isNotNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNotNull, or, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
   organizations,
@@ -133,6 +133,17 @@ export class ProblemAccessService {
    * `maxPoints` to report, and `me`'s contract has no null-maxPoints
    * shape. Whichever submission this picks always has `verdict` set too
    * (`event-writer.ts` never writes `points`/`maxPoints` without it).
+   *
+   * `desc(...) nulls last`, spelled out with raw `sql`, not the plain
+   * `desc()` helper: unqualified, Postgres's `ORDER BY points DESC` sorts
+   * nulls FIRST, but `submissions_user_problem_points_idx` was generated
+   * (drizzle-kit's own default for every index column, regardless of
+   * direction) as `points DESC NULLS LAST`. Matching the index's null
+   * placement here is what lets the planner recognise the index already
+   * delivers this order and skip the extra Sort node it otherwise adds —
+   * confirmed by `EXPLAIN` against a few thousand rows. Harmless for
+   * results either way (the `isNotNull` filter above means no row here
+   * ever has a null `points` to place), so this is a planner-only fix.
    */
   private bestSubmissionLateral(userId: number) {
     return this.db
@@ -150,7 +161,7 @@ export class ProblemAccessService {
           isNotNull(submissions.maxPoints),
         ),
       )
-      .orderBy(desc(submissions.points), asc(submissions.id))
+      .orderBy(sql`${submissions.points} desc nulls last`, asc(submissions.id))
       .limit(1)
       .as('me_best');
   }
@@ -779,31 +790,84 @@ export class ProblemAccessService {
    * one a plain viewer gets from `getVisible`.
    */
   private async loadDetailById(id: number, actor: Actor | null): Promise<ProblemDetailDto> {
-    const row = (
-      await this.db
-        .select({
-          id: problems.id,
-          code: problems.code,
-          name: problems.name,
-          statement: problems.statement,
-          visibility: problems.visibility,
-          sourceAccess: problems.sourceAccess,
-          createdAt: problems.createdAt,
-          revisionId: problemRevisions.id,
-          timeMs: problemRevisions.timeMs,
-          memoryKb: problemRevisions.memoryKb,
-          testCount: problemRevisions.testCount,
-          totalPoints: problemRevisions.totalPoints,
-          checkerKind: problemRevisions.checkerKind,
-        })
-        .from(problems)
-        .leftJoin(
-          problemRevisions,
-          and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published')),
-        )
-        .where(eq(problems.id, id))
-        .limit(1)
-    )[0]!;
+    // Same `me` treatment as `getVisible` (and for the same reason): this
+    // backs the response of both `POST /problems` and `PATCH /problems/:code`
+    // (both answer with a `ProblemDetail`), and a `create`/`update` call
+    // that skipped the lateral would report `me: null` to an editor who
+    // already has a best submission on the problem being patched — a
+    // genuine drift from what the very next `GET /problems/:code` for the
+    // same actor would say, not just a missing feature.
+    const revisionJoin = and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published'));
+    let row: {
+      id: number;
+      code: string;
+      name: string;
+      statement: string;
+      visibility: ProblemVisibility;
+      sourceAccess: 'private' | 'solved';
+      createdAt: Date;
+      revisionId: number | null;
+      timeMs: number | null;
+      memoryKb: number | null;
+      testCount: number | null;
+      totalPoints: number | null;
+      checkerKind: string | null;
+      meVerdict?: string | null;
+      mePoints?: number | null;
+      meMaxPoints?: number | null;
+    };
+    if (actor) {
+      const meBest = this.bestSubmissionLateral(actor.userId);
+      row = (
+        await this.db
+          .select({
+            id: problems.id,
+            code: problems.code,
+            name: problems.name,
+            statement: problems.statement,
+            visibility: problems.visibility,
+            sourceAccess: problems.sourceAccess,
+            createdAt: problems.createdAt,
+            revisionId: problemRevisions.id,
+            timeMs: problemRevisions.timeMs,
+            memoryKb: problemRevisions.memoryKb,
+            testCount: problemRevisions.testCount,
+            totalPoints: problemRevisions.totalPoints,
+            checkerKind: problemRevisions.checkerKind,
+            meVerdict: meBest.verdict,
+            mePoints: meBest.points,
+            meMaxPoints: meBest.maxPoints,
+          })
+          .from(problems)
+          .leftJoin(problemRevisions, revisionJoin)
+          .leftJoinLateral(meBest, sql`true`)
+          .where(eq(problems.id, id))
+          .limit(1)
+      )[0]!;
+    } else {
+      row = (
+        await this.db
+          .select({
+            id: problems.id,
+            code: problems.code,
+            name: problems.name,
+            statement: problems.statement,
+            visibility: problems.visibility,
+            sourceAccess: problems.sourceAccess,
+            createdAt: problems.createdAt,
+            revisionId: problemRevisions.id,
+            timeMs: problemRevisions.timeMs,
+            memoryKb: problemRevisions.memoryKb,
+            testCount: problemRevisions.testCount,
+            totalPoints: problemRevisions.totalPoints,
+            checkerKind: problemRevisions.checkerKind,
+          })
+          .from(problems)
+          .leftJoin(problemRevisions, revisionJoin)
+          .where(eq(problems.id, id))
+          .limit(1)
+      )[0]!;
+    }
 
     const { members, orgSlugs } = await this.loadMembersAndOrgs(id, actor, true);
 
