@@ -10,7 +10,7 @@
  * a duplicate attempt must not double-count, and a *newer* attempt must win.
  */
 import { describe, expect, it } from 'vitest';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, inArray } from 'drizzle-orm';
 import { contestSubmissions, submissionCases } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { ContestAccessService } from '../src/authz/contest.access.js';
@@ -50,24 +50,37 @@ async function addSecondAttempt(db: Db, mutate: (points: number) => number): Pro
 }
 
 describe('a regraded submission is scored on its latest attempt only', () => {
-  it('an identical second attempt does not double-count', async () => {
+  /**
+   * Halved, not duplicated. An *identical* second attempt is invisible here
+   * however the query is written: `contestSubmissionPoints` divides case
+   * points by case totals, and duplication doubles both — a test asserting on
+   * one would pass against a mapping with no attempt filter at all. Halving
+   * separates the three possible readings: the first attempt scores `p/t`,
+   * the second `p/2t`, and the two mixed (no filter) `1.5p/2t`.
+   */
+  it('a second attempt scoring half wins outright — the two are never mixed', async () => {
     await withTestDb(async (db) => {
-      const input = readContest(FIXTURE);
-      const { key } = await seedGoldenContest(db, input);
-      await addSecondAttempt(db, (points) => points);
+      const { key } = await seedGoldenContest(db, readContest(FIXTURE));
+      const golden = readJson(join(FIXTURE.dir, 'scoreboard.json')) as Scoreboard;
+      // Guards against a vacuous "half of nothing is nothing".
+      expect(golden.ranking.some((row) => row.score > 0)).toBe(true);
+
+      await addSecondAttempt(db, (points) => points / 2);
 
       const board = await new ContestAccessService(db).getScoreboard(null, key);
-      const golden = readJson(join(FIXTURE.dir, 'scoreboard.json')) as Scoreboard;
-      // Reading both attempts would sum every loose case twice, so this
-      // assertion fails loudly against a mapping without the filter.
-      expect(board.ranking.map((row) => row.score)).toEqual(golden.ranking.map((row) => row.score));
+      const byName = new Map(board.ranking.map((row) => [row.participant, row.score]));
+      for (const row of golden.ranking) {
+        expect([row.participant, byName.get(row.participant)]).toEqual([
+          row.participant,
+          row.score / 2,
+        ]);
+      }
     });
   }, 120_000);
 
   it('a zeroed second attempt wins over the first', async () => {
     await withTestDb(async (db) => {
-      const input = readContest(FIXTURE);
-      const { key } = await seedGoldenContest(db, input);
+      const { key } = await seedGoldenContest(db, readContest(FIXTURE));
       const before = await new ContestAccessService(db).getScoreboard(null, key);
       expect(before.ranking.some((row) => row.score > 0)).toBe(true);
 
@@ -75,18 +88,6 @@ describe('a regraded submission is scored on its latest attempt only', () => {
 
       const after = await new ContestAccessService(db).getScoreboard(null, key);
       expect(after.ranking.map((row) => row.score)).toEqual(after.ranking.map(() => 0));
-    });
-  }, 120_000);
-
-  it('the fixture it relies on has cases to duplicate', async () => {
-    await withTestDb(async (db) => {
-      const { key } = await seedGoldenContest(db, readContest(FIXTURE));
-      const cases = await db
-        .select()
-        .from(submissionCases)
-        .where(eq(submissionCases.attempt, 1));
-      expect(cases.length).toBeGreaterThan(0);
-      expect(key).toBe(readContest(FIXTURE).contest.key);
     });
   }, 120_000);
 });
