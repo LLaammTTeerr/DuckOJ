@@ -118,7 +118,20 @@ echo "==> Running migrations (blocking until migrate exits)"
 # independent line of defense so that if this (or some other) dependency
 # resolution wedge recurs, the script fails loudly on its own instead of
 # sitting silently until whatever is driving it gives up and kills it by hand.
-if ! timeout "${MIGRATE_TIMEOUT}s" "$COMPOSE" up --no-deps migrate; then
+# --force-recreate here for the same reason as api/judged/caddy/judge below, and
+# it matters MORE here than anywhere else. podman-compose reuses an existing
+# exited container rather than recreating it from a newer image, so without
+# this the migrate step re-runs the PREVIOUS build's migrations, finds nothing
+# new to apply, and exits 0. The script then reports a healthy stack against a
+# database missing every migration added since that container was created.
+#
+# Observed, not theorised: on 2026-08-21 the migrate container was 11 hours
+# older than its image, migration 0007 never applied, `migrate exited 0` was
+# printed, and the first symptom was a 500 from GET /submissions with all 493
+# tests green. A schema drift that announces success is the worst failure this
+# script can have — every other check downstream is then measuring the wrong
+# database.
+if ! timeout "${MIGRATE_TIMEOUT}s" "$COMPOSE" up --no-deps --force-recreate migrate; then
   echo "FATAL: podman-compose up migrate failed (or exceeded ${MIGRATE_TIMEOUT}s)" >&2
   "$COMPOSE" logs migrate >&2 || true
   exit 1

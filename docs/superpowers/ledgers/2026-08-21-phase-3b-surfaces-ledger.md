@@ -187,3 +187,36 @@ the code answered 403. The code is correct — this repo's rule is 404-then-403,
 invisible things 404 and visible-but-unpermitted things 403 — so it fixed the
 test and flagged that for a minute it had looked like a real leak. Reporting a
 false alarm you resolved is worth as much as reporting a defect.
+
+**R17 — the stale-artifact class, FOURTH form, and the worst one. My fix from
+this morning caused it.**
+
+This morning I added `--force-recreate` to `compose-up.sh` for `api`, `judged`,
+`caddy` and `judge`, because podman-compose reuses a running container rather
+than recreating it from a newer image (R10, R61). **I did not add it to the
+`migrate` step**, and migrate is the one where the failure is silent.
+
+Observed, not theorised. After merging source visibility: the migrate
+*container* was created 2026-08-20 21:56; its *image* 2026-08-21 09:21 —
+**eleven hours stale**. `podman-compose up --no-deps migrate` reused the old
+container, which re-ran yesterday's migrations, found nothing new, and exited
+0. The script printed `migrate exited 0` and `Stack is up`. Migration 0007
+never applied.
+
+The first symptom was a **500 from `GET /submissions`** with all 493 tests
+green — because the tests run against Testcontainers, which builds the schema
+from the migration files directly and therefore cannot see this at all.
+
+Why this form is worse than the other three: a stale `dist/` makes a mutation
+check lie about one test; a stale image serves old code that still works; a
+stale SDK hides one field. A **stale migrate container corrupts the ground
+truth** — every check downstream is then measuring a database that does not
+match the code, and the script that exists to prevent this reports success.
+
+Fixed and proved: `--force-recreate` on migrate, re-run, `source_access` column
+present, and `GET /submissions/:id` now returns `source` on the live stack.
+
+The general rule, which I had half-learned and applied incompletely: **every
+container in the bring-up must be recreated, not just the long-running ones.**
+A one-shot container that exits 0 is the easiest kind to reuse by accident and
+the hardest kind to notice.
