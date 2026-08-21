@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { formatMemoryMb } from './problems.js';
 
 type Revision =
   paths['/problems/{code}/revisions']['get']['responses'][200]['content']['application/json'][number];
@@ -137,8 +138,9 @@ export function ProblemRevisionsPage(props: { code: string }) {
               <th>Version</th>
               <th>State</th>
               <th>Package</th>
-              <th>Limits</th>
-              <th>Tests</th>
+              <th className="num">Time</th>
+              <th className="num">Mem</th>
+              <th className="num">Tests</th>
               <th>Notes</th>
               <th />
             </tr>
@@ -154,10 +156,13 @@ export function ProblemRevisionsPage(props: { code: string }) {
                     is a display choice, not a loss of the value someone
                     might need to paste in full. */}
                 <td title={r.packageHash}>{truncateHash(r.packageHash)}</td>
-                <td>
-                  {r.timeMs} ms / {r.memoryKb} KB
-                </td>
-                <td>{r.testCount}</td>
+                {/* Two right-aligned numeric columns, not one free-text
+                    cell — same fix as the problem list's limits columns
+                    (problems.tsx), reusing its `formatMemoryMb` rather than
+                    a second copy of "how do we render a memory limit". */}
+                <td className="num">{r.timeMs} ms</td>
+                <td className="num">{formatMemoryMb(r.memoryKb)}</td>
+                <td className="num">{r.testCount}</td>
                 <td>{r.notes ?? '—'}</td>
                 <td>
                   {/* Publish is only ever offered for a revision that is

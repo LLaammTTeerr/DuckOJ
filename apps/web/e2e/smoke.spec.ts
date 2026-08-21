@@ -213,7 +213,7 @@ test('the home page introduces the site instead of the submit form', async ({ pa
  * the running site (task report) — none of these was caught by the jsdom
  * suite, and none could be: they are about what actually paints.
  */
-test('the problem list splits time and memory into separate right-aligned columns, memory in MB', async ({
+test('the problem list splits time and memory into separate right-aligned columns, memory in MB, and shows a tests column', async ({
   page,
 }) => {
   const watch = watchForBrokenRequests(page);
@@ -221,11 +221,19 @@ test('the problem list splits time and memory into separate right-aligned column
 
   await expect(page.getByRole('columnheader', { name: 'Time' })).toBeVisible();
   await expect(page.getByRole('columnheader', { name: 'Mem' })).toBeVisible();
+  // `testCount` (added on `ProblemSummaryDto` after this test was written)
+  // renders as its own right-aligned numeric column, matching the mockup —
+  // see problems.tsx's module doc comment for why it was left out before.
+  const testsHeader = page.getByRole('columnheader', { name: 'Tests' });
+  await expect(testsHeader).toBeVisible();
+  await expect(testsHeader).toHaveClass(/num/);
 
   const row = page.getByRole('row').filter({ has: page.getByRole('link', { name: SEED_PROBLEM }) });
-  // Seed problem `aplusb`: 1000 ms / 65536 KB — 64 MB, a whole number.
+  // Seed problem `aplusb`: 1000 ms / 65536 KB — 64 MB, a whole number — and
+  // 3 tests.
   await expect(row.getByRole('cell', { name: '1000 ms' })).toBeVisible();
   await expect(row.getByRole('cell', { name: '64 MB' })).toBeVisible();
+  await expect(row.getByRole('cell', { name: '3', exact: true })).toBeVisible();
   // The old concatenated "1000 ms / 65536 KB" cell, and raw KB anywhere, are
   // both gone.
   await expect(page.getByText(/65536/)).toHaveCount(0);

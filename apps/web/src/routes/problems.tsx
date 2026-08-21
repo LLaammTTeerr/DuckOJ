@@ -79,18 +79,11 @@ function useMyVerdicts(username: string | undefined): Map<string, SubmissionItem
  * screen instead of replacing it, while a change to the search box starts a
  * fresh query (a new `queryKey`, not another page of the old one).
  *
- * The mockup's `tests` column (screen 1) is NOT rendered here. Checked
- * directly against the landed contract, not assumed: `ProblemSummaryDto`
- * (`packages/contracts/src/problems.ts`'s `ProblemSummary` schema) carries
- * `id`, `code`, `name`, `visibility`, `hasPublishedRevision`, `timeMs`,
- * `memoryKb` — no `testCount`. Only `ProblemDetail` (the single-problem
- * response) has it. Rendering it here would mean one `GET /problems/{code}`
- * per row on top of the list request itself — the same N+1 shape the `me`
- * column is explicitly told to avoid — so it is left out rather than
- * invented client-side. Adding `testCount` to `ProblemSummary` (a one-line
- * schema change plus threading it through the mapper in
- * `apps/api/src/authz/problem.access.ts`, ~line 858) is Stream A's fix, not
- * this task's — `apps/web` owns no file either of those live in.
+ * The mockup's `tests` column (screen 1) IS rendered here now that
+ * `ProblemSummaryDto` carries `testCount` (`packages/contracts/src/
+ * problems.ts`) — added specifically so this list can show it without a
+ * request per row. Null exactly when `timeMs`/`memoryKb` are: a problem
+ * whose only revision is a draft has no published limits or test count.
  */
 export function ProblemsPage() {
   const [q, setQ] = useState('');
@@ -137,6 +130,7 @@ export function ProblemsPage() {
               <th>Name</th>
               <th className="num">Time</th>
               <th className="num">Mem</th>
+              <th className="num">Tests</th>
               <th>Me</th>
             </tr>
           </thead>
@@ -163,6 +157,7 @@ export function ProblemsPage() {
                       away entirely. */}
                   <td className="num">{p.timeMs !== null ? `${p.timeMs} ms` : '—'}</td>
                   <td className="num">{formatMemoryMb(p.memoryKb)}</td>
+                  <td className="num">{p.testCount ?? '—'}</td>
                   <td>
                     <span className={`badge ${verdictToken(verdict ?? null)}`}>{verdict ?? '—'}</span>
                   </td>

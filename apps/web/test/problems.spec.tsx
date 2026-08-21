@@ -101,6 +101,7 @@ const PROBLEM_A = {
   hasPublishedRevision: true,
   timeMs: 1000,
   memoryKb: 65536,
+  testCount: 3,
 };
 
 const PROBLEM_B = {
@@ -111,6 +112,18 @@ const PROBLEM_B = {
   hasPublishedRevision: true,
   timeMs: 2000,
   memoryKb: 131072,
+  testCount: 12,
+};
+
+const PROBLEM_DRAFT_ONLY = {
+  id: 3,
+  code: 'draftonly',
+  name: 'Draft Only',
+  visibility: 'public' as const,
+  hasPublishedRevision: false,
+  timeMs: null,
+  memoryKb: null,
+  testCount: null,
 };
 
 describe('formatMemoryMb', () => {
@@ -165,13 +178,24 @@ describe('ProblemsPage', () => {
     expect(within(rows[2]!).getByText('128 MB')).toBeInTheDocument();
   });
 
-  it('does not render a tests column (ProblemSummaryDto carries no testCount)', async () => {
-    mockApiGet({ '/auth/me': SIGNED_OUT_ME, '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }) });
+  it('renders a right-aligned tests column, and an em dash for a problem with no published revision', async () => {
+    mockApiGet({
+      '/auth/me': SIGNED_OUT_ME,
+      '/problems': apiResponse({ items: [PROBLEM_A, PROBLEM_DRAFT_ONLY], nextCursor: null }),
+    });
 
     renderWithClient(<ProblemsPage />);
     await screen.findByText('aplusb');
 
-    expect(screen.queryByRole('columnheader', { name: /tests/i })).not.toBeInTheDocument();
+    const rows = screen.getAllByRole('row');
+    expect(within(rows[0]!).getByRole('columnheader', { name: 'Tests' })).toHaveClass('num');
+    // Tests is the third `.num` column (after Time, Mem) — cell index 4
+    // (code, name, time, mem, tests, me).
+    // PROBLEM_A: testCount 3.
+    expect(within(rows[1]!).getAllByRole('cell')[4]).toHaveTextContent('3');
+    // PROBLEM_DRAFT_ONLY: no published revision, so testCount is null —
+    // rendered the same way as timeMs/memoryKb in that case.
+    expect(within(rows[2]!).getAllByRole('cell')[4]).toHaveTextContent('—');
   });
 
   it('shows a pending "me" badge and issues no /submissions request when signed out', async () => {
