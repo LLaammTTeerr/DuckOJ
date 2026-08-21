@@ -67,8 +67,15 @@ function caseLabel(c: SubmissionCase): string {
  * its `.badge`/`.case` colour+glyph rules on — see that file's header
  * comment. `null` (no verdict yet) maps to the same neutral `pend` token
  * app.css also uses for an unpublished revision (problem-revisions.tsx).
+ *
+ * Exported so every other screen that renders a verdict — the problem
+ * list's `me` column and the submissions list (routes/problems.tsx,
+ * routes/submissions.tsx) — maps it through this one function rather than
+ * a second copy of the same `.toLowerCase() / 'pend'` rule. "Verdicts use
+ * the same badge glyph+colour system you already built" covers the mapper,
+ * not just the CSS classes it feeds.
  */
-function verdictToken(verdict: SubmissionDetail['verdict']): string {
+export function verdictToken(verdict: SubmissionDetail['verdict']): string {
   return verdict ? verdict.toLowerCase() : 'pend';
 }
 

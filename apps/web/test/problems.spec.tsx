@@ -11,7 +11,7 @@ import {
 } from '@tanstack/react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api.js';
-import { ProblemsPage } from '../src/routes/problems.js';
+import { ProblemsPage, formatMemoryMb } from '../src/routes/problems.js';
 import { ProblemPage } from '../src/routes/problem.js';
 
 // Establishes the pattern for mocking the SDK client directly (no existing
@@ -25,6 +25,36 @@ vi.mock('../src/api.js', () => ({
 }));
 
 const mockedGet = vi.mocked(api.GET);
+
+/**
+ * `ProblemsPage` now issues up to THREE different `GET`s per render
+ * (`/auth/me`, `/problems`, and — only once signed in — `/submissions`, for
+ * the `me` verdict column), so a single `mockResolvedValueOnce` queue
+ * (fine when there was only one endpoint) no longer says which response
+ * goes to which request. This dispatches by path instead: each key's value
+ * is either one response reused for every call to that path, or an array
+ * consumed one response per call (holding the last entry once exhausted) —
+ * `/problems`'s "load more" test needs page 1 then page 2, everything else
+ * needs one fixed response.
+ */
+function mockApiGet(handlers: Record<string, unknown>): void {
+  const queues = new Map<string, unknown[]>(
+    Object.entries(handlers).map(([path, value]) => [path, Array.isArray(value) ? [...value] : [value]]),
+  );
+  mockedGet.mockImplementation((async (path: string) => {
+    const queue = queues.get(path);
+    if (!queue || queue.length === 0) {
+      throw new Error(`unmocked GET ${path}`);
+    }
+    return queue.length > 1 ? queue.shift() : queue[0];
+  }) as never);
+}
+
+function apiResponse(data: unknown) {
+  return { data, error: undefined, response: new Response() };
+}
+
+const SIGNED_OUT_ME = apiResponse(undefined);
 
 /**
  * `ProblemsPage` and `ProblemPage` now render a `<Link>` each (the
@@ -83,13 +113,24 @@ const PROBLEM_B = {
   memoryKb: 131072,
 };
 
+describe('formatMemoryMb', () => {
+  it('renders a whole number of MB bare', () => {
+    expect(formatMemoryMb(65536)).toBe('64 MB');
+    expect(formatMemoryMb(131072)).toBe('128 MB');
+  });
+
+  it('renders a non-whole number of MB to one decimal place', () => {
+    expect(formatMemoryMb(1536)).toBe('1.5 MB');
+  });
+
+  it('renders null as an em dash', () => {
+    expect(formatMemoryMb(null)).toBe('—');
+  });
+});
+
 describe('ProblemsPage', () => {
   it('renders a row for each problem returned by the API', async () => {
-    mockedGet.mockResolvedValueOnce({
-      data: { items: [PROBLEM_A, PROBLEM_B], nextCursor: null },
-      error: undefined,
-      response: new Response(),
-    } as never);
+    mockApiGet({ '/auth/me': SIGNED_OUT_ME, '/problems': apiResponse({ items: [PROBLEM_A, PROBLEM_B], nextCursor: null }) });
 
     renderWithClient(<ProblemsPage />);
 
@@ -98,12 +139,94 @@ describe('ProblemsPage', () => {
     expect(screen.getAllByRole('row')).toHaveLength(3); // header + 2 problems
   });
 
+  // Regression coverage for the three problem-list bugs found by screenshot
+  // (task report): a single free-text `1000 ms / 65536 KB` cell, memory
+  // shown in unreadable raw KB, and — separately — the new `me` column.
+  it('renders time and memory as separate, right-aligned numeric columns, memory in MB', async () => {
+    mockApiGet({ '/auth/me': SIGNED_OUT_ME, '/problems': apiResponse({ items: [PROBLEM_A, PROBLEM_B], nextCursor: null }) });
+
+    renderWithClient(<ProblemsPage />);
+    await screen.findByText('aplusb');
+
+    const rows = screen.getAllByRole('row');
+    // rows[0] is the header row.
+    expect(within(rows[0]!).getByRole('columnheader', { name: 'Time' })).toHaveClass('num');
+    expect(within(rows[0]!).getByRole('columnheader', { name: 'Mem' })).toHaveClass('num');
+
+    // PROBLEM_A: 1000 ms / 65536 KB (64 MB, whole).
+    expect(within(rows[1]!).getByText('1000 ms')).toBeInTheDocument();
+    expect(within(rows[1]!).getByText('64 MB')).toBeInTheDocument();
+    // Neither raw KB nor a concatenated "ms / KB" cell exists anywhere.
+    expect(screen.queryByText(/65536 KB/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ms \//)).not.toBeInTheDocument();
+
+    // PROBLEM_B: 2000 ms / 131072 KB (128 MB, whole).
+    expect(within(rows[2]!).getByText('2000 ms')).toBeInTheDocument();
+    expect(within(rows[2]!).getByText('128 MB')).toBeInTheDocument();
+  });
+
+  it('does not render a tests column (ProblemSummaryDto carries no testCount)', async () => {
+    mockApiGet({ '/auth/me': SIGNED_OUT_ME, '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }) });
+
+    renderWithClient(<ProblemsPage />);
+    await screen.findByText('aplusb');
+
+    expect(screen.queryByRole('columnheader', { name: /tests/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a pending "me" badge and issues no /submissions request when signed out', async () => {
+    mockApiGet({ '/auth/me': SIGNED_OUT_ME, '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }) });
+
+    renderWithClient(<ProblemsPage />);
+    await screen.findByText('aplusb');
+
+    const row = screen.getAllByRole('row')[1]!;
+    const badge = within(row).getByText('—');
+    expect(badge).toHaveClass('badge', 'pend');
+    expect(mockedGet).not.toHaveBeenCalledWith('/submissions', expect.anything());
+  });
+
+  it('derives the "me" column from one /submissions?user=<username> request, not one per problem', async () => {
+    mockApiGet({
+      '/auth/me': apiResponse({ id: 1, username: 'bob', displayName: 'Bob', globalRole: 'user' }),
+      '/problems': apiResponse({ items: [PROBLEM_A, PROBLEM_B], nextCursor: null }),
+      '/submissions': apiResponse({
+        items: [
+          {
+            id: 9,
+            problemCode: 'aplusb',
+            username: 'bob',
+            languageKey: 'cpp17',
+            state: 'done',
+            verdict: 'AC',
+            points: 100,
+            maxPoints: 100,
+            createdAt: '2026-01-01T00:00:00Z',
+          },
+        ],
+        nextCursor: null,
+      }),
+    });
+
+    renderWithClient(<ProblemsPage />);
+    await screen.findByText('aplusb');
+
+    // The `/submissions` request resolves after the problem rows have
+    // already painted with a pending badge, so this must await the badge
+    // updating rather than reading the row synchronously.
+    expect(await screen.findByText('AC')).toHaveClass('badge', 'ac');
+    const rows = screen.getAllByRole('row');
+    // bplusc: no submission in the mocked page, so still pending.
+    expect(within(rows[2]!).getByText('—')).toHaveClass('badge', 'pend');
+
+    // Exactly one call to /submissions (not one per problem row).
+    const submissionCalls = mockedGet.mock.calls.filter((c) => c[0] === '/submissions');
+    expect(submissionCalls).toHaveLength(1);
+    expect(submissionCalls[0]?.[1]).toMatchObject({ params: { query: { user: 'bob', limit: 100 } } });
+  });
+
   it('re-queries the API when the search box changes', async () => {
-    mockedGet.mockResolvedValue({
-      data: { items: [PROBLEM_A], nextCursor: null },
-      error: undefined,
-      response: new Response(),
-    } as never);
+    mockApiGet({ '/auth/me': SIGNED_OUT_ME, '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }) });
 
     renderWithClient(<ProblemsPage />);
     await screen.findByText('aplusb');
@@ -111,23 +234,19 @@ describe('ProblemsPage', () => {
     await userEvent.type(screen.getByLabelText(/search/i), 'plus');
 
     await waitFor(() => {
-      const lastCall = mockedGet.mock.calls.at(-1);
-      expect(lastCall?.[1]).toMatchObject({ params: { query: { q: 'plus' } } });
+      const problemsCalls = mockedGet.mock.calls.filter((c) => c[0] === '/problems');
+      expect(problemsCalls.at(-1)?.[1]).toMatchObject({ params: { query: { q: 'plus' } } });
     });
   });
 
   it('appends the next page instead of replacing the first on "load more"', async () => {
-    mockedGet
-      .mockResolvedValueOnce({
-        data: { items: [PROBLEM_A], nextCursor: 'cursor-1' },
-        error: undefined,
-        response: new Response(),
-      } as never)
-      .mockResolvedValueOnce({
-        data: { items: [PROBLEM_B], nextCursor: null },
-        error: undefined,
-        response: new Response(),
-      } as never);
+    mockApiGet({
+      '/auth/me': SIGNED_OUT_ME,
+      '/problems': [
+        apiResponse({ items: [PROBLEM_A], nextCursor: 'cursor-1' }),
+        apiResponse({ items: [PROBLEM_B], nextCursor: null }),
+      ],
+    });
 
     renderWithClient(<ProblemsPage />);
     await screen.findByText('aplusb');

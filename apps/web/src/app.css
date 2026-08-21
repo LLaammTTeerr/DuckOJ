@@ -19,19 +19,31 @@
  * Mechanism, unchanged from before this file: style ELEMENTS, not classes.
  * The app carries exactly one pre-existing `className` (`shell-nav`, on the
  * shell's own `<nav>` — Playwright's e2e suite selects it by that name) plus
- * two small class families this task adds, because two things genuinely
+ * a small number of class families, because a handful of things genuinely
  * cannot be expressed on an element alone:
  *   - `.badge` (+ a lowercase verdict-code modifier, e.g. `.badge.wa`) — the
- *     verdict glyph. Reused for the submit page's live verdict, and for the
+ *     verdict glyph. Reused for the submit page's live verdict, the
  *     revisions table's state column (`published` maps to the same "good"
  *     modifier as `AC`; `draft`/`archived` map to the same neutral modifier
- *     as a pending verdict — two different domains, one visual language).
+ *     as a pending verdict — two different domains, one visual language),
+ *     the problem list's `me` column, and the submissions list's `verdict`
+ *     column — every screen that shows a verdict-shaped result shares this
+ *     one mapper (`verdictToken`, submit.tsx) and this one class, never a
+ *     second copy of either.
  *   - `.cases`/`.case` (+ the same verdict-code modifiers, + `.skip`) — the
  *     case grid, and `.sr-only` for the fully-scoped-per-case text a
  *     colour+number box can't carry directly (kept in the DOM for screen
  *     readers and for the "skipped is faint, not absent" property to be
  *     assertable at all).
- * No other class is added anywhere in this task.
+ *   - `.num` (Phase 3b Stream B part 2) — a right-aligned, tabular-numerals
+ *     table cell/header, matching mockup-v1.html's `.num`. Added because the
+ *     problem list originally concatenated `1000 ms / 65536 KB` into one
+ *     free-text cell, throwing away the entire reason a dense table uses
+ *     tabular numerals: magnitudes lining up vertically down a column. Used
+ *     wherever a table shows a number meant to be scanned down a column —
+ *     the problem list's time/mem columns, the submissions list's id/points
+ *     columns.
+ * No other class is added beyond these.
  */
 
 /* ── font: self-hosted IBM Plex Mono ──────────────────────────────────────
@@ -358,6 +370,16 @@ td {
 
 tr:hover td {
   background: var(--sel);
+}
+
+/* Right-aligned, tabular numerals — mockup-v1.html's `.num`. Applied to both
+   the `<th>` and the `<td>`s of a numeric column so the header and its
+   values share the same right edge; `font-variant-numeric: tabular-nums`
+   is what makes digits line up vertically column-over-column instead of
+   each row's width drifting with proportional-width digits like `1`/`0`. */
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* --- forms ------------------------------------------------------------- */

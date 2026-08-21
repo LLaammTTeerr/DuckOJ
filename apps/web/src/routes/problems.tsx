@@ -1,17 +1,101 @@
 import { useState } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { meQueryOptions } from '../me.js';
+import { verdictToken } from './submit.js';
+
+type SubmissionItem =
+  paths['/submissions']['get']['responses'][200]['content']['application/json']['items'][number];
 
 /**
- * `/problems`: a search box bound to `q`, a table of code/name/limits, and a
- * "load more" button driven by the API's opaque `nextCursor`. Uses
+ * `memoryKb` (what the API returns, and what a problem's manifest stores)
+ * formatted for a human at the edge, not converted anywhere upstream of
+ * this — see this file's history / the task report for why `65536 KB` is a
+ * regression from the approved mockup (`docs/design/mockup-v1.html`, screen
+ * 1: `64M`), not a stylistic choice.
+ *
+ * A whole number of MB (the overwhelmingly common case — every seeded
+ * problem's limit is a round number of MB) renders bare: `64 MB`. A value
+ * that is NOT a whole MB (a manifest could in principle set an odd KB
+ * figure; nothing in the schema forbids it) renders to one decimal place —
+ * `1.5 MB` — rather than either silently rounding (which would lose
+ * information a setter might need) or falling back to the unreadable raw KB
+ * this task exists to get rid of.
+ */
+export function formatMemoryMb(memoryKb: number | null): string {
+  if (memoryKb === null) return '—';
+  const mb = memoryKb / 1024;
+  const rounded = Math.round(mb);
+  return Number.isInteger(mb) ? `${rounded} MB` : `${mb.toFixed(1)} MB`;
+}
+
+/**
+ * The viewer's own best/latest verdict per problem, for the `me` column
+ * (mockup-v1.html screen 1; spec §3.3 names it explicitly as needing 2.2,
+ * `GET /submissions`).
+ *
+ * `GET /problems` does not — and per spec cannot be made to, without
+ * inventing a route, which is Stream A's job — return this, so it is
+ * derived client-side from ONE `GET /submissions?user=<username>&limit=100`
+ * call per render of this page (gated on being signed in), never one call
+ * per problem row: that would be exactly the N+1 shape the task calls out
+ * to avoid, and a slow list is worse than a missing column.
+ *
+ * "Latest" (not a full history scan): submissions come back newest-first,
+ * so the first occurrence of a `problemCode` in this page IS its most
+ * recent verdict. The tradeoff this makes deliberately: a problem the
+ * viewer submitted to but not within their most recent 100 submissions
+ * (across ALL problems) will show no verdict here even though one exists,
+ * rather than this page ever issuing a second, third, … request to find
+ * it. 100 is `PaginationQuery`'s maximum `limit` (`packages/contracts/src/
+ * common.ts`) — the largest single page obtainable at all.
+ */
+function useMyVerdicts(username: string | undefined): Map<string, SubmissionItem['verdict']> {
+  const query = useQuery({
+    queryKey: ['problems-me-verdicts', username],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/submissions', {
+        params: { query: { user: username as string, limit: 100 } },
+      });
+      if (error || !data) throw new Error('Could not load your submissions.');
+      return data;
+    },
+    enabled: username !== undefined,
+  });
+
+  const map = new Map<string, SubmissionItem['verdict']>();
+  for (const s of query.data?.items ?? []) {
+    if (!map.has(s.problemCode)) map.set(s.problemCode, s.verdict);
+  }
+  return map;
+}
+
+/**
+ * `/problems`: a search box bound to `q`, a table of code/name/limits/tests/
+ * me, and a "load more" button driven by the API's opaque `nextCursor`. Uses
  * `useInfiniteQuery` so "load more" appends a page onto what's already on
  * screen instead of replacing it, while a change to the search box starts a
  * fresh query (a new `queryKey`, not another page of the old one).
+ *
+ * The mockup's `tests` column (screen 1) is NOT rendered here. Checked
+ * directly against the landed contract, not assumed: `ProblemSummaryDto`
+ * (`packages/contracts/src/problems.ts`'s `ProblemSummary` schema) carries
+ * `id`, `code`, `name`, `visibility`, `hasPublishedRevision`, `timeMs`,
+ * `memoryKb` — no `testCount`. Only `ProblemDetail` (the single-problem
+ * response) has it. Rendering it here would mean one `GET /problems/{code}`
+ * per row on top of the list request itself — the same N+1 shape the `me`
+ * column is explicitly told to avoid — so it is left out rather than
+ * invented client-side. Adding `testCount` to `ProblemSummary` (a one-line
+ * schema change plus threading it through the mapper in
+ * `apps/api/src/authz/problem.access.ts`, ~line 858) is Stream A's fix, not
+ * this task's — `apps/web` owns no file either of those live in.
  */
 export function ProblemsPage() {
   const [q, setQ] = useState('');
+  const me = useQuery(meQueryOptions);
+  const myVerdicts = useMyVerdicts(me.data?.username);
 
   const query = useInfiniteQuery({
     queryKey: ['problems', q],
@@ -51,29 +135,40 @@ export function ProblemsPage() {
             <tr>
               <th>Code</th>
               <th>Name</th>
-              <th>Limits</th>
+              <th className="num">Time</th>
+              <th className="num">Mem</th>
+              <th>Me</th>
             </tr>
           </thead>
           <tbody>
-            {problems.map((p) => (
-              <tr key={p.id}>
-                <td>
-                  {/* This component is unit-tested by rendering it directly
-                      (test/problems.spec.tsx), with no `RouterProvider`
-                      above it by default — `<Link>` throws outside one — so
-                      that test now wraps its render in a minimal router
-                      context for `<Link>` to resolve. See that file. */}
-                  <Link to="/problems/$code" params={{ code: p.code }}>
-                    {p.code}
-                  </Link>
-                </td>
-                <td>{p.name}</td>
-                <td>
-                  {p.timeMs !== null ? `${p.timeMs} ms` : '—'} /{' '}
-                  {p.memoryKb !== null ? `${p.memoryKb} KB` : '—'}
-                </td>
-              </tr>
-            ))}
+            {problems.map((p) => {
+              const verdict = myVerdicts.get(p.code);
+              return (
+                <tr key={p.id}>
+                  <td>
+                    {/* This component is unit-tested by rendering it directly
+                        (test/problems.spec.tsx), with no `RouterProvider`
+                        above it by default — `<Link>` throws outside one — so
+                        that test now wraps its render in a minimal router
+                        context for `<Link>` to resolve. See that file. */}
+                    <Link to="/problems/$code" params={{ code: p.code }}>
+                      {p.code}
+                    </Link>
+                  </td>
+                  <td>{p.name}</td>
+                  {/* Two right-aligned numeric columns, not one free-text
+                      cell — tabular numerals only earn their keep when a
+                      magnitude lines up under the one above it, which
+                      `1000 ms / 65536 KB` concatenated into prose threw
+                      away entirely. */}
+                  <td className="num">{p.timeMs !== null ? `${p.timeMs} ms` : '—'}</td>
+                  <td className="num">{formatMemoryMb(p.memoryKb)}</td>
+                  <td>
+                    <span className={`badge ${verdictToken(verdict ?? null)}`}>{verdict ?? '—'}</span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       ) : !query.isLoading && !query.isError ? (

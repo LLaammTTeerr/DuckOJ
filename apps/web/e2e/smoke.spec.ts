@@ -163,7 +163,7 @@ test('every route carries the shell: one nav, links that work, styles applied', 
   // The shell exists because the problems routes render outside the auth gate
   // and a signed-out visitor had no route back to `/`. A human found that by
   // clicking; this makes it a standing check for every route added from here.
-  for (const path of ['/', '/problems', '/problems/aplusb']) {
+  for (const path of ['/', '/problems', '/problems/aplusb', '/submissions']) {
     const watch = watchForBrokenRequests(page);
     await page.goto(path);
 
@@ -204,6 +204,109 @@ test('the home page introduces the site instead of the submit form', async ({ pa
   // …and it must still exist on its own route.
   await page.goto('/submit');
   await expect(page.getByLabel(/username or email/i)).toBeVisible();
+
+  expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
+});
+
+/**
+ * Regression coverage for the three problem-list bugs found by screenshotting
+ * the running site (task report) — none of these was caught by the jsdom
+ * suite, and none could be: they are about what actually paints.
+ */
+test('the problem list splits time and memory into separate right-aligned columns, memory in MB', async ({
+  page,
+}) => {
+  const watch = watchForBrokenRequests(page);
+  await page.goto('/problems');
+
+  await expect(page.getByRole('columnheader', { name: 'Time' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Mem' })).toBeVisible();
+
+  const row = page.getByRole('row').filter({ has: page.getByRole('link', { name: SEED_PROBLEM }) });
+  // Seed problem `aplusb`: 1000 ms / 65536 KB — 64 MB, a whole number.
+  await expect(row.getByRole('cell', { name: '1000 ms' })).toBeVisible();
+  await expect(row.getByRole('cell', { name: '64 MB' })).toBeVisible();
+  // The old concatenated "1000 ms / 65536 KB" cell, and raw KB anywhere, are
+  // both gone.
+  await expect(page.getByText(/65536/)).toHaveCount(0);
+  await expect(page.getByText(/ms \//)).toHaveCount(0);
+
+  // The Time/Mem headers are right-aligned tabular numerals — the whole
+  // reason to split the column in the first place.
+  const timeHeader = page.getByRole('columnheader', { name: 'Time' });
+  await expect(timeHeader).toHaveClass(/num/);
+
+  expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
+});
+
+/**
+ * `/submissions` — new this task (spec §3.3). Signed out it must show the
+ * sign-in gate (same pattern as `/submit`, since `GET /submissions` 401s
+ * signed out) rather than an empty table or a broken request.
+ */
+test('the submissions list is gated behind sign-in, like submit', async ({ page }) => {
+  const watch = watchForBrokenRequests(page);
+  await page.goto('/submissions');
+
+  await expect(page.getByText(/sign in to see submissions/i)).toBeVisible();
+  await expect(page.getByLabel(/username or email/i)).toBeVisible();
+  // The shell nav still renders — signed-out gating is per-route content,
+  // not a whole-app redirect.
+  await expect(page.locator('nav.shell-nav').getByRole('link', { name: 'Submissions' })).toBeVisible();
+
+  expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
+});
+
+/**
+ * Signed in, `/submissions` lists the caller's own submissions, newest
+ * first, with a verdict rendered through the shared `.badge` glyph+colour
+ * system — never a second, bespoke verdict renderer.
+ *
+ * Registers a fresh user rather than relying on any pre-seeded account, so
+ * this is reproducible against any freshly-migrated stack, not just the one
+ * a human happened to be screenshotting by hand.
+ */
+test('signed in, the submissions list shows my own submissions with a verdict badge', async ({ page }) => {
+  const username = `e2esub${Date.now()}`;
+  const password = 'a-long-enough-password';
+
+  const reg = await page.request.post('/api/v1/auth/register', {
+    data: { username, email: `${username}@example.com`, password, displayName: username },
+  });
+  expect(reg.ok(), `registration failed: ${reg.status()} ${await reg.text()}`).toBe(true);
+
+  await page.goto('/');
+  await page.locator('#identifier').fill(username);
+  await page.locator('#password').fill(password);
+  await page.getByRole('button', { name: /sign in/i }).click();
+  // Scoped to the shell nav — the home page's own body copy repeats
+  // "Signed in as <name>" in a full sentence, which also matches this
+  // pattern and turns an unscoped locator ambiguous (strict-mode violation).
+  await expect(page.locator('nav.shell-nav').getByText(`Signed in as ${username}`)).toBeVisible();
+
+  // `page.request` shares the browser context's cookies with `page` itself,
+  // so this submission is made as the just-signed-in user — no separate
+  // credential plumbing needed.
+  const submit = await page.request.post('/api/v1/submissions', {
+    data: {
+      problemCode: SEED_PROBLEM,
+      languageKey: 'cpp17',
+      source: '#include <iostream>\nint main(){long long a,b;std::cin>>a>>b;std::cout<<a+b;}',
+    },
+  });
+  expect(submit.ok(), `submission failed: ${submit.status()} ${await submit.text()}`).toBe(true);
+  const { id: submissionId } = (await submit.json()) as { id: number };
+
+  const watch = watchForBrokenRequests(page);
+  await page.goto('/submissions');
+
+  await expect(page.getByRole('heading', { name: 'Submissions' })).toBeVisible();
+  const row = page.getByRole('row').filter({ hasText: String(submissionId) });
+  await expect(row).toBeVisible();
+  await expect(row.getByRole('link', { name: SEED_PROBLEM })).toBeVisible();
+  // A verdict badge is present — pending (still grading) or a real verdict,
+  // either way rendered through the one shared `.badge` class, not blank.
+  await expect(row.locator('.badge')).toBeVisible();
 
   expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
 });

@@ -530,6 +530,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/languages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every language POST /submissions accepts a languageKey for, active or not */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Every language, including inactive ones (flagged via isActive, not omitted) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                key: string;
+                                name: string;
+                                extension: string;
+                                isActive: boolean;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orgs": {
         parameters: {
             query?: never;
@@ -1617,7 +1660,92 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Submissions visible to the caller, newest first
+         * @description Keyset-paginated on `id`, descending. Produces exactly the set `GET /submissions/{id}` would answer 200 for, one id at a time — never more. `user=` naming someone else's username returns an empty page for a non-admin rather than a 403, which would itself confirm the username exists.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                    problem?: string;
+                    user?: string;
+                    verdict?: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of submissions */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: number;
+                                problemCode: string;
+                                username: string;
+                                languageKey: string;
+                                /** @enum {string} */
+                                state: "queued" | "compiling" | "grading" | "done" | "errored";
+                                /** @enum {string|null} */
+                                verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE" | null;
+                                points: number | null;
+                                maxPoints: number | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The query string failed validation, or `cursor` is not a valid page cursor */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
         put?: never;
         /** Submit a solution for grading */
         post: {
@@ -1935,7 +2063,7 @@ export interface paths {
                     "application/json": {
                         name: string;
                         /** @default [] */
-                        scopes?: ("problems:read" | "problems:write" | "problems:publish" | "submissions:read" | "submissions:write" | "orgs:read" | "packages:read" | "packages:write")[];
+                        scopes?: ("problems:read" | "problems:write" | "problems:publish" | "submissions:read" | "submissions:write" | "orgs:read" | "packages:read" | "packages:write" | "languages:read")[];
                         /** Format: date-time */
                         expiresAt?: string;
                     };
