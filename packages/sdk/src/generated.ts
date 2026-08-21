@@ -2038,8 +2038,8 @@ export interface paths {
                                 me: {
                                     /** @enum {string} */
                                     verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
-                                    points: number;
-                                    maxPoints: number;
+                                    points: number | null;
+                                    maxPoints: number | null;
                                 } | null;
                             }[];
                             nextCursor: string | null;
@@ -2113,8 +2113,8 @@ export interface paths {
                             me: {
                                 /** @enum {string} */
                                 verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
-                                points: number;
-                                maxPoints: number;
+                                points: number | null;
+                                maxPoints: number | null;
                             } | null;
                             statement: string;
                             /** @enum {string} */
@@ -2258,8 +2258,8 @@ export interface paths {
                             me: {
                                 /** @enum {string} */
                                 verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
-                                points: number;
-                                maxPoints: number;
+                                points: number | null;
+                                maxPoints: number | null;
                             } | null;
                             statement: string;
                             /** @enum {string} */
@@ -2352,8 +2352,8 @@ export interface paths {
                             me: {
                                 /** @enum {string} */
                                 verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
-                                points: number;
-                                maxPoints: number;
+                                points: number | null;
+                                maxPoints: number | null;
                             } | null;
                             statement: string;
                             /** @enum {string} */

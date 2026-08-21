@@ -3953,10 +3953,16 @@
                                 ]
                               },
                               "points": {
-                                "type": "number"
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
                               },
                               "maxPoints": {
-                                "type": "number"
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
                               }
                             },
                             "required": [
@@ -4155,10 +4161,16 @@
                           ]
                         },
                         "points": {
-                          "type": "number"
+                          "type": [
+                            "number",
+                            "null"
+                          ]
                         },
                         "maxPoints": {
-                          "type": "number"
+                          "type": [
+                            "number",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
@@ -4509,10 +4521,16 @@
                           ]
                         },
                         "points": {
-                          "type": "number"
+                          "type": [
+                            "number",
+                            "null"
+                          ]
                         },
                         "maxPoints": {
-                          "type": "number"
+                          "type": [
+                            "number",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
@@ -4792,10 +4810,16 @@
                           ]
                         },
                         "points": {
-                          "type": "number"
+                          "type": [
+                            "number",
+                            "null"
+                          ]
                         },
                         "maxPoints": {
-                          "type": "number"
+                          "type": [
+                            "number",
+                            "null"
+                          ]
                         }
                       },
                       "required": [

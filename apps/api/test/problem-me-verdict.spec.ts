@@ -275,4 +275,91 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       expect(updated.me).toEqual({ verdict: 'AC', points: 100, maxPoints: 100 });
     });
   }, 120_000);
+
+  // Coordinator review (2026-08-21), the 19th spec defect: `event-writer.ts`
+  // never writes `maxPoints` for a compile error, and writes neither
+  // `points` nor `maxPoints` for an internal error — so a viewer whose
+  // submissions to a problem are ALL unscored outcomes was, in the first
+  // cut of this feature, indistinguishable from a viewer who never
+  // attempted it at all. That is actively wrong for CE, which beginners hit
+  // constantly. `me` must represent CE/IE, with the fields those verdicts
+  // actually recorded — null included — rather than being excluded from
+  // "best" candidacy.
+  it('carries a CE-only submission as `me`, with maxPoints null, instead of reading as never-attempted', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { id: problemId } = await seedProblemWithSourceAccess(db, { code: 'ceonly' });
+      const solver = await insertUser(db, 'ce-only-solver');
+      // Mirrors `event-writer.ts`'s `compileError` branch exactly: `points:
+      // 0`, `maxPoints` never set (omitted here, so it lands NULL in the DB
+      // the same way).
+      await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'CE', points: 0 });
+
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
+      const item = page.items.find((p) => p.code === 'ceonly');
+      // NOT null — a CE is a real, graded attempt, distinct from never
+      // having submitted at all.
+      expect(item?.me).toEqual({ verdict: 'CE', points: 0, maxPoints: null });
+
+      const detail = await service.getVisible(actorFor(solver.id), 'ceonly');
+      expect(detail.me).toEqual({ verdict: 'CE', points: 0, maxPoints: null });
+    });
+  }, 120_000);
+
+  it('a scoring WA outranks a LATER CE: a real score beats an unscored-at-zero one, by points, not recency', async () => {
+    // The WA is submitted FIRST, the unscored CE comes AFTER it — the
+    // ordering that would trip up a "latest" regression (§6 test 1's
+    // failure mode, resurfacing here specifically for CE/IE now that
+    // they're candidates too): a buggy "most recent graded submission"
+    // implementation would report the later CE. Only "max points" gets
+    // this right regardless of which came first.
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { id: problemId } = await seedProblemWithSourceAccess(db, { code: 'cevswa' });
+      const solver = await insertUser(db, 'ce-vs-wa-solver');
+      await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'WA', points: 40, maxPoints: 100 });
+      await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'CE', points: 0 });
+
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
+      const item = page.items.find((p) => p.code === 'cevswa');
+      expect(item?.me).toEqual({ verdict: 'WA', points: 40, maxPoints: 100 });
+    });
+  }, 120_000);
+
+  it('a LATER IE (no points recorded at all) never masks an earlier CE scored at zero', async () => {
+    // CE first, IE second — again the ordering that would trip up a
+    // "latest" regression. The mechanism this actually relies on:
+    // `bestSubmissionLateral`'s `points desc nulls last` sorts an IE's null
+    // points behind EVERY row with a real number, including a CE's 0 — so
+    // an IE only ever wins the "best" slot when it is the viewer's only
+    // graded submission to the problem, never merely the most recent one.
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { id: problemId } = await seedProblemWithSourceAccess(db, { code: 'ievsce' });
+      const solver = await insertUser(db, 'ie-vs-ce-solver');
+      await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'CE', points: 0 });
+      await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'IE' });
+
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
+      const item = page.items.find((p) => p.code === 'ievsce');
+      expect(item?.me).toEqual({ verdict: 'CE', points: 0, maxPoints: null });
+    });
+  }, 120_000);
+
+  it('an IE is still representable as `me` when it is the only graded submission', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { id: problemId } = await seedProblemWithSourceAccess(db, { code: 'ieonly' });
+      const solver = await insertUser(db, 'ie-only-solver');
+      await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'IE' });
+
+      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
+      const item = page.items.find((p) => p.code === 'ieonly');
+      expect(item?.me).toEqual({ verdict: 'IE', points: null, maxPoints: null });
+    });
+  }, 120_000);
 });

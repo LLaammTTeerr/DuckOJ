@@ -228,13 +228,18 @@ export async function publishNextRevision(
  * check and its grading job), so a corpus can contain a graded submission on
  * a problem the seeder is not a member of.
  *
- * `points`/`maxPoints` are only ever written when `verdict` is also given
- * (matching `event-writer.ts`: the two are always set together in the real
- * grading path), and default to `null` unless the caller passes them
- * explicitly — the `me`-column "best verdict" fixtures
- * (`problem-me-verdict.spec.ts`) need to pin exact scores against a specific
- * revision's total, not whatever value would otherwise pass every OTHER
- * test in this file that never asserts on points at all.
+ * `points`/`maxPoints` are only ever written when `verdict` is also given,
+ * and default to `null` unless the caller passes them explicitly — the
+ * `me`-column "best verdict" fixtures (`problem-me-verdict.spec.ts`) need to
+ * pin exact scores against a specific revision's total, not whatever value
+ * would otherwise pass every OTHER test in this file that never asserts on
+ * points at all. This deliberately does NOT mirror `event-writer.ts`'s
+ * "points/maxPoints always set together" rule — `'CE'`/`'IE'` exist on this
+ * union precisely so a caller can build the fixtures that DON'T set them
+ * together (a real CE writes `points: 0` with no `maxPoints`; a real IE
+ * writes neither), matching what `event-writer.ts` actually does for those
+ * two verdicts. `state` follows the verdict the same way `event-writer.ts`
+ * does: `'errored'` for `IE`, `'done'` for everything else.
  */
 export async function insertGradedSubmission(
   db: Db,
@@ -242,7 +247,7 @@ export async function insertGradedSubmission(
     userId: number;
     problemId: number;
     revisionId?: number;
-    verdict?: 'AC' | 'WA';
+    verdict?: 'AC' | 'WA' | 'CE' | 'IE';
     points?: number;
     maxPoints?: number;
   },
@@ -269,7 +274,12 @@ export async function insertGradedSubmission(
       languageId: language!.id,
       source: `src-${opts.userId}-${opts.problemId}`,
       ...(opts.verdict
-        ? { verdict: opts.verdict, state: 'done' as const, points: opts.points, maxPoints: opts.maxPoints }
+        ? {
+            verdict: opts.verdict,
+            state: (opts.verdict === 'IE' ? 'errored' : 'done') as const,
+            points: opts.points,
+            maxPoints: opts.maxPoints,
+          }
         : {}),
     })
     .returning({ id: submissions.id });

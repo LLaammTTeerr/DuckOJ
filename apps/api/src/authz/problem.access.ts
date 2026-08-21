@@ -126,13 +126,18 @@ export class ProblemAccessService {
    * id` is exactly `submissions_user_problem_points_idx`'s trailing order,
    * so this is served by the index with no extra sort.
    *
-   * Filtered to submissions with both `points` and `maxPoints` recorded —
-   * excludes a submission still in flight (both null) and the narrow case
-   * of a compile error (`points` set to 0 but `maxPoints` never written,
-   * `event-writer.ts`'s `compileError` branch): neither carries a real
-   * `maxPoints` to report, and `me`'s contract has no null-maxPoints
-   * shape. Whichever submission this picks always has `verdict` set too
-   * (`event-writer.ts` never writes `points`/`maxPoints` without it).
+   * Filtered to `verdict IS NOT NULL` — "has finished grading" — not to
+   * `points`/`maxPoints` being set. Coordinator review (2026-08-21) caught
+   * that the earlier `isNotNull(points) AND isNotNull(maxPoints)` filter
+   * excluded CE and IE from `me` entirely: `event-writer.ts`'s
+   * `compileError` branch sets `points: 0` but never `maxPoints`, and its
+   * `internalError`/`terminated` branches set neither — so a viewer whose
+   * only submission to a problem was a CE or IE saw an empty cell,
+   * indistinguishable from never having attempted it, which actively
+   * misinforms exactly the beginners who hit CE most. `verdict IS NOT
+   * NULL` is the correct "graded" predicate instead: every terminal state
+   * (`done` or `errored`) sets it, and only an in-flight submission
+   * (`queued`/`compiling`/`grading`) leaves it null.
    *
    * `desc(...) nulls last`, spelled out with raw `sql`, not the plain
    * `desc()` helper: unqualified, Postgres's `ORDER BY points DESC` sorts
@@ -141,9 +146,11 @@ export class ProblemAccessService {
    * direction) as `points DESC NULLS LAST`. Matching the index's null
    * placement here is what lets the planner recognise the index already
    * delivers this order and skip the extra Sort node it otherwise adds —
-   * confirmed by `EXPLAIN` against a few thousand rows. Harmless for
-   * results either way (the `isNotNull` filter above means no row here
-   * ever has a null `points` to place), so this is a planner-only fix.
+   * confirmed by `EXPLAIN` against a few thousand rows. It also does real
+   * work now that IE (`points: null`) is a candidate: NULLS LAST means an
+   * unscored IE always sorts behind every submission that has a real
+   * score, including a CE's 0 — an IE can only ever win the "best" slot
+   * when it is the viewer's only graded submission to the problem.
    */
   private bestSubmissionLateral(userId: number) {
     return this.db
@@ -153,14 +160,7 @@ export class ProblemAccessService {
         maxPoints: submissions.maxPoints,
       })
       .from(submissions)
-      .where(
-        and(
-          eq(submissions.problemId, problems.id),
-          eq(submissions.userId, userId),
-          isNotNull(submissions.points),
-          isNotNull(submissions.maxPoints),
-        ),
-      )
+      .where(and(eq(submissions.problemId, problems.id), eq(submissions.userId, userId), isNotNull(submissions.verdict)))
       .orderBy(sql`${submissions.points} desc nulls last`, asc(submissions.id))
       .limit(1)
       .as('me_best');
@@ -1104,25 +1104,27 @@ function toSummary(row: {
 }
 
 /**
- * `null` when any of the three is missing — the lateral was never joined
+ * `null` exactly when `meVerdict` is — the lateral was never joined
  * (anonymous caller) or joined but matched no row (the viewer has no
- * fully-graded submission to this problem, spec §2). `bestSubmissionLateral`
- * only ever returns a row with all three set together (`event-writer.ts`
- * never writes `points`/`maxPoints` without `verdict`, and the lateral's own
- * `WHERE` excludes the reverse — see that method's doc comment), so this
- * "all or nothing" check never actually splits a real row down the middle;
- * it is just how a `LEFT JOIN` with no match reads to TypeScript.
+ * GRADED submission to this problem at all, spec §2). Once `meVerdict` is
+ * present, `points`/`maxPoints` are reported as-is, null included: CE
+ * carries `points: 0, maxPoints: null` and IE carries `points: null,
+ * maxPoints: null` (`event-writer.ts` never sets either for IE, and never
+ * sets `maxPoints` for CE) — see `bestSubmissionLateral`'s doc comment for
+ * why both are still valid "best" candidates rather than excluded. Unlike
+ * an earlier version of this function, `points`/`maxPoints` being null is
+ * NOT treated as "no `me`" — only a missing `verdict` is.
  */
 function toBestMe(row: {
   meVerdict?: string | null;
   mePoints?: number | null;
   meMaxPoints?: number | null;
 }): ProblemMeDto {
-  if (row.meVerdict == null || row.mePoints == null || row.meMaxPoints == null) return null;
+  if (row.meVerdict == null) return null;
   return {
     verdict: row.meVerdict as NonNullable<ProblemMeDto>['verdict'],
-    points: row.mePoints,
-    maxPoints: row.meMaxPoints,
+    points: row.mePoints ?? null,
+    maxPoints: row.meMaxPoints ?? null,
   };
 }
 
