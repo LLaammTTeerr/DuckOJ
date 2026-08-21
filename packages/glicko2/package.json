@@ -1,0 +1,17 @@
+{
+  "name": "@duckoj/glicko2",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "typecheck": "tsc -b",
+    "lint": "eslint src test",
+    "build": "tsc -b",
+    "test": "tsc -b && vitest run"
+  }
+}
