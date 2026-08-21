@@ -64,6 +64,13 @@
       "when": 1787316752452,
       "tag": "0008_contests",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787318683239,
+      "tag": "0009_submissions_user_problem_points_idx",
+      "breakpoints": true
     }
   ]
 }

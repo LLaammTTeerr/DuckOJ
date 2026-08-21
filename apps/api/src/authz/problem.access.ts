@@ -1,7 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNotNull, or, sql } from 'drizzle-orm';
 import type { z } from 'zod';
-import { organizations, problemMembers, problemOrgs, problemRevisions, problems } from '@duckoj/db/guarded';
+import {
+  organizations,
+  problemMembers,
+  problemOrgs,
+  problemRevisions,
+  problems,
+  submissions,
+} from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { findPathCollision, parseManifest, readArchiveEntry, type PackageManifestDto } from '@duckoj/package-format';
 import {
@@ -9,6 +16,7 @@ import {
   type AttachRevisionRequestDto,
   type PaginationQueryDto,
   type ProblemDetailDto,
+  type ProblemMeDto,
   type ProblemMemberDto,
   type ProblemPageDto,
   type ProblemSummaryDto,
@@ -108,6 +116,56 @@ export class ProblemAccessService {
     @Inject(PACKAGE_STORE) private readonly store: PackageStore,
   ) {}
 
+  /**
+   * A `LEFT JOIN LATERAL`-ready subquery: `userId`'s single best submission
+   * to whichever problem row it is correlated against (`problems.id`,
+   * referenced here even though `problems` is not this query's own `FROM`
+   * — valid only because a caller attaches this as a lateral join, where
+   * the outer `problems` row is already in scope). "Best" is spec §3: max
+   * `points`, ties broken by the earliest (smallest) `id`; `points DESC,
+   * id` is exactly `submissions_user_problem_points_idx`'s trailing order,
+   * so this is served by the index with no extra sort.
+   *
+   * Filtered to `verdict IS NOT NULL` — "has finished grading" — not to
+   * `points`/`maxPoints` being set. Coordinator review (2026-08-21) caught
+   * that the earlier `isNotNull(points) AND isNotNull(maxPoints)` filter
+   * excluded CE and IE from `me` entirely: `event-writer.ts`'s
+   * `compileError` branch sets `points: 0` but never `maxPoints`, and its
+   * `internalError`/`terminated` branches set neither — so a viewer whose
+   * only submission to a problem was a CE or IE saw an empty cell,
+   * indistinguishable from never having attempted it, which actively
+   * misinforms exactly the beginners who hit CE most. `verdict IS NOT
+   * NULL` is the correct "graded" predicate instead: every terminal state
+   * (`done` or `errored`) sets it, and only an in-flight submission
+   * (`queued`/`compiling`/`grading`) leaves it null.
+   *
+   * `desc(...) nulls last`, spelled out with raw `sql`, not the plain
+   * `desc()` helper: unqualified, Postgres's `ORDER BY points DESC` sorts
+   * nulls FIRST, but `submissions_user_problem_points_idx` was generated
+   * (drizzle-kit's own default for every index column, regardless of
+   * direction) as `points DESC NULLS LAST`. Matching the index's null
+   * placement here is what lets the planner recognise the index already
+   * delivers this order and skip the extra Sort node it otherwise adds —
+   * confirmed by `EXPLAIN` against a few thousand rows. It also does real
+   * work now that IE (`points: null`) is a candidate: NULLS LAST means an
+   * unscored IE always sorts behind every submission that has a real
+   * score, including a CE's 0 — an IE can only ever win the "best" slot
+   * when it is the viewer's only graded submission to the problem.
+   */
+  private bestSubmissionLateral(userId: number) {
+    return this.db
+      .select({
+        verdict: submissions.verdict,
+        points: submissions.points,
+        maxPoints: submissions.maxPoints,
+      })
+      .from(submissions)
+      .where(and(eq(submissions.problemId, problems.id), eq(submissions.userId, userId), isNotNull(submissions.verdict)))
+      .orderBy(sql`${submissions.points} desc nulls last`, asc(submissions.id))
+      .limit(1)
+      .as('me_best');
+  }
+
   async listVisible(
     actor: Actor | null,
     // `cursor?: string | undefined` rather than `cursor?: string`: the
@@ -128,32 +186,79 @@ export class ProblemAccessService {
       );
     }
 
-    const rows = await this.db
-      .select({
-        id: problems.id,
-        code: problems.code,
-        name: problems.name,
-        visibility: problems.visibility,
-        revisionId: problemRevisions.id,
-        timeMs: problemRevisions.timeMs,
-        memoryKb: problemRevisions.memoryKb,
-        testCount: problemRevisions.testCount,
-      })
-      .from(problems)
-      .leftJoin(
-          problemRevisions,
-          // The `state` term is not redundant. Every path that sets
-          // `currentRevisionId` today points it at a published revision, but
-          // that is convention across three call sites, not a database
-          // constraint. Without this, a future bug leaving the pointer on an
-          // archived revision would report that revision's stale limits as
-          // live; with it, the same bug degrades to `hasPublishedRevision:
-          // false`, which is at least honest.
-          and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published')),
-        )
-      .where(and(...conditions))
-      .orderBy(asc(problems.id))
-      .limit(page.limit + 1);
+    // The `state` term on the revision join is not redundant. Every path
+    // that sets `currentRevisionId` today points it at a published
+    // revision, but that is convention across three call sites, not a
+    // database constraint. Without this, a future bug leaving the pointer
+    // on an archived revision would report that revision's stale limits as
+    // live; with it, the same bug degrades to `hasPublishedRevision: false`,
+    // which is at least honest.
+    const revisionJoin = and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published'));
+
+    // Two full query shapes rather than one query with a conditionally
+    // built select list: for an anonymous caller the lateral is omitted
+    // entirely (spec §5) rather than joined against a null user id — a
+    // query that filters on `user_id = NULL` returns no rows but still
+    // costs the join. Either way this is ONE statement to Postgres; the
+    // branch only decides whether that one statement carries a third join.
+    let rows: Array<{
+      id: number;
+      code: string;
+      name: string;
+      visibility: ProblemVisibility;
+      revisionId: number | null;
+      timeMs: number | null;
+      memoryKb: number | null;
+      testCount: number | null;
+      meVerdict?: string | null;
+      mePoints?: number | null;
+      meMaxPoints?: number | null;
+    }>;
+    if (actor) {
+      // Built once, not once per referencing column below: each call to
+      // `bestSubmissionLateral` constructs a fresh subquery aliased
+      // `me_best`, so calling it more than once here would either
+      // alias-collide or attach unjoined copies instead of referencing the
+      // one that is actually joined in.
+      const meBest = this.bestSubmissionLateral(actor.userId);
+      rows = await this.db
+        .select({
+          id: problems.id,
+          code: problems.code,
+          name: problems.name,
+          visibility: problems.visibility,
+          revisionId: problemRevisions.id,
+          timeMs: problemRevisions.timeMs,
+          memoryKb: problemRevisions.memoryKb,
+          testCount: problemRevisions.testCount,
+          meVerdict: meBest.verdict,
+          mePoints: meBest.points,
+          meMaxPoints: meBest.maxPoints,
+        })
+        .from(problems)
+        .leftJoin(problemRevisions, revisionJoin)
+        .leftJoinLateral(meBest, sql`true`)
+        .where(and(...conditions))
+        .orderBy(asc(problems.id))
+        .limit(page.limit + 1);
+    } else {
+      rows = await this.db
+        .select({
+          id: problems.id,
+          code: problems.code,
+          name: problems.name,
+          visibility: problems.visibility,
+          revisionId: problemRevisions.id,
+          timeMs: problemRevisions.timeMs,
+          memoryKb: problemRevisions.memoryKb,
+          testCount: problemRevisions.testCount,
+        })
+        .from(problems)
+        .leftJoin(problemRevisions, revisionJoin)
+        .where(and(...conditions))
+        .orderBy(asc(problems.id))
+        .limit(page.limit + 1);
+    }
 
     const items = rows.slice(0, page.limit).map(toSummary);
     const nextCursor = rows.length > page.limit ? String(items.at(-1)!.id) : null;
@@ -161,38 +266,83 @@ export class ProblemAccessService {
   }
 
   async getVisible(actor: Actor | null, code: string): Promise<ProblemDetailDto> {
-    const row = (
-      await this.db
-        .select({
-          id: problems.id,
-          code: problems.code,
-          name: problems.name,
-          statement: problems.statement,
-          visibility: problems.visibility,
-          sourceAccess: problems.sourceAccess,
-          createdAt: problems.createdAt,
-          revisionId: problemRevisions.id,
-          timeMs: problemRevisions.timeMs,
-          memoryKb: problemRevisions.memoryKb,
-          testCount: problemRevisions.testCount,
-          totalPoints: problemRevisions.totalPoints,
-          checkerKind: problemRevisions.checkerKind,
-        })
-        .from(problems)
-        .leftJoin(
-          problemRevisions,
-          // The `state` term is not redundant. Every path that sets
-          // `currentRevisionId` today points it at a published revision, but
-          // that is convention across three call sites, not a database
-          // constraint. Without this, a future bug leaving the pointer on an
-          // archived revision would report that revision's stale limits as
-          // live; with it, the same bug degrades to `hasPublishedRevision:
-          // false`, which is at least honest.
-          and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published')),
-        )
-        .where(sql`lower(${problems.code}) = lower(${code})`)
-        .limit(1)
-    )[0];
+    const revisionJoin = and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published'));
+
+    // Same shape as `listVisible`: one statement either way, the lateral
+    // omitted entirely (not joined against a null user id) for an
+    // anonymous caller.
+    let row:
+      | {
+          id: number;
+          code: string;
+          name: string;
+          statement: string;
+          visibility: ProblemVisibility;
+          sourceAccess: 'private' | 'solved';
+          createdAt: Date;
+          revisionId: number | null;
+          timeMs: number | null;
+          memoryKb: number | null;
+          testCount: number | null;
+          totalPoints: number | null;
+          checkerKind: string | null;
+          meVerdict?: string | null;
+          mePoints?: number | null;
+          meMaxPoints?: number | null;
+        }
+      | undefined;
+    if (actor) {
+      const meBest = this.bestSubmissionLateral(actor.userId);
+      row = (
+        await this.db
+          .select({
+            id: problems.id,
+            code: problems.code,
+            name: problems.name,
+            statement: problems.statement,
+            visibility: problems.visibility,
+            sourceAccess: problems.sourceAccess,
+            createdAt: problems.createdAt,
+            revisionId: problemRevisions.id,
+            timeMs: problemRevisions.timeMs,
+            memoryKb: problemRevisions.memoryKb,
+            testCount: problemRevisions.testCount,
+            totalPoints: problemRevisions.totalPoints,
+            checkerKind: problemRevisions.checkerKind,
+            meVerdict: meBest.verdict,
+            mePoints: meBest.points,
+            meMaxPoints: meBest.maxPoints,
+          })
+          .from(problems)
+          .leftJoin(problemRevisions, revisionJoin)
+          .leftJoinLateral(meBest, sql`true`)
+          .where(sql`lower(${problems.code}) = lower(${code})`)
+          .limit(1)
+      )[0];
+    } else {
+      row = (
+        await this.db
+          .select({
+            id: problems.id,
+            code: problems.code,
+            name: problems.name,
+            statement: problems.statement,
+            visibility: problems.visibility,
+            sourceAccess: problems.sourceAccess,
+            createdAt: problems.createdAt,
+            revisionId: problemRevisions.id,
+            timeMs: problemRevisions.timeMs,
+            memoryKb: problemRevisions.memoryKb,
+            testCount: problemRevisions.testCount,
+            totalPoints: problemRevisions.totalPoints,
+            checkerKind: problemRevisions.checkerKind,
+          })
+          .from(problems)
+          .leftJoin(problemRevisions, revisionJoin)
+          .where(sql`lower(${problems.code}) = lower(${code})`)
+          .limit(1)
+      )[0];
+    }
 
     // Same 404 for "absent" and "invisible" — a distinct code (or a 403)
     // would itself be an existence oracle for a problem the actor may not
@@ -640,31 +790,84 @@ export class ProblemAccessService {
    * one a plain viewer gets from `getVisible`.
    */
   private async loadDetailById(id: number, actor: Actor | null): Promise<ProblemDetailDto> {
-    const row = (
-      await this.db
-        .select({
-          id: problems.id,
-          code: problems.code,
-          name: problems.name,
-          statement: problems.statement,
-          visibility: problems.visibility,
-          sourceAccess: problems.sourceAccess,
-          createdAt: problems.createdAt,
-          revisionId: problemRevisions.id,
-          timeMs: problemRevisions.timeMs,
-          memoryKb: problemRevisions.memoryKb,
-          testCount: problemRevisions.testCount,
-          totalPoints: problemRevisions.totalPoints,
-          checkerKind: problemRevisions.checkerKind,
-        })
-        .from(problems)
-        .leftJoin(
-          problemRevisions,
-          and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published')),
-        )
-        .where(eq(problems.id, id))
-        .limit(1)
-    )[0]!;
+    // Same `me` treatment as `getVisible` (and for the same reason): this
+    // backs the response of both `POST /problems` and `PATCH /problems/:code`
+    // (both answer with a `ProblemDetail`), and a `create`/`update` call
+    // that skipped the lateral would report `me: null` to an editor who
+    // already has a best submission on the problem being patched — a
+    // genuine drift from what the very next `GET /problems/:code` for the
+    // same actor would say, not just a missing feature.
+    const revisionJoin = and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published'));
+    let row: {
+      id: number;
+      code: string;
+      name: string;
+      statement: string;
+      visibility: ProblemVisibility;
+      sourceAccess: 'private' | 'solved';
+      createdAt: Date;
+      revisionId: number | null;
+      timeMs: number | null;
+      memoryKb: number | null;
+      testCount: number | null;
+      totalPoints: number | null;
+      checkerKind: string | null;
+      meVerdict?: string | null;
+      mePoints?: number | null;
+      meMaxPoints?: number | null;
+    };
+    if (actor) {
+      const meBest = this.bestSubmissionLateral(actor.userId);
+      row = (
+        await this.db
+          .select({
+            id: problems.id,
+            code: problems.code,
+            name: problems.name,
+            statement: problems.statement,
+            visibility: problems.visibility,
+            sourceAccess: problems.sourceAccess,
+            createdAt: problems.createdAt,
+            revisionId: problemRevisions.id,
+            timeMs: problemRevisions.timeMs,
+            memoryKb: problemRevisions.memoryKb,
+            testCount: problemRevisions.testCount,
+            totalPoints: problemRevisions.totalPoints,
+            checkerKind: problemRevisions.checkerKind,
+            meVerdict: meBest.verdict,
+            mePoints: meBest.points,
+            meMaxPoints: meBest.maxPoints,
+          })
+          .from(problems)
+          .leftJoin(problemRevisions, revisionJoin)
+          .leftJoinLateral(meBest, sql`true`)
+          .where(eq(problems.id, id))
+          .limit(1)
+      )[0]!;
+    } else {
+      row = (
+        await this.db
+          .select({
+            id: problems.id,
+            code: problems.code,
+            name: problems.name,
+            statement: problems.statement,
+            visibility: problems.visibility,
+            sourceAccess: problems.sourceAccess,
+            createdAt: problems.createdAt,
+            revisionId: problemRevisions.id,
+            timeMs: problemRevisions.timeMs,
+            memoryKb: problemRevisions.memoryKb,
+            testCount: problemRevisions.testCount,
+            totalPoints: problemRevisions.totalPoints,
+            checkerKind: problemRevisions.checkerKind,
+          })
+          .from(problems)
+          .leftJoin(problemRevisions, revisionJoin)
+          .where(eq(problems.id, id))
+          .limit(1)
+      )[0]!;
+    }
 
     const { members, orgSlugs } = await this.loadMembersAndOrgs(id, actor, true);
 
@@ -876,6 +1079,12 @@ function toSummary(row: {
   timeMs: number | null;
   memoryKb: number | null;
   testCount: number | null;
+  // Absent entirely for an anonymous caller's query (no lateral joined in),
+  // rather than present-but-null — `toBestMe` treats the two identically,
+  // both read as "no `me` to report".
+  meVerdict?: string | null;
+  mePoints?: number | null;
+  meMaxPoints?: number | null;
 }): ProblemSummaryDto {
   return {
     id: row.id,
@@ -890,6 +1099,32 @@ function toSummary(row: {
     // problem whose only revision is a draft joins to nothing and every
     // revision-derived field must read null rather than a stale value.
     testCount: row.revisionId === null ? null : row.testCount,
+    me: toBestMe(row),
+  };
+}
+
+/**
+ * `null` exactly when `meVerdict` is — the lateral was never joined
+ * (anonymous caller) or joined but matched no row (the viewer has no
+ * GRADED submission to this problem at all, spec §2). Once `meVerdict` is
+ * present, `points`/`maxPoints` are reported as-is, null included: CE
+ * carries `points: 0, maxPoints: null` and IE carries `points: null,
+ * maxPoints: null` (`event-writer.ts` never sets either for IE, and never
+ * sets `maxPoints` for CE) — see `bestSubmissionLateral`'s doc comment for
+ * why both are still valid "best" candidates rather than excluded. Unlike
+ * an earlier version of this function, `points`/`maxPoints` being null is
+ * NOT treated as "no `me`" — only a missing `verdict` is.
+ */
+function toBestMe(row: {
+  meVerdict?: string | null;
+  mePoints?: number | null;
+  meMaxPoints?: number | null;
+}): ProblemMeDto {
+  if (row.meVerdict == null) return null;
+  return {
+    verdict: row.meVerdict as NonNullable<ProblemMeDto>['verdict'],
+    points: row.mePoints ?? null,
+    maxPoints: row.meMaxPoints ?? null,
   };
 }
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PaginationQuery, ProblemDetails, Timestamp, cursorPage } from './common.js';
 import { registry } from './registry.js';
+import { Verdict } from './submissions.js';
 
 export const PROBLEM_CODE = /^[a-z0-9][a-z0-9_-]{1,63}$/;
 
@@ -65,6 +66,35 @@ export const AttachRevisionRequest = z.object({
 });
 export type AttachRevisionRequestDto = z.infer<typeof AttachRevisionRequest>;
 
+/**
+ * The viewer's own best submission on this problem — spec
+ * `2026-08-21-best-verdict-design.md` §2/§3, extended per coordinator review
+ * (2026-08-21) to make CE/IE representable rather than invisible. "Best" is
+ * maximum `points`, ties broken by the earliest submission; an accepted
+ * submission already holds maximum points, so this yields `AC` whenever one
+ * exists with no special case for it. `null` for an anonymous caller and for
+ * a problem the viewer has never submitted (and had graded) — those read
+ * identically to a viewer and are not distinguished.
+ *
+ * `maxPoints` is the submitting revision's total, not the problem's current
+ * one (§3): a submission graded against revision 2 was scored out of
+ * revision 2's total, and reporting it against revision 3's total would
+ * misreport history, the same reasoning that pins `submissions.revisionId`.
+ *
+ * `maxPoints` (and, unlike the original spec text, `points` too) are
+ * nullable: `event-writer.ts`'s `internalError`/`terminated` branches write
+ * `verdict: 'IE'` without ever setting `points` or `maxPoints`, and its
+ * `compileError` branch writes `points: 0` without `maxPoints`. A viewer
+ * whose only submission to a problem is a CE or IE must still see it here
+ * (an empty cell reads identically to "never attempted", which is actively
+ * wrong for the CE case beginners hit most) — so both fields follow
+ * whatever the chosen submission actually recorded, `null` included.
+ */
+export const ProblemMe = z
+  .object({ verdict: Verdict, points: z.number().nullable(), maxPoints: z.number().nullable() })
+  .nullable();
+export type ProblemMeDto = z.infer<typeof ProblemMe>;
+
 export const ProblemSummary = z.object({
   id: z.number().int(),
   code: z.string(),
@@ -81,6 +111,7 @@ export const ProblemSummary = z.object({
    * N+1 the list must not do.
    */
   testCount: z.number().int().nullable(),
+  me: ProblemMe,
 });
 export type ProblemSummaryDto = z.infer<typeof ProblemSummary>;
 

@@ -27,13 +27,9 @@ vi.mock('../src/api.js', () => ({
 const mockedGet = vi.mocked(api.GET);
 
 /**
- * `ProblemsPage` now issues up to THREE different `GET`s per render
- * (`/auth/me`, `/problems`, and — only once signed in — `/submissions`, for
- * the `me` verdict column), so a single `mockResolvedValueOnce` queue
- * (fine when there was only one endpoint) no longer says which response
- * goes to which request. This dispatches by path instead: each key's value
- * is either one response reused for every call to that path, or an array
- * consumed one response per call (holding the last entry once exhausted) —
+ * Dispatches a mocked `GET` response by path: each key's value is either
+ * one response reused for every call to that path, or an array consumed
+ * one response per call (holding the last entry once exhausted) —
  * `/problems`'s "load more" test needs page 1 then page 2, everything else
  * needs one fixed response.
  */
@@ -53,8 +49,6 @@ function mockApiGet(handlers: Record<string, unknown>): void {
 function apiResponse(data: unknown) {
   return { data, error: undefined, response: new Response() };
 }
-
-const SIGNED_OUT_ME = apiResponse(undefined);
 
 /**
  * `ProblemsPage` and `ProblemPage` now render a `<Link>` each (the
@@ -102,6 +96,7 @@ const PROBLEM_A = {
   timeMs: 1000,
   memoryKb: 65536,
   testCount: 3,
+  me: null,
 };
 
 const PROBLEM_B = {
@@ -113,6 +108,7 @@ const PROBLEM_B = {
   timeMs: 2000,
   memoryKb: 131072,
   testCount: 12,
+  me: null,
 };
 
 const PROBLEM_DRAFT_ONLY = {
@@ -124,6 +120,7 @@ const PROBLEM_DRAFT_ONLY = {
   timeMs: null,
   memoryKb: null,
   testCount: null,
+  me: null,
 };
 
 describe('formatMemoryMb', () => {
@@ -143,7 +140,7 @@ describe('formatMemoryMb', () => {
 
 describe('ProblemsPage', () => {
   it('renders a row for each problem returned by the API', async () => {
-    mockApiGet({ '/auth/me': SIGNED_OUT_ME, '/problems': apiResponse({ items: [PROBLEM_A, PROBLEM_B], nextCursor: null }) });
+    mockApiGet({ '/problems': apiResponse({ items: [PROBLEM_A, PROBLEM_B], nextCursor: null }) });
 
     renderWithClient(<ProblemsPage />);
 
@@ -154,9 +151,9 @@ describe('ProblemsPage', () => {
 
   // Regression coverage for the three problem-list bugs found by screenshot
   // (task report): a single free-text `1000 ms / 65536 KB` cell, memory
-  // shown in unreadable raw KB, and — separately — the new `me` column.
+  // shown in unreadable raw KB, and — separately — the `me` column.
   it('renders time and memory as separate, right-aligned numeric columns, memory in MB', async () => {
-    mockApiGet({ '/auth/me': SIGNED_OUT_ME, '/problems': apiResponse({ items: [PROBLEM_A, PROBLEM_B], nextCursor: null }) });
+    mockApiGet({ '/problems': apiResponse({ items: [PROBLEM_A, PROBLEM_B], nextCursor: null }) });
 
     renderWithClient(<ProblemsPage />);
     await screen.findByText('aplusb');
@@ -180,7 +177,6 @@ describe('ProblemsPage', () => {
 
   it('renders a right-aligned tests column, and an em dash for a problem with no published revision', async () => {
     mockApiGet({
-      '/auth/me': SIGNED_OUT_ME,
       '/problems': apiResponse({ items: [PROBLEM_A, PROBLEM_DRAFT_ONLY], nextCursor: null }),
     });
 
@@ -198,8 +194,8 @@ describe('ProblemsPage', () => {
     expect(within(rows[2]!).getAllByRole('cell')[4]).toHaveTextContent('—');
   });
 
-  it('shows a pending "me" badge and issues no /submissions request when signed out', async () => {
-    mockApiGet({ '/auth/me': SIGNED_OUT_ME, '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }) });
+  it('shows a pending "me" badge for a problem with no `me` on the response, and issues no /submissions request', async () => {
+    mockApiGet({ '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }) });
 
     renderWithClient(<ProblemsPage />);
     await screen.findByText('aplusb');
@@ -207,26 +203,18 @@ describe('ProblemsPage', () => {
     const row = screen.getAllByRole('row')[1]!;
     const badge = within(row).getByText('—');
     expect(badge).toHaveClass('badge', 'pend');
+    // `me` is server-computed on `GET /problems` now (spec
+    // `2026-08-21-best-verdict-design.md`) — this page never calls
+    // `/submissions` at all, signed in or not.
     expect(mockedGet).not.toHaveBeenCalledWith('/submissions', expect.anything());
   });
 
-  it('derives the "me" column from one /submissions?user=<username> request, not one per problem', async () => {
+  it('renders the "me" verdict straight off `GET /problems`\' response, with no other request', async () => {
     mockApiGet({
-      '/auth/me': apiResponse({ id: 1, username: 'bob', displayName: 'Bob', globalRole: 'user' }),
-      '/problems': apiResponse({ items: [PROBLEM_A, PROBLEM_B], nextCursor: null }),
-      '/submissions': apiResponse({
+      '/problems': apiResponse({
         items: [
-          {
-            id: 9,
-            problemCode: 'aplusb',
-            username: 'bob',
-            languageKey: 'cpp17',
-            state: 'done',
-            verdict: 'AC',
-            points: 100,
-            maxPoints: 100,
-            createdAt: '2026-01-01T00:00:00Z',
-          },
+          { ...PROBLEM_A, me: { verdict: 'AC', points: 100, maxPoints: 100 } },
+          PROBLEM_B,
         ],
         nextCursor: null,
       }),
@@ -235,22 +223,18 @@ describe('ProblemsPage', () => {
     renderWithClient(<ProblemsPage />);
     await screen.findByText('aplusb');
 
-    // The `/submissions` request resolves after the problem rows have
-    // already painted with a pending badge, so this must await the badge
-    // updating rather than reading the row synchronously.
-    expect(await screen.findByText('AC')).toHaveClass('badge', 'ac');
     const rows = screen.getAllByRole('row');
-    // bplusc: no submission in the mocked page, so still pending.
+    expect(within(rows[1]!).getByText('AC')).toHaveClass('badge', 'ac');
+    // bplusc: `me: null` on the response, so still pending.
     expect(within(rows[2]!).getByText('—')).toHaveClass('badge', 'pend');
 
-    // Exactly one call to /submissions (not one per problem row).
-    const submissionCalls = mockedGet.mock.calls.filter((c) => c[0] === '/submissions');
-    expect(submissionCalls).toHaveLength(1);
-    expect(submissionCalls[0]?.[1]).toMatchObject({ params: { query: { user: 'bob', limit: 100 } } });
+    // Exactly the one call to /problems — never /submissions.
+    expect(mockedGet.mock.calls.filter((c) => c[0] === '/problems')).toHaveLength(1);
+    expect(mockedGet).not.toHaveBeenCalledWith('/submissions', expect.anything());
   });
 
   it('re-queries the API when the search box changes', async () => {
-    mockApiGet({ '/auth/me': SIGNED_OUT_ME, '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }) });
+    mockApiGet({ '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }) });
 
     renderWithClient(<ProblemsPage />);
     await screen.findByText('aplusb');
@@ -265,7 +249,6 @@ describe('ProblemsPage', () => {
 
   it('appends the next page instead of replacing the first on "load more"', async () => {
     mockApiGet({
-      '/auth/me': SIGNED_OUT_ME,
       '/problems': [
         apiResponse({ items: [PROBLEM_A], nextCursor: 'cursor-1' }),
         apiResponse({ items: [PROBLEM_B], nextCursor: null }),

@@ -1,0 +1,1 @@
+CREATE INDEX "submissions_user_problem_points_idx" ON "submissions" USING btree ("user_id","problem_id","points" DESC NULLS LAST,"id");

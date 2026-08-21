@@ -181,8 +181,22 @@ export async function grantProblemRole(
  * submission graded `AC` against the old one is an AC on a revision that is
  * no longer current. Design §2.4 fixes "has an AC" as *not* revision-scoped,
  * and this is the fixture that lets a test tell the two readings apart.
+ *
+ * `totalPoints` defaults to 100 — every existing caller relies on that — but
+ * is overridable: the `me`-column "best verdict" spec
+ * (`2026-08-21-best-verdict-design.md` §7) calls out that a fixture where
+ * every revision shares the same total cannot distinguish "maxPoints comes
+ * from the submission's own revision" from "maxPoints comes from the
+ * problem's current revision", because the two readings agree whenever the
+ * totals happen to match. A caller that wants that distinction passes a
+ * different `totalPoints` here.
  */
-export async function publishNextRevision(db: Db, problemId: number, code: string): Promise<number> {
+export async function publishNextRevision(
+  db: Db,
+  problemId: number,
+  code: string,
+  totalPoints = 100,
+): Promise<number> {
   const owner = await insertUser(db, `${code}-owner-v2`);
   await db.insert(schema.packages).values({ hash: `pkg-${code}-v2`, sizeBytes: 1, fileCount: 1 });
   await db
@@ -200,7 +214,7 @@ export async function publishNextRevision(db: Db, problemId: number, code: strin
       timeMs: 1000,
       memoryKb: 256_000,
       testCount: 5,
-      totalPoints: 100,
+      totalPoints,
       checkerKind: 'wcmp',
     })
     .returning();
@@ -213,10 +227,30 @@ export async function publishNextRevision(db: Db, problemId: number, code: strin
  * `SubmissionAccessService.create` (and therefore its problem-visibility
  * check and its grading job), so a corpus can contain a graded submission on
  * a problem the seeder is not a member of.
+ *
+ * `points`/`maxPoints` are only ever written when `verdict` is also given,
+ * and default to `null` unless the caller passes them explicitly — the
+ * `me`-column "best verdict" fixtures (`problem-me-verdict.spec.ts`) need to
+ * pin exact scores against a specific revision's total, not whatever value
+ * would otherwise pass every OTHER test in this file that never asserts on
+ * points at all. This deliberately does NOT mirror `event-writer.ts`'s
+ * "points/maxPoints always set together" rule — `'CE'`/`'IE'` exist on this
+ * union precisely so a caller can build the fixtures that DON'T set them
+ * together (a real CE writes `points: 0` with no `maxPoints`; a real IE
+ * writes neither), matching what `event-writer.ts` actually does for those
+ * two verdicts. `state` follows the verdict the same way `event-writer.ts`
+ * does: `'errored'` for `IE`, `'done'` for everything else.
  */
 export async function insertGradedSubmission(
   db: Db,
-  opts: { userId: number; problemId: number; revisionId?: number; verdict?: 'AC' | 'WA' },
+  opts: {
+    userId: number;
+    problemId: number;
+    revisionId?: number;
+    verdict?: 'AC' | 'WA' | 'CE' | 'IE';
+    points?: number;
+    maxPoints?: number;
+  },
 ): Promise<number> {
   const [language] = await db
     .select({ id: schema.languages.id })
@@ -239,7 +273,14 @@ export async function insertGradedSubmission(
       revisionId,
       languageId: language!.id,
       source: `src-${opts.userId}-${opts.problemId}`,
-      ...(opts.verdict ? { verdict: opts.verdict, state: 'done' as const } : {}),
+      ...(opts.verdict
+        ? {
+            verdict: opts.verdict,
+            state: (opts.verdict === 'IE' ? 'errored' : 'done') as const,
+            points: opts.points,
+            maxPoints: opts.maxPoints,
+          }
+        : {}),
     })
     .returning({ id: submissions.id });
   return row!.id;

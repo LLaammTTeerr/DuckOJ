@@ -1678,6 +1678,325 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Submissions visible to the caller, newest first
+         * @description Keyset-paginated on `id`, descending. Produces exactly the set `GET /submissions/{id}` would answer 200 for, one id at a time — never more. `user=` naming someone else's username returns an empty page for a non-admin rather than a 403, which would itself confirm the username exists.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                    problem?: string;
+                    user?: string;
+                    verdict?: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of submissions */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                id: number;
+                                problemCode: string;
+                                username: string;
+                                languageKey: string;
+                                /** @enum {string} */
+                                state: "queued" | "compiling" | "grading" | "done" | "errored";
+                                /** @enum {string|null} */
+                                verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE" | null;
+                                points: number | null;
+                                maxPoints: number | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The query string failed validation, or `cursor` is not a valid page cursor */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Submit a solution for grading */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        problemCode: string;
+                        languageKey: string;
+                        source: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The submission was accepted and queued */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such problem, or no such language */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request body failed validation */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/submissions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A submission visible to the caller */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The submission */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            problemCode: string;
+                            languageKey: string;
+                            source: string;
+                            /** @enum {string} */
+                            state: "queued" | "compiling" | "grading" | "done" | "errored";
+                            /** @enum {string|null} */
+                            verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE" | null;
+                            points: number | null;
+                            maxPoints: number | null;
+                            timeMs: number | null;
+                            memoryKb: number | null;
+                            compileOutput: string | null;
+                            cases: {
+                                groupIndex: number;
+                                caseIndex: number;
+                                /** @enum {string|null} */
+                                verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE" | null;
+                                skipped: boolean;
+                                timeMs: number;
+                                memoryKb: number;
+                                points: number;
+                                maxPoints: number;
+                                feedback: string | null;
+                            }[];
+                            /** Format: date-time */
+                            createdAt: string;
+                            /** Format: date-time */
+                            judgedAt: string | null;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such submission, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The `id` path parameter is not a valid submission id */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/problems": {
         parameters: {
             query?: never;
@@ -1716,6 +2035,12 @@ export interface paths {
                                 timeMs: number | null;
                                 memoryKb: number | null;
                                 testCount: number | null;
+                                me: {
+                                    /** @enum {string} */
+                                    verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                    points: number | null;
+                                    maxPoints: number | null;
+                                } | null;
                             }[];
                             nextCursor: string | null;
                         };
@@ -1785,6 +2110,12 @@ export interface paths {
                             timeMs: number | null;
                             memoryKb: number | null;
                             testCount: number | null;
+                            me: {
+                                /** @enum {string} */
+                                verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                points: number | null;
+                                maxPoints: number | null;
+                            } | null;
                             statement: string;
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
@@ -1924,6 +2255,12 @@ export interface paths {
                             timeMs: number | null;
                             memoryKb: number | null;
                             testCount: number | null;
+                            me: {
+                                /** @enum {string} */
+                                verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                points: number | null;
+                                maxPoints: number | null;
+                            } | null;
                             statement: string;
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
@@ -2012,6 +2349,12 @@ export interface paths {
                             timeMs: number | null;
                             memoryKb: number | null;
                             testCount: number | null;
+                            me: {
+                                /** @enum {string} */
+                                verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                points: number | null;
+                                maxPoints: number | null;
+                            } | null;
                             statement: string;
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
@@ -2431,325 +2774,6 @@ export interface paths {
                 };
             };
         };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/submissions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Submissions visible to the caller, newest first
-         * @description Keyset-paginated on `id`, descending. Produces exactly the set `GET /submissions/{id}` would answer 200 for, one id at a time — never more. `user=` naming someone else's username returns an empty page for a non-admin rather than a 403, which would itself confirm the username exists.
-         */
-        get: {
-            parameters: {
-                query?: {
-                    cursor?: string;
-                    limit?: number;
-                    problem?: string;
-                    user?: string;
-                    verdict?: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description A page of submissions */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            items: {
-                                id: number;
-                                problemCode: string;
-                                username: string;
-                                languageKey: string;
-                                /** @enum {string} */
-                                state: "queued" | "compiling" | "grading" | "done" | "errored";
-                                /** @enum {string|null} */
-                                verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE" | null;
-                                points: number | null;
-                                maxPoints: number | null;
-                                /** Format: date-time */
-                                createdAt: string;
-                            }[];
-                            nextCursor: string | null;
-                        };
-                    };
-                };
-                /** @description Not signed in */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/problem+json": {
-                            /** @default about:blank */
-                            type: string;
-                            title: string;
-                            status: number;
-                            detail?: string;
-                            instance?: string;
-                            code: string;
-                            fields?: {
-                                [key: string]: string[];
-                            };
-                        };
-                    };
-                };
-                /** @description The query string failed validation, or `cursor` is not a valid page cursor */
-                422: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/problem+json": {
-                            /** @default about:blank */
-                            type: string;
-                            title: string;
-                            status: number;
-                            detail?: string;
-                            instance?: string;
-                            code: string;
-                            fields?: {
-                                [key: string]: string[];
-                            };
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        /** Submit a solution for grading */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: {
-                content: {
-                    "application/json": {
-                        problemCode: string;
-                        languageKey: string;
-                        source: string;
-                    };
-                };
-            };
-            responses: {
-                /** @description The submission was accepted and queued */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            id: number;
-                        };
-                    };
-                };
-                /** @description Not signed in */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/problem+json": {
-                            /** @default about:blank */
-                            type: string;
-                            title: string;
-                            status: number;
-                            detail?: string;
-                            instance?: string;
-                            code: string;
-                            fields?: {
-                                [key: string]: string[];
-                            };
-                        };
-                    };
-                };
-                /** @description No such problem, or no such language */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/problem+json": {
-                            /** @default about:blank */
-                            type: string;
-                            title: string;
-                            status: number;
-                            detail?: string;
-                            instance?: string;
-                            code: string;
-                            fields?: {
-                                [key: string]: string[];
-                            };
-                        };
-                    };
-                };
-                /** @description The request body failed validation */
-                422: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/problem+json": {
-                            /** @default about:blank */
-                            type: string;
-                            title: string;
-                            status: number;
-                            detail?: string;
-                            instance?: string;
-                            code: string;
-                            fields?: {
-                                [key: string]: string[];
-                            };
-                        };
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/submissions/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** A submission visible to the caller */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: number;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The submission */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            id: number;
-                            problemCode: string;
-                            languageKey: string;
-                            source: string;
-                            /** @enum {string} */
-                            state: "queued" | "compiling" | "grading" | "done" | "errored";
-                            /** @enum {string|null} */
-                            verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE" | null;
-                            points: number | null;
-                            maxPoints: number | null;
-                            timeMs: number | null;
-                            memoryKb: number | null;
-                            compileOutput: string | null;
-                            cases: {
-                                groupIndex: number;
-                                caseIndex: number;
-                                /** @enum {string|null} */
-                                verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE" | null;
-                                skipped: boolean;
-                                timeMs: number;
-                                memoryKb: number;
-                                points: number;
-                                maxPoints: number;
-                                feedback: string | null;
-                            }[];
-                            /** Format: date-time */
-                            createdAt: string;
-                            /** Format: date-time */
-                            judgedAt: string | null;
-                        };
-                    };
-                };
-                /** @description Not signed in */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/problem+json": {
-                            /** @default about:blank */
-                            type: string;
-                            title: string;
-                            status: number;
-                            detail?: string;
-                            instance?: string;
-                            code: string;
-                            fields?: {
-                                [key: string]: string[];
-                            };
-                        };
-                    };
-                };
-                /** @description No such submission, or one the caller may not see — the two are indistinguishable */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/problem+json": {
-                            /** @default about:blank */
-                            type: string;
-                            title: string;
-                            status: number;
-                            detail?: string;
-                            instance?: string;
-                            code: string;
-                            fields?: {
-                                [key: string]: string[];
-                            };
-                        };
-                    };
-                };
-                /** @description The `id` path parameter is not a valid submission id */
-                422: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/problem+json": {
-                            /** @default about:blank */
-                            type: string;
-                            title: string;
-                            status: number;
-                            detail?: string;
-                            instance?: string;
-                            code: string;
-                            fields?: {
-                                [key: string]: string[];
-                            };
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
