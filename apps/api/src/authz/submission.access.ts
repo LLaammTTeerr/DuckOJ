@@ -1,12 +1,18 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, lt, sql } from 'drizzle-orm';
 import { problems, problemRevisions, submissionCases, submissions } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
-import type { CreateSubmissionRequestDto, SubmissionDetailDto } from '@duckoj/contracts';
+import type {
+  CreateSubmissionRequestDto,
+  SubmissionDetailDto,
+  SubmissionListQueryDto,
+  SubmissionPageDto,
+} from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
-import { isAdmin, type Actor } from './actor.js';
+import type { Actor } from './actor.js';
 import { canViewProblem, loadProblemContext } from './problem.visibility.js';
+import { canViewSubmission, visibleSubmissionsWhere } from './submission.visibility.js';
 
 /**
  * The ONLY module permitted to import `@duckoj/db/guarded` for submissions,
@@ -93,6 +99,85 @@ export class SubmissionAccessService {
   }
 
   /**
+   * Keyset-paginated on `submissions.id`, **descending** — newest first,
+   * unlike `ProblemAccessService.listVisible`/`OrgAccessService.listVisible`,
+   * which page ascending. That inversion flips the cursor comparison too:
+   * ascending pages forward with `gt(id, after)`, defaulting `after` to `0`
+   * (a bound that costs nothing, since no real id is ever `<= 0`); descending
+   * pages forward with `lt(id, before)`, and there is no equivalently cheap
+   * default for "before infinity" — an unbounded upper end is not a sentinel
+   * value, it is the *absence* of the condition. `parseCursor` below returns
+   * `undefined` for "no cursor", and that `undefined` is threaded through to
+   * mean "omit the `lt` condition entirely" rather than coerced into some
+   * numeric stand-in for infinity. `nextCursor` is still `items.at(-1).id`
+   * exactly as the ascending services compute it — but because rows are
+   * sorted descending, that is now the *smallest* id on the page, and the
+   * next page resumes strictly below it.
+   *
+   * The property that matters most here (spec §4.1): this must produce
+   * exactly the ids `getVisible` would answer 200 for, one at a time — no
+   * more. `visibleSubmissionsWhere` is the same function `getVisible`'s
+   * `canViewSubmission` check reduces to, so the two cannot silently diverge
+   * the way two independently-written copies of "yours or admin" could.
+   *
+   * `user=` is resolved via a join on `schema.users`, not a separate
+   * username-to-id lookup: an unknown username, or a real one that simply
+   * has no visible submissions to this actor, both fall out of the same
+   * join as "no matching rows" — an empty page, never an error. A 403 for
+   * "that user exists but isn't you" would itself be an existence oracle.
+   */
+  async listVisible(actor: Actor, filters: SubmissionListQueryDto): Promise<SubmissionPageDto> {
+    const conditions = [visibleSubmissionsWhere(actor)];
+    if (filters.problem) {
+      conditions.push(sql`lower(${problems.code}) = lower(${filters.problem})`);
+    }
+    if (filters.user) {
+      conditions.push(sql`lower(${schema.users.username}) = lower(${filters.user})`);
+    }
+    if (filters.verdict) {
+      conditions.push(eq(submissions.verdict, filters.verdict));
+    }
+    const before = parseCursor(filters.cursor);
+    if (before !== undefined) {
+      conditions.push(lt(submissions.id, before));
+    }
+
+    const rows = await this.db
+      .select({
+        id: submissions.id,
+        problemCode: problems.code,
+        username: schema.users.username,
+        languageKey: schema.languages.key,
+        state: submissions.state,
+        verdict: submissions.verdict,
+        points: submissions.points,
+        maxPoints: submissions.maxPoints,
+        createdAt: submissions.createdAt,
+      })
+      .from(submissions)
+      .innerJoin(problems, eq(problems.id, submissions.problemId))
+      .innerJoin(schema.languages, eq(schema.languages.id, submissions.languageId))
+      .innerJoin(schema.users, eq(schema.users.id, submissions.userId))
+      .where(and(...conditions))
+      .orderBy(desc(submissions.id))
+      .limit(filters.limit + 1);
+
+    const items = rows.slice(0, filters.limit).map((row) => ({
+      id: row.id,
+      problemCode: row.problemCode,
+      username: row.username,
+      languageKey: row.languageKey,
+      state: row.state,
+      verdict: row.verdict,
+      points: row.points,
+      maxPoints: row.maxPoints,
+      createdAt: row.createdAt.toISOString(),
+    }));
+    const nextCursor = rows.length > filters.limit ? String(items.at(-1)!.id) : null;
+    return { items, nextCursor };
+  }
+
+  /**
    * Phase 1 visibility is simply "your own submissions". Phase 4 extends this
    * with contest rules and per-problem source visibility — which is why every
    * read goes through here rather than through a handler's own `where`.
@@ -122,8 +207,11 @@ export class SubmissionAccessService {
 
     const row = rows[0];
     // 404 rather than 403: that another user's submission exists at this id is
-    // itself information we do not disclose.
-    if (!row || (row.userId !== actor.userId && !isAdmin(actor))) {
+    // itself information we do not disclose. `canViewSubmission` is the same
+    // predicate `listVisible` below applies as a `WHERE` clause — see
+    // `submission.visibility.ts` for why that sharing is load-bearing, not
+    // stylistic.
+    if (!row || !canViewSubmission(actor, row.userId)) {
       throw new AppError(404, 'submission_not_found', 'No such submission.');
     }
 
@@ -191,4 +279,21 @@ export class SubmissionAccessService {
       judgedAt: row.judgedAt ? row.judgedAt.toISOString() : null,
     };
   }
+}
+
+/**
+ * The descending-order counterpart of `problem.access.ts`/`org.access.ts`'s
+ * `parseCursor`: those default an absent cursor to `0` because `gt(id, 0)`
+ * costs nothing (no real id is ever `<= 0`) and return a plain `number`.
+ * Descending has no equivalent cheap default for "no upper bound" — `undefined`
+ * is the return value for "no cursor", read by `listVisible` as "omit the
+ * `lt` condition", not as some numeric stand-in for infinity.
+ */
+function parseCursor(cursor: string | undefined): number | undefined {
+  if (cursor === undefined) return undefined;
+  const before = Number(cursor);
+  if (!Number.isSafeInteger(before) || before < 0) {
+    throw new AppError(422, 'invalid_cursor', 'That page cursor is not valid.');
+  }
+  return before;
 }

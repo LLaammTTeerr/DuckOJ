@@ -16,6 +16,7 @@ import { ProblemsModule } from '../src/problems/problems.module.js';
 import { SubmissionsModule } from '../src/submissions/submissions.module.js';
 import { RealtimeModule } from '../src/realtime/realtime.module.js';
 import { PackagesModule } from '../src/packages/packages.module.js';
+import { LanguagesModule } from '../src/languages/languages.module.js';
 import { RedisSubscriber } from '../src/realtime/redis-subscriber.js';
 import { SubmissionsGateway } from '../src/realtime/submissions.gateway.js';
 import { APP_CONFIG, DB } from '../src/config/config.module.js';
@@ -76,7 +77,7 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
   const packageStoreDir = await mkdtemp(join(tmpdir(), 'duckoj-test-packages-'));
 
   const moduleRef = await Test.createTestingModule({
-    imports: [AuthnModule, AdminModule, OrgsModule, ProblemsModule, SubmissionsModule, PackagesModule],
+    imports: [AuthnModule, AdminModule, OrgsModule, ProblemsModule, SubmissionsModule, PackagesModule, LanguagesModule],
   })
     .overrideProvider(DB)
     .useValue(db)

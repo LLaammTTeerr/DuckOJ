@@ -1,8 +1,12 @@
 import { z } from 'zod';
-import { ProblemDetails, Timestamp } from './common.js';
+import { PaginationQuery, ProblemDetails, Timestamp, cursorPage } from './common.js';
 import { registry } from './registry.js';
 
 export const Verdict = z.enum(['AC', 'WA', 'TLE', 'MLE', 'OLE', 'RTE', 'IR', 'CE', 'IE']);
+
+// Shared between `SubmissionDetail` and `SubmissionSummary` so the two never
+// drift into two independently-typed copies of the same lifecycle.
+export const SubmissionState = z.enum(['queued', 'compiling', 'grading', 'done', 'errored']);
 
 export const CreateSubmissionRequest = z.object({
   problemCode: z.string().min(1).max(64),
@@ -30,7 +34,7 @@ export const SubmissionDetail = z.object({
   id: z.number().int(),
   problemCode: z.string(),
   languageKey: z.string(),
-  state: z.enum(['queued', 'compiling', 'grading', 'done', 'errored']),
+  state: SubmissionState,
   verdict: Verdict.nullable(),
   points: z.number().nullable(),
   maxPoints: z.number().nullable(),
@@ -42,6 +46,41 @@ export const SubmissionDetail = z.object({
   judgedAt: Timestamp.nullable(),
 });
 export type SubmissionDetailDto = z.infer<typeof SubmissionDetail>;
+
+/**
+ * `GET /submissions`'s filters. `problem` and `user` are the human-facing
+ * identifiers (a problem code, a username) — the same shape
+ * `CreateSubmissionRequest.problemCode` and `GET /admin/users/:username`
+ * already use — not database ids, which no client of this route has any
+ * other way to learn.
+ */
+export const SubmissionListQuery = PaginationQuery.extend({
+  problem: z.string().max(64).optional(),
+  user: z.string().max(64).optional(),
+  verdict: Verdict.optional(),
+});
+export type SubmissionListQueryDto = z.infer<typeof SubmissionListQuery>;
+
+export const SubmissionSummary = z.object({
+  id: z.number().int(),
+  problemCode: z.string(),
+  username: z.string(),
+  languageKey: z.string(),
+  state: SubmissionState,
+  verdict: Verdict.nullable(),
+  points: z.number().nullable(),
+  maxPoints: z.number().nullable(),
+  createdAt: Timestamp,
+});
+export type SubmissionSummaryDto = z.infer<typeof SubmissionSummary>;
+
+/**
+ * Newest first (`orderBy(desc(submissions.id))`), unlike `ProblemPage` /
+ * `OrgPage`'s ascending-by-id order — see `SubmissionAccessService.listVisible`
+ * for what that inversion does to the keyset cursor comparison.
+ */
+export const SubmissionPage = cursorPage(SubmissionSummary);
+export type SubmissionPageDto = z.infer<typeof SubmissionPage>;
 
 /**
  * The `id` path parameter of `GET /submissions/{id}`, bounded to the positive
@@ -88,6 +127,28 @@ registry.registerPath({
     },
     422: {
       description: 'The request body failed validation',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/submissions',
+  summary: 'Submissions visible to the caller, newest first',
+  description:
+    'Keyset-paginated on `id`, descending. Produces exactly the set `GET /submissions/{id}` would answer ' +
+    "200 for, one id at a time — never more. `user=` naming someone else's username returns an empty page " +
+    'for a non-admin rather than a 403, which would itself confirm the username exists.',
+  request: { query: SubmissionListQuery },
+  responses: {
+    200: { description: 'A page of submissions', content: { 'application/json': { schema: SubmissionPage } } },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: {
+      description: 'The query string failed validation, or `cursor` is not a valid page cursor',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },
