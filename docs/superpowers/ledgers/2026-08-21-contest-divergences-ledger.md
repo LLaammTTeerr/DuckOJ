@@ -4,7 +4,7 @@
 **Trigger:** user ruling, *"should not inherit bugs"*, answering the product
 question 4b's design §5 deliberately deferred.
 
-**Result:** 646 tests green (was 596). All 23 goldens still reproduce
+**Result:** 669 tests green (was 596). All 23 goldens still reproduce
 byte-for-byte under `dmojCompat`. No fixture was modified.
 
 ---
@@ -117,6 +117,15 @@ Every test demonstrated to fail against broken code:
 | M3 DIV-2 reverted to last submission | 5 fail |
 | M4 DIV-1 disabled | 7 fail |
 | M5 DIV-2 implemented by dropping rows | 7 fail |
+
+A sixth check was added after review: the window is also asserted by *counting*
+the submissions each participation keeps, against an independently stripped
+input. The obvious form — `duckoj(x)` against `duckoj(strip(x))` — was tried
+first and **rejected**, because the implementation's own filter runs on both
+sides, so a too-narrow window agrees with itself and the assertion passes. It
+was written, mutated, observed to stay green under M1, and replaced. Counting
+rows catches the window being too narrow *and* too wide, on every fixture
+including `default`, where DIV-2 confounds the scoreboard identity.
 
 **Two of these five mutations silently failed to apply on the first attempt**
 (shell quoting, then an indentation mismatch), and each printed a full green

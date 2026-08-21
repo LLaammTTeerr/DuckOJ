@@ -148,6 +148,28 @@ describe('DIV-1: a submission outside the participation window does not count', 
   // the identity. Every other format isolates DIV-1 exactly.
   const ISOLATING = FIXTURES.filter((id) => !id.startsWith('default/'));
 
+  it.each(FIXTURES)('%s counts exactly the submissions inside each window', (id) => {
+    // Two-directional and valid for *every* fixture, `default` included, where
+    // the scoreboard identity below is confounded by DIV-2.
+    //
+    // Comparing `duckoj(x)` against `duckoj(strip(x))` would NOT do: the
+    // implementation's own filter runs on both sides, so an over-aggressive
+    // window agrees with itself and the assertion passes. Counting the
+    // surviving rows against an independently stripped input catches the
+    // window being too narrow *and* too wide.
+    const stripped = stripOutOfWindow(inputFor(id));
+    const expected = new Map<string, number>();
+    for (const submission of stripped.submissions) {
+      expected.set(submission.participant, (expected.get(submission.participant) ?? 0) + 1);
+    }
+    for (const row of duckoj(id).ranking) {
+      expect([row.participant, row.submission_count]).toEqual([
+        row.participant,
+        expected.get(row.participant) ?? 0,
+      ]);
+    }
+  });
+
   it.each(ISOLATING)('%s equals the compatibility path fed pre-stripped input', (id) => {
     const input = inputFor(id);
     expect(duckoj(id)).toEqual(
