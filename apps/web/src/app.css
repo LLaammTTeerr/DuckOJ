@@ -424,6 +424,16 @@ button:disabled {
   border-color: var(--line);
 }
 
+/* A per-row action (the revisions table's Publish button, one per revision)
+   is not a page-level call to action — the global `margin-top` above would
+   give every row a ~1rem-tall button block; compact instead, matching the
+   mockup's row-button treatment. */
+td button {
+  margin-top: 0;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
 /* --- panels: any <section> nested inside this app's page-level <section>
    is a self-contained block — today, the submit page's live verdict panel
    and the edit page's read-only members list. Its first paragraph (the
