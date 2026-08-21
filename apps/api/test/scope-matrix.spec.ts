@@ -303,6 +303,39 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
   );
 
   it(
+    'orgs:write — POST /orgs (global admin)',
+    async () => {
+      await withTestDb(async (db) => {
+        const app = await buildApp(db);
+        try {
+          const agent = request.agent(app.getHttpServer());
+          await registerAndLogin(agent, 'sm-orgs-write');
+          await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'sm-orgs-write'));
+
+          const create = (slug: string) => ({ slug, name: 'Scope matrix org' });
+
+          const session = await agent.post('/orgs').send(create('sm-ow-session'));
+          expect(session.status).toBe(201);
+
+          const withScope = await bearer(app, await mintToken(agent, ['orgs:write'])).post('/orgs').send(create('sm-ow-token'));
+          expect(withScope.status).toBe(201);
+
+          const withoutScope = await bearer(app, await mintToken(agent, ['orgs:read'])).post('/orgs').send(create('sm-ow-no'));
+          expect(withoutScope.status).toBe(403);
+          expect(withoutScope.body.code).toBe('scope_required');
+
+          const empty = await bearer(app, await mintToken(agent, [])).post('/orgs').send(create('sm-ow-empty'));
+          expect(empty.status).toBe(403);
+          expect(empty.body.code).toBe('scope_required');
+        } finally {
+          await app.close();
+        }
+      });
+    },
+    120_000,
+  );
+
+  it(
     'orgs:read — GET /orgs',
     async () => {
       await withTestDb(async (db) => {

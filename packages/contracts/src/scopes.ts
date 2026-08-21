@@ -8,6 +8,7 @@ export const SCOPES = [
   'packages:read',
   'packages:write',
   'languages:read',
+  'orgs:write',
 ] as const;
 export type Scope = (typeof SCOPES)[number];
 

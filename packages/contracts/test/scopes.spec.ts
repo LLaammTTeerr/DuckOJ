@@ -27,9 +27,10 @@ describe('hasScope', () => {
 // Pinned by hand, one literal entry per scope — never regenerated from
 // `SCOPES` itself (that would make this test tautological) and never a
 // snapshot (a snapshot accepts any change on `-u`, including a scope quietly
-// dropped). Phase 3b spec §2.1 adds `languages:read`; extend this list by
-// hand again the next time a scope is added or removed, so a reviewer sees
-// the vocabulary change in the diff rather than trusting a regenerated file.
+// dropped). Phase 3b spec §2.1 added `languages:read`; Phase 3c §2.3 adds
+// `orgs:write` — extend this list by hand again the next time a scope is
+// added or removed, so a reviewer sees the vocabulary change in the diff
+// rather than trusting a regenerated file.
 describe('scope vocabulary', () => {
   it('is exactly this list — extend by hand, never by regenerating a snapshot', () => {
     expect(SCOPES).toEqual([
@@ -42,6 +43,7 @@ describe('scope vocabulary', () => {
       'packages:read',
       'packages:write',
       'languages:read',
+      'orgs:write',
     ]);
   });
 });
