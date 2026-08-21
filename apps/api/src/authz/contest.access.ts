@@ -16,6 +16,7 @@ import { schema, type Db } from '@duckoj/db';
 import { CONTEST_FORMATS, computeContestScoreboard } from '@duckoj/contest-formats';
 import type { Scoreboard } from '@duckoj/contest-formats';
 import type {
+  ContestParticipationDto,
   ContestDetailDto,
   ContestPageDto,
   ContestProblemInputDto,
@@ -33,6 +34,12 @@ import {
   visibleContestsWhere,
 } from './contest.visibility.js';
 import { mapContest, type ContestCaseRow, type ContestSubmissionRow } from './contest.mapping.js';
+import {
+  listParticipations,
+  participationWindow,
+  type ContestWindowRow,
+  type ParticipationRow,
+} from './participation.js';
 import { loadOrgMembership } from './org.visibility.js';
 import { canViewProblem, loadProblemContext } from './problem.visibility.js';
 
@@ -54,6 +61,9 @@ export interface CreateContestInput {
   orgSlugs?: string[] | undefined;
   problems?: ContestProblemInputDto[] | undefined;
 }
+
+/** `ContestParticipation.LIVE`. Named so the three uses below read as one rule. */
+const LIVE_VIRTUAL = 0;
 
 /**
  * The one service permitted to reach the contest tables, exactly as
@@ -259,6 +269,95 @@ export class ContestAccessService {
   }
 
   /** Loads a contest by key, or 404s — for absence and invisibility alike. */
+  /**
+   * Join a contest: live while it runs, virtually once it has ended.
+   *
+   * **Idempotent for a live join.** Joining twice returns the existing
+   * participation rather than creating a second or failing on
+   * `UNIQUE (contest_id, user_id, virtual)`; a retrying client must not be
+   * able to fork its own participation.
+   *
+   * A *virtual* join is deliberately not idempotent — each one is a fresh
+   * attempt, which is the whole meaning of `virtual = n`. A client that
+   * retries a virtual join blindly gets a second attempt, and that is the
+   * correct reading of the request it made twice.
+   */
+  async join(actor: Actor, key: string): Promise<ContestParticipationDto> {
+    const contest = await this.loadVisible(actor, key);
+    const now = new Date();
+
+    if (now < contest.startTime) {
+      throw new AppError(409, 'contest_not_started', 'This contest has not started yet.');
+    }
+    const running = now <= contest.endTime;
+    const existing = await listParticipations(this.db, contest.id, actor.userId);
+
+    if (running) {
+      const live = existing.find((participation) => participation.virtual === LIVE_VIRTUAL);
+      if (live) return this.participationDto(contest, live);
+    }
+
+    // Live joins take `0`; a virtual attempt takes one past the highest the
+    // caller already holds, so a second attempt is `2` even if the first was
+    // made months earlier.
+    const virtual = running
+      ? LIVE_VIRTUAL
+      : Math.max(LIVE_VIRTUAL, ...existing.map((participation) => participation.virtual)) + 1;
+
+    const [inserted] = await this.db
+      .insert(contestParticipations)
+      .values({ contestId: contest.id, userId: actor.userId, virtual, startTime: now })
+      // Concurrent live joins race to the same `(contest, user, 0)` key. The
+      // loser reads the winner's row rather than surfacing a 500, which is
+      // what makes the idempotency claim above true under concurrency and not
+      // merely in sequence.
+      .onConflictDoNothing()
+      .returning({
+        id: contestParticipations.id,
+        virtual: contestParticipations.virtual,
+        startTime: contestParticipations.startTime,
+        isDisqualified: contestParticipations.isDisqualified,
+      });
+    if (inserted) return this.participationDto(contest, inserted);
+
+    const raced = (await listParticipations(this.db, contest.id, actor.userId)).find(
+      (participation) => participation.virtual === virtual,
+    );
+    if (!raced) throw new AppError(409, 'contest_join_conflict', 'Try joining again.');
+    return this.participationDto(contest, raced);
+  }
+
+  /** The caller's own participation, highest `virtual` first. */
+  async myParticipation(actor: Actor, key: string): Promise<ContestParticipationDto> {
+    const contest = await this.loadVisible(actor, key);
+    const [participation] = await listParticipations(this.db, contest.id, actor.userId);
+    // 404 for "you have not joined". The caller already passed this contest's
+    // own visibility check to get here, so this conceals nothing; it is the
+    // not-found shape reused for an empty result.
+    if (!participation) {
+      throw new AppError(404, 'participation_not_found', 'You have not joined this contest.');
+    }
+    return this.participationDto(contest, participation);
+  }
+
+  private participationDto(
+    contest: ContestWindowRow,
+    participation: ParticipationRow,
+  ): ContestParticipationDto {
+    // `endTime` is derived, never stored: a live participation in a contest
+    // with no time limit ends when the contest does, and a virtual one runs
+    // for the contest's duration from its own start.
+    const { endMs } = participationWindow(contest, participation);
+    return {
+      id: participation.id,
+      contestKey: contest.key,
+      virtual: participation.virtual,
+      startTime: participation.startTime.toISOString(),
+      endTime: new Date(endMs).toISOString(),
+      isDisqualified: participation.isDisqualified,
+    };
+  }
+
   private async loadVisible(actor: Actor | null, key: string) {
     const contest = (
       await this.db

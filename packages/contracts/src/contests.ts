@@ -251,5 +251,60 @@ registry.registerPath({
   },
 });
 
+/**
+ * A participation, as returned by `POST /contests/:key/join` and
+ * `GET /contests/:key/me`.
+ *
+ * `virtual` is an integer, not a boolean: `0` is live and `n > 0` is the n-th
+ * virtual attempt, which the `default` format needs in order to exclude
+ * virtuals from first-solve. `-1` is a spectator and is not reachable through
+ * these routes (4d design §3).
+ */
+export const ContestParticipation = z.object({
+  id: z.number().int(),
+  contestKey: z.string(),
+  virtual: z.number().int(),
+  /** `real_start` — when the caller joined, not when their window opens. */
+  startTime: z.string(),
+  /** The instant after which submissions are refused, already derived. */
+  endTime: z.string(),
+  isDisqualified: z.boolean(),
+});
+export type ContestParticipationDto = z.infer<typeof ContestParticipation>;
+
+registry.registerPath({
+  method: 'post',
+  path: '/contests/{key}/join',
+  summary: 'Join a contest — live while it runs, virtually once it has ended',
+  request: { params: ContestKeyParam },
+  responses: {
+    201: {
+      description: 'The participation. Idempotent: joining twice returns the existing one.',
+      content: { 'application/json': { schema: ContestParticipation } },
+    },
+    401: NOT_SIGNED_IN,
+    404: CONTEST_NOT_FOUND,
+    409: {
+      description: 'The contest has not started yet (`contest_not_started`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/contests/{key}/me',
+  summary: "The caller's own participation in this contest",
+  request: { params: ContestKeyParam },
+  responses: {
+    200: {
+      description: 'The participation',
+      content: { 'application/json': { schema: ContestParticipation } },
+    },
+    401: NOT_SIGNED_IN,
+    404: CONTEST_NOT_FOUND,
+  },
+});
+
 export const ContestListQuery = PaginationQuery;
 export type ContestListQueryDto = z.infer<typeof ContestListQuery>;

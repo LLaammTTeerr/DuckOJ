@@ -50,7 +50,8 @@ export { contestSubmissionPoints } from './lower.js';
  * `dmojCompat` is named in exactly one place, the golden suite.
  */
 export type { FormatSemantics } from './lower.js';
-export { participationEndMs, participationStartMs } from './window.js';
+export { isWithinWindow, participationEndMs, participationStartMs } from './window.js';
+export type { WindowContest, WindowParticipant } from './window.js';
 
 /**
  * CPython's `round(value, digits)`. Exported for one reason: anything

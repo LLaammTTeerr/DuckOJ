@@ -13,7 +13,25 @@
  * sentinel DuckOJ has no concept of and no fixture exercises.
  */
 
-import type { ContestSpec, ParticipantSpec } from './types.js';
+import type { Instant } from './types.js';
+
+/**
+ * The minimum a caller must supply. Declared structurally rather than as
+ * `ParticipantSpec`/`ContestSpec` so the API can pass objects derived from
+ * database rows without inventing a `name` or a `points_precision` to satisfy
+ * the fixture shapes — the fixture types still satisfy these. 4d needs the
+ * same window at submit time that the scoreboard uses, and a second
+ * derivation there is the divergence these predicates exist to prevent.
+ */
+export interface WindowParticipant {
+  virtual: number;
+  real_start: Instant;
+}
+export interface WindowContest {
+  start_time: Instant;
+  end_time: Instant;
+  time_limit_seconds: number | null;
+}
 
 export const SPECTATE = -1;
 export const LIVE = 0;
@@ -31,8 +49,8 @@ export function parseInstant(value: string): number {
  * time-limited contests.
  */
 export function participationStartMs(
-  participant: ParticipantSpec,
-  contest: ContestSpec,
+  participant: WindowParticipant,
+  contest: WindowContest,
 ): number {
   const live = participant.virtual === LIVE;
   const spectate = participant.virtual === SPECTATE;
@@ -52,7 +70,7 @@ export function participationStartMs(
  * `contest.end_time` would void submissions DMOJ correctly counts, trading an
  * old bug for a new one.
  */
-export function participationEndMs(participant: ParticipantSpec, contest: ContestSpec): number {
+export function participationEndMs(participant: WindowParticipant, contest: WindowContest): number {
   const contestEndMs = parseInstant(contest.end_time);
   if (participant.virtual === SPECTATE) return contestEndMs;
 

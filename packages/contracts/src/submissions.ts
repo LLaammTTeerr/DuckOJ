@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PaginationQuery, ProblemDetails, Timestamp, cursorPage } from './common.js';
 import { registry } from './registry.js';
+import { CONTEST_KEY } from './contests.js';
 
 export const Verdict = z.enum(['AC', 'WA', 'TLE', 'MLE', 'OLE', 'RTE', 'IR', 'CE', 'IE']);
 
@@ -12,6 +13,16 @@ export const CreateSubmissionRequest = z.object({
   problemCode: z.string().min(1).max(64),
   languageKey: z.string().min(1).max(32),
   source: z.string().min(1).max(64 * 1024),
+  /**
+   * Route this submission into a contest. Omitted, it is an ordinary practice
+   * submission; present, the caller must hold a participation whose window is
+   * open on a contest containing `problemCode`.
+   *
+   * Explicit rather than inferred from session state (4d design §2): the same
+   * call has to mean the same thing every time it is made, because this API is
+   * meant to be driven by agents holding a token.
+   */
+  contestKey: z.string().regex(CONTEST_KEY).optional(),
 });
 export type CreateSubmissionRequestDto = z.infer<typeof CreateSubmissionRequest>;
 

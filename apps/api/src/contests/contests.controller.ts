@@ -3,6 +3,7 @@ import {
   ContestListQuery,
   CreateContestRequest,
   type ContestDetailDto,
+  type ContestParticipationDto,
   type ContestListQueryDto,
   type ContestPageDto,
   type CreateContestRequestDto,
@@ -58,6 +59,33 @@ export class ContestsController {
   @RequireScope('contests:read')
   scoreboard(@MaybeActor() actor: Actor | null, @Param('key') key: string): Promise<ScoreboardDto> {
     return this.contests.getScoreboard(actor, key);
+  }
+
+  /**
+   * Join. Under `contests:write` rather than a scope of its own: a token that
+   * may create a contest may certainly enter one, and splitting out a
+   * narrower `contests:participate` later widens what an existing token is
+   * accepted for, which is backwards compatible. Starting narrow and widening
+   * is not.
+   */
+  @Post(':key/join')
+  @HttpCode(201)
+  @RequireScope('contests:write')
+  join(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+  ): Promise<ContestParticipationDto> {
+    return this.contests.join(actor, key);
+  }
+
+  /** The caller's own participation. Never public: it is about the caller. */
+  @Get(':key/me')
+  @RequireScope('contests:read')
+  me(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+  ): Promise<ContestParticipationDto> {
+    return this.contests.myParticipation(actor, key);
   }
 
   // Deliberately no @Public(): every write requires authentication at the

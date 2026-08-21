@@ -1,6 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, lt, sql } from 'drizzle-orm';
-import { problems, problemRevisions, submissionCases, submissions } from '@duckoj/db/guarded';
+import {
+  contests,
+  contestSubmissions,
+  problems,
+  problemRevisions,
+  submissionCases,
+  submissions,
+} from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import type {
   CreateSubmissionRequestDto,
@@ -12,6 +19,8 @@ import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import type { Actor } from './actor.js';
 import { canViewProblem, loadProblemContext } from './problem.visibility.js';
+import { resolveContestTarget } from './participation.js';
+import { canViewContest, loadContestContext } from './contest.visibility.js';
 import { canViewSubmission, loadSubmissionContext, visibleSubmissionsWhere } from './submission.visibility.js';
 
 /**
@@ -73,8 +82,18 @@ export class SubmissionAccessService {
       throw new AppError(404, 'problem_not_found', 'No such problem.');
     }
 
+    // Resolved BEFORE the transaction opens, and before anything is written.
+    // Every failure here — not joined, window shut, problem not in the
+    // contest — must leave no submission behind: a competitor who is refused
+    // has not used an attempt.
+    const target = input.contestKey
+      ? await this.resolveContest(actor, input.contestKey, problem.id)
+      : null;
+
     // One transaction: a submission must never exist without a job to grade
-    // it, or it would sit at `queued` forever with nothing to move it.
+    // it, or it would sit at `queued` forever with nothing to move it. The
+    // contest row joins it for the same reason — a contest submission that
+    // exists outside its contest is invisible to the scoreboard forever.
     return this.db.transaction(async (tx) => {
       const [submission] = await tx
         .insert(submissions)
@@ -94,8 +113,52 @@ export class SubmissionAccessService {
         packageHash: revision.packageHash,
       });
 
+      if (target) {
+        // No score is stored: `contest_submissions.points` was dropped in
+        // 0010 because nothing read it. The scoreboard rebuilds every score
+        // from `submission_cases` as grading writes them, so this row needs
+        // only to say which participation and which contest problem — and
+        // `judged` needs no contest awareness at all.
+        await tx.insert(contestSubmissions).values({
+          participationId: target.participationId,
+          contestProblemId: target.contestProblemId,
+          submissionId: submission!.id,
+        });
+      }
+
       return { id: submission!.id };
     });
+  }
+
+  /**
+   * Resolves `contestKey` to a participation and contest problem, or throws.
+   *
+   * The contest's own visibility is checked first and answers 404, exactly as
+   * `ContestAccessService` does: submitting must not become a way to discover
+   * that a private contest exists.
+   */
+  private async resolveContest(actor: Actor, key: string, problemId: number) {
+    const contest = (
+      await this.db
+        .select({
+          id: contests.id,
+          key: contests.key,
+          visibility: contests.visibility,
+          createdBy: contests.createdBy,
+          startTime: contests.startTime,
+          endTime: contests.endTime,
+          timeLimitSeconds: contests.timeLimitSeconds,
+        })
+        .from(contests)
+        .where(sql`lower(${contests.key}) = lower(${key})`)
+        .limit(1)
+    )[0];
+    const notFound = new AppError(404, 'contest_not_found', 'No such contest.');
+    if (!contest) throw notFound;
+    const ctx = await loadContestContext(this.db, actor, contest);
+    if (!canViewContest(actor, contest, ctx)) throw notFound;
+
+    return resolveContestTarget(this.db, contest, actor.userId, problemId, new Date());
   }
 
   /**

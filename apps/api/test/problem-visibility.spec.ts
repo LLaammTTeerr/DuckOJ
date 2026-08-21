@@ -12,7 +12,11 @@ const ANON = null;
 const user = (id: number): Actor => ({ userId: id, globalRole: 'user', via: 'session', scopes: [] });
 const admin = (id: number): Actor => ({ ...user(id), globalRole: 'admin' });
 const ctx = (over: Partial<ProblemViewContext> = {}): ProblemViewContext =>
-  ({ memberRoles: [], sharedOrgIds: [], actorOrgIds: [], ...over });
+  // `inJoinedContest` is spelled out rather than left to the spread: a
+  // spread of a `Partial` makes TypeScript accept a literal that omits a
+  // required field, so a new fact added to the context would silently arrive
+  // here as `undefined` instead of failing to compile.
+  ({ memberRoles: [], sharedOrgIds: [], actorOrgIds: [], inJoinedContest: false, ...over });
 
 // Spec §2.4's table has 15 cells; 10 are listed here directly. The other
 // five (admin/public, admin/org, member/public, member/org,
@@ -34,6 +38,13 @@ const CASES: Array<[string, Actor | null, ProblemVisibility, ProblemViewContext,
   ['author sees private',         user(1),  'private', ctx({ memberRoles: ['author'] }), true],
   ['curator sees private',        user(1),  'private', ctx({ memberRoles: ['curator'] }), true],
   ['admin sees private',          admin(9), 'private', ctx(), true],
+  // 4d §5: joining a contest grants access to its problems, independently of
+  // the problem's own visibility — otherwise a contest can only use problems
+  // that leaked before it started.
+  ['contest participant sees private', user(1), 'private', ctx({ inJoinedContest: true }), true],
+  ['contest participant sees org',     user(1), 'org',     ctx({ inJoinedContest: true }), true],
+  // The clause grants nothing on its own: a non-participant is unchanged.
+  ['non-participant still cannot see private', user(1), 'private', ctx({ inJoinedContest: false }), false],
 ];
 
 describe('canViewProblem', () => {

@@ -14,7 +14,6 @@ import {
   submissions,
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
-import { contestSubmissionPoints } from '@duckoj/contest-formats';
 import type { ContestInput, ProblemSpec, TestCaseSpec } from '@duckoj/contest-formats';
 
 /**
@@ -275,9 +274,7 @@ export async function seedGoldenContest(db: Db, input: ContestInput): Promise<Se
   }
 
   // --- submissions, in fixture order, which becomes contest_submissions.id order ---
-  const problemsByCode = new Map(input.problems.map((problem) => [problem.code, problem]));
   for (const submission of input.submissions) {
-    const problem = problemsByCode.get(submission.problem)!;
     const cases: TestCaseSpec[] = submission.cases;
     const [row] = await db
       .insert(submissions)
@@ -326,11 +323,6 @@ export async function seedGoldenContest(db: Db, input: ContestInput): Promise<Se
       participationId: participationIds.get(submission.participant)!,
       contestProblemId: contestProblemIds.get(submission.problem)!,
       submissionId: row!.id,
-      // The same arithmetic the formats recompute on read, imported rather
-      // than reimplemented — `ContestProblem.partial && Problem.partial`, and
-      // DuckOJ has no per-problem flag, so the effective value is the
-      // contest problem's.
-      points: contestSubmissionPoints(cases, { points: problem.points, partial: problem.partial }),
     });
   }
 

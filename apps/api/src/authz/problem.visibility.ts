@@ -1,5 +1,12 @@
-import { and, eq, type SQL } from 'drizzle-orm';
-import { orgMembers, problemMembers, problemOrgs, problems } from '@duckoj/db/guarded';
+import { and, eq, inArray, or, type SQL } from 'drizzle-orm';
+import {
+  contestParticipations,
+  contestProblems,
+  orgMembers,
+  problemMembers,
+  problemOrgs,
+  problems,
+} from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { isAdmin, type Actor } from './actor.js';
 import { canViewVisible, visibleRowsWhere, type Visibility } from './visibility.js';
@@ -24,6 +31,20 @@ export interface ProblemViewContext {
    * has a different answer and needs a different query.
    */
   actorOrgIds: number[];
+  /**
+   * Whether the actor holds a participation in a contest containing this
+   * problem (4d design §5).
+   *
+   * A contest whose problems are already public is a contest whose problems
+   * leaked before it started, so joining has to grant access to them.
+   *
+   * Deliberately **not** gated on that participation's window still being
+   * open: after a contest ends you may re-read what you competed on, and
+   * anyone may join it virtually anyway, which is the same access by a longer
+   * route. Gating it would put contest-window arithmetic inside a SQL
+   * visibility predicate to buy nothing.
+   */
+  inJoinedContest: boolean;
 }
 
 /**
@@ -41,6 +62,9 @@ export function canViewProblem(
   problem: { id: number; visibility: ProblemVisibility },
   ctx: ProblemViewContext,
 ): boolean {
+  // A joined contest grants access on its own, independently of the
+  // problem's own visibility — that is the point of it.
+  if (ctx.inJoinedContest) return true;
   return canViewVisible(actor, problem.visibility, {
     isMember: ctx.memberRoles.length > 0,
     sharedOrgIds: ctx.sharedOrgIds,
@@ -83,7 +107,21 @@ export function canCreateProblem(actor: Actor | null): boolean {
  */
 export function visibleProblemsWhere(db: Db, actor: Actor | null): SQL {
   const userId = actor?.userId ?? 0;
-  return visibleRowsWhere(
+  // The SQL twin of `ctx.inJoinedContest`. Uncorrelated — it does not
+  // reference the outer `problems` row — so it is evaluated once for the whole
+  // page rather than per row.
+  const inJoinedContest = db
+    .select({ problemId: contestProblems.problemId })
+    .from(contestProblems)
+    .innerJoin(
+      contestParticipations,
+      eq(contestParticipations.contestId, contestProblems.contestId),
+    )
+    .where(eq(contestParticipations.userId, userId));
+
+  return or(
+    inArray(problems.id, inJoinedContest),
+    visibleRowsWhere(
     actor,
     { visibility: problems.visibility, id: problems.id },
     {
@@ -96,8 +134,9 @@ export function visibleProblemsWhere(db: Db, actor: Actor | null): SQL {
         .from(problemOrgs)
         .innerJoin(orgMembers, eq(orgMembers.orgId, problemOrgs.orgId))
         .where(eq(orgMembers.userId, userId)),
-    },
-  );
+      },
+    ),
+  )!;
 }
 
 /**
@@ -113,8 +152,10 @@ export async function loadProblemContext(
   actor: Actor | null,
   problemId: number,
 ): Promise<ProblemViewContext> {
-  if (!actor) return { memberRoles: [], sharedOrgIds: [], actorOrgIds: [] };
-  const [roles, orgs] = await Promise.all([
+  if (!actor) {
+    return { memberRoles: [], sharedOrgIds: [], actorOrgIds: [], inJoinedContest: false };
+  }
+  const [roles, orgs, joinedContest] = await Promise.all([
     db
       .select({ role: problemMembers.role })
       .from(problemMembers)
@@ -127,10 +168,25 @@ export async function loadProblemContext(
         and(eq(orgMembers.orgId, problemOrgs.orgId), eq(orgMembers.userId, actor.userId)),
       )
       .where(eq(problemOrgs.problemId, problemId)),
+    db
+      .select({ id: contestProblems.id })
+      .from(contestProblems)
+      .innerJoin(
+        contestParticipations,
+        eq(contestParticipations.contestId, contestProblems.contestId),
+      )
+      .where(
+        and(
+          eq(contestProblems.problemId, problemId),
+          eq(contestParticipations.userId, actor.userId),
+        ),
+      )
+      .limit(1),
   ]);
   return {
     memberRoles: roles.map((r) => r.role),
     sharedOrgIds: orgs.map((o) => o.shared),
     actorOrgIds: orgs.filter((o) => o.mine !== null).map((o) => o.mine!),
+    inJoinedContest: joinedContest.length > 0,
   };
 }

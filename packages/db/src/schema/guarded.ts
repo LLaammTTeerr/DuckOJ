@@ -375,17 +375,6 @@ export const contestSubmissions = pgTable(
     submissionId: bigint('submission_id', { mode: 'number' })
       .notNull()
       .references(() => submissions.id, { onDelete: 'cascade' }),
-    /**
-     * `ContestSubmission.points` — the contest-scaled score of this submission.
-     *
-     * Denormalised per design §3. Note that the scoreboard does NOT read it:
-     * 4b's `lower()` recomputes it from `submission_cases` on every read, and
-     * `ioi16` ignores it entirely in favour of per-batch aggregation. It is
-     * written with the same arithmetic (`contestSubmissionPoints`, exported
-     * from `@duckoj/contest-formats`) so the two can never disagree, and is
-     * kept for the record of what was scored and for the listing screens.
-     */
-    points: doublePrecision('points').notNull(),
   },
   (t) => [uniqueIndex('contest_submissions_submission_idx').on(t.submissionId)],
 );
