@@ -1,0 +1,24 @@
+# Harness image for regenerating the contest goldens.
+#
+# Build with the *online-judge* checkout as the build context:
+#   podman build -t duckoj-contest-goldens \
+#       -f fixtures/contest-goldens/_generator/Containerfile /path/to/online-judge
+#
+# The checkout is only read here to install its requirements; the source itself is
+# bind-mounted read-only at run time so the image does not pin a revision.
+FROM docker.io/library/python:3.12-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      git build-essential pkg-config default-libmysqlclient-dev libmariadb3 \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir -r /tmp/requirements.txt \
+ # `ansi2html` (the qhhoj fork) imports pkg_resources, which Python 3.12 venvs no
+ # longer ship. requirements.txt does not list setuptools; without it `django.setup()`
+ # fails on `judge.jinja2.reference`.
+ && pip install --no-cache-dir "setuptools<81"
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1

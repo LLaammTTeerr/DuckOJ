@@ -1,0 +1,95 @@
+{
+  "contest": {
+    "end_time": "2026-03-01T14:00:00Z",
+    "frozen_last_minutes": 0,
+    "key": "default-06",
+    "name": "default-06",
+    "points_precision": 3,
+    "start_time": "2026-03-01T09:00:00Z",
+    "time_limit_seconds": null
+  },
+  "description": "A worthless submission sent AFTER an accept, on the same problem.",
+  "findings": [
+    "default's `Max('submission__date')` and `Max('points')` are INDEPENDENT aggregates. The recorded time is the last submission on the problem, not the time of the best one — so a zero-point resubmission after an accept raises your cumtime and can cost you the contest.",
+    "legacy_ioi/06-zero-after-accept has identical inputs and does not do this: it takes Min(date) among the best-scoring submissions."
+  ],
+  "format": "default",
+  "format_config": {},
+  "participants": [
+    {
+      "name": "alice",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "bob",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    }
+  ],
+  "problems": [
+    {
+      "code": "a",
+      "name": "a",
+      "partial": true,
+      "points": 100,
+      "problem_partial": true
+    }
+  ],
+  "scenario": "06-zero-after-accept",
+  "sensitivity": {
+    "shift_seconds": -1500,
+    "submission_index": 1,
+    "why": "alice's post-accept junk moves 25 minutes earlier, dropping her cumtime below bob and flipping the ranking."
+  },
+  "submissions": [
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:10:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T10:40:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 100,
+          "status": "AC",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T10:30:00Z",
+      "participant": "bob",
+      "problem": "a",
+      "result": "AC",
+      "status": "D"
+    }
+  ]
+}

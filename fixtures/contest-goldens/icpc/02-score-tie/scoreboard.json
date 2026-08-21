@@ -1,0 +1,116 @@
+{
+  "format": "icpc",
+  "format_config": {
+    "penalty": 20
+  },
+  "label_by_problem": {
+    "a": "A",
+    "b": "B"
+  },
+  "problems": [
+    {
+      "code": "a",
+      "first_solve": "alice",
+      "label": "A",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 3
+    },
+    {
+      "code": "b",
+      "first_solve": "bob",
+      "label": "B",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 2
+    }
+  ],
+  "ranking": [
+    {
+      "cumtime": 70,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 1800.0,
+          "tries": 1
+        },
+        "b": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 2400.0,
+          "tries": 1
+        }
+      },
+      "frozen_cumtime": 70,
+      "frozen_score": 200.0,
+      "frozen_tiebreaker": 40.0,
+      "is_disqualified": false,
+      "participant": "bob",
+      "rank": 1,
+      "score": 200.0,
+      "submission_count": 2,
+      "tiebreaker": 40.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 70,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 600.0,
+          "tries": 1
+        },
+        "b": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 3600.0,
+          "tries": 1
+        }
+      },
+      "frozen_cumtime": 70,
+      "frozen_score": 200.0,
+      "frozen_tiebreaker": 60.0,
+      "is_disqualified": false,
+      "participant": "alice",
+      "rank": 2,
+      "score": 200.0,
+      "submission_count": 2,
+      "tiebreaker": 60.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 45,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 2,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 1500.0,
+          "tries": 2
+        }
+      },
+      "frozen_cumtime": 45,
+      "frozen_score": 100.0,
+      "frozen_tiebreaker": 25.0,
+      "is_disqualified": false,
+      "participant": "carol",
+      "rank": 3,
+      "score": 100.0,
+      "submission_count": 2,
+      "tiebreaker": 25.0,
+      "virtual": 0
+    }
+  ],
+  "scenario": "02-score-tie"
+}

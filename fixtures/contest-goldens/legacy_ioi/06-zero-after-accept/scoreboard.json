@@ -1,0 +1,61 @@
+{
+  "format": "ioi",
+  "format_config": {
+    "cumtime": true,
+    "last_score_altering": true
+  },
+  "label_by_problem": {
+    "a": "1"
+  },
+  "problems": [
+    {
+      "code": "a",
+      "first_solve": "alice",
+      "label": "1",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 2
+    }
+  ],
+  "ranking": [
+    {
+      "cumtime": 600,
+      "format_data": {
+        "a": {
+          "points": 100.0,
+          "time": 600.0
+        }
+      },
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "alice",
+      "rank": 1,
+      "score": 100.0,
+      "submission_count": 2,
+      "tiebreaker": 600.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 5400,
+      "format_data": {
+        "a": {
+          "points": 100.0,
+          "time": 5400.0
+        }
+      },
+      "frozen_cumtime": 0,
+      "frozen_score": 0.0,
+      "frozen_tiebreaker": 0.0,
+      "is_disqualified": false,
+      "participant": "bob",
+      "rank": 2,
+      "score": 100.0,
+      "submission_count": 1,
+      "tiebreaker": 5400.0,
+      "virtual": 0
+    }
+  ],
+  "scenario": "06-zero-after-accept"
+}

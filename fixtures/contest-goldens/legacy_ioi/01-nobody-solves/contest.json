@@ -1,0 +1,114 @@
+{
+  "contest": {
+    "end_time": "2026-03-01T14:00:00Z",
+    "frozen_last_minutes": 0,
+    "key": "legacy-ioi-01",
+    "name": "legacy-ioi-01",
+    "points_precision": 3,
+    "start_time": "2026-03-01T09:00:00Z",
+    "time_limit_seconds": null
+  },
+  "description": "Failed attempts only, with cumtime and last_score_altering enabled.",
+  "findings": [
+    "A zero-score problem records time 0 explicitly (the `else: dt = 0` branch), not the submission time — unlike default, which records the real time.",
+    "cumtime and the tiebreaker stay 0 because neither accumulates for a zero-score problem."
+  ],
+  "format": "ioi",
+  "format_config": {
+    "cumtime": true,
+    "last_score_altering": true
+  },
+  "null_probe": {
+    "because": "legacy_ioi pins the recorded time of a zero-score problem to 0 (`else: dt = 0`), so a failed submission's timing is unobservable.",
+    "shift_seconds": 3600,
+    "submission_index": 0,
+    "why": "a failed submission moves an hour later."
+  },
+  "participants": [
+    {
+      "name": "alice",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    },
+    {
+      "name": "bob",
+      "real_start": "2026-03-01T09:00:00Z",
+      "virtual": 0
+    }
+  ],
+  "problems": [
+    {
+      "code": "a",
+      "name": "a",
+      "partial": true,
+      "points": 100,
+      "problem_partial": true
+    },
+    {
+      "code": "b",
+      "name": "b",
+      "partial": true,
+      "points": 100,
+      "problem_partial": true
+    }
+  ],
+  "scenario": "01-nobody-solves",
+  "sensitivity": {
+    "batch_flip": {
+      "batch": null,
+      "points": 40
+    },
+    "submission_index": 1,
+    "why": "alice's second attempt scores 40 instead of 0, which turns on the time-recording branch for that problem."
+  },
+  "submissions": [
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:05:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:15:00Z",
+      "participant": "alice",
+      "problem": "a",
+      "result": "WA",
+      "status": "D"
+    },
+    {
+      "cases": [
+        {
+          "batch": null,
+          "case": 1,
+          "points": 0,
+          "status": "WA",
+          "total": 100
+        }
+      ],
+      "date": "2026-03-01T09:10:00Z",
+      "participant": "bob",
+      "problem": "b",
+      "result": "WA",
+      "status": "D"
+    }
+  ]
+}

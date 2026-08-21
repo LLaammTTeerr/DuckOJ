@@ -1,0 +1,139 @@
+{
+  "format": "icpc",
+  "format_config": {
+    "penalty": 20
+  },
+  "label_by_problem": {
+    "a": "A",
+    "b": "B"
+  },
+  "problems": [
+    {
+      "code": "a",
+      "first_solve": "alice",
+      "label": "A",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 4
+    },
+    {
+      "code": "b",
+      "first_solve": null,
+      "label": "B",
+      "points": 100,
+      "points_scaling_factor": null,
+      "total_ac": 0
+    }
+  ],
+  "ranking": [
+    {
+      "cumtime": 300,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 18059.0,
+          "tries": 1
+        },
+        "b": {
+          "frozen_points": 0,
+          "frozen_tries": 2,
+          "is_frozen": false,
+          "points": 0.0,
+          "time": 360.0,
+          "tries": 2
+        }
+      },
+      "frozen_cumtime": 300,
+      "frozen_score": 100.0,
+      "frozen_tiebreaker": 300.0,
+      "is_disqualified": false,
+      "participant": "carol",
+      "rank": 1,
+      "score": 100.0,
+      "submission_count": 3,
+      "tiebreaker": 300.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 300,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 18001.0,
+          "tries": 1
+        },
+        "b": {
+          "frozen_points": 0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 0.0,
+          "time": 300.0,
+          "tries": 1
+        }
+      },
+      "frozen_cumtime": 300,
+      "frozen_score": 100.0,
+      "frozen_tiebreaker": 300.0,
+      "is_disqualified": false,
+      "participant": "bob",
+      "rank": 1,
+      "score": 100.0,
+      "submission_count": 2,
+      "tiebreaker": 300.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 300,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 18000.0,
+          "tries": 1
+        }
+      },
+      "frozen_cumtime": 300,
+      "frozen_score": 100.0,
+      "frozen_tiebreaker": 300.0,
+      "is_disqualified": false,
+      "participant": "alice",
+      "rank": 1,
+      "score": 100.0,
+      "submission_count": 1,
+      "tiebreaker": 300.0,
+      "virtual": 0
+    },
+    {
+      "cumtime": 301,
+      "format_data": {
+        "a": {
+          "frozen_points": 100.0,
+          "frozen_tries": 1,
+          "is_frozen": false,
+          "points": 100.0,
+          "time": 18060.0,
+          "tries": 1
+        }
+      },
+      "frozen_cumtime": 301,
+      "frozen_score": 100.0,
+      "frozen_tiebreaker": 301.0,
+      "is_disqualified": false,
+      "participant": "dave",
+      "rank": 4,
+      "score": 100.0,
+      "submission_count": 1,
+      "tiebreaker": 301.0,
+      "virtual": 0
+    }
+  ],
+  "scenario": "03-deadline-boundary"
+}
