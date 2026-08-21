@@ -137,6 +137,7 @@ export class ProblemAccessService {
         revisionId: problemRevisions.id,
         timeMs: problemRevisions.timeMs,
         memoryKb: problemRevisions.memoryKb,
+        testCount: problemRevisions.testCount,
       })
       .from(problems)
       .leftJoin(
@@ -855,6 +856,7 @@ function toSummary(row: {
   revisionId: number | null;
   timeMs: number | null;
   memoryKb: number | null;
+  testCount: number | null;
 }): ProblemSummaryDto {
   return {
     id: row.id,
@@ -864,6 +866,11 @@ function toSummary(row: {
     hasPublishedRevision: row.revisionId !== null,
     timeMs: row.revisionId === null ? null : row.timeMs,
     memoryKb: row.revisionId === null ? null : row.memoryKb,
+    // Guarded on `revisionId` like the two limits above, not returned raw: the
+    // leftJoin is `and(currentRevisionId = id, state = 'published')`, so a
+    // problem whose only revision is a draft joins to nothing and every
+    // revision-derived field must read null rather than a stale value.
+    testCount: row.revisionId === null ? null : row.testCount,
   };
 }
 

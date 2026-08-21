@@ -1457,6 +1457,12 @@
                               "integer",
                               "null"
                             ]
+                          },
+                          "testCount": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
                           }
                         },
                         "required": [
@@ -1466,7 +1472,8 @@
                           "visibility",
                           "hasPublishedRevision",
                           "timeMs",
-                          "memoryKb"
+                          "memoryKb",
+                          "testCount"
                         ]
                       }
                     },
@@ -1619,14 +1626,14 @@
                         "null"
                       ]
                     },
-                    "statement": {
-                      "type": "string"
-                    },
                     "testCount": {
                       "type": [
                         "integer",
                         "null"
                       ]
+                    },
+                    "statement": {
+                      "type": "string"
                     },
                     "totalPoints": {
                       "type": [
@@ -1683,8 +1690,8 @@
                     "hasPublishedRevision",
                     "timeMs",
                     "memoryKb",
-                    "statement",
                     "testCount",
+                    "statement",
                     "totalPoints",
                     "checkerKind",
                     "createdAt",
@@ -1931,14 +1938,14 @@
                         "null"
                       ]
                     },
-                    "statement": {
-                      "type": "string"
-                    },
                     "testCount": {
                       "type": [
                         "integer",
                         "null"
                       ]
+                    },
+                    "statement": {
+                      "type": "string"
                     },
                     "totalPoints": {
                       "type": [
@@ -1995,8 +2002,8 @@
                     "hasPublishedRevision",
                     "timeMs",
                     "memoryKb",
-                    "statement",
                     "testCount",
+                    "statement",
                     "totalPoints",
                     "checkerKind",
                     "createdAt",
@@ -2165,14 +2172,14 @@
                         "null"
                       ]
                     },
-                    "statement": {
-                      "type": "string"
-                    },
                     "testCount": {
                       "type": [
                         "integer",
                         "null"
                       ]
+                    },
+                    "statement": {
+                      "type": "string"
                     },
                     "totalPoints": {
                       "type": [
@@ -2229,8 +2236,8 @@
                     "hasPublishedRevision",
                     "timeMs",
                     "memoryKb",
-                    "statement",
                     "testCount",
+                    "statement",
                     "totalPoints",
                     "checkerKind",
                     "createdAt",

@@ -940,6 +940,7 @@ export interface paths {
                                 hasPublishedRevision: boolean;
                                 timeMs: number | null;
                                 memoryKb: number | null;
+                                testCount: number | null;
                             }[];
                             nextCursor: string | null;
                         };
@@ -1008,8 +1009,8 @@ export interface paths {
                             hasPublishedRevision: boolean;
                             timeMs: number | null;
                             memoryKb: number | null;
-                            statement: string;
                             testCount: number | null;
+                            statement: string;
                             totalPoints: number | null;
                             checkerKind: string | null;
                             /** Format: date-time */
@@ -1145,8 +1146,8 @@ export interface paths {
                             hasPublishedRevision: boolean;
                             timeMs: number | null;
                             memoryKb: number | null;
-                            statement: string;
                             testCount: number | null;
+                            statement: string;
                             totalPoints: number | null;
                             checkerKind: string | null;
                             /** Format: date-time */
@@ -1229,8 +1230,8 @@ export interface paths {
                             hasPublishedRevision: boolean;
                             timeMs: number | null;
                             memoryKb: number | null;
-                            statement: string;
                             testCount: number | null;
+                            statement: string;
                             totalPoints: number | null;
                             checkerKind: string | null;
                             /** Format: date-time */
