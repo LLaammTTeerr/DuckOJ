@@ -118,3 +118,44 @@ render it) · a `public` source-access value · testcase visibility, which is a
 separate DMOJ concept and a separate decision · source visibility during a
 contest, which belongs with Phase 4's contest rules and will likely need to
 override all of the above.
+
+---
+
+## Amendment, 21 Aug 2026 — `source_access` composes with `visibility`
+
+**Status:** implemented (user ruling: *"problem set to private will not let past
+solvers read the source"*).
+
+The design above treats `source_access` as the only gate on the solver clause.
+It is not the only relevant column: `problems.visibility` is independent of it,
+so a problem could be `source_access = 'solved'` **and** `private`, and the
+predicate — which never read `visibility` at all — went on serving its source to
+everyone who had ever solved it.
+
+**The two settings compose to the narrower of the two.** A viewer's `AC` opens
+a problem's submissions only while that viewer can still see the problem, as
+`canViewProblem` defines it.
+
+**Only the solver clause is gated.** The other three are deliberately left
+alone:
+
+- **Own submissions** survive the problem going private. That was already this
+  design's §2.1 and the user restated it; losing sight of a problem must not
+  lose you your own work.
+- **Admin** is unconditional.
+- **Author and curator** are *members*, whom `canViewVisible` already admits to
+  a private problem — gating them would be a no-op that made this rule depend
+  on that coincidence.
+
+**Reused, not restated.** The row form calls `canViewProblem` and the SQL form
+embeds `visibleProblemsWhere`, both from `problem.visibility.ts`. A third
+expression of "may this viewer see this problem" is precisely the divergence
+these predicates exist to prevent, and `loadSubmissionContext` now takes
+`loadProblemContext` — whose own doc comment named this caller in advance —
+instead of running its own `problem_members` query.
+
+**Pinned by:** a named before/after test flipping only `visibility` while
+`source_access` stays `solved`, plus a `private` + `solved` problem added to the
+cross-viewer agreement corpus, so both forms are checked. Mutating either form
+alone reddens; mutating the SQL form alone is caught by the agreement property
+with no test written for that case.

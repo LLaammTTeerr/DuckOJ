@@ -208,6 +208,7 @@ export class SubmissionAccessService {
         problemId: submissions.problemId,
         problemCode: problems.code,
         problemSourceAccess: problems.sourceAccess,
+        problemVisibility: problems.visibility,
         source: submissions.source,
         languageKey: schema.languages.key,
         state: submissions.state,
@@ -242,6 +243,7 @@ export class SubmissionAccessService {
     // one thing this predicate's whole shape exists to prevent.
     const ctx = await loadSubmissionContext(this.db, actor, {
       id: row.problemId,
+      visibility: row.problemVisibility,
       sourceAccess: row.problemSourceAccess,
     });
     if (!canViewSubmission(actor, row.userId, ctx)) {

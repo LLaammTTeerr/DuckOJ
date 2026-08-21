@@ -407,6 +407,14 @@ describe('GET /submissions: the list/read agreement across every viewer kind (de
       // on the migration's DEFAULT and proves the default is closed.
       const solvedProblem = await seedProblemWithSourceAccess(db, { code: 'solved-sa', sourceAccess: 'solved' });
       const defaultProblem = await seedProblemWithSourceAccess(db, { code: 'default-sa' });
+      // Opted into `solved` AND private. The two columns are independent, so
+      // they have to compose to the narrower of the two; a predicate reading
+      // only the flag leaks this problem's source to every past solver.
+      const privateProblem = await seedProblemWithSourceAccess(db, {
+        code: 'private-sa',
+        sourceAccess: 'solved',
+        visibility: 'private',
+      });
       const app = await buildApp(db);
       try {
         const names = ['sam', 'author', 'curator', 'tester', 'solver', 'wa', 'admin'] as const;
@@ -446,6 +454,17 @@ describe('GET /submissions: the list/read agreement across every viewer kind (de
           problemId: defaultProblem.id,
           verdict: 'AC',
         });
+        // An AC on the private-but-opted-in problem, and someone else's
+        // submission to it for the solver to fail to read.
+        const solverAcPrivate = await insertGradedSubmission(db, {
+          userId: ids.solver,
+          problemId: privateProblem.id,
+          verdict: 'AC',
+        });
+        const samOnPrivate = await insertGradedSubmission(db, {
+          userId: ids.sam,
+          problemId: privateProblem.id,
+        });
         // A WA on the `solved` problem: submitting is not solving (§4.5).
         const waOnly = await insertGradedSubmission(db, {
           userId: ids.wa,
@@ -462,8 +481,10 @@ describe('GET /submissions: the list/read agreement across every viewer kind (de
           solverAcSolved,
           solverAcDefault,
           waOnly,
+          solverAcPrivate,
+          samOnPrivate,
         ];
-        expect(corpus).toHaveLength(8);
+        expect(corpus).toHaveLength(10);
 
         for (const name of names) {
           const listed = sorted(await listedIds(agents[name], 3));
@@ -475,8 +496,9 @@ describe('GET /submissions: the list/read agreement across every viewer kind (de
         // "both empty" and by "both everything", so each expected set is
         // spelled out. These are design §2's table, read row by row.
         const expected: Record<(typeof names)[number], number[]> = {
-          // Her own two, and nothing else — no roles, no ACs.
-          sam: [samOnSolved, samOnDefault],
+          // Her own three, and nothing else — no roles, no ACs. The one on
+          // the private problem is hers, so it survives regardless (§2.1).
+          sam: [samOnSolved, samOnDefault, samOnPrivate],
           // Author of `solved-sa`: every submission to it, plus her own.
           author: [samOnSolved, authorOwn, testerOwn, solverAcSolved, waOnly],
           // Curator of `default-sa`: every submission to it, plus her own.
@@ -488,7 +510,19 @@ describe('GET /submissions: the list/read agreement across every viewer kind (de
           tester: [testerOwn],
           // AC on `solved-sa` opens every submission to that problem; the AC
           // on `default-sa` opens nothing, so only her own comes back there.
-          solver: [samOnSolved, authorOwn, testerOwn, solverAcSolved, solverAcDefault, waOnly],
+          // On `private-sa` she holds an AC and the problem opted in — and
+          // still gets only her OWN submission, never sam's. That pair is the
+          // rule: `source_access` and `visibility` compose to the narrower,
+          // so opting in cannot re-expose a problem that has been withdrawn.
+          solver: [
+            samOnSolved,
+            authorOwn,
+            testerOwn,
+            solverAcSolved,
+            solverAcDefault,
+            waOnly,
+            solverAcPrivate,
+          ],
           // A WA is not an AC: her own submission only.
           wa: [waOnly],
           admin: corpus,

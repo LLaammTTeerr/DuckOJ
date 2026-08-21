@@ -115,6 +115,45 @@ describe('submission source visibility (design §2)', () => {
     });
   }, 120_000);
 
+  it('revokes a past solver the moment the problem goes private — the two settings compose to the narrower', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const problem = await seedProblemWithSourceAccess(db, {
+        code: 'goes-private',
+        sourceAccess: 'solved',
+        visibility: 'public',
+      });
+      const app = await buildApp(db);
+      try {
+        const solver = request.agent(app.getHttpServer());
+        await registerAndLogin(solver, 'gp-solver');
+        const solverId = await userIdOf(db, 'gp-solver');
+        const otherId = await userIdOf(db, 'goes-private-owner');
+
+        await insertGradedSubmission(db, { userId: solverId, problemId: problem.id, verdict: 'AC' });
+        const theirs = await insertGradedSubmission(db, { userId: otherId, problemId: problem.id });
+
+        // Open, because the problem is public and opted in.
+        expect((await solver.get(`/submissions/${theirs}`)).status).toBe(200);
+
+        // `source_access` is untouched — only `visibility` moves. Before this
+        // rule the predicate never read `visibility` at all, so this stayed
+        // 200: a problem withdrawn from view went on serving its source to
+        // everyone who had ever solved it.
+        await db.update(problems).set({ visibility: 'private' }).where(eq(problems.id, problem.id));
+        expect((await solver.get(`/submissions/${theirs}`)).status).toBe(404);
+
+        // …and the solver's OWN submission survives it. Losing sight of the
+        // problem must not lose you your own work (§2.1).
+        const own = await solver.get('/submissions');
+        expect(own.status).toBe(200);
+        expect((own.body as { items: { id: number }[] }).items.length).toBeGreaterThan(0);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('refuses a WA-only submitter on a solved-access problem (§4.5)', async () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);

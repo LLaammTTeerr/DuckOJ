@@ -4,7 +4,8 @@ import { alias } from 'drizzle-orm/pg-core';
 import { problemMembers, problems, submissions } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { isAdmin, type Actor } from './actor.js';
-import type { ProblemRole } from './problem.visibility.js';
+import { canViewProblem, loadProblemContext, visibleProblemsWhere } from './problem.visibility.js';
+import type { ProblemRole, ProblemVisibility } from './problem.visibility.js';
 
 /** Mirrors the `problem_source_access` enum — see `guarded.ts` for why there is no `public`. */
 export type SourceAccess = 'private' | 'solved';
@@ -38,6 +39,16 @@ export interface SubmissionViewContext {
    * silently revoke access on every republish.
    */
   viewerHasAc: boolean;
+  /**
+   * `canViewProblem` for this viewer, composed rather than re-derived.
+   *
+   * `source_access` and `visibility` are independent columns, so a problem
+   * can be open to solvers *and* private. Without this fact the solver clause
+   * read the flag alone, and a problem taken private went on serving its past
+   * solvers the source — the two settings composed to the more permissive
+   * one, which is the wrong direction for a pair of access controls.
+   */
+  viewerCanSeeProblem: boolean;
 }
 
 /**
@@ -73,8 +84,16 @@ export function canViewSubmission(actor: Actor, ownerId: number, ctx: Submission
   }
   // The only clause the per-problem flag gates. A viewer's AC buys nothing
   // on a problem that never opted in — which is what makes the migration's
-  // `DEFAULT 'private'` a real closed default rather than a formality.
-  return ctx.sourceAccess === 'solved' && ctx.viewerHasAc;
+  // `DEFAULT 'private'` a real closed default rather than a formality — and
+  // nothing on a problem they can no longer see at all.
+  //
+  // Only this clause is gated on problem visibility. The three above are
+  // deliberately not: your own submission survives the problem going private
+  // (that is the first comment in this function), an admin sees everything,
+  // and an author or curator is a *member*, whom `canViewVisible` admits to a
+  // private problem anyway — gating them would be a no-op that quietly made
+  // this rule depend on that coincidence.
+  return ctx.sourceAccess === 'solved' && ctx.viewerHasAc && ctx.viewerCanSeeProblem;
 }
 
 /**
@@ -89,6 +108,7 @@ export function canViewSubmission(actor: Actor, ownerId: number, ctx: Submission
  * | `ctx.memberRoles` ∩ author/curator      | `problem_id IN (authoredOrCurated)`           |
  * | `ctx.sourceAccess === 'solved'`         | `problem_id IN (openToSolvers)`               |
  * | `ctx.viewerHasAc`                       | `problem_id IN (solvedByMe)`                  |
+ * | `ctx.viewerCanSeeProblem`               | `problem_id IN (visibleProblems)`             |
  *
  * All three subqueries are **uncorrelated** — none references the outer
  * `submissions` row — so this is one query, not one per row: Postgres
@@ -123,6 +143,13 @@ export function visibleSubmissionsWhere(db: Db, actor: Actor): SQL {
   // Fact 1: the problem's flag.
   const openToSolvers = db.select({ id: problems.id }).from(problems).where(eq(problems.sourceAccess, 'solved'));
 
+  // Fact 4: the problems this viewer may see at all, straight from the
+  // problem predicate rather than restated here. `source_access` and
+  // `visibility` are independent columns and must compose to the *narrower*
+  // of the two, so a problem opened to solvers and later taken private stops
+  // serving its source.
+  const visibleProblems = db.select({ id: problems.id }).from(problems).where(visibleProblemsWhere(db, actor));
+
   // Fact 3: the viewer's ACs. Aliased because this is a self-reference —
   // `submissions` is also the outer query's table, and an unaliased inner
   // reference would bind to the inner scope by Postgres' scoping rules but
@@ -136,13 +163,17 @@ export function visibleSubmissionsWhere(db: Db, actor: Actor): SQL {
   return or(
     eq(submissions.userId, actor.userId),
     inArray(submissions.problemId, authoredOrCurated),
-    and(inArray(submissions.problemId, openToSolvers), inArray(submissions.problemId, solvedByMe)),
+    and(
+      inArray(submissions.problemId, openToSolvers),
+      inArray(submissions.problemId, solvedByMe),
+      inArray(submissions.problemId, visibleProblems),
+    ),
   )!;
 }
 
 /**
- * Loads the two per-viewer facts `canViewSubmission` needs for a single
- * submission. The third — the problem's `source_access` — is passed in
+ * Loads the per-viewer facts `canViewSubmission` needs for a single
+ * submission. The problem's own columns — `source_access`, `visibility` — are passed in
  * rather than fetched: `getVisible` already joins `problems` to resolve the
  * problem code, so re-reading the flag here would be a third round trip for
  * a column that query already has in hand.
@@ -154,13 +185,13 @@ export function visibleSubmissionsWhere(db: Db, actor: Actor): SQL {
 export async function loadSubmissionContext(
   db: Db,
   actor: Actor,
-  problem: { id: number; sourceAccess: SourceAccess },
+  problem: { id: number; visibility: ProblemVisibility; sourceAccess: SourceAccess },
 ): Promise<SubmissionViewContext> {
-  const [roles, acs] = await Promise.all([
-    db
-      .select({ role: problemMembers.role })
-      .from(problemMembers)
-      .where(and(eq(problemMembers.problemId, problem.id), eq(problemMembers.userId, actor.userId))),
+  const [problemCtx, acs] = await Promise.all([
+    // The problem predicate's own loader, not a second copy of it. Its doc
+    // comment anticipated this caller by name; taking it also removes the
+    // duplicate `problem_members` query this function used to run.
+    loadProblemContext(db, actor, problem.id),
     db
       .select({ id: submissions.id })
       .from(submissions)
@@ -175,7 +206,8 @@ export async function loadSubmissionContext(
   ]);
   return {
     sourceAccess: problem.sourceAccess,
-    memberRoles: roles.map((r) => r.role),
+    memberRoles: problemCtx.memberRoles,
     viewerHasAc: acs.length > 0,
+    viewerCanSeeProblem: canViewProblem(actor, problem, problemCtx),
   };
 }
