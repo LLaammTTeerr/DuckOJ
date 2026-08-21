@@ -12,7 +12,7 @@ import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import type { Actor } from './actor.js';
 import { canViewProblem, loadProblemContext } from './problem.visibility.js';
-import { canViewSubmission, visibleSubmissionsWhere } from './submission.visibility.js';
+import { canViewSubmission, loadSubmissionContext, visibleSubmissionsWhere } from './submission.visibility.js';
 
 /**
  * The ONLY module permitted to import `@duckoj/db/guarded` for submissions,
@@ -116,9 +116,18 @@ export class SubmissionAccessService {
    *
    * The property that matters most here (spec §4.1): this must produce
    * exactly the ids `getVisible` would answer 200 for, one at a time — no
-   * more. `visibleSubmissionsWhere` is the same function `getVisible`'s
-   * `canViewSubmission` check reduces to, so the two cannot silently diverge
-   * the way two independently-written copies of "yours or admin" could.
+   * more. `visibleSubmissionsWhere` is the SQL twin of the very predicate
+   * `getVisible`'s `canViewSubmission` check applies, written clause for
+   * clause beside it, so the two cannot silently diverge the way two
+   * independently-written copies of the rule could. That mattered when the
+   * rule was "yours or admin"; it matters more now that it also turns on a
+   * problem's `source_access`, the viewer's roles on that problem, and
+   * whether the viewer holds an AC — three facts either form could get
+   * subtly wrong on its own.
+   *
+   * Those three facts arrive as uncorrelated subqueries inside
+   * `visibleSubmissionsWhere`, not as a lookup per row: this stays ONE
+   * query no matter how large the page or the corpus.
    *
    * `user=` is resolved via a join on `schema.users`, not a separate
    * username-to-id lookup: an unknown username, or a real one that simply
@@ -127,7 +136,7 @@ export class SubmissionAccessService {
    * "that user exists but isn't you" would itself be an existence oracle.
    */
   async listVisible(actor: Actor, filters: SubmissionListQueryDto): Promise<SubmissionPageDto> {
-    const conditions = [visibleSubmissionsWhere(actor)];
+    const conditions = [visibleSubmissionsWhere(this.db, actor)];
     if (filters.problem) {
       conditions.push(sql`lower(${problems.code}) = lower(${filters.problem})`);
     }
@@ -178,16 +187,28 @@ export class SubmissionAccessService {
   }
 
   /**
-   * Phase 1 visibility is simply "your own submissions". Phase 4 extends this
-   * with contest rules and per-problem source visibility — which is why every
-   * read goes through here rather than through a handler's own `where`.
+   * Visibility is design §2's table — the submitter, an admin, the problem's
+   * authors/curators, and (only where the problem set `source_access =
+   * 'solved'`) anyone holding an `AC` on it. Every read goes through the one
+   * shared predicate rather than a handler's own `where`, so this and
+   * `listVisible` cannot answer differently; see `submission.visibility.ts`.
+   *
+   * `source` is returned on every submission this answers 200 for. That is
+   * not a separate rule with its own check (design §2.1): the widened
+   * predicate decides whether the *submission* is visible, and the source is
+   * part of the submission. A 200 that withheld the source would mean the
+   * viewer was allowed to see the submission but not what it was, which is
+   * not a state any row of the table describes.
    */
   async getVisible(actor: Actor, id: number): Promise<SubmissionDetailDto> {
     const rows = await this.db
       .select({
         id: submissions.id,
         userId: submissions.userId,
+        problemId: submissions.problemId,
         problemCode: problems.code,
+        problemSourceAccess: problems.sourceAccess,
+        source: submissions.source,
         languageKey: schema.languages.key,
         state: submissions.state,
         verdict: submissions.verdict,
@@ -208,10 +229,22 @@ export class SubmissionAccessService {
     const row = rows[0];
     // 404 rather than 403: that another user's submission exists at this id is
     // itself information we do not disclose. `canViewSubmission` is the same
-    // predicate `listVisible` below applies as a `WHERE` clause — see
+    // predicate `listVisible` above applies as a `WHERE` clause — see
     // `submission.visibility.ts` for why that sharing is load-bearing, not
     // stylistic.
-    if (!row || !canViewSubmission(actor, row.userId)) {
+    if (!row) {
+      throw new AppError(404, 'submission_not_found', 'No such submission.');
+    }
+    // Loaded unconditionally, including for the actor's own row, rather than
+    // short-circuited on "is this mine or am I admin?" first. Those two
+    // clauses live inside `canViewSubmission`; restating either here to skip
+    // two indexed lookups would put half the rule in this file, which is the
+    // one thing this predicate's whole shape exists to prevent.
+    const ctx = await loadSubmissionContext(this.db, actor, {
+      id: row.problemId,
+      sourceAccess: row.problemSourceAccess,
+    });
+    if (!canViewSubmission(actor, row.userId, ctx)) {
       throw new AppError(404, 'submission_not_found', 'No such submission.');
     }
 
@@ -257,6 +290,7 @@ export class SubmissionAccessService {
       id: row.id,
       problemCode: row.problemCode,
       languageKey: row.languageKey,
+      source: row.source,
       state: row.state,
       verdict: row.verdict,
       points: row.points,

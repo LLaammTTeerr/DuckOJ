@@ -6,7 +6,14 @@ import { schema, type Db } from '@duckoj/db';
 import { problems, submissions } from '@duckoj/db/guarded';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
-import { registerAndLogin, seedProblemAndLanguage, seedPrivateProblem } from './submissions.fixtures.js';
+import {
+  grantProblemRole,
+  insertGradedSubmission,
+  registerAndLogin,
+  seedProblemAndLanguage,
+  seedProblemWithSourceAccess,
+  seedPrivateProblem,
+} from './submissions.fixtures.js';
 
 async function userIdOf(db: Db, username: string): Promise<number> {
   const [user] = await db
@@ -20,12 +27,16 @@ async function userIdOf(db: Db, username: string): Promise<number> {
 /**
  * Inserts a submission row directly, bypassing `SubmissionAccessService.create`
  * (and therefore its problem-visibility check) — used to seed a submission on
- * a *private* problem for a user who is not a member of it. `getVisible` /
- * `listVisible` both answer purely on ownership (Phase 1's rule — see
- * `submission.visibility.ts`), never on whether the underlying problem is
- * visible right now, so this is exactly the corpus entry that would catch a
- * `listVisible` accidentally made *stricter* than `getVisible` by routing
- * through the problem-visibility predicate instead.
+ * a *private* problem for a user who is not a member of it. Neither
+ * `getVisible` nor `listVisible` consults whether the underlying problem is
+ * visible right now: ownership is checked first and unconditionally (see
+ * `canViewSubmission`), so your own submission survives the problem going
+ * private or your membership being revoked. That makes this exactly the
+ * corpus entry that would catch a `listVisible` accidentally made *stricter*
+ * than `getVisible` by routing through the problem-visibility predicate
+ * instead — a risk the source-visibility widening did not remove, since that
+ * widening added `problem_members` and `source_access` conditions right
+ * beside the ownership one.
  */
 async function insertRawSubmission(
   db: Db,
@@ -351,4 +362,145 @@ describe('GET /submissions: rejects an invalid cursor with 422, not 500', () => 
       }
     });
   }, 120_000);
+});
+
+/**
+ * Every id `GET /submissions/:id` answers 200 for, *and* — as one walk, not a
+ * second test that could drift — the assertion that a 200 always carries a
+ * `source` string (design §4.2: source is not a separate rule, it rides the
+ * submission the viewer is already allowed to see).
+ */
+async function readableIdsWithSource(agent: SupertestAgent, corpus: number[]): Promise<Set<number>> {
+  const ids = new Set<number>();
+  for (const id of corpus) {
+    const res = await agent.get(`/submissions/${id}`);
+    if (res.status === 200) {
+      ids.add(id);
+      expect(typeof res.body.source, `GET /submissions/${id} returned 200 without a source string`).toBe('string');
+      expect((res.body.source as string).length, `GET /submissions/${id} returned an empty source`).toBeGreaterThan(0);
+    } else {
+      expect(res.status, `GET /submissions/${id} for a non-visible id`).toBe(404);
+    }
+  }
+  return ids;
+}
+
+describe('GET /submissions: the list/read agreement across every viewer kind (design §3, §4.1)', () => {
+  // The same one property the test above pins for "yours or admin", now over
+  // a corpus that exercises every row of design §2's table at once: an
+  // author, a curator, a tester, an AC-holder on a `solved` problem, an
+  // AC-holder on a `private` (defaulted) one, and a WA-only submitter.
+  //
+  // Widening `canViewSubmission` needs three facts the old rule never
+  // touched — the problem's `source_access`, the viewer's `problem_members`
+  // roles, and whether the viewer holds an AC — and `visibleSubmissionsWhere`
+  // must express all three as SQL. This test is what catches the two forms
+  // widening *differently*: a SQL form that forgot the `source_access`
+  // condition leaks `default-sa` submissions into the solver's list while
+  // the single read still 404s them; one that forgot the role subquery drops
+  // the author's own problem's submissions from her list while the read
+  // still allows them. Either way the sets stop being equal.
+  it('produces exactly the ids GET /submissions/:id answers 200 for — author, curator, tester, solver, WA-only, admin', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      // `solved-sa` opts in; `default-sa` passes no flag at all, so it lands
+      // on the migration's DEFAULT and proves the default is closed.
+      const solvedProblem = await seedProblemWithSourceAccess(db, { code: 'solved-sa', sourceAccess: 'solved' });
+      const defaultProblem = await seedProblemWithSourceAccess(db, { code: 'default-sa' });
+      const app = await buildApp(db);
+      try {
+        const names = ['sam', 'author', 'curator', 'tester', 'solver', 'wa', 'admin'] as const;
+        const agents = {} as Record<(typeof names)[number], SupertestAgent>;
+        const ids = {} as Record<(typeof names)[number], number>;
+        for (const name of names) {
+          const agent = request.agent(app.getHttpServer());
+          await registerAndLogin(agent, `vis-${name}`);
+          agents[name] = agent;
+          ids[name] = await userIdOf(db, `vis-${name}`);
+        }
+        await db
+          .update(schema.users)
+          .set({ globalRole: 'admin' })
+          .where(eq(schema.users.username, 'vis-admin'));
+
+        await grantProblemRole(db, solvedProblem.id, ids.author, 'author');
+        await grantProblemRole(db, defaultProblem.id, ids.curator, 'curator');
+        // A tester on the SAME problem the author holds, so "any member"
+        // and "author or curator" produce different answers here (§2.2).
+        await grantProblemRole(db, solvedProblem.id, ids.tester, 'tester');
+
+        const samOnSolved = await insertGradedSubmission(db, { userId: ids.sam, problemId: solvedProblem.id });
+        const samOnDefault = await insertGradedSubmission(db, { userId: ids.sam, problemId: defaultProblem.id });
+        const authorOwn = await insertGradedSubmission(db, { userId: ids.author, problemId: solvedProblem.id });
+        const curatorOwn = await insertGradedSubmission(db, { userId: ids.curator, problemId: defaultProblem.id });
+        const testerOwn = await insertGradedSubmission(db, { userId: ids.tester, problemId: solvedProblem.id });
+        const solverAcSolved = await insertGradedSubmission(db, {
+          userId: ids.solver,
+          problemId: solvedProblem.id,
+          verdict: 'AC',
+        });
+        // An AC on the DEFAULTED problem: it must buy nothing, or the
+        // migration's closed default is not actually closed (§4.3).
+        const solverAcDefault = await insertGradedSubmission(db, {
+          userId: ids.solver,
+          problemId: defaultProblem.id,
+          verdict: 'AC',
+        });
+        // A WA on the `solved` problem: submitting is not solving (§4.5).
+        const waOnly = await insertGradedSubmission(db, {
+          userId: ids.wa,
+          problemId: solvedProblem.id,
+          verdict: 'WA',
+        });
+
+        const corpus = [
+          samOnSolved,
+          samOnDefault,
+          authorOwn,
+          curatorOwn,
+          testerOwn,
+          solverAcSolved,
+          solverAcDefault,
+          waOnly,
+        ];
+        expect(corpus).toHaveLength(8);
+
+        for (const name of names) {
+          const listed = sorted(await listedIds(agents[name], 3));
+          const readable = sorted(await readableIdsWithSource(agents[name], corpus));
+          expect(listed, `vis-${name}: GET /submissions ids`).toEqual(readable);
+        }
+
+        // Non-vacuity, per viewer kind — the property above is satisfied by
+        // "both empty" and by "both everything", so each expected set is
+        // spelled out. These are design §2's table, read row by row.
+        const expected: Record<(typeof names)[number], number[]> = {
+          // Her own two, and nothing else — no roles, no ACs.
+          sam: [samOnSolved, samOnDefault],
+          // Author of `solved-sa`: every submission to it, plus her own.
+          author: [samOnSolved, authorOwn, testerOwn, solverAcSolved, waOnly],
+          // Curator of `default-sa`: every submission to it, plus her own.
+          // `source_access` is irrelevant to a curator — she is row 3 of the
+          // table, not row 4.
+          curator: [samOnDefault, curatorOwn, solverAcDefault],
+          // Tester of `solved-sa`: her own submission and NOTHING else,
+          // even though she is a member of a `solved` problem (§2.2).
+          tester: [testerOwn],
+          // AC on `solved-sa` opens every submission to that problem; the AC
+          // on `default-sa` opens nothing, so only her own comes back there.
+          solver: [samOnSolved, authorOwn, testerOwn, solverAcSolved, solverAcDefault, waOnly],
+          // A WA is not an AC: her own submission only.
+          wa: [waOnly],
+          admin: corpus,
+        };
+        for (const name of names) {
+          expect(sorted(await listedIds(agents[name], 3)), `vis-${name}: expected visible set`).toEqual(
+            sorted(expected[name]),
+          );
+        }
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
 });

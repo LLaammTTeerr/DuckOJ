@@ -2355,6 +2355,13 @@
                     "statement": {
                       "type": "string"
                     },
+                    "sourceAccess": {
+                      "type": "string",
+                      "enum": [
+                        "private",
+                        "solved"
+                      ]
+                    },
                     "totalPoints": {
                       "type": [
                         "number",
@@ -2412,6 +2419,7 @@
                     "memoryKb",
                     "testCount",
                     "statement",
+                    "sourceAccess",
                     "totalPoints",
                     "checkerKind",
                     "createdAt",
@@ -2667,6 +2675,13 @@
                     "statement": {
                       "type": "string"
                     },
+                    "sourceAccess": {
+                      "type": "string",
+                      "enum": [
+                        "private",
+                        "solved"
+                      ]
+                    },
                     "totalPoints": {
                       "type": [
                         "number",
@@ -2724,6 +2739,7 @@
                     "memoryKb",
                     "testCount",
                     "statement",
+                    "sourceAccess",
                     "totalPoints",
                     "checkerKind",
                     "createdAt",
@@ -2816,6 +2832,13 @@
                       "public"
                     ]
                   },
+                  "sourceAccess": {
+                    "type": "string",
+                    "enum": [
+                      "private",
+                      "solved"
+                    ]
+                  },
                   "orgSlugs": {
                     "type": "array",
                     "items": {
@@ -2901,6 +2924,13 @@
                     "statement": {
                       "type": "string"
                     },
+                    "sourceAccess": {
+                      "type": "string",
+                      "enum": [
+                        "private",
+                        "solved"
+                      ]
+                    },
                     "totalPoints": {
                       "type": [
                         "number",
@@ -2958,6 +2988,7 @@
                     "memoryKb",
                     "testCount",
                     "statement",
+                    "sourceAccess",
                     "totalPoints",
                     "checkerKind",
                     "createdAt",
@@ -4265,6 +4296,9 @@
                     "languageKey": {
                       "type": "string"
                     },
+                    "source": {
+                      "type": "string"
+                    },
                     "state": {
                       "type": "string",
                       "enum": [
@@ -4403,6 +4437,7 @@
                     "id",
                     "problemCode",
                     "languageKey",
+                    "source",
                     "state",
                     "verdict",
                     "points",

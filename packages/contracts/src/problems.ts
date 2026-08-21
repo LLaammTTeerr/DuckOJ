@@ -7,6 +7,15 @@ export const PROBLEM_CODE = /^[a-z0-9][a-z0-9_-]{1,63}$/;
 export const ProblemVisibility = z.enum(['private', 'org', 'public']);
 export type ProblemVisibilityDto = z.infer<typeof ProblemVisibility>;
 
+/**
+ * Who, beyond the submitter, an admin, and this problem's authors/curators,
+ * may read submissions to it. `private` is the default every problem starts
+ * on; `solved` additionally admits anyone holding an `AC`. There is no
+ * `public` member — design §2.3.
+ */
+export const ProblemSourceAccess = z.enum(['private', 'solved']);
+export type ProblemSourceAccessDto = z.infer<typeof ProblemSourceAccess>;
+
 export const ProblemRole = z.enum(['author', 'curator', 'tester']);
 export type ProblemRoleDto = z.infer<typeof ProblemRole>;
 
@@ -28,6 +37,11 @@ export const UpdateProblemRequest = z
     name: z.string().min(1).max(200).optional(),
     statement: z.string().max(262_144).optional(),
     visibility: ProblemVisibility.optional(),
+    // Settable over the API, per design §5; the authoring screen does not
+    // render it yet, which is why this is `.optional()` and not part of
+    // `CreateProblemRequest` — a problem is created closed and opened
+    // deliberately, never as a default nobody chose.
+    sourceAccess: ProblemSourceAccess.optional(),
     orgSlugs: z.array(z.string()).optional(),
     members: z.array(ProblemMember).optional(),
   })
@@ -75,6 +89,10 @@ export type ProblemPageDto = z.infer<typeof ProblemPage>;
 
 export const ProblemDetail = ProblemSummary.extend({
   statement: z.string(),
+  // On the detail, not the summary: `PATCH /problems/:code` answers with a
+  // `ProblemDetail`, so without this the round-trip would be write-only —
+  // a client could set the flag and never read back what it now is.
+  sourceAccess: ProblemSourceAccess,
   testCount: z.number().int().nullable(),
   totalPoints: z.number().nullable(),
   checkerKind: z.string().nullable(),

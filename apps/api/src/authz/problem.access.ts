@@ -169,6 +169,7 @@ export class ProblemAccessService {
           name: problems.name,
           statement: problems.statement,
           visibility: problems.visibility,
+          sourceAccess: problems.sourceAccess,
           createdAt: problems.createdAt,
           revisionId: problemRevisions.id,
           timeMs: problemRevisions.timeMs,
@@ -208,6 +209,11 @@ export class ProblemAccessService {
     return {
       ...toSummary(row),
       statement: row.statement,
+      // Not revision-derived, so unlike the three fields below it is never
+      // nulled out on a problem whose only revision is a draft: the flag
+      // lives on the problem itself and is meaningful before anything is
+      // published.
+      sourceAccess: row.sourceAccess,
       testCount: row.revisionId === null ? null : row.testCount,
       totalPoints: row.revisionId === null ? null : row.totalPoints,
       checkerKind: row.revisionId === null ? null : row.checkerKind,
@@ -333,6 +339,13 @@ export class ProblemAccessService {
       if (patch.name !== undefined) set.name = patch.name;
       if (patch.statement !== undefined) set.statement = patch.statement;
       if (patch.visibility !== undefined) set.visibility = patch.visibility;
+      // No extra authorization of its own: reaching here already required
+      // `canEditProblem` (an author, a curator or an admin), which is
+      // exactly the set design §2 lets read the problem's submissions
+      // anyway. A separate rule for who may OPEN source access would let
+      // someone edit a problem they cannot read the submissions of, or the
+      // reverse — neither is a state the table describes.
+      if (patch.sourceAccess !== undefined) set.sourceAccess = patch.sourceAccess;
       if (Object.keys(set).length > 0) {
         await tx.update(problems).set(set).where(eq(problems.id, row.id));
       }
@@ -635,6 +648,7 @@ export class ProblemAccessService {
           name: problems.name,
           statement: problems.statement,
           visibility: problems.visibility,
+          sourceAccess: problems.sourceAccess,
           createdAt: problems.createdAt,
           revisionId: problemRevisions.id,
           timeMs: problemRevisions.timeMs,
@@ -657,6 +671,11 @@ export class ProblemAccessService {
     return {
       ...toSummary(row),
       statement: row.statement,
+      // Not revision-derived, so unlike the three fields below it is never
+      // nulled out on a problem whose only revision is a draft: the flag
+      // lives on the problem itself and is meaningful before anything is
+      // published.
+      sourceAccess: row.sourceAccess,
       testCount: row.revisionId === null ? null : row.testCount,
       totalPoints: row.revisionId === null ? null : row.totalPoints,
       checkerKind: row.revisionId === null ? null : row.checkerKind,
