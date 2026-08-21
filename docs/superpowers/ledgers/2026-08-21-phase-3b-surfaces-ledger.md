@@ -137,3 +137,53 @@ would have caught:
   points as `3/3`, problem-code and username filters.
 - Fonts self-hosted: zero `googleapis`/`gstatic` references in the built
   output, six fingerprinted subsets served, Vietnamese fetched on demand.
+
+---
+
+## Addendum — submission source visibility (branch merged after 3c)
+
+**R13 — the agreement property caught the exact risk it was written for.** The
+spec's §3 warned that widening the row form and the SQL form differently would
+break `GET /submissions` ⟷ `GET /submissions/:id` agreement, and that the
+failure would be a visibility leak rather than a test failure. The implementer
+mutated the **SQL form only** and the agreement test caught it **on its own** —
+no purpose-built test for that case existed or was needed. The property, not a
+scenario, is what held.
+
+The original agreement test survived **byte-identical** (3624 chars, compared
+programmatically), and the widening is covered by a *sibling* test of the same
+one-property shape. That is the outcome the brief demanded: if the existing
+test had needed editing, the widening would have been wrong.
+
+**R14 — no N+1, by construction.** All three new facts are **uncorrelated**
+subqueries, so the list is one query at any corpus size: `source_access` via
+`problem_id IN (SELECT id FROM problems WHERE source_access='solved')`, roles
+via `problem_members` filtered to `author`/`curator` — so testers fall out by
+construction rather than by a downstream filter — and the AC probe via an
+**aliased** self-reference on `submissions`, aliased because an unaliased inner
+reference binds correctly by Postgres' scoping rules but reads to an auditor as
+though it might not.
+
+**R15 — a composition gap, deferred with its boundaries stated.** The
+submission predicate never consults `problems.visibility` (verified: the only
+`visibility` tokens in that module are an import and two comments). So a
+problem left at `source_access = 'solved'` and later made **private** still
+lets past solvers read source on submissions to it.
+
+Two deliberate decisions compose into this: AC is not revision-scoped (§2.4),
+and submission visibility has never consulted problem visibility — a property
+the original agreement test pins. Bounded in practice: only members can submit
+to a private problem, so the newly-readable set is small, and every past solver
+had already seen the problem.
+
+Not fixed here. Adding problem visibility to the submission predicate widens
+the join again and would need the agreement property re-proved; the right place
+is Phase 4's contest override, where source visibility is revisited anyway and
+will likely need to overrule all of this during a contest.
+
+**R16 — the implementer corrected itself, and the code was right.** It wrote a
+test asserting 404 for a non-member opening a `source_access` they may not set;
+the code answered 403. The code is correct — this repo's rule is 404-then-403,
+invisible things 404 and visible-but-unpermitted things 403 — so it fixed the
+test and flagged that for a minute it had looked like a real leak. Reporting a
+false alarm you resolved is worth as much as reporting a defect.
