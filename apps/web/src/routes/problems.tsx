@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { api } from '../api.js';
 import { verdictToken } from './submit.js';
+import { meQueryOptions } from '../me.js';
 
 /**
  * `memoryKb` (what the API returns, and what a problem's manifest stores)
@@ -49,6 +50,7 @@ export function formatMemoryMb(memoryKb: number | null): string {
  * client-side "latest, within the last 100" version was wrong on both axes.
  */
 export function ProblemsPage() {
+  const me = useQuery(meQueryOptions);
   const [q, setQ] = useState('');
 
   const query = useInfiniteQuery({
@@ -77,6 +79,11 @@ export function ProblemsPage() {
   return (
     <section>
       <h1>Problems</h1>
+      {me.data && me.data.globalRole !== 'user' ? (
+        <p>
+          <Link to="/problems/new">New problem</Link>
+        </p>
+      ) : null}
       <label htmlFor="problem-search">Search</label>
       <input id="problem-search" value={q} onChange={(e) => setQ(e.target.value)} />
 
@@ -108,7 +115,11 @@ export function ProblemsPage() {
                     {p.code}
                   </Link>
                 </td>
-                <td>{p.name}</td>
+                <td>
+                  <Link to="/problems/$code" params={{ code: p.code }}>
+                    {p.name}
+                  </Link>
+                </td>
                 {/* Two right-aligned numeric columns, not one free-text
                     cell — tabular numerals only earn their keep when a
                     magnitude lines up under the one above it, which
@@ -118,7 +129,14 @@ export function ProblemsPage() {
                 <td className="num">{formatMemoryMb(p.memoryKb)}</td>
                 <td className="num">{p.testCount ?? '—'}</td>
                 <td>
-                  <span className={`badge ${verdictToken(p.me?.verdict ?? null)}`}>{p.me?.verdict ?? '—'}</span>
+                  {/* No badge at all without a verdict: `pend`'s "." glyph
+                      means "still grading" on the submit screen, and a
+                      problem never attempted is not pending anything. */}
+                  {p.me?.verdict ? (
+                    <span className={`badge ${verdictToken(p.me.verdict)}`}>{p.me.verdict}</span>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
                 </td>
               </tr>
             ))}

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { meQueryOptions } from '../me.js';
 import { api } from '../api.js';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { renderStatement } from '../markdown.js';
@@ -46,6 +47,8 @@ export function ProblemPage(props: { code: string }) {
     retry: false,
   });
 
+  const me = useQuery(meQueryOptions);
+
   if (query.isLoading) return <p>Loading…</p>;
   if (query.isError) {
     return <p role="alert">Could not load this problem. Check your connection and try again.</p>;
@@ -53,6 +56,12 @@ export function ProblemPage(props: { code: string }) {
   if (!query.data) return <p>{NOT_FOUND_MESSAGE}</p>;
 
   const problem = query.data;
+  // Courtesy links only — both target pages re-decide authorization. A
+  // member or a global setter/admin authors; everyone else just reads.
+  const canAuthor =
+    me.data != null &&
+    (me.data.globalRole !== 'user' ||
+      (problem.members ?? []).some((m) => m.username === me.data!.username));
 
   return (
     <section>
@@ -84,7 +93,21 @@ export function ProblemPage(props: { code: string }) {
         {/* A plain <a>, like the /api/v1/docs nav link: the PDF is the
             API's own response, outside this router's tree. On a server
             with no typst configured it answers an honest 501. */}
-        <a href={statementPdfUrl(problem.code)}>PDF</a>
+        <a href={statementPdfUrl(problem.code)}>PDF</a>{' '}
+        <Link to="/submissions" search={{ problem: problem.code }}>
+          Submissions
+        </Link>
+        {canAuthor ? (
+          <>
+            {' '}
+            <Link to="/problems/$code/edit" params={{ code: problem.code }}>
+              Edit
+            </Link>{' '}
+            <Link to="/problems/$code/revisions" params={{ code: problem.code }}>
+              Revisions
+            </Link>
+          </>
+        ) : null}
       </p>
     </section>
   );

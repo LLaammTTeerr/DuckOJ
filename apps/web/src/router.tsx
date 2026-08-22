@@ -8,6 +8,7 @@ import { ProblemPage } from './routes/problem.js';
 import { ProblemEditPage } from './routes/problem-edit.js';
 import { ProblemRevisionsPage } from './routes/problem-revisions.js';
 import { SubmissionsPage } from './routes/submissions.js';
+import { SubmissionPage } from './routes/submission.js';
 import { HomePage } from './routes/home.js';
 import {
   ForgotPasswordPage,
@@ -118,7 +119,13 @@ function RootComponent() {
               {unread > 0 ? `[${String(unread)}]` : '[ ]'}
             </Link>
           ) : null}
-          {me.data ? <span>Signed in as {me.data.displayName}</span> : <Link to="/">Sign in</Link>}
+          {me.data ? (
+            <Link to="/users/$username" params={{ username: me.data.username }}>
+              {me.data.displayName}
+            </Link>
+          ) : (
+            <Link to="/">Sign in</Link>
+          )}
         </div>
       </nav>
       <main>
@@ -217,6 +224,7 @@ function ProblemNewRouteComponent() {
  */
 function SubmissionsRouteComponent() {
   const { me, loginError, needsTotp, handleLogin } = useAuthGate();
+  const search = useSearch({ from: '/submissions' });
   if (me.isLoading) return <p>Loading…</p>;
   if (!me.data) {
     return (
@@ -227,7 +235,12 @@ function SubmissionsRouteComponent() {
       </>
     );
   }
-  return <SubmissionsPage />;
+  return (
+    <SubmissionsPage
+      {...(search.problem !== undefined ? { initialProblem: search.problem } : {})}
+      {...(search.user !== undefined ? { initialUser: search.user } : {})}
+    />
+  );
 }
 
 /**
@@ -283,7 +296,18 @@ const submitRoute = createRoute({
 const submissionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/submissions',
+  // Deep-linkable filters: the problem page links `?problem=`, profiles
+  // link `?user=`. Absent keys are omitted, never present-but-undefined.
+  validateSearch: (search: Record<string, unknown>): { problem?: string; user?: string } => ({
+    ...(typeof search.problem === 'string' ? { problem: search.problem } : {}),
+    ...(typeof search.user === 'string' ? { user: search.user } : {}),
+  }),
   component: SubmissionsRouteComponent,
+});
+const submissionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/submissions/$id',
+  component: SubmissionRouteComponent,
 });
 
 // The three screens Phase 3f's emails link to. `validateSearch` keeps `?token=`
@@ -303,6 +327,10 @@ function ScoreboardRouteComponent() {
 function OrgRouteComponent() {
   const { slug } = useParams({ from: '/orgs/$slug' });
   return <OrgPage slug={slug} />;
+}
+function SubmissionRouteComponent() {
+  const { id } = useParams({ from: '/submissions/$id' });
+  return <SubmissionPage id={Number(id)} />;
 }
 function UserRouteComponent() {
   const { username } = useParams({ from: '/users/$username' });
@@ -387,6 +415,7 @@ const routeTree = rootRoute.addChildren([
   problemRevisionsRoute,
   submitRoute,
   submissionsRoute,
+  submissionRoute,
   forgotPasswordRoute,
   resetPasswordRoute,
   verifyEmailRoute,

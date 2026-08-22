@@ -19,6 +19,10 @@ vi.mock('../src/api.js', () => ({
   },
 }));
 
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children }: { children: React.ReactNode }) => <a href="#">{children}</a>,
+}));
+
 const { AdminPage } = await import('../src/routes/admin.js');
 
 function wrap(ui: React.ReactElement) {

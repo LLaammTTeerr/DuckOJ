@@ -31,9 +31,18 @@ const VERDICTS: VerdictCode[] = ['AC', 'WA', 'TLE', 'MLE', 'OLE', 'RTE', 'IR', '
  * new `queryKey`, not another page of the old one — exactly like
  * `problems.tsx`'s search box.
  */
-export function SubmissionsPage() {
-  const [problem, setProblem] = useState('');
-  const [user, setUser] = useState('');
+export function SubmissionsPage({
+  initialProblem = '',
+  initialUser = '',
+}: {
+  initialProblem?: string;
+  initialUser?: string;
+} = {}) {
+  // Deep-linkable: `/submissions?problem=x&user=y` seeds the filters (the
+  // problem page and profiles link here), after which they are ordinary
+  // local state.
+  const [problem, setProblem] = useState(initialProblem);
+  const [user, setUser] = useState(initialUser);
   const [verdict, setVerdict] = useState<VerdictCode | undefined>(undefined);
 
   const query = useInfiniteQuery({
@@ -114,13 +123,21 @@ export function SubmissionsPage() {
           <tbody>
             {submissions.map((s: Submission) => (
               <tr key={s.id}>
-                <td className="num">{s.id}</td>
+                <td className="num">
+                  <Link to="/submissions/$id" params={{ id: String(s.id) }}>
+                    {s.id}
+                  </Link>
+                </td>
                 <td>
                   <Link to="/problems/$code" params={{ code: s.problemCode }}>
                     {s.problemCode}
                   </Link>
                 </td>
-                <td>{s.username}</td>
+                <td>
+                  <Link to="/users/$username" params={{ username: s.username }}>
+                    {s.username}
+                  </Link>
+                </td>
                 <td>{s.languageKey}</td>
                 <td>
                   <span className={`badge ${verdictToken(s.verdict)}`}>{s.verdict ?? '—'}</span>

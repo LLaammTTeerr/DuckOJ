@@ -259,7 +259,9 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
             <th className="num">Time</th>
             {problems.map((problem) => (
               <th key={problem.code} className="num">
-                {problem.label}
+                <Link to="/problems/$code" params={{ code: problem.code }}>
+                  {problem.label}
+                </Link>
               </th>
             ))}
           </tr>

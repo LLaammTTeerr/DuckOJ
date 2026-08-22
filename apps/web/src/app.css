@@ -221,11 +221,15 @@ a:hover {
 .shell-nav > div {
   max-width: 960px;
   margin: 0 auto;
-  padding: 0 16px;
+  padding: 4px 16px;
   display: flex;
   align-items: center;
-  gap: 20px;
-  height: 38px;
+  /* Wrap, never clip: on a phone the signed-in bar carries eight items,
+     and the first screenshot review caught "Sign in" cut off at 390px. */
+  flex-wrap: wrap;
+  column-gap: 20px;
+  row-gap: 2px;
+  min-height: 38px;
 }
 
 .shell-nav strong {

@@ -113,7 +113,9 @@ export function UserPage({ username }: { username: string }) {
       )}
 
       <p>
-        <Link to="/submissions">All submissions</Link>
+        <Link to="/submissions" search={{ user: username }}>
+          Their submissions
+        </Link>
       </p>
     </section>
   );

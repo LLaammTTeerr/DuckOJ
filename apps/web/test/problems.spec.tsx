@@ -38,6 +38,9 @@ function mockApiGet(handlers: Record<string, unknown>): void {
     Object.entries(handlers).map(([path, value]) => [path, Array.isArray(value) ? [...value] : [value]]),
   );
   mockedGet.mockImplementation((async (path: string) => {
+    // The page polls the shared `['me']` entry for the New-problem link;
+    // default to signed-out unless a test overrides it explicitly.
+    if (path === '/auth/me' && !queues.has(path)) return apiResponse(undefined);
     const queue = queues.get(path);
     if (!queue || queue.length === 0) {
       throw new Error(`unmocked GET ${path}`);
@@ -194,15 +197,18 @@ describe('ProblemsPage', () => {
     expect(within(rows[2]!).getAllByRole('cell')[4]).toHaveTextContent('—');
   });
 
-  it('shows a pending "me" badge for a problem with no `me` on the response, and issues no /submissions request', async () => {
+  it('renders a plain dash — never a "pending" badge — for a problem with no `me`, and issues no /submissions request', async () => {
     mockApiGet({ '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }) });
 
     renderWithClient(<ProblemsPage />);
     await screen.findByText('aplusb');
 
     const row = screen.getAllByRole('row')[1]!;
-    const badge = within(row).getByText('—');
-    expect(badge).toHaveClass('badge', 'pend');
+    // `pend`'s "." glyph means "still grading" on the submit screen; a
+    // problem never attempted is not pending anything.
+    const dash = within(row).getAllByText('—').at(-1)!;
+    expect(dash).not.toHaveClass('badge');
+    expect(dash).not.toHaveClass('pend');
     // `me` is server-computed on `GET /problems` now (spec
     // `2026-08-21-best-verdict-design.md`) — this page never calls
     // `/submissions` at all, signed in or not.
@@ -225,8 +231,8 @@ describe('ProblemsPage', () => {
 
     const rows = screen.getAllByRole('row');
     expect(within(rows[1]!).getByText('AC')).toHaveClass('badge', 'ac');
-    // bplusc: `me: null` on the response, so still pending.
-    expect(within(rows[2]!).getByText('—')).toHaveClass('badge', 'pend');
+    // bplusc: `me: null` on the response — a plain dash, not a badge.
+    expect(within(rows[2]!).getByText('—')).toHaveClass('muted');
 
     // Exactly the one call to /problems — never /submissions.
     expect(mockedGet.mock.calls.filter((c) => c[0] === '/problems')).toHaveLength(1);
@@ -332,5 +338,39 @@ describe('ProblemPage', () => {
     renderWithClient(<ProblemPage code="does-not-exist" />);
 
     expect(await screen.findByText('No such problem.')).toBeInTheDocument();
+  });
+});
+
+describe('ProblemPage authoring links', () => {
+  const DETAIL = {
+    ...PROBLEM_A,
+    statement: 'Add.',
+    testCount: 3,
+    totalPoints: 100,
+    checkerKind: 'wcmp',
+    createdAt: '2026-01-01T00:00:00Z',
+    members: [{ username: 'kim', role: 'owner' }],
+  };
+
+  it('a listed member sees Edit and Revisions; the Submissions link is for everyone', async () => {
+    mockApiGet({
+      '/problems/{code}': apiResponse(DETAIL),
+      '/auth/me': apiResponse({ username: 'kim', displayName: 'Kim', globalRole: 'user' }),
+    });
+    renderWithClient(<ProblemPage code="aplusb" />);
+    expect(await screen.findByRole('link', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Revisions' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Submissions' })).toBeInTheDocument();
+  });
+
+  it('a plain signed-in stranger gets no authoring links', async () => {
+    mockApiGet({
+      '/problems/{code}': apiResponse(DETAIL),
+      '/auth/me': apiResponse({ username: 'stranger', displayName: 'S', globalRole: 'user' }),
+    });
+    renderWithClient(<ProblemPage code="aplusb" />);
+    await screen.findByRole('link', { name: 'Submissions' });
+    expect(screen.queryByRole('link', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Revisions' })).toBeNull();
   });
 });

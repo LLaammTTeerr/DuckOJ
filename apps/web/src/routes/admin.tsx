@@ -13,6 +13,7 @@
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { meQueryOptions } from '../me.js';
@@ -117,7 +118,11 @@ function RateContests() {
           <tbody>
             {contests.data.items.map((contest: Contest) => (
               <tr key={contest.key}>
-                <td>{contest.name}</td>
+                <td>
+                  <Link to="/contests/$key" params={{ key: contest.key }}>
+                    {contest.name}
+                  </Link>
+                </td>
                 <td>{contest.isRated ? 'rated' : '—'}</td>
                 <td>
                   <button type="button" onClick={() => void setRated(contest.key, !contest.isRated)}>

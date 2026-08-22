@@ -97,6 +97,40 @@ describe('SubmissionsPage', () => {
     expect(await screen.findByRole('link', { name: 'aplusb' })).toHaveAttribute('href', '/problems/aplusb');
   });
 
+  it('links the id to the detail page and the user to their profile', async () => {
+    mockedGet.mockResolvedValueOnce({
+      data: { items: [SUBMISSION_A], nextCursor: null },
+      error: undefined,
+      response: new Response(),
+    } as never);
+
+    renderWithClient(<SubmissionsPage />);
+
+    expect(await screen.findByRole('link', { name: '42' })).toHaveAttribute('href', '/submissions/42');
+    expect(screen.getByRole('link', { name: SUBMISSION_A.username })).toHaveAttribute(
+      'href',
+      `/users/${SUBMISSION_A.username}`,
+    );
+  });
+
+  it('seeds the filters from the deep link, and queries with them from the first request', async () => {
+    mockedGet.mockResolvedValue({
+      data: { items: [], nextCursor: null },
+      error: undefined,
+      response: new Response(),
+    } as never);
+
+    renderWithClient(<SubmissionsPage initialProblem="aplusb" initialUser="kim" />);
+    await screen.findByText(/no submissions/i);
+
+    const [, options] = mockedGet.mock.calls[0] as unknown as [
+      string,
+      { params: { query: Record<string, string> } },
+    ];
+    expect(options.params.query.problem).toBe('aplusb');
+    expect(options.params.query.user).toBe('kim');
+  });
+
   it('re-queries with a problem filter when the problem field changes', async () => {
     mockedGet.mockResolvedValue({
       data: { items: [SUBMISSION_A], nextCursor: null },
