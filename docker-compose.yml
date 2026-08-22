@@ -64,6 +64,9 @@ services:
       # filesystem). apps/api/Dockerfile pre-creates and chowns this path so
       # the unprivileged `node` user can write to it on first use.
       PACKAGE_STORE_DIR: /var/lib/duckoj/packages
+      # Statement PDFs (Phase 7b): the binary is baked into the image with
+      # the mitex cache pre-seeded; unset this to turn the route back to 501.
+      TYPST_BIN: /usr/local/bin/typst
     volumes:
       - package_store:/var/lib/duckoj/packages
     # This condition is correct per the Compose spec and is left in place for
