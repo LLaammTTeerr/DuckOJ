@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import {
+  contestParticipations,
   contests,
   contestSubmissions,
   problems,
@@ -208,6 +209,23 @@ export class SubmissionAccessService {
     }
     if (filters.verdict) {
       conditions.push(eq(submissions.verdict, filters.verdict));
+    }
+    if (filters.contest) {
+      // Submissions made INTO the contest — rows in `contest_submissions` —
+      // not practice submissions that merely target its problems. Which of
+      // them the caller may actually see is still `visibleSubmissionsWhere`
+      // above; this only narrows, so a private contest's key leaks nothing
+      // the caller could not already list.
+      const inContest = this.db
+        .select({ id: contestSubmissions.submissionId })
+        .from(contestSubmissions)
+        .innerJoin(
+          contestParticipations,
+          eq(contestParticipations.id, contestSubmissions.participationId),
+        )
+        .innerJoin(contests, eq(contests.id, contestParticipations.contestId))
+        .where(sql`lower(${contests.key}) = lower(${filters.contest})`);
+      conditions.push(inArray(submissions.id, inContest));
     }
     const before = parseCursor(filters.cursor);
     if (before !== undefined) {

@@ -120,7 +120,7 @@ describe('SubmissionsPage', () => {
       response: new Response(),
     } as never);
 
-    renderWithClient(<SubmissionsPage initialProblem="aplusb" initialUser="kim" />);
+    renderWithClient(<SubmissionsPage initialProblem="aplusb" initialUser="kim" initialContest="spring" />);
     await screen.findByText(/no submissions/i);
 
     const [, options] = mockedGet.mock.calls[0] as unknown as [
@@ -129,6 +129,7 @@ describe('SubmissionsPage', () => {
     ];
     expect(options.params.query.problem).toBe('aplusb');
     expect(options.params.query.user).toBe('kim');
+    expect(options.params.query.contest).toBe('spring');
   });
 
   it('re-queries with a problem filter when the problem field changes', async () => {

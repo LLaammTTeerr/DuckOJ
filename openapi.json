@@ -6325,6 +6325,15 @@
             "required": false,
             "name": "verdict",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "required": false,
+            "name": "contest",
+            "in": "query"
           }
         ],
         "responses": {

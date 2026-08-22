@@ -34,26 +34,36 @@ const VERDICTS: VerdictCode[] = ['AC', 'WA', 'TLE', 'MLE', 'OLE', 'RTE', 'IR', '
 export function SubmissionsPage({
   initialProblem = '',
   initialUser = '',
+  initialContest = '',
 }: {
   initialProblem?: string;
   initialUser?: string;
+  initialContest?: string;
 } = {}) {
   // Deep-linkable: `/submissions?problem=x&user=y` seeds the filters (the
   // problem page and profiles link here), after which they are ordinary
   // local state.
   const [problem, setProblem] = useState(initialProblem);
   const [user, setUser] = useState(initialUser);
+  const [contest, setContest] = useState(initialContest);
   const [verdict, setVerdict] = useState<VerdictCode | undefined>(undefined);
 
   const query = useInfiniteQuery({
-    queryKey: ['submissions', problem, user, verdict],
+    queryKey: ['submissions', problem, user, contest, verdict],
     queryFn: async ({ pageParam }: { pageParam: string | undefined }) => {
       // Same `exactOptionalPropertyTypes` reasoning as problems.tsx's
       // `queryParams`: an absent filter must be OMITTED from the query
       // object, not present with value `undefined`.
-      const queryParams: { problem?: string; user?: string; verdict?: VerdictCode; cursor?: string } = {};
+      const queryParams: {
+        problem?: string;
+        user?: string;
+        contest?: string;
+        verdict?: VerdictCode;
+        cursor?: string;
+      } = {};
       if (problem !== '') queryParams.problem = problem;
       if (user !== '') queryParams.user = user;
+      if (contest !== '') queryParams.contest = contest;
       if (verdict !== undefined) queryParams.verdict = verdict;
       if (pageParam !== undefined) queryParams.cursor = pageParam;
       const { data, error } = await api.GET('/submissions', { params: { query: queryParams } });
@@ -88,6 +98,15 @@ export function SubmissionsPage({
           placeholder="username"
           value={user}
           onChange={(e) => setUser(e.target.value)}
+        />
+      </div>
+      <div className="field">
+        <span>%</span>
+        <input
+          aria-label="Filter by contest key"
+          placeholder="contest key"
+          value={contest}
+          onChange={(e) => setContest(e.target.value)}
         />
       </div>
       <label htmlFor="submissions-verdict">Verdict</label>

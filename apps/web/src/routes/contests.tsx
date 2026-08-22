@@ -83,6 +83,7 @@ export function ContestsPage() {
 
 export function ContestPage({ contestKey }: { contestKey: string }) {
   const client = useQueryClient();
+  const me = useQuery(meQueryOptions);
   const [joinError, setJoinError] = useState<string | null>(null);
 
   const contest = useQuery({
@@ -192,7 +193,21 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
       <p>
         <Link to="/contests/$key/scoreboard" params={{ key: contestKey }}>
           Scoreboard
+        </Link>{' '}
+        {/* Submissions made INTO this contest (`?contest=`), not practice
+            submissions to its problems — the same distinction the submit
+            links above are explicit about. */}
+        <Link to="/submissions" search={{ contest: contestKey }}>
+          All submissions
         </Link>
+        {me.data ? (
+          <>
+            {' '}
+            <Link to="/submissions" search={{ contest: contestKey, user: me.data.username }}>
+              My submissions
+            </Link>
+          </>
+        ) : null}
       </p>
     </section>
   );

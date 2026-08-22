@@ -171,3 +171,24 @@ describe('ScoreboardPage', () => {
     expect(await screen.findByText(/nobody has competed/i)).toBeInTheDocument();
   });
 });
+
+describe('contest submissions links', () => {
+  it('links All submissions for everyone and My submissions only when signed in', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}') return Promise.resolve({ data: RUNNING });
+      if (path === '/auth/me')
+        return Promise.resolve({ data: { username: 'kim', displayName: 'Kim', globalRole: 'user' } });
+      return Promise.resolve({ data: undefined });
+    });
+    wrap(<ContestPage contestKey="spring" />);
+    expect(await screen.findByRole('link', { name: 'All submissions' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'My submissions' })).toBeInTheDocument();
+
+    get.mockImplementation((path: string) =>
+      path === '/contests/{key}' ? Promise.resolve({ data: RUNNING }) : Promise.resolve({ data: undefined }),
+    );
+    wrap(<ContestPage contestKey="spring" />);
+    expect((await screen.findAllByRole('link', { name: 'All submissions' })).length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole('link', { name: 'My submissions' })).toHaveLength(1);
+  });
+});

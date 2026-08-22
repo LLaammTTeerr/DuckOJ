@@ -95,8 +95,16 @@ export function ProblemPage(props: { code: string }) {
             with no typst configured it answers an honest 501. */}
         <a href={statementPdfUrl(problem.code)}>PDF</a>{' '}
         <Link to="/submissions" search={{ problem: problem.code }}>
-          Submissions
+          All submissions
         </Link>
+        {me.data ? (
+          <>
+            {' '}
+            <Link to="/submissions" search={{ problem: problem.code, user: me.data.username }}>
+              My submissions
+            </Link>
+          </>
+        ) : null}
         {canAuthor ? (
           <>
             {' '}

@@ -79,6 +79,13 @@ export const SubmissionListQuery = PaginationQuery.extend({
   problem: z.string().max(64).optional(),
   user: z.string().max(64).optional(),
   verdict: Verdict.optional(),
+  /**
+   * A contest key: only submissions made *into* that contest (rows in
+   * `contest_submissions`), not practice submissions to its problems. An
+   * unknown or invisible key is an empty page, same as an unknown user —
+   * anything else is an existence oracle.
+   */
+  contest: z.string().max(64).optional(),
 });
 export type SubmissionListQueryDto = z.infer<typeof SubmissionListQuery>;
 

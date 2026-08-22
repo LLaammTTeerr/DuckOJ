@@ -3273,6 +3273,7 @@ export interface paths {
                     problem?: string;
                     user?: string;
                     verdict?: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                    contest?: string;
                 };
                 header?: never;
                 path?: never;

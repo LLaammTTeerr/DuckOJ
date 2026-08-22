@@ -360,7 +360,8 @@ describe('ProblemPage authoring links', () => {
     renderWithClient(<ProblemPage code="aplusb" />);
     expect(await screen.findByRole('link', { name: 'Edit' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Revisions' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Submissions' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'All submissions' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'My submissions' })).toBeInTheDocument();
   });
 
   it('a plain signed-in stranger gets no authoring links', async () => {
@@ -369,7 +370,7 @@ describe('ProblemPage authoring links', () => {
       '/auth/me': apiResponse({ username: 'stranger', displayName: 'S', globalRole: 'user' }),
     });
     renderWithClient(<ProblemPage code="aplusb" />);
-    await screen.findByRole('link', { name: 'Submissions' });
+    await screen.findByRole('link', { name: 'All submissions' });
     expect(screen.queryByRole('link', { name: 'Edit' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Revisions' })).toBeNull();
   });

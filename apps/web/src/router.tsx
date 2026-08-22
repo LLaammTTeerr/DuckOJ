@@ -239,6 +239,7 @@ function SubmissionsRouteComponent() {
     <SubmissionsPage
       {...(search.problem !== undefined ? { initialProblem: search.problem } : {})}
       {...(search.user !== undefined ? { initialUser: search.user } : {})}
+      {...(search.contest !== undefined ? { initialContest: search.contest } : {})}
     />
   );
 }
@@ -298,9 +299,12 @@ const submissionsRoute = createRoute({
   path: '/submissions',
   // Deep-linkable filters: the problem page links `?problem=`, profiles
   // link `?user=`. Absent keys are omitted, never present-but-undefined.
-  validateSearch: (search: Record<string, unknown>): { problem?: string; user?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { problem?: string; user?: string; contest?: string } => ({
     ...(typeof search.problem === 'string' ? { problem: search.problem } : {}),
     ...(typeof search.user === 'string' ? { user: search.user } : {}),
+    ...(typeof search.contest === 'string' ? { contest: search.contest } : {}),
   }),
   component: SubmissionsRouteComponent,
 });
