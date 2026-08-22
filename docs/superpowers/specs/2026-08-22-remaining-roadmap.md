@@ -5,7 +5,8 @@
 Each phase: tests mutation-checked, committed, CI green before the next.
 Strike a line through a phase when its ledger exists.
 
-Done: 5b, 5c, 5d, 5e, 6a, 6b (ledgers in docs/superpowers/ledgers/).
+Done: 5b, 5c, 5d, 5e, 6a, 6b, 7a, 7c (ledgers in docs/superpowers/ledgers/).
+Parked: 7b — needs a typst binary; install needs the user's ask (see 7c ledger).
 
 1. **5b — rank bands (D6).** Pure band table in `packages/glicko2`
    (`bands.ts`), Codeforces-shaped thresholds, placeholder names.

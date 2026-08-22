@@ -199,6 +199,12 @@ importers:
         specifier: ^4.23.12
         version: 4.23.12
 
+  apps/oj:
+    dependencies:
+      '@duckoj/sdk':
+        specifier: workspace:^
+        version: link:../../packages/sdk
+
   apps/web:
     dependencies:
       '@duckoj/api-prefix':
