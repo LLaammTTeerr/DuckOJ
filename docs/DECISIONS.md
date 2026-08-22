@@ -137,9 +137,13 @@ request received (to deciders), org join request decided (to requester),
 global role granted. No email digests, no per-kind preferences — both are
 easy to add and impossible to remove.
 
-## D15 — Statement rendering is a port; the Typst adapter needs a binary
+## D15 — Statement rendering is parked; nothing was built
 
-Modelled on `Mailer`: a `StatementRenderer` port with a null default. The
-real Typst/PDF adapter activates only where a `typst` binary already
-exists — installing one requires asking, and the standing
-ask-before-installing instruction outranks "don't stop".
+First drafted as a `StatementRenderer` port modelled on `Mailer`, with a
+Typst adapter activating where a `typst` binary exists. **No binary
+exists on this machine**, installing one requires asking (the standing
+ask-before-installing instruction outranks "don't stop"), and a port
+with a null adapter and no consumer is dead scaffolding — so nothing
+was built (2026-08-22 ruling, Phase 7c ledger). Statements render fully
+today via Markdown+KaTeX. Open user decision: approve a typst install,
+or take a print stylesheet as the cheaper onsite-PDF answer.
