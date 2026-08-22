@@ -9,6 +9,11 @@ import { ProblemEditPage } from './routes/problem-edit.js';
 import { ProblemRevisionsPage } from './routes/problem-revisions.js';
 import { SubmissionsPage } from './routes/submissions.js';
 import { HomePage } from './routes/home.js';
+import {
+  ForgotPasswordPage,
+  ResetPasswordPage,
+  VerifyEmailPage,
+} from './routes/account-recovery.js';
 import { api } from './api.js';
 // `meQueryOptions` moved to `./me.js` (see that file's doc comment) so
 // `routes/problems.tsx` — which needs the viewer's username for the `me`
@@ -25,6 +30,22 @@ import { meQueryOptions } from './me.js';
  * pre-router behaviour where every navigation was a full page load. Only
  * `me` itself (via `meQueryOptions`, above) is shared.
  */
+
+/**
+ * The only route into password recovery.
+ *
+ * Rendered beside `LoginForm` rather than inside it: that component is
+ * deliberately router-free so its tests can render it bare, and a `<Link>`
+ * inside it needs a router context they do not build.
+ */
+function RecoveryLink() {
+  return (
+    <p className="muted">
+      <Link to="/forgot-password">Forgotten your password?</Link>
+    </p>
+  );
+}
+
 function useAuthGate() {
   const client = useQueryClient();
   const me = useQuery(meQueryOptions);
@@ -97,7 +118,12 @@ function IndexComponent() {
   return (
     <>
       <HomePage me={me.data ?? null} />
-      {me.data ? null : <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />}
+      {me.data ? null : (
+        <>
+          <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />
+          <RecoveryLink />
+        </>
+      )}
     </>
   );
 }
@@ -122,6 +148,7 @@ function SubmitRouteComponent() {
       <>
         <p>Sign in to submit a solution.</p>
         <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />
+        <RecoveryLink />
       </>
     );
   }
@@ -172,6 +199,7 @@ function SubmissionsRouteComponent() {
       <>
         <p>Sign in to see submissions.</p>
         <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />
+        <RecoveryLink />
       </>
     );
   }
@@ -230,6 +258,30 @@ const submissionsRoute = createRoute({
   component: SubmissionsRouteComponent,
 });
 
+// The three screens Phase 3f's emails link to. `validateSearch` keeps `?token=`
+// off `unknown` — the pages read it through `useSearch`, and a missing token is
+// a state each of them handles rather than a crash.
+const tokenSearch = (search: Record<string, unknown>): { token?: string } =>
+  typeof search.token === 'string' ? { token: search.token } : {};
+
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/forgot-password',
+  component: ForgotPasswordPage,
+});
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/reset-password',
+  validateSearch: tokenSearch,
+  component: ResetPasswordPage,
+});
+const verifyEmailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/verify-email',
+  validateSearch: tokenSearch,
+  component: VerifyEmailPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   problemsRoute,
@@ -239,6 +291,9 @@ const routeTree = rootRoute.addChildren([
   problemRevisionsRoute,
   submitRoute,
   submissionsRoute,
+  forgotPasswordRoute,
+  resetPasswordRoute,
+  verifyEmailRoute,
 ]);
 
 export const router = createRouter({ routeTree });
