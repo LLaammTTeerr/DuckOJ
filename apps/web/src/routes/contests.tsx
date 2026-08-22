@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { meQueryOptions } from '../me.js';
 
 type Contest = paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
@@ -22,6 +23,7 @@ function phaseOf(contest: { startTime: string; endTime: string }): string {
 }
 
 export function ContestsPage() {
+  const me = useQuery(meQueryOptions);
   const query = useQuery({
     queryKey: ['contests'],
     queryFn: async () => {
@@ -37,6 +39,11 @@ export function ContestsPage() {
   return (
     <section className="panel">
       <h1>Contests</h1>
+      {me.data && me.data.globalRole !== 'user' ? (
+        <p>
+          <Link to="/contests/new">New contest</Link>
+        </p>
+      ) : null}
       {query.isPending ? <p className="muted">Loading…</p> : null}
       {query.error ? <p role="alert">{query.error.message}</p> : null}
       {query.data && query.data.items.length === 0 ? (

@@ -15,6 +15,8 @@ import {
   VerifyEmailPage,
 } from './routes/account-recovery.js';
 import { ContestPage, ContestsPage, ScoreboardPage } from './routes/contests.js';
+import { ContestNewPage } from './routes/contest-new.js';
+import { TokensPage } from './routes/tokens.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
 import { AdminPage } from './routes/admin.js';
@@ -110,6 +112,7 @@ function RootComponent() {
           <Link to="/submissions">Submissions</Link>
           <a href="/api/v1/docs">API</a>
           {me.data?.globalRole === 'admin' ? <Link to="/admin">Admin</Link> : null}
+          {me.data ? <Link to="/account/tokens">Tokens</Link> : null}
           {me.data ? (
             <Link to="/notifications" aria-label={`Notifications, ${String(unread)} unread`}>
               {unread > 0 ? `[${String(unread)}]` : '[ ]'}
@@ -311,6 +314,11 @@ const contestsRoute = createRoute({
   path: '/contests',
   component: ContestsPage,
 });
+const contestNewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/contests/new',
+  component: ContestNewPage,
+});
 const contestRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/contests/$key',
@@ -330,6 +338,11 @@ const orgRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/orgs/$slug',
   component: OrgRouteComponent,
+});
+const tokensRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/account/tokens',
+  component: TokensPage,
 });
 const notificationsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -378,10 +391,12 @@ const routeTree = rootRoute.addChildren([
   resetPasswordRoute,
   verifyEmailRoute,
   contestsRoute,
+  contestNewRoute,
   contestRoute,
   scoreboardRoute,
   orgsRoute,
   orgRoute,
+  tokensRoute,
   notificationsRoute,
   adminRoute,
   userRoute,

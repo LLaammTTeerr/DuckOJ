@@ -68,6 +68,44 @@ export function ProblemRevisionsPage(props: { code: string }) {
   const [publishingVersion, setPublishingVersion] = useState<number | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
 
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadHash, setUploadHash] = useState('');
+  const [archive, setArchive] = useState<File | null>(null);
+
+  /**
+   * Browser upload of a built archive (Phase 5f). The hash is pasted from
+   * `package:build`'s output rather than computed here: the package hash is
+   * over the *unpacked file digests* (tar+zstd), which a browser cannot
+   * cheaply recompute — and the server recomputes and verifies it anyway,
+   * so a typo is a 422, never a wrong package. On success the attach field
+   * is prefilled, making upload → attach two clicks.
+   */
+  async function handleUpload(): Promise<void> {
+    if (!archive) return;
+    setUploadBusy(true);
+    setUploadError(null);
+    try {
+      const { error } = await api.POST('/packages', {
+        params: { query: { hash: uploadHash } },
+        body: await archive.arrayBuffer(),
+        bodySerializer: (body: ArrayBuffer) => body,
+        headers: { 'content-type': 'application/octet-stream' },
+      } as never);
+      if (error) {
+        setUploadError((error as { code?: string }).code ?? 'upload failed');
+        return;
+      }
+      setPackageHash(uploadHash);
+      setUploadHash('');
+      setArchive(null);
+    } catch {
+      setUploadError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setUploadBusy(false);
+    }
+  }
+
   async function handleAttach(): Promise<void> {
     setAttachBusy(true);
     setAttachError(null);
@@ -116,6 +154,26 @@ export function ProblemRevisionsPage(props: { code: string }) {
   return (
     <section>
       <h1>Revisions — {code}</h1>
+
+      <div>
+        <label htmlFor="package-archive">Upload package</label>
+        <input
+          id="package-archive"
+          type="file"
+          accept=".zst,.tar.zst"
+          onChange={(e) => setArchive(e.target.files?.[0] ?? null)}
+        />
+        <label htmlFor="upload-hash">its hash (printed by package:build)</label>
+        <input id="upload-hash" value={uploadHash} onChange={(e) => setUploadHash(e.target.value)} />
+        <button
+          type="button"
+          onClick={() => void handleUpload()}
+          disabled={uploadBusy || archive === null || uploadHash === ''}
+        >
+          Upload
+        </button>
+        {uploadError ? <p role="alert">{uploadError}</p> : null}
+      </div>
 
       <div>
         <label htmlFor="package-hash">Package hash</label>

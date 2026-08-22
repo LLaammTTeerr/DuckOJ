@@ -14,6 +14,7 @@ vi.mock('../src/api.js', () => ({
 }));
 
 const mockedGet = vi.mocked(api.GET);
+const mockedPost = vi.mocked(api.POST);
 
 afterEach(() => {
   mockedGet.mockReset();
@@ -80,5 +81,51 @@ describe('ProblemRevisionsPage', () => {
 
     expect(screen.getAllByRole('row')).toHaveLength(3); // header + 2 revisions
     expect(screen.getAllByRole('button', { name: /publish/i })).toHaveLength(1);
+  });
+});
+
+describe('package upload (Phase 5f)', () => {
+  it('uploads the archive with the claimed hash, then prefills the attach field', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    mockedGet.mockResolvedValue(apiResponse([]) as never);
+    mockedPost.mockResolvedValueOnce(apiResponse({ hash: 'abc123' }) as never);
+
+    renderWithClient(<ProblemRevisionsPage code="aplusb" />);
+    await screen.findByLabelText(/upload package/i);
+
+    const file = new File([new Uint8Array([1, 2, 3])], 'p.tar.zst');
+    await userEvent.upload(screen.getByLabelText(/upload package/i), file);
+    await userEvent.type(screen.getByLabelText(/its hash/i), 'abc123');
+    await userEvent.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    const [path, options] = mockedPost.mock.calls[0] as unknown as [
+      string,
+      { params: { query: { hash: string } } },
+    ];
+    expect(path).toBe('/packages');
+    expect(options.params.query.hash).toBe('abc123');
+    // The attach field now carries the uploaded hash — upload → attach is
+    // two clicks, not a copy-paste round trip.
+    expect(screen.getByLabelText(/^package hash$/i)).toHaveValue('abc123');
+  });
+
+  it('a hash the server rejects surfaces its code and prefills nothing', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    mockedGet.mockResolvedValue(apiResponse([]) as never);
+    mockedPost.mockResolvedValueOnce({
+      data: undefined,
+      error: { code: 'package_hash_mismatch' },
+      response: new Response(),
+    } as never);
+
+    renderWithClient(<ProblemRevisionsPage code="aplusb" />);
+    await screen.findByLabelText(/upload package/i);
+    const file = new File([new Uint8Array([1])], 'p.tar.zst');
+    await userEvent.upload(screen.getByLabelText(/upload package/i), file);
+    await userEvent.type(screen.getByLabelText(/its hash/i), 'wrong');
+    await userEvent.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('package_hash_mismatch');
+    expect(screen.getByLabelText(/^package hash$/i)).toHaveValue('');
   });
 });

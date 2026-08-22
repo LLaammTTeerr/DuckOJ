@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@duckoj/api-prefix": "workspace:^",
+    "@duckoj/contracts": "workspace:^",
     "@duckoj/glicko2": "workspace:^",
     "@duckoj/sdk": "workspace:^",
     "@tanstack/react-query": "^5.101.4",

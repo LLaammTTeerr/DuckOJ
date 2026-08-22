@@ -210,6 +210,9 @@ importers:
       '@duckoj/api-prefix':
         specifier: workspace:^
         version: link:../../packages/api-prefix
+      '@duckoj/contracts':
+        specifier: workspace:^
+        version: link:../../packages/contracts
       '@duckoj/glicko2':
         specifier: workspace:^
         version: link:../../packages/glicko2

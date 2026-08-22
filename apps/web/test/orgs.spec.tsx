@@ -76,6 +76,42 @@ describe('OrgsPage', () => {
     expect(await screen.findByText('Hanoi CS')).toBeInTheDocument();
     expect(screen.getByText('on request')).toBeInTheDocument();
   });
+
+  it('offers the create form to an admin and nobody else', async () => {
+    get.mockImplementation((path: string) =>
+      path === '/auth/me'
+        ? Promise.resolve({ data: { username: 'root', displayName: 'Root', globalRole: 'admin' } })
+        : Promise.resolve({ data: { items: [], nextCursor: null } }),
+    );
+    wrap(<OrgsPage />);
+    expect(await screen.findByRole('heading', { name: /new organization/i })).toBeInTheDocument();
+
+    get.mockImplementation((path: string) =>
+      path === '/auth/me'
+        ? Promise.resolve({ data: { username: 'kim', displayName: 'Kim', globalRole: 'setter' } })
+        : Promise.resolve({ data: { items: [], nextCursor: null } }),
+    );
+    wrap(<OrgsPage />);
+    await screen.findByText(/no organizations yet/i);
+    expect(screen.queryAllByRole('heading', { name: /new organization/i })).toHaveLength(1);
+  });
+
+  it('creates through the API with the chosen policy', async () => {
+    get.mockImplementation((path: string) =>
+      path === '/auth/me'
+        ? Promise.resolve({ data: { username: 'root', displayName: 'Root', globalRole: 'admin' } })
+        : Promise.resolve({ data: { items: [], nextCursor: null } }),
+    );
+    post.mockResolvedValue({ data: ORG });
+    wrap(<OrgsPage />);
+    await userEvent.type(await screen.findByLabelText(/slug/i), 'hanoi');
+    await userEvent.type(screen.getByLabelText(/^name/i), 'Hanoi CS');
+    await userEvent.selectOptions(screen.getByLabelText(/joining/i), 'open');
+    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    expect(post).toHaveBeenCalledWith('/orgs', {
+      body: { slug: 'hanoi', name: 'Hanoi CS', joinPolicy: 'open', visibility: 'public' },
+    });
+  });
 });
 
 describe('OrgPage', () => {

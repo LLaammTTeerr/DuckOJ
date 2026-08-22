@@ -19,7 +19,65 @@ type Member = paths['/orgs/{slug}/members']['get']['responses'][200]['content'][
 type JoinRequest =
   paths['/orgs/{slug}/requests']['get']['responses'][200]['content']['application/json'][number];
 
+/** Admin-only (the API refuses everyone else); shown to admins on the list. */
+function CreateOrgForm({ onCreated }: { onCreated: () => Promise<void> }) {
+  const [slug, setSlug] = useState('');
+  const [name, setName] = useState('');
+  const [joinPolicy, setJoinPolicy] = useState<'open' | 'request' | 'invite'>('request');
+  const [visibility, setVisibility] = useState<'public' | 'private'>('public');
+  const [error, setError] = useState<string | null>(null);
+
+  async function create(): Promise<void> {
+    const { error: err } = await api.POST('/orgs', {
+      body: { slug, name, joinPolicy, visibility },
+    });
+    if (err) {
+      setError(err.detail ?? 'Could not create the organization.');
+      return;
+    }
+    setError(null);
+    setSlug('');
+    setName('');
+    await onCreated();
+  }
+
+  return (
+    <>
+      <h2>New organization</h2>
+      <p>
+        <label>
+          Slug <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="hanoi-cs" />
+        </label>{' '}
+        <label>
+          Name <input value={name} onChange={(e) => setName(e.target.value)} />
+        </label>{' '}
+        <label>
+          Joining{' '}
+          <select value={joinPolicy} onChange={(e) => setJoinPolicy(e.target.value as typeof joinPolicy)}>
+            <option value="open">open</option>
+            <option value="request">on request</option>
+            <option value="invite">invite only</option>
+          </select>
+        </label>{' '}
+        <label>
+          Visibility{' '}
+          <select value={visibility} onChange={(e) => setVisibility(e.target.value as typeof visibility)}>
+            <option value="public">public</option>
+            <option value="private">private</option>
+          </select>
+        </label>{' '}
+        <button type="button" disabled={slug === '' || name === ''} onClick={() => void create()}>
+          Create
+        </button>
+      </p>
+      {error ? <p role="alert">{error}</p> : null}
+    </>
+  );
+}
+
 export function OrgsPage() {
+  const client = useQueryClient();
+  const me = useQuery(meQueryOptions);
   const query = useQuery({
     queryKey: ['orgs'],
     queryFn: async () => {
@@ -58,6 +116,9 @@ export function OrgsPage() {
             ))}
           </tbody>
         </table>
+      ) : null}
+      {me.data?.globalRole === 'admin' ? (
+        <CreateOrgForm onCreated={() => client.invalidateQueries({ queryKey: ['orgs'] })} />
       ) : null}
     </section>
   );
