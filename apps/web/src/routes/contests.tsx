@@ -191,6 +191,29 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
   );
 }
 
+type Cell = Scoreboard['ranking'][number]['format_data'][string];
+
+/**
+ * One scoreboard cell. `tries` only exists under `icpc`, where the
+ * convention is the attempt ledger: `+` a first-try solve, `+2` a solve on
+ * the third try, `-3` three tries and no solve. `time` is seconds in every
+ * format; minutes is how a wall board reads.
+ */
+function cell(data: Cell | undefined): string {
+  if (!data) return '\u2014';
+  const minutes = Math.floor(data.time / 60);
+  if (data.tries === undefined) {
+    // The three non-icpc formats: points, with the scoring time beside a
+    // nonzero score.
+    return data.points > 0 ? `${String(data.points)} \u00b7 ${String(minutes)}m` : String(data.points);
+  }
+  if (data.points > 0) {
+    const marker = data.tries === 1 ? '+' : `+${String(data.tries - 1)}`;
+    return `${String(data.points)} (${marker}, ${String(minutes)}m)`;
+  }
+  return data.tries > 0 ? `\u2212${String(data.tries)}` : '\u2014';
+}
+
 export function ScoreboardPage({ contestKey }: { contestKey: string }) {
   const query = useQuery({
     queryKey: ['scoreboard', contestKey],
@@ -249,7 +272,7 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
               <td className="num">{row.cumtime}</td>
               {problems.map((problem) => (
                 <td key={problem.code} className="num">
-                  {row.format_data[problem.code]?.points ?? '—'}
+                  {cell(row.format_data[problem.code])}
                 </td>
               ))}
             </tr>

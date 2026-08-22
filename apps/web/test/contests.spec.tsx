@@ -116,6 +116,53 @@ describe('ScoreboardPage', () => {
     const row = await screen.findByRole('row', { name: /kim/i });
     expect(row).toHaveTextContent('100');
     expect(row).toHaveTextContent('300');
+    // A non-icpc cell: points with the scoring minute beside them.
+    expect(row).toHaveTextContent('100 \u00b7 5m');
+  });
+
+  it('renders icpc cells in attempt-ledger convention', async () => {
+    const base = {
+      rank: 1,
+      virtual: 0,
+      is_disqualified: false,
+      tiebreaker: 0,
+      frozen_score: 0,
+      frozen_cumtime: 0,
+      frozen_tiebreaker: 0,
+    };
+    get.mockResolvedValue({
+      data: {
+        label_by_problem: { a: 'A', b: 'B', c: 'C' },
+        problems: [
+          { code: 'a', label: 'A', points: 100, points_scaling_factor: null, total_ac: 1, first_solve: 'kim' },
+          { code: 'b', label: 'B', points: 100, points_scaling_factor: null, total_ac: 0, first_solve: null },
+          { code: 'c', label: 'C', points: 100, points_scaling_factor: null, total_ac: 0, first_solve: null },
+        ],
+        ranking: [
+          {
+            ...base,
+            participant: 'kim',
+            score: 100,
+            cumtime: 75,
+            submission_count: 6,
+            format_data: {
+              // Solved on the third try at minute 55.
+              a: { points: 100, time: 3300, tries: 3 },
+              // Two failed tries, unsolved: the ledger shows what it cost.
+              b: { points: 0, time: 0, tries: 2 },
+              // Never attempted.
+              c: { points: 0, time: 0, tries: 0 },
+            },
+          },
+        ],
+      },
+    });
+    wrap(<ScoreboardPage contestKey="spring" />);
+
+    const row = await screen.findByRole('row', { name: /kim/i });
+    expect(row).toHaveTextContent('100 (+2, 55m)');
+    expect(row).toHaveTextContent('\u22122');
+    expect(row).toHaveTextContent('\u2014');
   });
 
   it('says so when nobody has competed', async () => {
