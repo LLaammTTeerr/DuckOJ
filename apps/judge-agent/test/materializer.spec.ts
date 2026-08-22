@@ -5,6 +5,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { packDirectory, packageHash } from '@duckoj/package-format';
 import { Materializer } from '../src/materializer.js';
 
+/** The `RequestInit` a call must have carried, or a failure that says so. */
+function requireInit(init: RequestInit | undefined): RequestInit {
+  if (!init) throw new Error('fetch was called without a RequestInit');
+  return init;
+}
+
 /** A minimal, manifest-valid package: `manifest.json` plus one test under `tests/`. */
 async function buildFixturePackage(): Promise<{ archive: Buffer; hash: string }> {
   const srcDir = await mkdtemp(join(tmpdir(), 'pkgsrc-'));
@@ -56,7 +62,7 @@ describe('Materializer', () => {
     // and that init.yml's test paths are `tests/01.in` — not `01.in`.
     const { archive, hash } = await buildFixturePackage();
     const problemsDir = await tempProblemsDir();
-    const fetchImpl = vi.fn(async () => new Response(archive));
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response(archive));
     const materializer = materializerFor(problemsDir, fetchImpl);
 
     await materializer.ensure(hash);
@@ -70,7 +76,8 @@ describe('Materializer', () => {
 
     // The Authorization header carries the credential; it must never be
     // placed in the URL.
-    const [calledUrl, calledInit] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const [calledUrl, rawInit] = fetchImpl.mock.calls[0]!;
+    const calledInit = requireInit(rawInit);
     expect(calledUrl).not.toContain('super-secret-token');
     expect((calledInit.headers as Record<string, string>).authorization).toBe(
       'Judge judge-1:super-secret-token',
@@ -87,7 +94,7 @@ describe('Materializer', () => {
     // Call ensure twice with a fetch spy; assert fetch ran once.
     const { archive, hash } = await buildFixturePackage();
     const problemsDir = await tempProblemsDir();
-    const fetchImpl = vi.fn(async () => new Response(archive));
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response(archive));
     const materializer = materializerFor(problemsDir, fetchImpl);
 
     await materializer.ensure(hash);
@@ -106,7 +113,7 @@ describe('Materializer', () => {
     const gate = new Promise<void>((resolve) => {
       releaseFetch = resolve;
     });
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => {
       await gate;
       return new Response(archive);
     });
@@ -139,7 +146,7 @@ describe('Materializer', () => {
     const gate = new Promise<void>((resolve) => {
       releaseFetch = resolve;
     });
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => {
       await gate;
       return new Response(archive);
     });
@@ -186,7 +193,7 @@ describe('Materializer', () => {
     // is worse than a missing one, because the judge will announce it.
     const hash = 'a'.repeat(64);
     const problemsDir = await tempProblemsDir();
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => {
       throw new Error('network unreachable');
     });
     const materializer = materializerFor(problemsDir, fetchImpl);
@@ -202,7 +209,7 @@ describe('Materializer', () => {
     // Stub fetch to return random bytes; same assertion.
     const hash = 'b'.repeat(64);
     const problemsDir = await tempProblemsDir();
-    const fetchImpl = vi.fn(async () => new Response(Buffer.from('not a valid zstd+tar archive')));
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response(Buffer.from('not a valid zstd+tar archive')));
     const materializer = materializerFor(problemsDir, fetchImpl);
 
     await expect(materializer.ensure(hash)).rejects.toThrow();
@@ -215,7 +222,7 @@ describe('Materializer', () => {
   it('refuses a hash that is not 64 hex characters', async () => {
     // The hash becomes a directory name under PROBLEMS_DIR.
     const problemsDir = await tempProblemsDir();
-    const fetchImpl = vi.fn(async () => new Response(Buffer.from('unused')));
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response(Buffer.from('unused')));
     const materializer = materializerFor(problemsDir, fetchImpl);
 
     await expect(materializer.ensure('not-a-valid-hash')).rejects.toThrow(/hash/i);

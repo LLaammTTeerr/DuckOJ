@@ -276,7 +276,7 @@ export async function insertGradedSubmission(
       ...(opts.verdict
         ? {
             verdict: opts.verdict,
-            state: (opts.verdict === 'IE' ? 'errored' : 'done') as const,
+            state: opts.verdict === 'IE' ? ('errored' as const) : ('done' as const),
             points: opts.points,
             maxPoints: opts.maxPoints,
           }

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint src test",
     "test": "tsc -b && vitest run",
     "build": "tsc -b",

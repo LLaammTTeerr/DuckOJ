@@ -56,6 +56,9 @@ describe('canViewContest', () => {
       memberRoles: context.isCreator ? ['author'] : [],
       sharedOrgIds: context.sharedOrgIds,
       actorOrgIds: context.actorOrgIds,
+      // Contests have no equivalent of "granted by a contest you joined", so
+      // the corresponding cell is false on this side of the comparison.
+      inJoinedContest: false,
     };
     expect(canViewProblem(actor, { id: 1, visibility }, problemCtx)).toBe(expected);
   });

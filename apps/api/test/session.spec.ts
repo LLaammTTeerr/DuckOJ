@@ -6,6 +6,22 @@ import { SessionService } from '../src/authn/session.service.js';
 import { buildApp, TEST_CONFIG } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 
+/**
+ * The first `Set-Cookie` header, or a failure naming the response.
+ *
+ * `headers['set-cookie']` is `string[] | undefined`, and indexing it is
+ * unchecked under `noUncheckedIndexedAccess` — a response that set no cookie
+ * would otherwise fail here as `undefined is not a string`, several
+ * assertions away from the reason.
+ */
+function firstSetCookie(res: { headers: Record<string, unknown>; status: number }): string {
+  const raw = res.headers['set-cookie'];
+  if (!Array.isArray(raw) || typeof raw[0] !== 'string') {
+    throw new Error(`no Set-Cookie on a ${String(res.status)} response`);
+  }
+  return raw[0];
+}
+
 const config = { sessionTtlHours: 720 } as never;
 
 describe('SessionService', () => {
@@ -107,7 +123,7 @@ describe('login / logout / me', () => {
           .post('/auth/login')
           .send({ usernameOrEmail: 'kim', password: 'a-long-enough-password' });
         expect(login.status).toBe(200);
-        const loginCookie = login.headers['set-cookie'][0] as string;
+        const loginCookie = firstSetCookie(login);
         expect(loginCookie).toContain('HttpOnly');
         expect(loginCookie).toContain('SameSite=Lax');
         expect(loginCookie).toContain('Path=/');
@@ -119,7 +135,7 @@ describe('login / logout / me', () => {
 
         const logout = await agent.post('/auth/logout');
         expect(logout.status).toBe(204);
-        const logoutCookie = logout.headers['set-cookie'][0] as string;
+        const logoutCookie = firstSetCookie(logout);
         expect(logoutCookie).toMatch(new RegExp(`^${TEST_CONFIG.sessionCookieName}=;`));
         expect(logoutCookie).toContain('Path=/');
         expect(logoutCookie).toMatch(/Expires=Thu, 01 Jan 1970/);

@@ -10,6 +10,25 @@ export default tseslint.config(
   { ignores: ['**/dist/**', '**/migrations/**', '**/src/generated.ts'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    // `_name` means "this parameter exists to declare a signature, and is
+    // deliberately unused". Without it there is no way to type a test double
+    // against the function it stands in for: a `fetch` mock has to name
+    // `(input, init)` to be assignable, and uses neither.
+    //
+    // Repo-wide on purpose — the convention is not specific to any package,
+    // and scoping it to one is how the same paper cut reappears in the next.
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
+  },
   // What this boundary does and does not cover: it stops *static* imports of the
   // guarded module from `apps/api/src` outside `authz/`. It cannot see a dynamic
   // `import()`, and it says nothing about raw SQL — `db.execute(sql`select * from

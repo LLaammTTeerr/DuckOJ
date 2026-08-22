@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HttpAgentClient } from '../src/drivers/dmoj/agent-client.js';
 
+/** The `RequestInit` a call must have carried, or a failure that says so. */
+function requireInit(init: RequestInit | undefined): RequestInit {
+  if (!init) throw new Error('fetch was called without a RequestInit');
+  return init;
+}
+
 describe('HttpAgentClient', () => {
   it('POSTs the hash to /packages/ensure and resolves on 204', async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response(null, { status: 204 }));
     const client = new HttpAgentClient({
       agentOrigin: 'http://judge-agent.invalid',
       fetchImpl: fetchImpl as unknown as typeof globalThis.fetch,
@@ -12,14 +18,15 @@ describe('HttpAgentClient', () => {
     await client.ensure('a'.repeat(64));
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const [url, rawInit] = fetchImpl.mock.calls[0]!;
+    const init = requireInit(rawInit);
     expect(url).toBe('http://judge-agent.invalid/packages/ensure');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual({ hash: 'a'.repeat(64) });
   });
 
   it('rejects when the agent answers with a non-204 status', async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 502 }));
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => new Response(null, { status: 502 }));
     const client = new HttpAgentClient({
       agentOrigin: 'http://judge-agent.invalid',
       fetchImpl: fetchImpl as unknown as typeof globalThis.fetch,

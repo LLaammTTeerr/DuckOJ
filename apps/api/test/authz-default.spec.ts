@@ -13,6 +13,22 @@ import { APP_CONFIG, DB } from '../src/config/config.module.js';
 import { TEST_CONFIG } from './app.harness.js';
 import { MailModule } from '../src/mail/mail.module.js';
 
+/**
+ * The first `Set-Cookie` header, or a failure naming the response.
+ *
+ * `headers['set-cookie']` is `string[] | undefined`, and indexing it is
+ * unchecked under `noUncheckedIndexedAccess` — a response that set no cookie
+ * would otherwise fail here as `undefined is not a string`, several
+ * assertions away from the reason.
+ */
+function firstSetCookie(res: { headers: Record<string, unknown>; status: number }): string {
+  const raw = res.headers['set-cookie'];
+  if (!Array.isArray(raw) || typeof raw[0] !== 'string') {
+    throw new Error(`no Set-Cookie on a ${String(res.status)} response`);
+  }
+  return raw[0];
+}
+
 const LIVE_SESSION = 'a-live-session-token';
 const SIGNED_IN: Actor = { userId: 7, globalRole: 'user', via: 'session', scopes: [] };
 
@@ -122,6 +138,6 @@ describe('authentication is the default, not an opt-in', () => {
       .set('Cookie', `${TEST_CONFIG.sessionCookieName}=a-stale-token-that-resolves-to-nothing`);
 
     expect(res.status).toBe(204);
-    expect(res.headers['set-cookie'][0]).toMatch(new RegExp(`^${TEST_CONFIG.sessionCookieName}=;`));
+    expect(firstSetCookie(res)).toMatch(new RegExp(`^${TEST_CONFIG.sessionCookieName}=;`));
   });
 });

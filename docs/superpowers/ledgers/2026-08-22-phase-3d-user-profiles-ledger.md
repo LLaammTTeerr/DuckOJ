@@ -89,8 +89,19 @@ that a new module must be added in both places.**
 ## R7 — implicit constructor injection silently yields `undefined`
 
 `constructor(private readonly users: UsersService) {}` compiled, started, and
-returned 500 on every request: this build does not emit decorator metadata, so
-Nest injected nothing. Every other controller in the repo uses an explicit
+returned 500 on every request under vitest.
+
+**Correction, 22 Aug 2026:** I wrote here that "this build does not emit
+decorator metadata". That is wrong — `apps/api/tsconfig.json` sets
+`emitDecoratorMetadata: true`, so the *built* application emits it and implicit
+injection would have worked in production. Vitest transpiles with esbuild,
+which does not support the option, so `design:paramtypes` is absent **in tests
+only**.
+
+The convention is still right, and for a better reason than the one I gave:
+explicit `@Inject` is the only form that works in both the built app and the
+test runner. Left as a correction rather than an edit, since the original claim
+is what the commit message of that phase says. Every other controller in the repo uses an explicit
 `@Inject(Service)` — a convention I had not noticed until I broke it.
 
 The failure is nasty because it is *not* a module-init error. It surfaces on
