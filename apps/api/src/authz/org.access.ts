@@ -1,10 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, sql } from 'drizzle-orm';
 import type { z } from 'zod';
-import { organizations, orgMembers } from '@duckoj/db/guarded';
+import { organizations, orgJoinRequests, orgMembers } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import type {
+  AddOrgMemberRequestDto,
   CreateOrgRequest,
+  OrgJoinRequestListDto,
+  OrgJoinResultDto,
   OrgMemberDto,
   OrgPageDto,
   OrgRoleDto,
@@ -237,6 +240,234 @@ export class OrgAccessService {
    * or a non-member) 403s. `role` is returned for callers that need it, but
    * nothing here currently does beyond the check itself.
    */
+  /**
+   * Join, or ask to. The policy decides which, and the caller learns it from
+   * both the status code and `outcome`.
+   */
+  async join(
+    actor: Actor,
+    slug: string,
+  ): Promise<{ result: OrgJoinResultDto; created: boolean }> {
+    const row = await this.findVisibleOrgRow(actor, slug);
+    if ((await this.roleIn(actor, row.id)) !== null) {
+      throw new AppError(409, 'organization_member_exists', 'You are already a member.');
+    }
+
+    if (row.joinPolicy === 'invite') {
+      throw new AppError(
+        403,
+        'org_invite_only',
+        'This organization admits members by invitation only.',
+      );
+    }
+
+    if (row.joinPolicy === 'open') {
+      await this.db.insert(orgMembers).values({ orgId: row.id, userId: actor.userId, role: 'member' });
+      return { result: { outcome: 'joined', role: 'member' }, created: true };
+    }
+
+    // `request`. Idempotent while one is pending: the partial unique index
+    // makes the second insert a no-op rather than a second row an approver
+    // would then see twice.
+    await this.db
+      .insert(orgJoinRequests)
+      .values({ orgId: row.id, userId: actor.userId })
+      .onConflictDoNothing();
+    return { result: { outcome: 'requested', role: null }, created: false };
+  }
+
+  /** Pending requests, oldest first. Owner or admin. */
+  async listRequests(actor: Actor, slug: string): Promise<OrgJoinRequestListDto> {
+    const { row } = await this.loadForEdit(actor, slug);
+    const rows = await this.db
+      .select({
+        id: orgJoinRequests.id,
+        username: schema.users.username,
+        createdAt: orgJoinRequests.createdAt,
+      })
+      .from(orgJoinRequests)
+      .innerJoin(schema.users, eq(schema.users.id, orgJoinRequests.userId))
+      .where(and(eq(orgJoinRequests.orgId, row.id), eq(orgJoinRequests.state, 'pending')))
+      .orderBy(asc(orgJoinRequests.id));
+    return rows.map((r) => ({ id: r.id, username: r.username, createdAt: r.createdAt.toISOString() }));
+  }
+
+  /** Approve or reject. Both the membership and the audit row, or neither. */
+  async decideRequest(
+    actor: Actor,
+    slug: string,
+    requestId: number,
+    approve: boolean,
+  ): Promise<OrgMemberDto[]> {
+    const { row } = await this.loadForEdit(actor, slug);
+    await this.db.transaction(async (tx) => {
+      const [request] = await tx
+        .select({ id: orgJoinRequests.id, userId: orgJoinRequests.userId, state: orgJoinRequests.state })
+        .from(orgJoinRequests)
+        .where(and(eq(orgJoinRequests.id, requestId), eq(orgJoinRequests.orgId, row.id)))
+        .limit(1)
+        .for('update');
+      if (!request) {
+        throw new AppError(404, 'join_request_not_found', 'No such join request.');
+      }
+      // 409 rather than a silent no-op: a second decider is acting on
+      // information they believe is current, and it is not.
+      if (request.state !== 'pending') {
+        throw new AppError(409, 'join_request_decided', 'That request has already been decided.');
+      }
+
+      await tx
+        .update(orgJoinRequests)
+        .set({
+          state: approve ? 'approved' : 'rejected',
+          decidedBy: actor.userId,
+          decidedAt: new Date(),
+        })
+        .where(eq(orgJoinRequests.id, request.id));
+
+      if (approve) {
+        // `onConflictDoNothing` because an admin may have added them directly
+        // between the request and its approval; the request is still decided.
+        await tx
+          .insert(orgMembers)
+          .values({ orgId: row.id, userId: request.userId, role: 'member' })
+          .onConflictDoNothing();
+      }
+    });
+    return this.rosterOf(row.id);
+  }
+
+  /** Adds a member directly. Owner or admin; only an owner may grant a rank. */
+  async addMember(actor: Actor, slug: string, body: AddOrgMemberRequestDto): Promise<OrgMemberDto[]> {
+    const { row, role } = await this.loadForEdit(actor, slug);
+    const effective = isAdmin(actor) ? 'owner' : role;
+    if (body.role !== 'member' && effective !== 'owner') {
+      throw new AppError(403, 'organization_forbidden', 'Only an owner may grant that role.');
+    }
+    const target = await this.userIdOf(body.username);
+    if ((await this.roleIn({ ...actor, userId: target }, row.id)) !== null) {
+      throw new AppError(409, 'organization_member_exists', 'They are already a member.');
+    }
+    await this.db.insert(orgMembers).values({ orgId: row.id, userId: target, role: body.role });
+    return this.rosterOf(row.id);
+  }
+
+  /** Removes a member. Owner or admin, or yourself leaving. */
+  async removeMember(actor: Actor, slug: string, username: string): Promise<OrgMemberDto[]> {
+    const row = await this.findVisibleOrgRow(actor, slug);
+    const target = await this.userIdOf(username);
+    const targetRole = await this.roleIn({ ...actor, userId: target }, row.id);
+    if (targetRole === null) {
+      throw new AppError(404, 'organization_member_not_found', 'They are not a member.');
+    }
+
+    // Leaving is this same route with your own name, so one code path decides
+    // whether a removal is allowed.
+    if (target !== actor.userId) await this.requireOutranks(actor, row.id, targetRole);
+    await this.assertNotLastOwner(row.id, targetRole, null);
+
+    await this.db
+      .delete(orgMembers)
+      .where(and(eq(orgMembers.orgId, row.id), eq(orgMembers.userId, target)));
+    return this.rosterOf(row.id);
+  }
+
+  /** Sets a member's role. Owner only. */
+  async setMemberRole(
+    actor: Actor,
+    slug: string,
+    username: string,
+    role: OrgRoleDto,
+  ): Promise<OrgMemberDto[]> {
+    const { row, role: actorRole } = await this.loadForEdit(actor, slug);
+    if (!isAdmin(actor) && actorRole !== 'owner') {
+      throw new AppError(403, 'organization_forbidden', 'Only an owner may set roles.');
+    }
+    const target = await this.userIdOf(username);
+    const targetRole = await this.roleIn({ ...actor, userId: target }, row.id);
+    if (targetRole === null) {
+      throw new AppError(404, 'organization_member_not_found', 'They are not a member.');
+    }
+    await this.assertNotLastOwner(row.id, targetRole, role);
+
+    await this.db
+      .update(orgMembers)
+      .set({ role })
+      .where(and(eq(orgMembers.orgId, row.id), eq(orgMembers.userId, target)));
+    return this.rosterOf(row.id);
+  }
+
+  /**
+   * **The invariant everything else hangs off**: an organization always has at
+   * least one owner (design §3).
+   *
+   * Checked here and nowhere else, by every path that could remove ownership —
+   * leaving, removal, and demotion. Three copies of this rule would be three
+   * chances to strand an organization with nobody who can administer it, and
+   * the only repair for that is a database edit.
+   *
+   * `nextRole` is `null` for a removal, or the role being assigned. The target
+   * does not need naming: if they are an owner and the organization has only
+   * one, that one is them.
+   */
+  private async assertNotLastOwner(
+    orgId: number,
+    currentRole: OrgRoleDto,
+    nextRole: OrgRoleDto | null,
+  ): Promise<void> {
+    if (currentRole !== 'owner') return;
+    if (nextRole === 'owner') return;
+    const owners = await this.db
+      .select({ userId: orgMembers.userId })
+      .from(orgMembers)
+      .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.role, 'owner')));
+    if (owners.length <= 1) {
+      throw new AppError(
+        409,
+        'org_last_owner',
+        'An organization must always have at least one owner.',
+      );
+    }
+  }
+
+  /**
+   * `owner > admin > member`, and an actor may act only on someone **strictly**
+   * below them. Writing this as "below or equal" reads identically and lets an
+   * admin remove another admin, which no happy-path test notices.
+   */
+  private async requireOutranks(actor: Actor, orgId: number, targetRole: OrgRoleDto): Promise<void> {
+    if (isAdmin(actor)) return;
+    const rank = { member: 0, admin: 1, owner: 2 } as const;
+    const mine = await this.roleIn(actor, orgId);
+    if (mine === null || rank[mine] <= rank[targetRole]) {
+      throw new AppError(403, 'organization_forbidden', 'You may not act on that member.');
+    }
+  }
+
+  private async userIdOf(username: string): Promise<number> {
+    const [user] = await this.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(sql`lower(${schema.users.username}) = lower(${username})`)
+      .limit(1);
+    if (!user) throw new AppError(404, 'user_not_found', 'No such user.');
+    return user.id;
+  }
+
+  private async rosterOf(orgId: number): Promise<OrgMemberDto[]> {
+    const rows = await this.db
+      .select({
+        username: schema.users.username,
+        role: orgMembers.role,
+        joinedAt: orgMembers.joinedAt,
+      })
+      .from(orgMembers)
+      .innerJoin(schema.users, eq(schema.users.id, orgMembers.userId))
+      .where(eq(orgMembers.orgId, orgId))
+      .orderBy(asc(schema.users.username));
+    return rows.map((r) => ({ username: r.username, role: r.role, joinedAt: r.joinedAt.toISOString() }));
+  }
+
   private async loadForEdit(actor: Actor | null, slug: string): Promise<{ row: OrgRow; role: OrgRoleDto | null }> {
     const row = await this.findOrgRow(slug);
     if (!(await this.canViewRow(actor, row))) {

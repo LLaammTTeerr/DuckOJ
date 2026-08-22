@@ -52,19 +52,36 @@ export const orgMembers = pgTable(
   (t) => [primaryKey({ columns: [t.orgId, t.userId] })],
 );
 
-export const orgJoinRequests = pgTable('org_join_requests', {
-  id: bigserial('id', { mode: 'number' }).primaryKey(),
-  orgId: bigint('org_id', { mode: 'number' })
-    .notNull()
-    .references(() => organizations.id, { onDelete: 'cascade' }),
-  userId: bigint('user_id', { mode: 'number' })
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  state: joinRequestState('state').notNull().default('pending'),
-  decidedBy: bigint('decided_by', { mode: 'number' }).references(() => users.id),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  decidedAt: timestamp('decided_at', { withTimezone: true }),
-});
+export const orgJoinRequests = pgTable(
+  'org_join_requests',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    orgId: bigint('org_id', { mode: 'number' })
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    state: joinRequestState('state').notNull().default('pending'),
+    decidedBy: bigint('decided_by', { mode: 'number' }).references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+  },
+  (t) => [
+    /**
+     * At most one *pending* request per user per organization.
+     *
+     * Partial, so a rejection does not bar a later request — a rejection is a
+     * decision about a moment, not a ban. The same shape as
+     * `problem_revisions`' one-published-revision index, and for the same
+     * reason: two concurrent requests must collide in the database rather than
+     * race to two rows an approver then sees twice.
+     */
+    uniqueIndex('org_join_requests_pending_idx')
+      .on(t.orgId, t.userId)
+      .where(sql`${t.state} = 'pending'`),
+  ],
+);
 
 export const problemVisibility = pgEnum('problem_visibility', ['private', 'org', 'public']);
 

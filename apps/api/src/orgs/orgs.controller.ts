@@ -1,16 +1,36 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
+import {
+  AddOrgMemberRequest,
   CreateOrgRequest,
   PaginationQuery,
+  SetOrgMemberRoleRequest,
   UpdateOrgRequest,
+  type AddOrgMemberRequestDto,
   type CreateOrgRequestDto,
+  type OrgJoinRequestListDto,
+  type OrgJoinResultDto,
   type OrgMemberDto,
+  type SetOrgMemberRoleRequestDto,
   type OrgPageDto,
   type OrgSummaryDto,
   type PaginationQueryDto,
   type UpdateOrgRequestDto,
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
+import { AppError } from '../common/app.error.js';
 import { CurrentActor, MaybeActor, Public } from '../authn/auth.guard.js';
 import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
@@ -66,6 +86,88 @@ export class OrgsController {
     return this.orgs.create(actor, body);
   }
 
+  /**
+   * `201` when the caller joined, `202` when they only asked to — set from the
+   * service's answer rather than fixed on the decorator, because the policy
+   * decides which happened and a client that branches on the status must not
+   * be told it joined when it did not.
+   */
+  @Post(':slug/join')
+  @RequireScope('orgs:write')
+  async join(
+    @CurrentActor() actor: Actor,
+    @Param('slug') slug: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrgJoinResultDto> {
+    const { result, created } = await this.orgs.join(actor, slug);
+    res.status(created ? 201 : 202);
+    return result;
+  }
+
+  @Get(':slug/requests')
+  @RequireScope('orgs:write')
+  requests(
+    @CurrentActor() actor: Actor,
+    @Param('slug') slug: string,
+  ): Promise<OrgJoinRequestListDto> {
+    return this.orgs.listRequests(actor, slug);
+  }
+
+  @Post(':slug/requests/:id/approve')
+  @HttpCode(200)
+  @RequireScope('orgs:write')
+  approve(
+    @CurrentActor() actor: Actor,
+    @Param('slug') slug: string,
+    @Param('id') id: string,
+  ): Promise<OrgMemberDto[]> {
+    return this.orgs.decideRequest(actor, slug, parseId(id), true);
+  }
+
+  @Post(':slug/requests/:id/reject')
+  @HttpCode(200)
+  @RequireScope('orgs:write')
+  reject(
+    @CurrentActor() actor: Actor,
+    @Param('slug') slug: string,
+    @Param('id') id: string,
+  ): Promise<OrgMemberDto[]> {
+    return this.orgs.decideRequest(actor, slug, parseId(id), false);
+  }
+
+  @Post(':slug/members')
+  @HttpCode(201)
+  @RequireScope('orgs:write')
+  addMember(
+    @CurrentActor() actor: Actor,
+    @Param('slug') slug: string,
+    @Body(new ZodValidationPipe(AddOrgMemberRequest)) body: AddOrgMemberRequestDto,
+  ): Promise<OrgMemberDto[]> {
+    return this.orgs.addMember(actor, slug, body);
+  }
+
+  /** Leaving is this route with your own username — see the service. */
+  @Delete(':slug/members/:username')
+  @RequireScope('orgs:write')
+  removeMember(
+    @CurrentActor() actor: Actor,
+    @Param('slug') slug: string,
+    @Param('username') username: string,
+  ): Promise<OrgMemberDto[]> {
+    return this.orgs.removeMember(actor, slug, username);
+  }
+
+  @Patch(':slug/members/:username')
+  @RequireScope('orgs:write')
+  setMemberRole(
+    @CurrentActor() actor: Actor,
+    @Param('slug') slug: string,
+    @Param('username') username: string,
+    @Body(new ZodValidationPipe(SetOrgMemberRoleRequest)) body: SetOrgMemberRoleRequestDto,
+  ): Promise<OrgMemberDto[]> {
+    return this.orgs.setMemberRole(actor, slug, username, body.role);
+  }
+
   @Patch(':slug')
   @RequireScope('orgs:write')
   update(
@@ -75,4 +177,13 @@ export class OrgsController {
   ): Promise<OrgSummaryDto> {
     return this.orgs.update(actor, slug, body);
   }
+}
+
+/** `:id` is a path segment, so it arrives as a string and must be a positive integer. */
+function parseId(raw: string): number {
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new AppError(400, 'bad_request', 'Malformed request id.');
+  }
+  return id;
 }

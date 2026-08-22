@@ -78,6 +78,42 @@ export type OrgMemberDto = z.infer<typeof OrgMember>;
 export const OrgMemberList = z.array(OrgMember);
 export type OrgMemberListDto = z.infer<typeof OrgMemberList>;
 
+/** A pending request to join, as an owner or admin sees it. */
+export const OrgJoinRequest = z.object({
+  id: z.number().int(),
+  username: z.string(),
+  createdAt: Timestamp,
+});
+export type OrgJoinRequestDto = z.infer<typeof OrgJoinRequest>;
+
+export const OrgJoinRequestList = z.array(OrgJoinRequest);
+export type OrgJoinRequestListDto = z.infer<typeof OrgJoinRequestList>;
+
+/**
+ * What `POST /orgs/:slug/join` did.
+ *
+ * `joined` under an open policy, `requested` under a request policy — carried
+ * in the body as well as in the status code, so a client that does not branch
+ * on 201-vs-202 still cannot mistake one for the other.
+ */
+export const OrgJoinResult = z.object({
+  outcome: z.enum(['joined', 'requested']),
+  role: OrgRole.nullable(),
+});
+export type OrgJoinResultDto = z.infer<typeof OrgJoinResult>;
+
+export const AddOrgMemberRequest = z
+  .object({
+    username: z.string().min(1).max(64),
+    /** Defaults to `member`; only an owner may pass `owner` or `admin`. */
+    role: OrgRole.default('member'),
+  })
+  .strict();
+export type AddOrgMemberRequestDto = z.infer<typeof AddOrgMemberRequest>;
+
+export const SetOrgMemberRoleRequest = z.object({ role: OrgRole }).strict();
+export type SetOrgMemberRoleRequestDto = z.infer<typeof SetOrgMemberRoleRequest>;
+
 registry.registerPath({
   method: 'get',
   path: '/orgs',
@@ -164,5 +200,113 @@ registry.registerPath({
   responses: {
     200: { description: 'Every member, sorted by username', content: { 'application/json': { schema: OrgMemberList } } },
     404: ORG_NOT_FOUND,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/{slug}/join',
+  summary: 'Join an organization, or request to',
+  responses: {
+    201: {
+      description: 'Joined — the organization is open',
+      content: { 'application/json': { schema: OrgJoinResult } },
+    },
+    202: {
+      description: 'Requested — an owner or admin must approve',
+      content: { 'application/json': { schema: OrgJoinResult } },
+    },
+    401: NOT_SIGNED_IN,
+    403: {
+      description: 'This organization admits members by invitation only (`org_invite_only`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    404: ORG_NOT_FOUND,
+    409: {
+      description: 'Already a member',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/orgs/{slug}/requests',
+  summary: 'Pending join requests (owner or admin)',
+  responses: {
+    200: {
+      description: 'The pending requests, oldest first',
+      content: { 'application/json': { schema: OrgJoinRequestList } },
+    },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: ORG_NOT_FOUND,
+  },
+});
+
+for (const decision of ['approve', 'reject'] as const) {
+  registry.registerPath({
+    method: 'post',
+    path: `/orgs/{slug}/requests/{id}/${decision}`,
+    summary: `${decision === 'approve' ? 'Approve' : 'Reject'} a pending join request`,
+    responses: {
+      200: { description: 'Decided', content: { 'application/json': { schema: OrgMemberList } } },
+      401: NOT_SIGNED_IN,
+      403: FORBIDDEN,
+      404: ORG_NOT_FOUND,
+      409: {
+        description: 'That request has already been decided',
+        content: { 'application/problem+json': { schema: ProblemDetails } },
+      },
+    },
+  });
+}
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/{slug}/members',
+  summary: 'Add a member directly (owner or admin)',
+  request: { body: { content: { 'application/json': { schema: AddOrgMemberRequest } } } },
+  responses: {
+    201: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberList } } },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: ORG_NOT_FOUND,
+    409: { description: 'Already a member', content: { 'application/problem+json': { schema: ProblemDetails } } },
+    422: VALIDATION_FAILED,
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/orgs/{slug}/members/{username}',
+  summary: 'Remove a member, or leave by naming yourself',
+  responses: {
+    200: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberList } } },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: ORG_NOT_FOUND,
+    409: {
+      description: 'That would leave the organization with no owner (`org_last_owner`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/orgs/{slug}/members/{username}',
+  summary: "Set a member's role (owner only)",
+  request: { body: { content: { 'application/json': { schema: SetOrgMemberRoleRequest } } } },
+  responses: {
+    200: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberList } } },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: ORG_NOT_FOUND,
+    409: {
+      description: 'That would leave the organization with no owner (`org_last_owner`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
   },
 });

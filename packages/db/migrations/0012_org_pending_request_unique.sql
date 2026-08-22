@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "org_join_requests_pending_idx" ON "org_join_requests" USING btree ("org_id","user_id") WHERE "org_join_requests"."state" = 'pending';
