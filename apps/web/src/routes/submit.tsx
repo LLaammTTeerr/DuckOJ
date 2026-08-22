@@ -361,7 +361,14 @@ export function useSubmissionSocket(
  * Phase 2b found here already, just with a different cause. See
  * `router.tsx`'s `submitRoute` for where the value actually comes from.
  */
-export function SubmitPage(props: { problemCode: string }) {
+/**
+ * `contestKey` is the 4d obligation made visible: a submission counts toward a
+ * contest only if the key travels with it. Reaching this page from a contest's
+ * problem table carries it; reaching it from the problem page does not, and
+ * that submission is practice — which is the cost of the explicit-key design,
+ * surfaced here rather than hidden.
+ */
+export function SubmitPage(props: { problemCode: string; contestKey?: string }) {
   const { problemCode } = props;
   const [submissionId, setSubmissionId] = useState<number | null>(null);
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null);
@@ -399,7 +406,12 @@ export function SubmitPage(props: { problemCode: string }) {
     setSubmitError(null);
     try {
       const { data, error } = await api.POST('/submissions', {
-        body: { problemCode, languageKey: values.languageKey, source: values.source },
+        body: {
+          problemCode,
+          languageKey: values.languageKey,
+          source: values.source,
+          ...(props.contestKey ? { contestKey: props.contestKey } : {}),
+        },
       });
       if (error || !data) {
         setSubmitError(error?.detail ?? 'Submission failed.');

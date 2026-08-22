@@ -14,6 +14,8 @@ import {
   ResetPasswordPage,
   VerifyEmailPage,
 } from './routes/account-recovery.js';
+import { ContestPage, ContestsPage, ScoreboardPage } from './routes/contests.js';
+import { UserPage } from './routes/user.js';
 import { api } from './api.js';
 // `meQueryOptions` moved to `./me.js` (see that file's doc comment) so
 // `routes/problems.tsx` — which needs the viewer's username for the `me`
@@ -92,6 +94,7 @@ function RootComponent() {
         <div>
           <strong>DuckOJ</strong>
           <Link to="/problems">Problems</Link>
+          <Link to="/contests">Contests</Link>
           <Link to="/submissions">Submissions</Link>
           <a href="/api/v1/docs">API</a>
           {me.data ? <span>Signed in as {me.data.displayName}</span> : <Link to="/">Sign in</Link>}
@@ -140,7 +143,7 @@ function IndexComponent() {
  * serializer's JSON-detection heuristic.
  */
 function SubmitRouteComponent() {
-  const { problem } = useSearch({ from: '/submit' });
+  const { problem, contest } = useSearch({ from: '/submit' });
   const { me, loginError, needsTotp, handleLogin } = useAuthGate();
   if (me.isLoading) return <p>Loading…</p>;
   if (!me.data) {
@@ -152,7 +155,7 @@ function SubmitRouteComponent() {
       </>
     );
   }
-  return <SubmitPage problemCode={problem} />;
+  return <SubmitPage problemCode={problem} {...(contest ? { contestKey: contest } : {})} />;
 }
 
 /**
@@ -247,8 +250,12 @@ const submitRoute = createRoute({
   // Same default as `submit.tsx`'s `problemCodeFromSearch`/`DEFAULT_PROBLEM_CODE`:
   // absent `?problem=` still means `aplusb`, matching pre-router behaviour for
   // bare `/submit`.
-  validateSearch: (search: Record<string, unknown>): { problem: string } => ({
+  // `contest` is optional and omitted when absent rather than set to
+  // `undefined`: `exactOptionalPropertyTypes` distinguishes the two, and a
+  // present-but-undefined key would travel into the request body.
+  validateSearch: (search: Record<string, unknown>): { problem: string; contest?: string } => ({
     problem: typeof search.problem === 'string' ? search.problem : DEFAULT_PROBLEM_CODE,
+    ...(typeof search.contest === 'string' ? { contest: search.contest } : {}),
   }),
   component: SubmitRouteComponent,
 });
@@ -263,6 +270,40 @@ const submissionsRoute = createRoute({
 // a state each of them handles rather than a crash.
 const tokenSearch = (search: Record<string, unknown>): { token?: string } =>
   typeof search.token === 'string' ? { token: search.token } : {};
+
+function ContestRouteComponent() {
+  const { key } = useParams({ from: '/contests/$key' });
+  return <ContestPage contestKey={key} />;
+}
+function ScoreboardRouteComponent() {
+  const { key } = useParams({ from: '/contests/$key/scoreboard' });
+  return <ScoreboardPage contestKey={key} />;
+}
+function UserRouteComponent() {
+  const { username } = useParams({ from: '/users/$username' });
+  return <UserPage username={username} />;
+}
+
+const contestsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/contests',
+  component: ContestsPage,
+});
+const contestRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/contests/$key',
+  component: ContestRouteComponent,
+});
+const scoreboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/contests/$key/scoreboard',
+  component: ScoreboardRouteComponent,
+});
+const userRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/users/$username',
+  component: UserRouteComponent,
+});
 
 const forgotPasswordRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -294,6 +335,10 @@ const routeTree = rootRoute.addChildren([
   forgotPasswordRoute,
   resetPasswordRoute,
   verifyEmailRoute,
+  contestsRoute,
+  contestRoute,
+  scoreboardRoute,
+  userRoute,
 ]);
 
 export const router = createRouter({ routeTree });

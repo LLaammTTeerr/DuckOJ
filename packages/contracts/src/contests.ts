@@ -326,6 +326,7 @@ registry.registerPath({
   method: 'get',
   path: '/users/{username}/rating',
   summary: "A user's rating history, oldest first",
+  request: { params: z.object({ username: z.string() }) },
   responses: {
     200: {
       description: 'The history; empty for a user who has never been rated',

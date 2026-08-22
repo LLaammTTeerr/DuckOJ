@@ -81,6 +81,9 @@ export const UpdateMeRequest = z
   .strict();
 export type UpdateMeRequestDto = z.infer<typeof UpdateMeRequest>;
 
+/** Declared so the generated SDK types `{ params: { path: { username } } }`. */
+const UsernameParam = z.object({ username: z.string() });
+
 const USER_NOT_FOUND = {
   description: 'No such user',
   content: { 'application/problem+json': { schema: ProblemDetails } },
@@ -100,6 +103,7 @@ registry.registerPath({
   method: 'get',
   path: '/users/{username}',
   summary: 'A user profile, with statistics over public problems',
+  request: { params: UsernameParam },
   responses: {
     200: { description: 'The profile', content: { 'application/json': { schema: UserProfile } } },
     404: USER_NOT_FOUND,

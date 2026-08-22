@@ -643,7 +643,9 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    username: string;
+                };
                 cookie?: never;
             };
             requestBody?: never;
@@ -4400,7 +4402,9 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    username: string;
+                };
                 cookie?: never;
             };
             requestBody?: never;

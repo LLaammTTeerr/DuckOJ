@@ -1331,6 +1331,16 @@
     "/users/{username}/rating": {
       "get": {
         "summary": "A user's rating history, oldest first",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "username",
+            "in": "path"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The history; empty for a user who has never been rated",
@@ -8559,6 +8569,16 @@
     "/users/{username}": {
       "get": {
         "summary": "A user profile, with statistics over public problems",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "username",
+            "in": "path"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The profile",
