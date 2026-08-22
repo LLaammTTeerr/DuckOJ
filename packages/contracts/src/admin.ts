@@ -36,6 +36,7 @@ const FORBIDDEN = {
 registry.registerPath({
   method: 'patch',
   path: '/admin/users/{username}',
+  tags: ['Admin'],
   summary: "Grant a user's global role — admin only",
   request: {
     params: UsernameParam,

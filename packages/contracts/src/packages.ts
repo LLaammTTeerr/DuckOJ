@@ -31,6 +31,7 @@ export type PackageSummaryDto = z.infer<typeof PackageSummary>;
 registry.registerPath({
   method: 'post',
   path: '/packages',
+  tags: ['Packages'],
   summary: 'Upload a content-addressed problem package',
   description:
     'The body is the raw tar+zstd archive bytes (see @duckoj/package-format). ' +
@@ -66,6 +67,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/packages/{hash}',
+  tags: ['Packages'],
   summary: 'Metadata for a stored package',
   request: { params: z.object({ hash: PackageHash }) },
   responses: {

@@ -30,6 +30,7 @@ const SESSION_REQUIRED = {
 registry.registerPath({
   method: 'post',
   path: '/auth/totp/begin',
+  tags: ['Auth'],
   summary: 'Begin TOTP enrolment',
   description:
     'Upserts a fresh, unconfirmed secret. Calling this again before confirming silently replaces the ' +
@@ -47,6 +48,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/auth/totp/confirm',
+  tags: ['Auth'],
   summary: 'Confirm TOTP enrolment',
   request: { body: { content: { 'application/json': { schema: TotpConfirmRequest } } } },
   responses: {
@@ -63,6 +65,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'delete',
   path: '/auth/totp',
+  tags: ['Auth'],
   summary: 'Disable TOTP',
   responses: {
     204: { description: 'Disabled (or was already off)' },

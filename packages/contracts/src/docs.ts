@@ -10,6 +10,7 @@ import { registry } from './registry.js';
 registry.registerPath({
   method: 'get',
   path: '/openapi.json',
+  tags: ['Meta'],
   summary: 'This document',
   description: 'Generated from the registry on every request, so it cannot drift from what the API actually serves.',
   responses: {
@@ -23,6 +24,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/docs',
+  tags: ['Meta'],
   summary: 'Interactive API reference',
   responses: {
     200: {
@@ -35,6 +37,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/docs/scalar-standalone.js',
+  tags: ['Meta'],
   summary: "The viewer's vendored script",
   description: 'Not part of the API surface — served only so `GET /docs` has no CDN dependency.',
   responses: {

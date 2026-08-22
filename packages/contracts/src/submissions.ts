@@ -129,6 +129,7 @@ export type SubmissionIdParamDto = z.infer<typeof SubmissionIdParam>;
 registry.registerPath({
   method: 'post',
   path: '/submissions',
+  tags: ['Submissions'],
   summary: 'Submit a solution for grading',
   request: {
     body: { content: { 'application/json': { schema: CreateSubmissionRequest } } },
@@ -156,6 +157,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/submissions',
+  tags: ['Submissions'],
   summary: 'Submissions visible to the caller, newest first',
   description:
     'Keyset-paginated on `id`, descending. Produces exactly the set `GET /submissions/{id}` would answer ' +
@@ -178,6 +180,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/submissions/{id}',
+  tags: ['Submissions'],
   summary: 'A submission visible to the caller',
   request: {
     params: z.object({ id: SubmissionIdParamSchema }),

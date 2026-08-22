@@ -9,6 +9,56 @@
       "url": "/api/v1"
     }
   ],
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "Sessions, registration, recovery, two-factor"
+    },
+    {
+      "name": "API tokens",
+      "description": "Personal access tokens for the SDK and the oj CLI"
+    },
+    {
+      "name": "Users",
+      "description": "Public profiles and rating history"
+    },
+    {
+      "name": "Problems",
+      "description": "Problems, revisions and statements"
+    },
+    {
+      "name": "Submissions",
+      "description": "Submitting and reading verdicts"
+    },
+    {
+      "name": "Contests",
+      "description": "Contests, participation and scoreboards"
+    },
+    {
+      "name": "Organizations",
+      "description": "Membership, join requests and roles"
+    },
+    {
+      "name": "Notifications",
+      "description": "The signed-in notification feed"
+    },
+    {
+      "name": "Packages",
+      "description": "Content-addressed problem packages"
+    },
+    {
+      "name": "Languages",
+      "description": "Submission languages"
+    },
+    {
+      "name": "Admin",
+      "description": "Session-only administration"
+    },
+    {
+      "name": "Meta",
+      "description": "The API reference and this document"
+    }
+  ],
   "components": {
     "schemas": {},
     "parameters": {}
@@ -16,6 +66,9 @@
   "paths": {
     "/contests": {
       "get": {
+        "tags": [
+          "Contests"
+        ],
         "summary": "Contests visible to the caller",
         "responses": {
           "200": {
@@ -112,6 +165,9 @@
         }
       },
       "post": {
+        "tags": [
+          "Contests"
+        ],
         "summary": "Create a contest (setter or admin)",
         "requestBody": {
           "content": {
@@ -574,6 +630,9 @@
     },
     "/contests/{key}": {
       "get": {
+        "tags": [
+          "Contests"
+        ],
         "summary": "A single contest visible to the caller, with its problems",
         "parameters": [
           {
@@ -752,6 +811,9 @@
     },
     "/contests/{key}/scoreboard": {
       "get": {
+        "tags": [
+          "Contests"
+        ],
         "summary": "The contest's scoreboard, computed by its format",
         "parameters": [
           {
@@ -1007,6 +1069,9 @@
     },
     "/contests/{key}/join": {
       "post": {
+        "tags": [
+          "Contests"
+        ],
         "summary": "Join a contest — live while it runs, virtually once it has ended",
         "parameters": [
           {
@@ -1197,6 +1262,9 @@
     },
     "/contests/{key}/me": {
       "get": {
+        "tags": [
+          "Contests"
+        ],
         "summary": "The caller's own participation in this contest",
         "parameters": [
           {
@@ -1342,6 +1410,9 @@
     },
     "/users/{username}/rating": {
       "get": {
+        "tags": [
+          "Contests"
+        ],
         "summary": "A user's rating history, oldest first",
         "parameters": [
           {
@@ -1450,6 +1521,9 @@
     },
     "/admin/contests/{key}/rate": {
       "post": {
+        "tags": [
+          "Admin"
+        ],
         "summary": "Mark a contest rated and replay the whole rating history (admin, session only)",
         "parameters": [
           {
@@ -1620,6 +1694,9 @@
     },
     "/admin/contests/{key}/unrate": {
       "post": {
+        "tags": [
+          "Admin"
+        ],
         "summary": "Mark a contest unrated and replay forward (admin, session only)",
         "parameters": [
           {
@@ -1790,6 +1867,9 @@
     },
     "/admin/users/{username}": {
       "patch": {
+        "tags": [
+          "Admin"
+        ],
         "summary": "Grant a user's global role — admin only",
         "parameters": [
           {
@@ -2036,6 +2116,9 @@
     },
     "/auth/register": {
       "post": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "Create an account",
         "requestBody": {
           "content": {
@@ -2230,6 +2313,9 @@
     },
     "/auth/login": {
       "post": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "Sign in and receive a session cookie",
         "requestBody": {
           "content": {
@@ -2377,6 +2463,9 @@
     },
     "/auth/logout": {
       "post": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "End the current session",
         "description": "Public and idempotent on purpose: a caller whose session has already expired still gets its cookie cleared, rather than a 401.",
         "responses": {
@@ -2388,6 +2477,9 @@
     },
     "/auth/me": {
       "get": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "The signed-in user",
         "responses": {
           "200": {
@@ -2500,6 +2592,9 @@
     },
     "/auth/password/forgot": {
       "post": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "Send a password-reset link",
         "requestBody": {
           "content": {
@@ -2574,6 +2669,9 @@
     },
     "/auth/password/reset": {
       "post": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "Redeem a reset link; ends every session for that user",
         "requestBody": {
           "content": {
@@ -2655,6 +2753,9 @@
     },
     "/auth/email/verify/send": {
       "post": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "Send an address-confirmation link to the signed-in user",
         "responses": {
           "202": {
@@ -2668,6 +2769,9 @@
     },
     "/auth/email/verify": {
       "post": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "Confirm an email address",
         "requestBody": {
           "content": {
@@ -2743,6 +2847,9 @@
     },
     "/openapi.json": {
       "get": {
+        "tags": [
+          "Meta"
+        ],
         "summary": "This document",
         "description": "Generated from the registry on every request, so it cannot drift from what the API actually serves.",
         "responses": {
@@ -2762,6 +2869,9 @@
     },
     "/docs": {
       "get": {
+        "tags": [
+          "Meta"
+        ],
         "summary": "Interactive API reference",
         "responses": {
           "200": {
@@ -2779,6 +2889,9 @@
     },
     "/docs/scalar-standalone.js": {
       "get": {
+        "tags": [
+          "Meta"
+        ],
         "summary": "The viewer's vendored script",
         "description": "Not part of the API surface — served only so `GET /docs` has no CDN dependency.",
         "responses": {
@@ -2797,6 +2910,9 @@
     },
     "/languages": {
       "get": {
+        "tags": [
+          "Languages"
+        ],
         "summary": "Every language POST /submissions accepts a languageKey for, active or not",
         "responses": {
           "200": {
@@ -2845,6 +2961,9 @@
     },
     "/orgs": {
       "get": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "Organizations visible to the caller",
         "responses": {
           "200": {
@@ -2923,6 +3042,9 @@
         }
       },
       "post": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "Create an organization (global admin only)",
         "requestBody": {
           "content": {
@@ -3210,6 +3332,9 @@
     },
     "/orgs/{slug}": {
       "get": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "A single organization visible to the caller",
         "parameters": [
           {
@@ -3325,6 +3450,9 @@
         }
       },
       "patch": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "Update an organization's slug, name, about, visibility or join policy",
         "parameters": [
           {
@@ -3665,6 +3793,9 @@
     },
     "/orgs/{slug}/members": {
       "get": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "The members of an organization visible to the caller",
         "parameters": [
           {
@@ -3760,6 +3891,9 @@
         }
       },
       "post": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "Add a member directly (owner or admin)",
         "parameters": [
           {
@@ -4066,6 +4200,9 @@
     },
     "/orgs/{slug}/join": {
       "post": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "Join an organization, or request to",
         "parameters": [
           {
@@ -4333,6 +4470,9 @@
     },
     "/orgs/{slug}/requests": {
       "get": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "Pending join requests (owner or admin)",
         "parameters": [
           {
@@ -4515,6 +4655,9 @@
     },
     "/orgs/{slug}/requests/{id}/approve": {
       "post": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "Approve a pending join request",
         "parameters": [
           {
@@ -4755,6 +4898,9 @@
     },
     "/orgs/{slug}/requests/{id}/reject": {
       "post": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "Reject a pending join request",
         "parameters": [
           {
@@ -4995,6 +5141,9 @@
     },
     "/orgs/{slug}/members/{username}": {
       "delete": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "Remove a member, or leave by naming yourself",
         "parameters": [
           {
@@ -5233,6 +5382,9 @@
         }
       },
       "patch": {
+        "tags": [
+          "Organizations"
+        ],
         "summary": "Set a member's role (owner only)",
         "parameters": [
           {
@@ -5541,6 +5693,9 @@
     },
     "/packages": {
       "post": {
+        "tags": [
+          "Packages"
+        ],
         "summary": "Upload a content-addressed problem package",
         "description": "The body is the raw tar+zstd archive bytes (see @duckoj/package-format). The `hash` query parameter is the hash the client claims for it; the server unpacks the archive, recomputes the hash from the file digests, and rejects the upload if it disagrees.",
         "parameters": [
@@ -5723,6 +5878,9 @@
     },
     "/packages/{hash}": {
       "get": {
+        "tags": [
+          "Packages"
+        ],
         "summary": "Metadata for a stored package",
         "parameters": [
           {
@@ -5910,6 +6068,9 @@
     },
     "/submissions": {
       "post": {
+        "tags": [
+          "Submissions"
+        ],
         "summary": "Submit a solution for grading",
         "requestBody": {
           "content": {
@@ -6103,6 +6264,9 @@
         }
       },
       "get": {
+        "tags": [
+          "Submissions"
+        ],
         "summary": "Submissions visible to the caller, newest first",
         "description": "Keyset-paginated on `id`, descending. Produces exactly the set `GET /submissions/{id}` would answer 200 for, one id at a time — never more. `user=` naming someone else's username returns an empty page for a non-admin rather than a 403, which would itself confirm the username exists.",
         "parameters": [
@@ -6356,6 +6520,9 @@
     },
     "/submissions/{id}": {
       "get": {
+        "tags": [
+          "Submissions"
+        ],
         "summary": "A submission visible to the caller",
         "parameters": [
           {
@@ -6683,6 +6850,9 @@
     },
     "/problems": {
       "get": {
+        "tags": [
+          "Problems"
+        ],
         "summary": "Problems visible to the caller",
         "parameters": [
           {
@@ -6881,6 +7051,9 @@
         }
       },
       "post": {
+        "tags": [
+          "Problems"
+        ],
         "summary": "Create a problem",
         "requestBody": {
           "content": {
@@ -7276,6 +7449,9 @@
     },
     "/problems/{code}": {
       "get": {
+        "tags": [
+          "Problems"
+        ],
         "summary": "A single problem visible to the caller",
         "parameters": [
           {
@@ -7499,6 +7675,9 @@
         }
       },
       "patch": {
+        "tags": [
+          "Problems"
+        ],
         "summary": "Update a problem's name, statement, visibility, sharing or membership",
         "parameters": [
           {
@@ -7970,6 +8149,9 @@
     },
     "/problems/{code}/statement.pdf": {
       "get": {
+        "tags": [
+          "Problems"
+        ],
         "summary": "The statement as a printable PDF",
         "parameters": [
           {
@@ -8087,6 +8269,9 @@
     },
     "/problems/{code}/revisions": {
       "get": {
+        "tags": [
+          "Problems"
+        ],
         "summary": "A problem's revision history — draft, published and archived alike",
         "parameters": [
           {
@@ -8221,6 +8406,9 @@
         }
       },
       "post": {
+        "tags": [
+          "Problems"
+        ],
         "summary": "Attach an already-uploaded package as a new draft revision",
         "parameters": [
           {
@@ -8458,6 +8646,9 @@
     },
     "/problems/{code}/revisions/{version}/publish": {
       "post": {
+        "tags": [
+          "Problems"
+        ],
         "summary": "Publish a draft or archived revision, archiving whatever was previously published",
         "parameters": [
           {
@@ -8682,6 +8873,9 @@
     },
     "/users": {
       "get": {
+        "tags": [
+          "Users"
+        ],
         "summary": "Search users by username or display name prefix",
         "parameters": [
           {
@@ -8799,6 +8993,9 @@
     },
     "/users/{username}": {
       "get": {
+        "tags": [
+          "Users"
+        ],
         "summary": "A user profile, with statistics over public problems",
         "parameters": [
           {
@@ -8949,6 +9146,9 @@
     },
     "/users/me": {
       "patch": {
+        "tags": [
+          "Users"
+        ],
         "summary": "Edit your own profile",
         "requestBody": {
           "content": {
@@ -9176,6 +9376,9 @@
     },
     "/auth/tokens": {
       "post": {
+        "tags": [
+          "API tokens"
+        ],
         "summary": "Mint a personal access token",
         "requestBody": {
           "content": {
@@ -9384,6 +9587,9 @@
         }
       },
       "get": {
+        "tags": [
+          "API tokens"
+        ],
         "summary": "The caller's personal access tokens",
         "responses": {
           "200": {
@@ -9534,6 +9740,9 @@
     },
     "/auth/tokens/{id}": {
       "delete": {
+        "tags": [
+          "API tokens"
+        ],
         "summary": "Revoke a personal access token",
         "description": "Idempotent: revoking a token that does not exist, or belongs to someone else, still answers 204.",
         "parameters": [
@@ -9645,6 +9854,9 @@
     },
     "/auth/totp/begin": {
       "post": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "Begin TOTP enrolment",
         "description": "Upserts a fresh, unconfirmed secret. Calling this again before confirming silently replaces the previous secret — and calling it after 2FA is already enabled disables it until `confirm` succeeds.",
         "responses": {
@@ -9765,6 +9977,9 @@
     },
     "/auth/totp/confirm": {
       "post": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "Confirm TOTP enrolment",
         "requestBody": {
           "content": {
@@ -9928,6 +10143,9 @@
     },
     "/auth/totp": {
       "delete": {
+        "tags": [
+          "Auth"
+        ],
         "summary": "Disable TOTP",
         "responses": {
           "204": {
@@ -10028,6 +10246,9 @@
     },
     "/notifications": {
       "get": {
+        "tags": [
+          "Notifications"
+        ],
         "summary": "Your notifications, newest first, with the unread count",
         "responses": {
           "200": {
@@ -10180,6 +10401,9 @@
     },
     "/notifications/read": {
       "post": {
+        "tags": [
+          "Notifications"
+        ],
         "summary": "Mark every notification read",
         "responses": {
           "200": {

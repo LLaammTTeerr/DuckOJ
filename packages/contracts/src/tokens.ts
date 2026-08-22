@@ -61,6 +61,7 @@ const SESSION_REQUIRED = {
 registry.registerPath({
   method: 'post',
   path: '/auth/tokens',
+  tags: ['API tokens'],
   summary: 'Mint a personal access token',
   request: { body: { content: { 'application/json': { schema: CreateTokenRequest } } } },
   responses: {
@@ -80,6 +81,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/auth/tokens',
+  tags: ['API tokens'],
   summary: "The caller's personal access tokens",
   responses: {
     200: {
@@ -94,6 +96,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'delete',
   path: '/auth/tokens/{id}',
+  tags: ['API tokens'],
   summary: 'Revoke a personal access token',
   description: 'Idempotent: revoking a token that does not exist, or belongs to someone else, still answers 204.',
   request: { params: TokenIdParam },

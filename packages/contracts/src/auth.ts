@@ -45,6 +45,7 @@ export const LoginResponse = z.object({ user: MeResponse });
 registry.registerPath({
   method: 'post',
   path: '/auth/register',
+  tags: ['Auth'],
   summary: 'Create an account',
   request: { body: { content: { 'application/json': { schema: RegisterRequest } } } },
   responses: {
@@ -63,6 +64,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/auth/login',
+  tags: ['Auth'],
   summary: 'Sign in and receive a session cookie',
   request: { body: { content: { 'application/json': { schema: LoginRequest } } } },
   responses: {
@@ -77,6 +79,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/auth/logout',
+  tags: ['Auth'],
   summary: 'End the current session',
   description:
     'Public and idempotent on purpose: a caller whose session has already expired still gets its cookie ' +
@@ -89,6 +92,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/auth/me',
+  tags: ['Auth'],
   summary: 'The signed-in user',
   responses: {
     200: { description: 'Profile', content: { 'application/json': { schema: MeResponse } } },
@@ -124,6 +128,7 @@ const INVALID_TOKEN = {
 registry.registerPath({
   method: 'post',
   path: '/auth/password/forgot',
+  tags: ['Auth'],
   summary: 'Send a password-reset link',
   request: { body: { content: { 'application/json': { schema: ForgotPasswordRequest } } } },
   responses: {
@@ -138,6 +143,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/auth/password/reset',
+  tags: ['Auth'],
   summary: 'Redeem a reset link; ends every session for that user',
   request: { body: { content: { 'application/json': { schema: ResetPasswordRequest } } } },
   responses: { 200: { description: 'Password changed' }, 400: INVALID_TOKEN },
@@ -146,6 +152,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/auth/email/verify/send',
+  tags: ['Auth'],
   summary: 'Send an address-confirmation link to the signed-in user',
   responses: { 202: { description: 'Accepted' }, 401: { description: 'Not signed in' } },
 });
@@ -153,6 +160,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/auth/email/verify',
+  tags: ['Auth'],
   summary: 'Confirm an email address',
   request: { body: { content: { 'application/json': { schema: VerifyEmailRequest } } } },
   responses: { 200: { description: 'Address confirmed' }, 400: INVALID_TOKEN },

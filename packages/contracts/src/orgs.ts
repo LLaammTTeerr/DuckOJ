@@ -117,6 +117,7 @@ export type SetOrgMemberRoleRequestDto = z.infer<typeof SetOrgMemberRoleRequest>
 registry.registerPath({
   method: 'get',
   path: '/orgs',
+  tags: ['Organizations'],
   summary: 'Organizations visible to the caller',
   responses: {
     200: { description: 'A page of organizations', content: { 'application/json': { schema: OrgPage } } },
@@ -126,6 +127,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/orgs/{slug}',
+  tags: ['Organizations'],
   summary: 'A single organization visible to the caller',
   request: { params: z.object({ slug: z.string() }) },
   responses: {
@@ -164,6 +166,7 @@ const SLUG_TAKEN = {
 registry.registerPath({
   method: 'post',
   path: '/orgs',
+  tags: ['Organizations'],
   summary: 'Create an organization (global admin only)',
   request: { body: { content: { 'application/json': { schema: CreateOrgRequest } } } },
   responses: {
@@ -178,6 +181,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'patch',
   path: '/orgs/{slug}',
+  tags: ['Organizations'],
   summary: "Update an organization's slug, name, about, visibility or join policy",
   request: {
     params: OrgSlugParam,
@@ -196,6 +200,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/orgs/{slug}/members',
+  tags: ['Organizations'],
   summary: 'The members of an organization visible to the caller',
   request: { params: OrgSlugParam },
   responses: {
@@ -207,6 +212,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/orgs/{slug}/join',
+  tags: ['Organizations'],
   request: { params: OrgSlugParam },
   summary: 'Join an organization, or request to',
   responses: {
@@ -234,6 +240,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/orgs/{slug}/requests',
+  tags: ['Organizations'],
   request: { params: OrgSlugParam },
   summary: 'Pending join requests (owner or admin)',
   responses: {
@@ -251,6 +258,7 @@ for (const decision of ['approve', 'reject'] as const) {
   registry.registerPath({
     method: 'post',
     path: `/orgs/{slug}/requests/{id}/${decision}`,
+    tags: ['Organizations'],
     request: { params: z.object({ slug: z.string(), id: z.number().int() }) },
     summary: `${decision === 'approve' ? 'Approve' : 'Reject'} a pending join request`,
     responses: {
@@ -269,6 +277,7 @@ for (const decision of ['approve', 'reject'] as const) {
 registry.registerPath({
   method: 'post',
   path: '/orgs/{slug}/members',
+  tags: ['Organizations'],
   summary: 'Add a member directly (owner or admin)',
   request: {
     params: OrgSlugParam,
@@ -287,6 +296,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'delete',
   path: '/orgs/{slug}/members/{username}',
+  tags: ['Organizations'],
   summary: 'Remove a member, or leave by naming yourself',
   request: { params: OrgMemberParam },
   responses: {
@@ -304,6 +314,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'patch',
   path: '/orgs/{slug}/members/{username}',
+  tags: ['Organizations'],
   summary: "Set a member's role (owner only)",
   request: {
     params: OrgMemberParam,

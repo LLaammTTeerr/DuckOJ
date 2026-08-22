@@ -92,6 +92,7 @@ const USER_NOT_FOUND = {
 registry.registerPath({
   method: 'get',
   path: '/users',
+  tags: ['Users'],
   summary: 'Search users by username or display name prefix',
   request: { query: UserListQuery },
   responses: {
@@ -102,6 +103,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/users/{username}',
+  tags: ['Users'],
   summary: 'A user profile, with statistics over public problems',
   request: { params: UsernameParam },
   responses: {
@@ -113,6 +115,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'patch',
   path: '/users/me',
+  tags: ['Users'],
   summary: 'Edit your own profile',
   request: { body: { content: { 'application/json': { schema: UpdateMeRequest } } } },
   responses: {

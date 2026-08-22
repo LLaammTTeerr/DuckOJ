@@ -30,6 +30,7 @@ export type LanguageListDto = z.infer<typeof LanguageList>;
 registry.registerPath({
   method: 'get',
   path: '/languages',
+  tags: ['Languages'],
   summary: 'Every language POST /submissions accepts a languageKey for, active or not',
   responses: {
     200: {

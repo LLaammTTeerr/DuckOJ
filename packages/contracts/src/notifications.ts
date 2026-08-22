@@ -39,6 +39,7 @@ const SESSION_ONLY = {
 registry.registerPath({
   method: 'get',
   path: '/notifications',
+  tags: ['Notifications'],
   summary: 'Your notifications, newest first, with the unread count',
   responses: {
     200: { description: 'The feed', content: { 'application/json': { schema: NotificationList } } },
@@ -50,6 +51,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/notifications/read',
+  tags: ['Notifications'],
   summary: 'Mark every notification read',
   responses: {
     200: { description: 'The now-empty unread count', content: { 'application/json': { schema: NotificationList } } },

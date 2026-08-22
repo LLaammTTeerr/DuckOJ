@@ -197,6 +197,7 @@ const VALIDATION_FAILED = {
 registry.registerPath({
   method: 'get',
   path: '/problems',
+  tags: ['Problems'],
   summary: 'Problems visible to the caller',
   request: { query: ProblemListQuery },
   responses: {
@@ -208,6 +209,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/problems/{code}',
+  tags: ['Problems'],
   summary: 'A single problem visible to the caller',
   request: { params: ProblemCodeParam },
   responses: {
@@ -219,6 +221,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/problems/{code}/statement.pdf',
+  tags: ['Problems'],
   summary: 'The statement as a printable PDF',
   request: { params: ProblemCodeParam },
   responses: {
@@ -237,6 +240,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/problems',
+  tags: ['Problems'],
   summary: 'Create a problem',
   request: { body: { content: { 'application/json': { schema: CreateProblemRequest } } } },
   responses: {
@@ -254,6 +258,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'patch',
   path: '/problems/{code}',
+  tags: ['Problems'],
   summary: "Update a problem's name, statement, visibility, sharing or membership",
   request: {
     params: ProblemCodeParam,
@@ -275,6 +280,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/problems/{code}/revisions',
+  tags: ['Problems'],
   summary: "A problem's revision history — draft, published and archived alike",
   request: { params: ProblemCodeParam },
   responses: {
@@ -291,6 +297,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/problems/{code}/revisions',
+  tags: ['Problems'],
   summary: 'Attach an already-uploaded package as a new draft revision',
   request: {
     params: ProblemCodeParam,
@@ -317,6 +324,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/problems/{code}/revisions/{version}/publish',
+  tags: ['Problems'],
   summary: 'Publish a draft or archived revision, archiving whatever was previously published',
   request: { params: ProblemCodeAndVersionParam },
   responses: {

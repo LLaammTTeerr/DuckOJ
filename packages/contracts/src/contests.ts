@@ -198,6 +198,7 @@ const VALIDATION_FAILED = {
 registry.registerPath({
   method: 'get',
   path: '/contests',
+  tags: ['Contests'],
   summary: 'Contests visible to the caller',
   responses: {
     200: { description: 'A page of contests', content: { 'application/json': { schema: ContestPage } } },
@@ -207,6 +208,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/contests/{key}',
+  tags: ['Contests'],
   summary: 'A single contest visible to the caller, with its problems',
   request: { params: ContestKeyParam },
   responses: {
@@ -218,6 +220,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/contests/{key}/scoreboard',
+  tags: ['Contests'],
   summary: "The contest's scoreboard, computed by its format",
   request: { params: ContestKeyParam },
   responses: {
@@ -238,6 +241,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/contests',
+  tags: ['Contests'],
   summary: 'Create a contest (setter or admin)',
   request: { body: { content: { 'application/json': { schema: CreateContestRequest } } } },
   responses: {
@@ -277,6 +281,7 @@ export type ContestParticipationDto = z.infer<typeof ContestParticipation>;
 registry.registerPath({
   method: 'post',
   path: '/contests/{key}/join',
+  tags: ['Contests'],
   summary: 'Join a contest — live while it runs, virtually once it has ended',
   request: { params: ContestKeyParam },
   responses: {
@@ -296,6 +301,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/contests/{key}/me',
+  tags: ['Contests'],
   summary: "The caller's own participation in this contest",
   request: { params: ContestKeyParam },
   responses: {
@@ -327,6 +333,7 @@ export type RatingHistoryDto = z.infer<typeof RatingHistory>;
 registry.registerPath({
   method: 'get',
   path: '/users/{username}/rating',
+  tags: ['Contests'],
   summary: "A user's rating history, oldest first",
   request: { params: z.object({ username: z.string() }) },
   responses: {
@@ -341,6 +348,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/admin/contests/{key}/rate',
+  tags: ['Admin'],
   summary: 'Mark a contest rated and replay the whole rating history (admin, session only)',
   request: { params: ContestKeyParam },
   responses: {
@@ -357,6 +365,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/admin/contests/{key}/unrate',
+  tags: ['Admin'],
   summary: 'Mark a contest unrated and replay forward (admin, session only)',
   request: { params: ContestKeyParam },
   responses: {
