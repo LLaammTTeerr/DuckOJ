@@ -12,3 +12,5 @@ export { applyInactivity, updatePlayer, updatePlayerDetailed } from './glicko2.j
 export type { PeriodDetail } from './glicko2.js';
 export { MIN_RATED_PARTICIPANTS, rateContest } from './contest.js';
 export type { RankedPlayer, RatingChange } from './contest.js';
+export { RANK_BANDS, rankBand } from './bands.js';
+export type { RankBand } from './bands.js';

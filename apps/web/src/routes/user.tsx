@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { rankBand } from '@duckoj/glicko2';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 
@@ -66,7 +67,11 @@ export function UserPage({ username }: { username: string }) {
           <tr>
             <th>Rating</th>
             <td className="num">
-              {user.rating === null ? 'unrated' : user.rating}
+              {/* Title as text, never colour: the design reserves colour
+                  for verdicts (app.css rule 1). The band table is the D6
+                  placeholder — renaming it is a data edit in
+                  packages/glicko2/src/bands.ts. */}
+              {user.rating === null ? 'unrated' : `${rankBand(user.rating).title} \u00b7 ${String(user.rating)}`}
               {user.maxRating !== null && user.maxRating !== user.rating
                 ? ` (peak ${String(user.maxRating)})`
                 : ''}

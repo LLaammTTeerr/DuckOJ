@@ -42,7 +42,10 @@ describe('UserPage', () => {
     expect(screen.getByRole('row', { name: /points/i })).toHaveTextContent('250');
     // The peak only appears when it differs from the current rating —
     // "1520 (peak 1520)" is noise.
-    expect(screen.getByRole('row', { name: /rating/i })).toHaveTextContent('1520 (peak 1580)');
+    // The D6 placeholder band table: 1520 sits in the 1400-1599 band.
+    expect(screen.getByRole('row', { name: /rating/i })).toHaveTextContent(
+      'Specialist \u00b7 1520 (peak 1580)',
+    );
   });
 
   it('says unrated rather than showing a number nobody earned', async () => {

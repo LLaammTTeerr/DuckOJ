@@ -115,3 +115,31 @@ Closes foundation §15 question 5.
 - **Frontend component library** — foundation §15 question 2. The retro
   terminal design is hand-written CSS, so nothing has needed one yet.
 - **i18n library** — needed when UI text is localised, not before.
+
+## D13 — Rate limiting on account recovery is DB-backed, 5/email/hour
+
+A fixed one-hour window counted in a `rate_events` table, keyed by
+`(purpose, key)` where the key is the lowercased email. No Redis, no
+in-memory state: DB-backed is the only variant that is deterministic in
+tests and correct across multiple API instances. The endpoint still
+answers success — a rate-limited request is silently dropped, exactly like
+an unknown email, so the limiter leaks nothing.
+
+Applies to password-reset requests and verification sends. Chosen
+autonomously under the 2026-08-22 "automate the rest" directive; the
+number 5 is a guess and is one constant to change.
+
+## D14 — Notifications are in-app only, three kinds
+
+A `notifications` table (`user_id, kind, payload, read_at`), a list
+endpoint and a mark-read endpoint, a bell in the nav. Kinds: org join
+request received (to deciders), org join request decided (to requester),
+global role granted. No email digests, no per-kind preferences — both are
+easy to add and impossible to remove.
+
+## D15 — Statement rendering is a port; the Typst adapter needs a binary
+
+Modelled on `Mailer`: a `StatementRenderer` port with a null default. The
+real Typst/PDF adapter activates only where a `typst` binary already
+exists — installing one requires asking, and the standing
+ask-before-installing instruction outranks "don't stop".

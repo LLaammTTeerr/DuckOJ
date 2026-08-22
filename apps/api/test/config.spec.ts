@@ -27,7 +27,6 @@ describe('loadConfig', () => {
   });
 
   it('refuses to start without a Redis URL', () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured only to omit it
     const { REDIS_URL: _omitted, ...rest } = valid;
     expect(() => loadConfig(rest)).toThrow(/REDIS_URL/);
   });
