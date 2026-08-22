@@ -588,6 +588,7 @@ function toSummary(row: {
   pointsPrecision: number;
   frozenLastMinutes: number;
   timeLimitSeconds: number | null;
+  isRated: boolean;
   createdAt: Date;
 }): ContestSummaryDto {
   return {
@@ -596,6 +597,7 @@ function toSummary(row: {
     name: row.name,
     startTime: row.startTime.toISOString(),
     endTime: row.endTime.toISOString(),
+    isRated: row.isRated,
     format: row.format,
     visibility: row.visibility,
     pointsPrecision: row.pointsPrecision,

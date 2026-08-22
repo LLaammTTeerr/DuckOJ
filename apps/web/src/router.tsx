@@ -17,6 +17,7 @@ import {
 import { ContestPage, ContestsPage, ScoreboardPage } from './routes/contests.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
+import { AdminPage } from './routes/admin.js';
 import { api } from './api.js';
 // `meQueryOptions` moved to `./me.js` (see that file's doc comment) so
 // `routes/problems.tsx` — which needs the viewer's username for the `me`
@@ -99,6 +100,7 @@ function RootComponent() {
           <Link to="/orgs">Orgs</Link>
           <Link to="/submissions">Submissions</Link>
           <a href="/api/v1/docs">API</a>
+          {me.data?.globalRole === 'admin' ? <Link to="/admin">Admin</Link> : null}
           {me.data ? <span>Signed in as {me.data.displayName}</span> : <Link to="/">Sign in</Link>}
         </div>
       </nav>
@@ -315,6 +317,11 @@ const orgRoute = createRoute({
   path: '/orgs/$slug',
   component: OrgRouteComponent,
 });
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin',
+  component: AdminPage,
+});
 const userRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/users/$username',
@@ -356,6 +363,7 @@ const routeTree = rootRoute.addChildren([
   scoreboardRoute,
   orgsRoute,
   orgRoute,
+  adminRoute,
   userRoute,
 ]);
 

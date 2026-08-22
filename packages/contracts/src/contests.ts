@@ -91,6 +91,8 @@ export const ContestSummary = z.object({
   pointsPrecision: z.number().int(),
   frozenLastMinutes: z.number().int(),
   timeLimitSeconds: z.number().int().nullable(),
+  /** Whether this contest feeds ratings — set by an admin after the fact. */
+  isRated: z.boolean(),
   createdAt: Timestamp,
 });
 export type ContestSummaryDto = z.infer<typeof ContestSummary>;

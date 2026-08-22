@@ -42,6 +42,7 @@ export interface paths {
                                 pointsPrecision: number;
                                 frozenLastMinutes: number;
                                 timeLimitSeconds: number | null;
+                                isRated: boolean;
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
@@ -119,6 +120,7 @@ export interface paths {
                             pointsPrecision: number;
                             frozenLastMinutes: number;
                             timeLimitSeconds: number | null;
+                            isRated: boolean;
                             /** Format: date-time */
                             createdAt: string;
                             formatConfig: {
@@ -282,6 +284,7 @@ export interface paths {
                             pointsPrecision: number;
                             frozenLastMinutes: number;
                             timeLimitSeconds: number | null;
+                            isRated: boolean;
                             /** Format: date-time */
                             createdAt: string;
                             formatConfig: {
