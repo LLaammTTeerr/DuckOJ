@@ -108,6 +108,7 @@ export function toMe(
     locale: user.locale,
     timezone: user.timezone,
     totpEnabled,
+    emailVerified: user.emailVerifiedAt !== null,
     createdAt: user.createdAt.toISOString(),
   };
 }

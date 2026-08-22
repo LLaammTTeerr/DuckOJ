@@ -10,6 +10,7 @@ import type { DestinationStream } from 'pino';
 import type { Db } from '@duckoj/db';
 import { SUBMISSION_CHANNEL } from '@duckoj/realtime';
 import { AuthnModule } from '../src/authn/authn.module.js';
+import { MailModule } from '../src/mail/mail.module.js';
 import { AdminModule } from '../src/admin/admin.module.js';
 import { OrgsModule } from '../src/orgs/orgs.module.js';
 import { ContestsModule } from '../src/contests/contests.module.js';
@@ -28,6 +29,11 @@ import type { AppConfig } from '../src/config/config.schema.js';
 import { ensureRedisUrl } from './redis.harness.js';
 
 export const TEST_CONFIG: AppConfig = {
+  // No SMTP: tests use `LogMailer`, and a test that wants to read what was
+  // sent injects the mailer and reads `sent`. A suite must never need a mail
+  // server to register a user.
+  smtp: null,
+  mailFrom: 'DuckOJ <test@duckoj.local>',
   nodeEnv: 'test',
   port: 0,
   databaseUrl: 'postgres://unused',
@@ -86,6 +92,7 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
     // Sharing one array between the two was tried and broke 127 tests.
     // The cost is that a new module must be added in both places.
     imports: [
+      MailModule,
       AuthnModule,
       AdminModule,
       OrgsModule,
@@ -147,7 +154,7 @@ export async function buildAppWithRealtime(
   const redisUrl = await ensureRedisUrl();
 
   let builder = Test.createTestingModule({
-    imports: [AuthnModule, OrgsModule, SubmissionsModule, RealtimeModule],
+    imports: [MailModule, AuthnModule, OrgsModule, SubmissionsModule, RealtimeModule],
   })
     .overrideProvider(DB)
     .useValue(db)

@@ -34,6 +34,8 @@ export const MeResponse = z.object({
   locale: z.string(),
   timezone: z.string(),
   totpEnabled: z.boolean(),
+  /** Nothing is gated on this yet — see 3f §5. */
+  emailVerified: z.boolean(),
   createdAt: Timestamp,
 });
 export type MeResponseDto = z.infer<typeof MeResponse>;
@@ -95,4 +97,63 @@ registry.registerPath({
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },
+});
+
+/**
+ * Password reset and address verification.
+ *
+ * `forgot` answers the same way for every syntactically valid address, so the
+ * endpoint cannot be used to ask whether someone has an account here.
+ */
+export const ForgotPasswordRequest = z.object({ email: z.string().email() }).strict();
+export type ForgotPasswordRequestDto = z.infer<typeof ForgotPasswordRequest>;
+
+export const ResetPasswordRequest = z
+  .object({ token: z.string().min(1).max(256), password: z.string().min(12).max(256) })
+  .strict();
+export type ResetPasswordRequestDto = z.infer<typeof ResetPasswordRequest>;
+
+export const VerifyEmailRequest = z.object({ token: z.string().min(1).max(256) }).strict();
+export type VerifyEmailRequestDto = z.infer<typeof VerifyEmailRequest>;
+
+const INVALID_TOKEN = {
+  description: 'The link is invalid, expired, or already used — all answered identically',
+  content: { 'application/problem+json': { schema: ProblemDetails } },
+};
+
+registry.registerPath({
+  method: 'post',
+  path: '/auth/password/forgot',
+  summary: 'Send a password-reset link',
+  request: { body: { content: { 'application/json': { schema: ForgotPasswordRequest } } } },
+  responses: {
+    202: { description: 'Accepted — answered identically whether or not the account exists' },
+    422: {
+      description: 'Not a syntactically valid address',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/auth/password/reset',
+  summary: 'Redeem a reset link; ends every session for that user',
+  request: { body: { content: { 'application/json': { schema: ResetPasswordRequest } } } },
+  responses: { 200: { description: 'Password changed' }, 400: INVALID_TOKEN },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/auth/email/verify/send',
+  summary: 'Send an address-confirmation link to the signed-in user',
+  responses: { 202: { description: 'Accepted' }, 401: { description: 'Not signed in' } },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/auth/email/verify',
+  summary: 'Confirm an email address',
+  request: { body: { content: { 'application/json': { schema: VerifyEmailRequest } } } },
+  responses: { 200: { description: 'Address confirmed' }, 400: INVALID_TOKEN },
 });

@@ -11,6 +11,7 @@ import type { Actor } from '../src/authz/actor.js';
 import { ProblemFilter } from '../src/common/problem.filter.js';
 import { APP_CONFIG, DB } from '../src/config/config.module.js';
 import { TEST_CONFIG } from './app.harness.js';
+import { MailModule } from '../src/mail/mail.module.js';
 
 const LIVE_SESSION = 'a-live-session-token';
 const SIGNED_IN: Actor = { userId: 7, globalRole: 'user', via: 'session', scopes: [] };
@@ -49,7 +50,7 @@ class ProbeController {
   }
 }
 
-@Module({ imports: [AuthnModule], controllers: [ProbeController] })
+@Module({ imports: [MailModule, AuthnModule], controllers: [ProbeController] })
 class ProbeModule {}
 
 describe('authentication is the default, not an opt-in', () => {

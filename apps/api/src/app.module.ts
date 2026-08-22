@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from './config/config.module.js';
+import { MailModule } from './mail/mail.module.js';
 import { HealthModule } from './health/health.module.js';
 import { DocsModule } from './docs/docs.module.js';
 import { AuthnModule } from './authn/authn.module.js';
@@ -17,6 +18,7 @@ import { UsersModule } from './users/users.module.js';
 @Module({
   imports: [
     ConfigModule,
+    MailModule,
     HealthModule,
     DocsModule,
     AuthnModule,

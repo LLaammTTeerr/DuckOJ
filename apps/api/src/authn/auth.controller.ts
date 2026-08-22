@@ -1,11 +1,17 @@
 import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import {
+  ForgotPasswordRequest,
   LoginRequest,
   RegisterRequest,
+  ResetPasswordRequest,
+  VerifyEmailRequest,
+  type ForgotPasswordRequestDto,
   type LoginRequestDto,
   type MeResponseDto,
   type RegisterRequestDto,
+  type ResetPasswordRequestDto,
+  type VerifyEmailRequestDto,
 } from '@duckoj/contracts';
 import { AppError } from '../common/app.error.js';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
@@ -13,6 +19,7 @@ import { APP_CONFIG } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import type { Actor } from '../authz/actor.js';
 import { AuthService, toMe } from './auth.service.js';
+import { AccountRecoveryService } from './account-recovery.service.js';
 import { SessionService } from './session.service.js';
 import { TotpService } from './totp.service.js';
 import { CurrentActor, Public } from './auth.guard.js';
@@ -25,6 +32,7 @@ export class AuthController {
     @Inject(SessionService) private readonly sessions: SessionService,
     @Inject(TotpService) private readonly totp: TotpService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
+    @Inject(AccountRecoveryService) private readonly recovery: AccountRecoveryService,
   ) {}
 
   // Neither this route nor `login`/`logout` below carries `@RequireScope` or
@@ -100,5 +108,48 @@ export class AuthController {
   async me(@CurrentActor() actor: Actor): Promise<MeResponseDto> {
     const user = await this.auth.loadUser(actor.userId);
     return toMe(user, await this.totp.isEnabled(user.id));
+  }
+
+  /**
+   * Answers 202 whether or not the address exists — see the service. The route
+   * is `@Public()` for the obvious reason: someone who cannot sign in is the
+   * only person who needs it.
+   */
+  @Post('password/forgot')
+  @Public()
+  @HttpCode(202)
+  @NoScopeRequired()
+  async forgotPassword(
+    @Body(new ZodValidationPipe(ForgotPasswordRequest)) body: ForgotPasswordRequestDto,
+  ): Promise<void> {
+    await this.recovery.requestPasswordReset(body.email);
+  }
+
+  @Post('password/reset')
+  @Public()
+  @HttpCode(200)
+  @NoScopeRequired()
+  async resetPassword(
+    @Body(new ZodValidationPipe(ResetPasswordRequest)) body: ResetPasswordRequestDto,
+  ): Promise<void> {
+    await this.recovery.resetPassword(body.token, body.password);
+  }
+
+  /** Sends to the *signed-in* user's address, never to one supplied by a caller. */
+  @Post('email/verify/send')
+  @HttpCode(202)
+  @NoScopeRequired()
+  async sendVerification(@CurrentActor() actor: Actor): Promise<void> {
+    await this.recovery.sendVerification(actor.userId);
+  }
+
+  @Post('email/verify')
+  @Public()
+  @HttpCode(200)
+  @NoScopeRequired()
+  async verifyEmail(
+    @Body(new ZodValidationPipe(VerifyEmailRequest)) body: VerifyEmailRequestDto,
+  ): Promise<void> {
+    await this.recovery.verifyEmail(body.token);
   }
 }

@@ -4,11 +4,17 @@ import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HealthController } from '../src/health/health.controller.js';
 import { DB } from '../src/config/config.module.js';
+import { MAILER, type Mailer } from '../src/mail/mailer.js';
 
 async function buildApp(dbStub: { execute: () => Promise<unknown> }): Promise<INestApplication> {
   const moduleRef = await Test.createTestingModule({
     controllers: [HealthController],
-    providers: [{ provide: DB, useValue: dbStub }],
+    providers: [
+      { provide: DB, useValue: dbStub },
+      // A stub, not `MailModule`: this suite deliberately builds the
+      // controller with fakes so `readyz` can be driven into failure.
+      { provide: MAILER, useValue: { kind: 'log', send: () => Promise.resolve() } as Mailer },
+    ],
   }).compile();
   const app = moduleRef.createNestApplication();
   await app.init();

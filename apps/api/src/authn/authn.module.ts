@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '../config/config.module.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
+import { AccountRecoveryService } from './account-recovery.service.js';
 import { PasswordService } from './password.service.js';
 import { SessionService } from './session.service.js';
 import { TokenService } from './token.service.js';
@@ -44,6 +45,7 @@ import { JudgeService } from './judge.service.js';
   controllers: [AuthController, TotpController, TokensController],
   providers: [
     AuthService,
+    AccountRecoveryService,
     PasswordService,
     SessionService,
     TokenService,
