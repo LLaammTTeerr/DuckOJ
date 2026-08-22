@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigserial,
   bigint,
+  index,
   integer,
   pgEnum,
   pgTable,
@@ -120,4 +121,27 @@ export const oneTimeTokens = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('one_time_tokens_hash_idx').on(t.tokenHash)],
+);
+
+/**
+ * One row per rate-limited attempt (D13). A fixed window is counted with
+ * `SELECT count(*) WHERE created_at > now - window`, so the limiter needs no
+ * counter to reset and no state beyond the rows themselves; `RateLimiter`
+ * deletes a key's expired rows opportunistically on each check, which keeps
+ * the table bounded without a cron.
+ *
+ * `purpose` is plain text, not the token enum: the limiter is generic and a
+ * new limited action must not require a migration (the `contests.format`
+ * reasoning).
+ */
+export const rateEvents = pgTable(
+  'rate_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    purpose: text('purpose').notNull(),
+    /** What the limit is counted against — a lowercased email, an IP, an id. */
+    key: text('key').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('rate_events_lookup_idx').on(t.purpose, t.key, t.createdAt)],
 );

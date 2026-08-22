@@ -99,6 +99,13 @@
       "when": 1787361665610,
       "tag": "0013_one_time_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1787400356939,
+      "tag": "0014_rate_events",
+      "breakpoints": true
     }
   ]
 }

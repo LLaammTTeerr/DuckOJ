@@ -15,6 +15,7 @@ import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import { MAILER, type Mailer } from '../mail/mailer.js';
 import { PasswordService } from './password.service.js';
+import { RateLimiter } from '../common/rate-limiter.js';
 
 type Purpose = 'password_reset' | 'email_verification';
 
@@ -23,6 +24,15 @@ const TTL_MINUTES: Record<Purpose, number> = {
   password_reset: 60,
   email_verification: 60 * 24,
 };
+
+/**
+ * D13: five outbound mails per key per hour, counted per purpose. The
+ * refusal is silent — the endpoint's contract is "always succeeds", and a
+ * limiter that starts answering 429 becomes the membership oracle the
+ * endpoint exists to not be.
+ */
+const MAIL_LIMIT = 5;
+const MAIL_WINDOW_MS = 60 * 60_000;
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -35,6 +45,7 @@ export class AccountRecoveryService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(MAILER) private readonly mailer: Mailer,
     @Inject(PasswordService) private readonly passwords: PasswordService,
+    @Inject(RateLimiter) private readonly limiter: RateLimiter,
   ) {}
 
   /**
@@ -45,6 +56,11 @@ export class AccountRecoveryService {
    * gets to ask.
    */
   async requestPasswordReset(email: string): Promise<void> {
+    // Before the user lookup, and keyed by the *asked-for* address: an
+    // attacker probing addresses that do not exist burns a window too.
+    if (!(await this.limiter.allow('password_reset', email.toLowerCase(), MAIL_LIMIT, MAIL_WINDOW_MS))) {
+      return;
+    }
     const [user] = await this.db
       .select({ id: schema.users.id, email: schema.users.email })
       .from(schema.users)
@@ -89,6 +105,9 @@ export class AccountRecoveryService {
       .where(eq(schema.users.id, userId))
       .limit(1);
     if (!user || user.verifiedAt !== null) return;
+    if (!(await this.limiter.allow('email_verification', String(userId), MAIL_LIMIT, MAIL_WINDOW_MS))) {
+      return;
+    }
 
     const token = await this.issue(userId, 'email_verification');
     await this.mailer.send({
