@@ -1,0 +1,117 @@
+# Decisions
+
+Answers to the questions this project had left open. Each entry says what was
+decided, who decided it, and what it costs — so a later reader can tell a
+deliberate choice from an accident.
+
+Decided by the project owner on **22 Aug 2026** unless noted.
+
+---
+
+## D1 — Email is sent over SMTP
+
+**Resend or plain SMTP**, at the implementer's discretion. Resolved as **one
+SMTP implementation**: Resend publishes SMTP credentials (`smtp.resend.com`),
+so a single transport satisfies both answers and leaves the provider a matter
+of configuration rather than of code.
+
+Closes foundation §15 question 4.
+
+## D2 — Build order after Phase 3e
+
+Left to the implementer. Taken as: **email first**, because it was the question
+that got a concrete answer and it closes a real operational hole — today a
+forgotten password is unrecoverable without database access. **UI screens next.**
+
+## D3 — Ratings do not decay with inactivity
+
+Glicko-2 grows rating deviation across an inactive rating period, but a contest
+is our rating period, so nothing in the data says how much time passed.
+
+**No decay is applied.** `applyInactivity` remains implemented and pure, called
+by nothing. This is the reversible option: adding decay later replays the whole
+history under the new policy, whereas removing it cannot restore what it moved.
+
+## D4 — Regrading a problem changes rating history
+
+Left to the implementer; the existing behaviour stands.
+
+Foundation §9 asks for both a deterministically recomputable history and
+corrections that replay forward. Those reconcile only if "deterministic" means
+*a pure function of current database state* rather than *a frozen past*. So a
+regrade, a late disqualification or a corrected scoreboard all propagate
+forward into every rating that followed.
+
+**Cost:** a rating a user saw last week can change. That is the point — the
+alternative accumulates permanently wrong ratings, which is the failure
+foundation §9's own text warns about.
+
+## D5 — Rating is applied manually, never automatically
+
+A contest is rated when an administrator says so. "The contest ended" and "the
+results are final" are different claims, and the gap between them is where
+broken test data gets found.
+
+## D6 — Rank titles are a placeholder behind an adapter
+
+Deferred as a product decision, with a working placeholder in the meantime,
+modelled on **Codeforces or chess.com**.
+
+Implemented as a pure band table behind one function, so replacing the names
+and thresholds is a data edit rather than a code change.
+
+Partially closes foundation §15 question 1 — the *thresholds and names* remain
+open; the mechanism does not.
+
+## D7 — No consent is required to be added to an organization
+
+An owner or admin adds members directly; there is no accept/decline flow and no
+invitation entity.
+
+**Cost:** a user can appear on a roster they did not ask to join. Being listed
+grants access to that organization's problems and nothing of the user's, which
+is why this is acceptable and why it is written down rather than assumed.
+
+## D8 — Usernames are permanent
+
+A rename would have to decide what happens to every existing citation of the
+old name — scoreboards, submissions, problem authorship, external links. Not
+worth it.
+
+## D9 — Avatars are deferred
+
+`users.avatar_key` exists, nothing writes it, and no URL scheme resolves it. It
+stays out of the profile DTO until UI work needs it, because returning a key
+nobody can dereference is worse than omitting the field.
+
+## D10 — Statements are expected in Vietnamese **and** English
+
+Both locales are real. Nothing multi-locale is built yet — `problems.statement`
+is a single column — so this is a **known future migration**, recorded here so
+it is designed for rather than discovered.
+
+Closes the second half of foundation §15 question 3; the i18n library remains
+unchosen and unneeded until UI text is localised.
+
+## D11 — Submissions and grading history are kept forever
+
+No retention policy. Revisit when storage cost is a real number rather than a
+hypothetical one.
+
+Closes foundation §15 question 6.
+
+## D12 — No prerendering for public problem pages
+
+No link-preview or search-indexing work. Revisit if public traffic ever
+justifies it.
+
+Closes foundation §15 question 5.
+
+---
+
+## Still open
+
+- **Rank title names and thresholds** (D6 covers only the mechanism).
+- **Frontend component library** — foundation §15 question 2. The retro
+  terminal design is hand-written CSS, so nothing has needed one yet.
+- **i18n library** — needed when UI text is localised, not before.

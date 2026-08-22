@@ -550,9 +550,16 @@ Each phase gets its own spec, plan, and implementation cycle.
 
 ## 15. Open questions
 
-1. Rank titles and colour band thresholds.
-2. Frontend component library.
+**Answered 22 Aug 2026 — see `docs/DECISIONS.md`.** Kept here in original form
+so the spec still reads as written.
+
+1. Rank titles and colour band thresholds. — *mechanism decided (D6); names and
+   thresholds still open.*
+2. Frontend component library. — *still open; nothing has needed one.*
 3. i18n library, and whether statement locales beyond Vietnamese and English are expected.
-4. Email provider for verification and password reset.
+   — *Vietnamese and English both expected (D10); library still open.*
+4. Email provider for verification and password reset. — *SMTP (D1).*
 5. Whether public problem pages need prerendering for link previews and search indexing.
-6. Retention policy for submission source and grading job history.
+   — *no (D12).*
+6. Retention policy for submission source and grading job history. — *keep
+   forever (D11).*
