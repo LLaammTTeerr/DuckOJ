@@ -2148,7 +2148,9 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    slug: string;
+                };
                 cookie?: never;
             };
             requestBody?: {
@@ -2301,7 +2303,9 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    slug: string;
+                };
                 cookie?: never;
             };
             requestBody?: never;
@@ -2434,7 +2438,9 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    slug: string;
+                };
                 cookie?: never;
             };
             requestBody?: never;
@@ -2537,7 +2543,10 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    slug: string;
+                    id: number;
+                };
                 cookie?: never;
             };
             requestBody?: never;
@@ -2659,7 +2668,10 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    slug: string;
+                    id: number;
+                };
                 cookie?: never;
             };
             requestBody?: never;
@@ -2782,7 +2794,10 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    slug: string;
+                    username: string;
+                };
                 cookie?: never;
             };
             requestBody?: never;
@@ -2891,7 +2906,10 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    slug: string;
+                    username: string;
+                };
                 cookie?: never;
             };
             requestBody?: {

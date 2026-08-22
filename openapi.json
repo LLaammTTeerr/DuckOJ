@@ -3749,6 +3749,16 @@
       },
       "post": {
         "summary": "Add a member directly (owner or admin)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4045,6 +4055,16 @@
     "/orgs/{slug}/join": {
       "post": {
         "summary": "Join an organization, or request to",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
         "responses": {
           "201": {
             "description": "Joined — the organization is open",
@@ -4302,6 +4322,16 @@
     "/orgs/{slug}/requests": {
       "get": {
         "summary": "Pending join requests (owner or admin)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The pending requests, oldest first",
@@ -4474,6 +4504,24 @@
     "/orgs/{slug}/requests/{id}/approve": {
       "post": {
         "summary": "Approve a pending join request",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Decided",
@@ -4696,6 +4744,24 @@
     "/orgs/{slug}/requests/{id}/reject": {
       "post": {
         "summary": "Reject a pending join request",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Decided",
@@ -4918,6 +4984,24 @@
     "/orgs/{slug}/members/{username}": {
       "delete": {
         "summary": "Remove a member, or leave by naming yourself",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "username",
+            "in": "path"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The updated roster",
@@ -5138,6 +5222,24 @@
       },
       "patch": {
         "summary": "Set a member's role (owner only)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "username",
+            "in": "path"
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

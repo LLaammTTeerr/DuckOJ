@@ -138,6 +138,7 @@ registry.registerPath({
 });
 
 const OrgSlugParam = z.object({ slug: z.string() });
+const OrgMemberParam = z.object({ slug: z.string(), username: z.string() });
 
 const NOT_SIGNED_IN = {
   description: 'Not signed in',
@@ -206,6 +207,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'post',
   path: '/orgs/{slug}/join',
+  request: { params: OrgSlugParam },
   summary: 'Join an organization, or request to',
   responses: {
     201: {
@@ -232,6 +234,7 @@ registry.registerPath({
 registry.registerPath({
   method: 'get',
   path: '/orgs/{slug}/requests',
+  request: { params: OrgSlugParam },
   summary: 'Pending join requests (owner or admin)',
   responses: {
     200: {
@@ -248,6 +251,7 @@ for (const decision of ['approve', 'reject'] as const) {
   registry.registerPath({
     method: 'post',
     path: `/orgs/{slug}/requests/{id}/${decision}`,
+    request: { params: z.object({ slug: z.string(), id: z.number().int() }) },
     summary: `${decision === 'approve' ? 'Approve' : 'Reject'} a pending join request`,
     responses: {
       200: { description: 'Decided', content: { 'application/json': { schema: OrgMemberList } } },
@@ -266,7 +270,10 @@ registry.registerPath({
   method: 'post',
   path: '/orgs/{slug}/members',
   summary: 'Add a member directly (owner or admin)',
-  request: { body: { content: { 'application/json': { schema: AddOrgMemberRequest } } } },
+  request: {
+    params: OrgSlugParam,
+    body: { content: { 'application/json': { schema: AddOrgMemberRequest } } },
+  },
   responses: {
     201: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberList } } },
     401: NOT_SIGNED_IN,
@@ -281,6 +288,7 @@ registry.registerPath({
   method: 'delete',
   path: '/orgs/{slug}/members/{username}',
   summary: 'Remove a member, or leave by naming yourself',
+  request: { params: OrgMemberParam },
   responses: {
     200: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberList } } },
     401: NOT_SIGNED_IN,
@@ -297,7 +305,10 @@ registry.registerPath({
   method: 'patch',
   path: '/orgs/{slug}/members/{username}',
   summary: "Set a member's role (owner only)",
-  request: { body: { content: { 'application/json': { schema: SetOrgMemberRoleRequest } } } },
+  request: {
+    params: OrgMemberParam,
+    body: { content: { 'application/json': { schema: SetOrgMemberRoleRequest } } },
+  },
   responses: {
     200: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberList } } },
     401: NOT_SIGNED_IN,

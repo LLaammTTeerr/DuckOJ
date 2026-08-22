@@ -16,6 +16,7 @@ import {
 } from './routes/account-recovery.js';
 import { ContestPage, ContestsPage, ScoreboardPage } from './routes/contests.js';
 import { UserPage } from './routes/user.js';
+import { OrgPage, OrgsPage } from './routes/orgs.js';
 import { api } from './api.js';
 // `meQueryOptions` moved to `./me.js` (see that file's doc comment) so
 // `routes/problems.tsx` — which needs the viewer's username for the `me`
@@ -95,6 +96,7 @@ function RootComponent() {
           <strong>DuckOJ</strong>
           <Link to="/problems">Problems</Link>
           <Link to="/contests">Contests</Link>
+          <Link to="/orgs">Orgs</Link>
           <Link to="/submissions">Submissions</Link>
           <a href="/api/v1/docs">API</a>
           {me.data ? <span>Signed in as {me.data.displayName}</span> : <Link to="/">Sign in</Link>}
@@ -279,6 +281,10 @@ function ScoreboardRouteComponent() {
   const { key } = useParams({ from: '/contests/$key/scoreboard' });
   return <ScoreboardPage contestKey={key} />;
 }
+function OrgRouteComponent() {
+  const { slug } = useParams({ from: '/orgs/$slug' });
+  return <OrgPage slug={slug} />;
+}
 function UserRouteComponent() {
   const { username } = useParams({ from: '/users/$username' });
   return <UserPage username={username} />;
@@ -298,6 +304,16 @@ const scoreboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/contests/$key/scoreboard',
   component: ScoreboardRouteComponent,
+});
+const orgsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/orgs',
+  component: OrgsPage,
+});
+const orgRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/orgs/$slug',
+  component: OrgRouteComponent,
 });
 const userRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -338,6 +354,8 @@ const routeTree = rootRoute.addChildren([
   contestsRoute,
   contestRoute,
   scoreboardRoute,
+  orgsRoute,
+  orgRoute,
   userRoute,
 ]);
 
