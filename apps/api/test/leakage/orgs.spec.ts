@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { organizations, orgMembers } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { schema } from '@duckoj/db';
+import { NotificationsService } from '../../src/notifications/notifications.service.js';
 import { OrgAccessService } from '../../src/authz/org.access.js';
 import type { Actor } from '../../src/authz/actor.js';
 import { withTestDb } from '../db.harness.js';
@@ -59,7 +60,7 @@ describe('organization visibility leakage matrix', () => {
   it('shows each actor exactly the organizations it may see', async () => {
     await withTestDb(async (db) => {
       const { actors } = await seed(db);
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       for (const [name, actor] of Object.entries(actors)) {
         const page = await service.listVisible(actor, { limit: 50 });
@@ -73,7 +74,7 @@ describe('organization visibility leakage matrix', () => {
   it('returns 404 — not 403 — for a private org an actor cannot see', async () => {
     await withTestDb(async (db) => {
       const { actors, slugs } = await seed(db);
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       await expect(service.getVisible(actors.outsider, slugs.priv)).rejects.toMatchObject({
         status: 404,
@@ -86,7 +87,7 @@ describe('organization visibility leakage matrix', () => {
   it('lets a member and an admin fetch the private org', async () => {
     await withTestDb(async (db) => {
       const { actors, slugs } = await seed(db);
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       expect((await service.getVisible(actors.member, slugs.priv)).slug).toBe('secret-club');
       expect((await service.getVisible(actors.admin, slugs.priv)).slug).toBe('secret-club');
@@ -96,7 +97,7 @@ describe('organization visibility leakage matrix', () => {
   it('reports membership role only for actual members', async () => {
     await withTestDb(async (db) => {
       const { actors, slugs } = await seed(db);
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
       const org = await service.getVisible(actors.member, slugs.priv);
 
       expect(await service.roleIn(actors.member, org.id)).toBe('member');

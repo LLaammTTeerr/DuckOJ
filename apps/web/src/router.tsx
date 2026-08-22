@@ -18,6 +18,7 @@ import { ContestPage, ContestsPage, ScoreboardPage } from './routes/contests.js'
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
 import { AdminPage } from './routes/admin.js';
+import { NotificationsPage, notificationsQueryOptions } from './routes/notifications.js';
 import { api } from './api.js';
 // `meQueryOptions` moved to `./me.js` (see that file's doc comment) so
 // `routes/problems.tsx` — which needs the viewer's username for the `me`
@@ -90,6 +91,14 @@ function useAuthGate() {
  */
 function RootComponent() {
   const me = useQuery(meQueryOptions);
+  // The bell. Polled once a minute while signed in; `enabled` keeps a
+  // signed-out shell from asking at all.
+  const feed = useQuery({
+    ...notificationsQueryOptions,
+    enabled: me.data != null,
+    refetchInterval: 60_000,
+  });
+  const unread = feed.data?.unreadCount ?? 0;
   return (
     <>
       <nav className="shell-nav">
@@ -101,6 +110,11 @@ function RootComponent() {
           <Link to="/submissions">Submissions</Link>
           <a href="/api/v1/docs">API</a>
           {me.data?.globalRole === 'admin' ? <Link to="/admin">Admin</Link> : null}
+          {me.data ? (
+            <Link to="/notifications" aria-label={`Notifications, ${String(unread)} unread`}>
+              {unread > 0 ? `[${String(unread)}]` : '[ ]'}
+            </Link>
+          ) : null}
           {me.data ? <span>Signed in as {me.data.displayName}</span> : <Link to="/">Sign in</Link>}
         </div>
       </nav>
@@ -317,6 +331,11 @@ const orgRoute = createRoute({
   path: '/orgs/$slug',
   component: OrgRouteComponent,
 });
+const notificationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/notifications',
+  component: NotificationsPage,
+});
 const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/admin',
@@ -363,6 +382,7 @@ const routeTree = rootRoute.addChildren([
   scoreboardRoute,
   orgsRoute,
   orgRoute,
+  notificationsRoute,
   adminRoute,
   userRoute,
 ]);

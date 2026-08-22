@@ -17,6 +17,7 @@ import type {
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { isAdmin, type Actor } from './actor.js';
 import { visibleOrgsWhere } from './org.visibility.js';
 
@@ -47,7 +48,10 @@ type OrgRow = { id: number; slug: string; visibility: 'public' | 'private' };
  */
 @Injectable()
 export class OrgAccessService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    @Inject(NotificationsService) private readonly notifications: NotificationsService,
+  ) {}
 
   async listVisible(
     actor: Actor | null,
@@ -269,10 +273,32 @@ export class OrgAccessService {
     // `request`. Idempotent while one is pending: the partial unique index
     // makes the second insert a no-op rather than a second row an approver
     // would then see twice.
-    await this.db
+    const inserted = await this.db
       .insert(orgJoinRequests)
       .values({ orgId: row.id, userId: actor.userId })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: orgJoinRequests.id });
+    // Deciders are notified only when a request row actually appeared —
+    // `returning` is empty on the idempotent re-ask, and re-notifying every
+    // owner each time someone re-clicks would train them to ignore the kind.
+    if (inserted.length > 0) {
+      const [requester] = await this.db
+        .select({ username: schema.users.username })
+        .from(schema.users)
+        .where(eq(schema.users.id, actor.userId))
+        .limit(1);
+      const deciders = await this.db
+        .select({ userId: orgMembers.userId, role: orgMembers.role })
+        .from(orgMembers)
+        .where(eq(orgMembers.orgId, row.id));
+      for (const member of deciders) {
+        if (member.role !== 'owner' && member.role !== 'admin') continue;
+        await this.notifications.notify(this.db, member.userId, 'org_join_requested', {
+          orgSlug: row.slug,
+          username: requester?.username ?? '',
+        });
+      }
+    }
     return { result: { outcome: 'requested', role: null }, created: false };
   }
 
@@ -333,6 +359,12 @@ export class OrgAccessService {
           .values({ orgId: row.id, userId: request.userId, role: 'member' })
           .onConflictDoNothing();
       }
+      // Same transaction as the decision: a decided request whose
+      // notification failed to write rolls back together with it.
+      await this.notifications.notify(tx, request.userId, 'org_join_decided', {
+        orgSlug: row.slug,
+        approved: approve,
+      });
     });
     return this.rosterOf(row.id);
   }

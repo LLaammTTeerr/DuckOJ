@@ -17,6 +17,7 @@ import { ContestsModule } from '../src/contests/contests.module.js';
 import { ProblemsModule } from '../src/problems/problems.module.js';
 import { SubmissionsModule } from '../src/submissions/submissions.module.js';
 import { RealtimeModule } from '../src/realtime/realtime.module.js';
+import { NotificationsModule } from '../src/notifications/notifications.module.js';
 import { PackagesModule } from '../src/packages/packages.module.js';
 import { LanguagesModule } from '../src/languages/languages.module.js';
 import { UsersModule } from '../src/users/users.module.js';
@@ -102,6 +103,7 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
       PackagesModule,
       LanguagesModule,
       UsersModule,
+      NotificationsModule,
     ],
   })
     .overrideProvider(DB)

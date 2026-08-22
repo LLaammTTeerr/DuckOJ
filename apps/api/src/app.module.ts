@@ -11,6 +11,7 @@ import { OrgsModule } from './orgs/orgs.module.js';
 import { ProblemsModule } from './problems/problems.module.js';
 import { SubmissionsModule } from './submissions/submissions.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
+import { NotificationsModule } from './notifications/notifications.module.js';
 import { PackagesModule } from './packages/packages.module.js';
 import { LanguagesModule } from './languages/languages.module.js';
 import { UsersModule } from './users/users.module.js';
@@ -32,6 +33,7 @@ import { UsersModule } from './users/users.module.js';
     PackagesModule,
     LanguagesModule,
     UsersModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

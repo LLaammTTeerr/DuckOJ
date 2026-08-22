@@ -5,6 +5,7 @@ import type { AdminGrantRoleRequestDto, AdminUserSummaryDto } from '@duckoj/cont
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from '../authz/actor.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 /**
  * Mirrors `identity.ts`'s `globalRole` pgEnum. Duplicated here (rather than
@@ -36,7 +37,10 @@ function isValidGlobalRole(value: string): value is AdminUserSummaryDto['globalR
  */
 @Injectable()
 export class AdminUsersService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    @Inject(NotificationsService) private readonly notifications: NotificationsService,
+  ) {}
 
   async grantRole(
     actor: Actor,
@@ -93,6 +97,15 @@ export class AdminUsersService {
       .set({ globalRole: body.globalRole, updatedAt: new Date() })
       .where(eq(schema.users.id, target.id))
       .returning({ id: schema.users.id, username: schema.users.username, globalRole: schema.users.globalRole });
+
+    // Being handed a role is exactly the kind of thing its holder should
+    // not discover by accident. Not sent when an admin re-grants yourself
+    // your own role — nothing changed hands.
+    if (target.id !== actor.userId) {
+      await this.notifications.notify(this.db, target.id, 'role_granted', {
+        globalRole: body.globalRole,
+      });
+    }
 
     return row!;
   }

@@ -13,3 +13,4 @@ export * from './scopes.js';
 export * from './submissions.js';
 export * from './tokens.js';
 export * from './totp.js';
+export * from './notifications.js';

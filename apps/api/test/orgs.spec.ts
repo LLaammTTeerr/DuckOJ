@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { organizations, orgMembers } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { OrgPage } from '@duckoj/contracts';
+import { NotificationsService } from '../src/notifications/notifications.service.js';
 import { OrgAccessService } from '../src/authz/org.access.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
@@ -117,7 +118,7 @@ describe('OrgAccessService pagination', () => {
         { slug: 'charlie', name: 'Charlie', visibility: 'public' },
         { slug: 'hidden', name: 'Hidden', visibility: 'private' },
       ]);
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       const first = await service.listVisible(null, { limit: 2 });
       expect(first.items.map((o) => o.slug)).toEqual(['alpha', 'bravo']);

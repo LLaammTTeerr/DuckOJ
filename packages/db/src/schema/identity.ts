@@ -4,6 +4,7 @@ import {
   bigint,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -144,4 +145,30 @@ export const rateEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('rate_events_lookup_idx').on(t.purpose, t.key, t.createdAt)],
+);
+
+/**
+ * In-app notifications (D14). Strictly per-user rows: the only visibility
+ * rule is `user_id = actor`, enforced in `NotificationsService`, so the
+ * table stays in the plain schema rather than the guarded one.
+ *
+ * `kind` is plain text with `payload` jsonb beside it — a new kind is a
+ * producer and a renderer, never a migration. The payload is a snapshot
+ * (usernames, slugs as they were), not foreign keys: a notification about
+ * an org that was later renamed should still read the way it did when it
+ * happened.
+ */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    payload: jsonb('payload').notNull().default({}),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('notifications_user_idx').on(t.userId, t.id)],
 );

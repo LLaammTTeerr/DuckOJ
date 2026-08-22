@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { Db } from '@duckoj/db';
 import { organizations, orgMembers } from '@duckoj/db/guarded';
+import { NotificationsService } from '../src/notifications/notifications.service.js';
 import { OrgAccessService } from '../src/authz/org.access.js';
 import type { Actor } from '../src/authz/actor.js';
 import { withTestDb } from './db.harness.js';
@@ -26,7 +27,7 @@ describe('OrgAccessService.create', () => {
   it('is admin-only: a plain user, a setter, and an anonymous caller are all refused', async () => {
     await withTestDb(async (db) => {
       const user = await insertUser(db, 'create-user');
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       await expect(
         service.create(actorFor(user.id, 'user'), { slug: 'nope', name: 'Nope' }),
@@ -47,7 +48,7 @@ describe('OrgAccessService.create', () => {
   it('seeds the creator as owner, and defaults a direct call missing visibility/joinPolicy the same way the wire schema does', async () => {
     await withTestDb(async (db) => {
       const admin = await insertUser(db, 'create-admin', 'admin');
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       const org = await service.create(actorFor(admin.id, 'admin'), { slug: 'new-club', name: 'New Club' });
       expect(org.visibility).toBe('private');
@@ -62,7 +63,7 @@ describe('OrgAccessService.create', () => {
   it('rejects a racing duplicate slug (case-insensitively) as 409 organization_slug_taken, never a 500', async () => {
     await withTestDb(async (db) => {
       const admin = await insertUser(db, 'create-admin-2', 'admin');
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       await service.create(actorFor(admin.id, 'admin'), { slug: 'dup-club', name: 'Dup Club' });
       await expect(
@@ -76,7 +77,7 @@ describe('OrgAccessService.update', () => {
   it('404s an unknown slug', async () => {
     await withTestDb(async (db) => {
       const admin = await insertUser(db, 'upd-admin', 'admin');
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
       await expect(
         service.update(actorFor(admin.id, 'admin'), 'does-not-exist', { name: 'x' }),
       ).rejects.toMatchObject({ status: 404, code: 'organization_not_found' });
@@ -98,7 +99,7 @@ describe('OrgAccessService.update', () => {
       const stranger = await insertUser(db, 'ordering-stranger');
       await seedOrg(db, { slug: 'taken-slug', name: 'Taken', visibility: 'public' });
       await seedOrg(db, { slug: 'secret-org', name: 'Secret', visibility: 'private' });
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       await expect(
         service.update(actorFor(stranger.id), 'secret-org', { slug: 'taken-slug' }),
@@ -116,7 +117,7 @@ describe('OrgAccessService.update', () => {
       const member = await insertUser(db, 'plain-member');
       const org = await seedOrg(db, { slug: 'member-org', name: 'Member Org', visibility: 'public' });
       await db.insert(orgMembers).values({ orgId: org.id, userId: member.id, role: 'member' });
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       await expect(
         service.update(actorFor(member.id), 'member-org', { name: 'New Name' }),
@@ -134,7 +135,7 @@ describe('OrgAccessService.update', () => {
         { orgId: org.id, userId: owner.id, role: 'owner' },
         { orgId: org.id, userId: orgAdmin.id, role: 'admin' },
       ]);
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       const r1 = await service.update(actorFor(owner.id), 'edit-org', { name: 'By Owner' });
       expect(r1.name).toBe('By Owner');
@@ -150,7 +151,7 @@ describe('OrgAccessService.update', () => {
       const owner = await insertUser(db, 'rename-owner');
       const org = await seedOrg(db, { slug: 'old-name', name: 'Old', visibility: 'public' });
       await db.insert(orgMembers).values({ orgId: org.id, userId: owner.id, role: 'owner' });
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       const renamed = await service.update(actorFor(owner.id), 'old-name', { slug: 'new-name' });
       expect(renamed.slug).toBe('new-name');
@@ -169,7 +170,7 @@ describe('OrgAccessService.update', () => {
       const org = await seedOrg(db, { slug: 'mine', name: 'Mine', visibility: 'public' });
       await seedOrg(db, { slug: 'theirs', name: 'Theirs', visibility: 'public' });
       await db.insert(orgMembers).values({ orgId: org.id, userId: owner.id, role: 'owner' });
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       await expect(
         service.update(actorFor(owner.id), 'mine', { slug: 'THEIRS' }),
@@ -182,7 +183,7 @@ describe('OrgAccessService.update', () => {
       const owner = await insertUser(db, 'case-owner');
       const org = await seedOrg(db, { slug: 'MixedCase-Org', name: 'Mixed', visibility: 'public' });
       await db.insert(orgMembers).values({ orgId: org.id, userId: owner.id, role: 'owner' });
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       const result = await service.update(actorFor(owner.id), 'mixedcase-org', { name: 'Updated' });
       expect(result.name).toBe('Updated');
@@ -195,7 +196,7 @@ describe('OrgAccessService.listMembers', () => {
     await withTestDb(async (db) => {
       const outsider = await insertUser(db, 'lm-outsider');
       await seedOrg(db, { slug: 'lm-private', name: 'Private', visibility: 'private' });
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       await expect(service.listMembers(actorFor(outsider.id), 'lm-private')).rejects.toMatchObject({
         status: 404,
@@ -214,7 +215,7 @@ describe('OrgAccessService.listMembers', () => {
         { orgId: org.id, userId: alice.id, role: 'owner' },
         { orgId: org.id, userId: bob.id, role: 'member' },
       ]);
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       const members = await service.listMembers(null, 'lm-public');
       expect(members.map((m) => ({ username: m.username, role: m.role })).sort((a, b) => a.username.localeCompare(b.username))).toEqual(
@@ -232,7 +233,7 @@ describe('OrgAccessService.listMembers', () => {
       const outsider = await insertUser(db, 'lm-outsider-2');
       const org = await seedOrg(db, { slug: 'lm-secret', name: 'Secret', visibility: 'private' });
       await db.insert(orgMembers).values({ orgId: org.id, userId: member.id, role: 'member' });
-      const service = new OrgAccessService(db);
+      const service = new OrgAccessService(db, new NotificationsService(db));
 
       const members = await service.listMembers(actorFor(member.id), 'lm-secret');
       expect(members.map((m) => m.username)).toEqual(['lm-member']);
