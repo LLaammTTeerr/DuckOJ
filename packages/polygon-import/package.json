@@ -1,0 +1,21 @@
+{
+  "name": "@duckoj/polygon-import",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "typecheck": "tsc -b && tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint src test",
+    "build": "tsc -b",
+    "test": "tsc -b && vitest run"
+  },
+  "dependencies": {
+    "@duckoj/package-format": "workspace:^",
+    "fast-xml-parser": "^4.5.0"
+  }
+}

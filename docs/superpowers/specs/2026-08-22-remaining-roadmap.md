@@ -5,6 +5,8 @@
 Each phase: tests mutation-checked, committed, CI green before the next.
 Strike a line through a phase when its ledger exists.
 
+Done: 5b, 5c, 5d, 5e, 6a, 6b (ledgers in docs/superpowers/ledgers/).
+
 1. **5b — rank bands (D6).** Pure band table in `packages/glicko2`
    (`bands.ts`), Codeforces-shaped thresholds, placeholder names.
    Profile page shows title + colour. Data edit to rename.
@@ -19,8 +21,12 @@ Strike a line through a phase when its ledger exists.
    producers at the three sites + nav bell.
 6. **6b — ICPC scoreboard detail.** Attempts/penalty per cell IF the
    format cells already carry them; otherwise extend `lower.ts` output.
-7. **7a — Polygon import.** Pure parser: polygon zip → DuckOJ package.
-   No network. Wire as an upload endpoint beside existing packages.
+7. **7a — Polygon import.** Pure parser + CLI, **no upload endpoint**
+   (ruling 2026-08-22, reversing the line below's first draft: server-side
+   zip ingestion is zip-slip/bomb surface and nothing needs it — the CLI's
+   output goes through the existing `buildPackage` → `POST /packages`
+   path, which already validates). Input is an extracted directory, not a
+   zip.
 8. **7b — statement rendering port (D15).** Port + null renderer;
    Typst adapter only if `which typst` finds a binary.
 9. **7c — `oj` CLI.** login/list/submit/watch on the generated SDK.
