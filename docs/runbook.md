@@ -1372,3 +1372,18 @@ green in isolation, unrelated diff) rather than a real regression, and — if
 it needs a real fix eventually — explicit per-test timeouts rather than
 inherited defaults is the direction Phase 1's notes already point at, though
 that has not been tried.
+
+## Statement PDFs (optional)
+
+`GET /problems/:code/statement.pdf` renders the statement with
+[typst](https://typst.app). It is **off by default** — the route answers
+501 until the `api` process has `TYPST_BIN` pointing at a typst binary
+(v0.15 verified). To enable under compose, add the binary to
+`apps/api/Dockerfile` (a ~15 MB musl download from typst's GitHub
+releases) and set `TYPST_BIN` in the `api` service environment.
+
+Statements containing math additionally fetch the `mitex` package from
+`packages.typst.org` on the machine's **first** math compile (cached in
+`~/.cache/typst` afterwards); a mathless statement never touches the
+network. If the deployment is fully offline, pre-seed that cache or
+accept a 500 on math statements.

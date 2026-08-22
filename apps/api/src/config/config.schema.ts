@@ -23,6 +23,7 @@ const EnvSchema = z.object({
    * is why no provider SDK exists in this codebase.
    */
   SMTP_HOST: z.string().min(1).optional(),
+  TYPST_BIN: z.string().min(1).optional(),
   SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
@@ -54,6 +55,12 @@ export interface AppConfig {
     password?: string;
   } | null;
   mailFrom: string;
+  /**
+   * Path to a `typst` binary; `null` disables statement PDFs (the route
+   * answers 501). Explicit — never guessed from PATH — so a deploy states
+   * whether it renders PDFs the same way it states whether it sends mail.
+   */
+  typstBin: string | null;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -88,5 +95,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
             ...(e.SMTP_PASSWORD === undefined ? {} : { password: e.SMTP_PASSWORD }),
           },
     mailFrom: e.MAIL_FROM,
+    typstBin: e.TYPST_BIN ?? null,
   };
 }

@@ -145,5 +145,8 @@ exists on this machine**, installing one requires asking (the standing
 ask-before-installing instruction outranks "don't stop"), and a port
 with a null adapter and no consumer is dead scaffolding — so nothing
 was built (2026-08-22 ruling, Phase 7c ledger). Statements render fully
-today via Markdown+KaTeX. Open user decision: approve a typst install,
-or take a print stylesheet as the cheaper onsite-PDF answer.
+today via Markdown+KaTeX.
+
+**Resolved the same day:** the user approved installing typst, and the
+port shipped as designed — `TYPST_BIN` config, `TypstStatementRenderer`
+with mitex for math, 501 when unconfigured. Phase 7b ledger.

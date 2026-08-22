@@ -35,6 +35,9 @@ export const TEST_CONFIG: AppConfig = {
   // server to register a user.
   smtp: null,
   mailFrom: 'DuckOJ <test@duckoj.local>',
+  // No typst binary either: the PDF route answers 501 unless a test
+  // injects a renderer, mirroring the LogMailer reasoning above.
+  typstBin: null,
   nodeEnv: 'test',
   port: 0,
   databaseUrl: 'postgres://unused',

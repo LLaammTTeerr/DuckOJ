@@ -295,6 +295,11 @@ describe('ProblemPage', () => {
     expect(
       within(statementHeading.parentElement ?? document.body).getByText(/Add two numbers\./),
     ).toBeInTheDocument();
+
+    // The printable statement: a plain <a> straight at the API route, code
+    // interpolated — not a router Link, the PDF lives outside the SPA.
+    const pdf = screen.getByRole('link', { name: 'PDF' });
+    expect(pdf).toHaveAttribute('href', '/api/v1/problems/aplusb/statement.pdf');
   });
 
   it('does not create a script element from a statement containing <script>', async () => {

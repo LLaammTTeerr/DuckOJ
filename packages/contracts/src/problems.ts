@@ -217,6 +217,24 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: 'get',
+  path: '/problems/{code}/statement.pdf',
+  summary: 'The statement as a printable PDF',
+  request: { params: ProblemCodeParam },
+  responses: {
+    200: {
+      description: 'The rendered statement',
+      content: { 'application/pdf': { schema: z.string() } },
+    },
+    404: PROBLEM_NOT_FOUND,
+    501: {
+      description: 'This server has no typst binary configured (`statement_pdf_unavailable`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
   method: 'post',
   path: '/problems',
   summary: 'Create a problem',

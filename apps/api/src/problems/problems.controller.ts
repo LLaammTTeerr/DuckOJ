@@ -1,5 +1,18 @@
 import type { ArgumentMetadata, PipeTransform } from '@nestjs/common';
-import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+  StreamableFile,
+} from '@nestjs/common';
+import type { Response } from 'express';
 import {
   AttachRevisionRequest,
   CreateProblemRequest,
@@ -21,6 +34,7 @@ import { CurrentActor, MaybeActor, Public } from '../authn/auth.guard.js';
 import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { ProblemAccessService } from '../authz/problem.access.js';
+import { STATEMENT_RENDERER, type StatementRenderer } from '../statements/statement-renderer.js';
 
 /**
  * `UpdateProblemRequest` is `.strict()`, so a stray `code` key surfaces from
@@ -49,7 +63,10 @@ class UpdateProblemBodyPipe implements PipeTransform<unknown, UpdateProblemReque
  */
 @Controller('problems')
 export class ProblemsController {
-  constructor(@Inject(ProblemAccessService) private readonly problems: ProblemAccessService) {}
+  constructor(
+    @Inject(ProblemAccessService) private readonly problems: ProblemAccessService,
+    @Inject(STATEMENT_RENDERER) private readonly statements: StatementRenderer,
+  ) {}
 
   // `@Public()` is marked per handler, never on the class: `Public()` only
   // ever sets true, so a class-level marker is a one-way door that would
@@ -69,6 +86,29 @@ export class ProblemsController {
   @RequireScope('problems:read')
   get(@MaybeActor() actor: Actor | null, @Param('code') code: string): Promise<ProblemDetailDto> {
     return this.problems.getVisible(actor, code);
+  }
+
+  /**
+   * The statement as a printable PDF. Visibility is exactly `GET
+   * /problems/:code` — the render happens *after* `getVisible`, so a
+   * hidden problem 404s here identically, and a server with no typst
+   * configured answers 501 without leaking whether the problem exists...
+   * which would be a hole, so the visibility check deliberately runs
+   * FIRST: 404 for a problem you may not see, 501 only for one you may.
+   */
+  @Get(':code/statement.pdf')
+  @Public()
+  @RequireScope('problems:read')
+  async statementPdf(
+    @MaybeActor() actor: Actor | null,
+    @Param('code') code: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const problem = await this.problems.getVisible(actor, code);
+    const pdf = await this.statements.render(problem.name, problem.statement);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${code}.pdf"`);
+    return new StreamableFile(pdf);
   }
 
   // `@Public()` stays: `canViewRevisions` already 404s an anonymous caller

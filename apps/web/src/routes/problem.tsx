@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { api } from '../api.js';
+import { API_PREFIX } from '@duckoj/api-prefix';
 import { renderStatement } from '../markdown.js';
 
 // The API deliberately returns the same 404 `problem_not_found` for a
@@ -12,6 +13,10 @@ import { renderStatement } from '../markdown.js';
 // this component render exactly the literal string below, and nothing here
 // echoes `error.detail` (server wording could drift; the parity guarantee
 // must not).
+function statementPdfUrl(code: string): string {
+  return `${import.meta.env.VITE_API_ORIGIN ?? ''}/${API_PREFIX}/problems/${code}/statement.pdf`;
+}
+
 const NOT_FOUND_MESSAGE = 'No such problem.';
 
 /**
@@ -75,7 +80,11 @@ export function ProblemPage(props: { code: string }) {
             for `<Link>` to resolve — see that file. */}
         <Link to="/submit" search={{ problem: problem.code }}>
           Submit a solution
-        </Link>
+        </Link>{' '}
+        {/* A plain <a>, like the /api/v1/docs nav link: the PDF is the
+            API's own response, outside this router's tree. On a server
+            with no typst configured it answers an honest 501. */}
+        <a href={statementPdfUrl(problem.code)}>PDF</a>
       </p>
     </section>
   );
