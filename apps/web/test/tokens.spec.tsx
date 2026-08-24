@@ -69,3 +69,27 @@ describe('TokensPage', () => {
     expect(await screen.findByText(/with a session, not a token/i)).toBeInTheDocument();
   });
 });
+
+describe('TokensPage transport safety', () => {
+  it('disables Create while the request is in flight', async () => {
+    get.mockResolvedValue({ data: [] });
+    let resolve!: (value: unknown) => void;
+    post.mockImplementation(() => new Promise((r) => { resolve = r; }));
+    wrap(<TokensPage />);
+    await userEvent.type(await screen.findByLabelText(/name/i), 'laptop-cli');
+    await userEvent.click(screen.getByRole('button', { name: /create token/i }));
+    expect(screen.getByRole('button', { name: /create token/i })).toBeDisabled();
+    resolve({ data: { id: 1, token: 'duckoj_secret_abc' } });
+    await screen.findByRole('status');
+  });
+
+  it('surfaces a connection message and re-enables Create when the network fails', async () => {
+    get.mockResolvedValue({ data: [] });
+    post.mockRejectedValue(new TypeError('fetch failed'));
+    wrap(<TokensPage />);
+    await userEvent.type(await screen.findByLabelText(/name/i), 'laptop-cli');
+    await userEvent.click(screen.getByRole('button', { name: /create token/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
+    expect(screen.getByRole('button', { name: /create token/i })).toBeEnabled();
+  });
+});

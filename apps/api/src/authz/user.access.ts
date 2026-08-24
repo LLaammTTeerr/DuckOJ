@@ -11,6 +11,7 @@ import type {
   UserSummaryDto,
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
+import { likeEscape } from './problem.access.js';
 import { AppError } from '../common/app.error.js';
 import type { Actor } from './actor.js';
 
@@ -40,15 +41,24 @@ export class UserAccessService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   async list(query: UserListQueryDto): Promise<UserPageDto> {
-    const after = query.cursor === undefined ? 0 : Number.parseInt(query.cursor, 10);
-    if (Number.isNaN(after)) throw new AppError(400, 'bad_cursor', 'Malformed cursor.');
+    // The same cursor discipline as every sibling list (problems, contests,
+    // orgs, submissions): Number(), safe-integer, non-negative — parseInt
+    // accepted '12abc' and negatives, and answered a different status and
+    // code than the identical mistake anywhere else.
+    const after = parseUserCursor(query.cursor);
 
     // Prefix, not substring: `%q%` cannot use `users_username_lower_idx` and
     // turns a two-letter query into a scan of the whole user table.
     const search =
       query.q === undefined
         ? undefined
-        : or(ilike(users.username, `${query.q}%`), ilike(users.displayName, `${query.q}%`));
+        : or(
+            // Escaped: `%` and `_` in q are literals a person typed, not
+            // wildcards — q='%' must not match every user (and degrade the
+            // documented index prefix-walk into a full scan).
+            ilike(users.username, `${likeEscape(query.q)}%`),
+            ilike(users.displayName, `${likeEscape(query.q)}%`),
+          );
 
     const rows = await this.db
       .select(PUBLIC_COLUMNS)
@@ -164,4 +174,13 @@ function toSummary(row: {
     maxRating: row.maxRating,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+function parseUserCursor(cursor: string | undefined): number {
+  if (cursor === undefined) return 0;
+  const after = Number(cursor);
+  if (!Number.isSafeInteger(after) || after < 0) {
+    throw new AppError(422, 'invalid_cursor', 'That page cursor is not valid.');
+  }
+  return after;
 }

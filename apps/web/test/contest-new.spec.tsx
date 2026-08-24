@@ -77,3 +77,15 @@ describe('ContestNewPage', () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 });
+
+describe('ContestNewPage transport failures', () => {
+  it('surfaces a connection message and re-enables the button when the network fails', async () => {
+    post.mockRejectedValue(new TypeError('fetch failed'));
+    wrap(<ContestNewPage />);
+    await fillBasics();
+    await userEvent.click(screen.getByRole('button', { name: /create contest/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
+    expect(screen.getByRole('button', { name: /create contest/i })).toBeEnabled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});

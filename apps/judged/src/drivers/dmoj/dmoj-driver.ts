@@ -19,8 +19,17 @@ interface LiveJob {
   worstFlags: number;
   /** Whether any case actually executed. An all-skipped run has no determinable verdict. */
   ranAnyCase: boolean;
-  points: number;
-  maxPoints: number;
+  /**
+   * Batch-aware accumulation, mirroring `aggregateCases` in
+   * `@duckoj/contest-formats` (which itself mirrors DMOJ's bridge): loose
+   * cases SUM; a batch contributes `min(points)` / `max(total)` over its
+   * members ONCE. The old running sums added every batched case's inherited
+   * batch total, inflating a k-case batch worth P to k*P — and awarding
+   * (k-1)*P to a batch with one failing case that must score 0.
+   */
+  loosePoints: number;
+  looseTotal: number;
+  batchAgg: Map<number, { points: number; total: number }>;
   timeMs: number;
   memoryKb: number;
   /**
@@ -88,10 +97,12 @@ export class DmojDriver implements JudgeDriver {
       job,
       emit,
       batch: 0,
+      loosePoints: 0,
+      looseTotal: 0,
+      batchAgg: new Map(),
       worstFlags: 0,
       ranAnyCase: false,
-      points: 0,
-      maxPoints: 0,
+
       timeMs: 0,
       memoryKb: 0,
       queue: Promise.resolve(),
@@ -206,8 +217,21 @@ export class DmojDriver implements JudgeDriver {
           // the raw status, so a skipped case still reports skipped: true.
           entry.worstFlags |= testCase.status & ~DMOJ_FLAG.SC;
           if (!outcome.skipped) entry.ranAnyCase = true;
-          entry.points += testCase.points;
-          entry.maxPoints += testCase['total-points'];
+          if (entry.batch === 0) {
+            entry.loosePoints += testCase.points;
+            entry.looseTotal += testCase['total-points'];
+          } else {
+            const agg = entry.batchAgg.get(entry.batch);
+            if (agg === undefined) {
+              entry.batchAgg.set(entry.batch, {
+                points: testCase.points,
+                total: testCase['total-points'],
+              });
+            } else {
+              agg.points = Math.min(agg.points, testCase.points);
+              agg.total = Math.max(agg.total, testCase['total-points']);
+            }
+          }
           entry.timeMs = Math.max(entry.timeMs, Math.round(testCase.time * 1000));
           entry.memoryKb = Math.max(entry.memoryKb, testCase.memory);
           await entry.emit({
@@ -237,8 +261,8 @@ export class DmojDriver implements JudgeDriver {
           // no determinable verdict — report IE rather than AC, which mask 0
           // would otherwise yield.
           verdict: entry.ranAnyCase ? (overall.verdict ?? 'IE') : 'IE',
-          points: entry.points,
-          maxPoints: entry.maxPoints,
+          points: submissionPoints(entry),
+          maxPoints: submissionMaxPoints(entry),
           timeMs: entry.timeMs,
           memoryKb: entry.memoryKb,
         });
@@ -248,4 +272,17 @@ export class DmojDriver implements JudgeDriver {
         return;
     }
   }
+}
+
+/** Loose sum + per-batch min, the bridge's aggregation. */
+function submissionPoints(entry: LiveJob): number {
+  let points = entry.loosePoints;
+  for (const agg of entry.batchAgg.values()) points += agg.points;
+  return points;
+}
+
+function submissionMaxPoints(entry: LiveJob): number {
+  let total = entry.looseTotal;
+  for (const agg of entry.batchAgg.values()) total += agg.total;
+  return total;
 }

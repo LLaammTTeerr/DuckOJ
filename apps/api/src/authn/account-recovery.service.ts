@@ -7,7 +7,7 @@
  * ever forgets to filter on `purpose`.
  */
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { schema, type Db } from '@duckoj/db';
 import { DB, APP_CONFIG } from '../config/config.module.js';
@@ -64,7 +64,11 @@ export class AccountRecoveryService {
     const [user] = await this.db
       .select({ id: schema.users.id, email: schema.users.email })
       .from(schema.users)
-      .where(eq(schema.users.email, email.toLowerCase()))
+      // lower() = lower(), the same comparison login uses: registration
+      // stores the address as typed, so an eq() against the lowercased input
+      // silently missed anyone who registered with a capital letter — they
+      // could log in but never receive a reset mail.
+      .where(sql`lower(${schema.users.email}) = lower(${email})`)
       .limit(1);
     if (!user) return;
 

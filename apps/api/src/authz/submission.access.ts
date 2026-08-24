@@ -40,18 +40,29 @@ export class SubmissionAccessService {
         .where(sql`lower(${problems.code}) = lower(${input.problemCode})`)
         .limit(1)
     )[0];
-    // "No published revision" and "not visible to this actor" are different
-    // conditions, but both answer `problem_not_found`: a distinct code (or a
-    // 403) for either would itself be an existence oracle — the same
-    // reasoning as the 404-over-403 rule in `getVisible` below. Visibility is
-    // decided by the one shared predicate every problem read path uses, not
-    // a private copy of the rule here.
-    if (!problem?.currentRevisionId) {
+    // Visibility answers FIRST, and it is the only question 404 answers.
+    // "Does not exist" and "not visible to this actor" stay one
+    // indistinguishable `problem_not_found` — the same 404-over-403 rule as
+    // `getVisible` below — decided by the one shared predicate every problem
+    // read path uses, not a private copy of the rule here.
+    //
+    // "No published revision" is checked only AFTER visibility, and answers a
+    // distinct 409: once `canViewProblem` has passed, the problem's existence
+    // is already the actor's to know — `GET /problems/{code}` answers 200 for
+    // it — so the distinct code discloses nothing. (This used to be folded
+    // into `problem_not_found` before the visibility check, on an
+    // existence-oracle argument that only holds for problems the actor
+    // CANNOT see; for a visible problem it just told the caller a problem
+    // they had just read did not exist.)
+    if (!problem) {
       throw new AppError(404, 'problem_not_found', 'No such problem.');
     }
     const ctx = await loadProblemContext(this.db, actor, problem.id);
     if (!canViewProblem(actor, problem, ctx)) {
       throw new AppError(404, 'problem_not_found', 'No such problem.');
+    }
+    if (!problem.currentRevisionId) {
+      throw new AppError(409, 'problem_not_submittable', 'This problem has no published tests yet.');
     }
 
     const language = (
@@ -78,9 +89,10 @@ export class SubmissionAccessService {
     )[0];
     // A revision that exists but is not published (e.g. mid-republish) is the
     // same client-facing situation as no revision at all: there is nothing
-    // gradeable behind this problem code right now.
+    // gradeable behind this problem code right now. Same answer, too —
+    // visibility already passed above, so the 409 discloses nothing.
     if (!revision || revision.state !== 'published') {
-      throw new AppError(404, 'problem_not_found', 'No such problem.');
+      throw new AppError(409, 'problem_not_submittable', 'This problem has no published tests yet.');
     }
 
     // Resolved BEFORE the transaction opens, and before anything is written.

@@ -96,6 +96,13 @@ export function pointsScalingFactor(problem: ProblemSpec): number | null {
     }
     if (testCase.type === 'E') inBatch = false;
   }
+  // An all-zero dataset would make this Infinity and every ioi16 score NaN
+  // (serialised as null, corrupting the whole scoreboard row). A dataset
+  // worth nothing scales everything to nothing — finite and honest. The API
+  // additionally refuses to score an ioi16 contest against such a dataset
+  // (contest.access.ts extends its missing-dataset guard to zero), so this
+  // is defense in depth for direct library callers.
+  if (sumBatchPoints === 0) return 0;
   return problem.points / sumBatchPoints;
 }
 

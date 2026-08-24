@@ -314,14 +314,16 @@ describe('create(): only a published revision and an active language are gradeab
       const user = await insertUser(db, 'iris');
       const service = new SubmissionAccessService(db);
 
+      // 409, not 404: `aplusb` is public, so its existence is already the
+      // caller's to know — the refusal names the real reason.
       await expect(
         service.create(actorFor(user.id), { problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' }),
-      ).rejects.toMatchObject({ status: 404, code: 'problem_not_found' });
+      ).rejects.toMatchObject({ status: 409, code: 'problem_not_submittable' });
     });
   }, 120_000);
 
   // The role-blind half of the same rule. The check above uses a plain
-  // non-member, so it would still pass if `currentRevisionId`'s guard were
+  // non-member, so it would still pass if the revision-state guard were
   // ever folded into the visibility check — a member would then submit
   // against an unpublished draft and the judge would be handed a revision
   // nobody published. An author is the actor most able to see the problem
@@ -346,7 +348,7 @@ describe('create(): only a published revision and an active language are gradeab
       const service = new SubmissionAccessService(db);
       await expect(
         service.create(actorFor(author.id), { problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' }),
-      ).rejects.toMatchObject({ status: 404, code: 'problem_not_found' });
+      ).rejects.toMatchObject({ status: 409, code: 'problem_not_submittable' });
     });
   }, 120_000);
 
@@ -360,6 +362,75 @@ describe('create(): only a published revision and an active language are gradeab
       await expect(
         service.create(actorFor(user.id), { problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' }),
       ).rejects.toMatchObject({ status: 404, code: 'language_not_found' });
+    });
+  }, 120_000);
+});
+
+describe('create(): a visible problem with nothing gradeable is not "not found"', () => {
+  // The defect this pins: the caller has just read this problem at
+  // `GET /problems/{code}` and got a 200 — answering the submit with
+  // `problem_not_found` is a lie, and terrible UX from the submit screen.
+  // Both paths in ONE test, mirroring the AC4 test in
+  // `submission-problem-visibility.spec.ts`: the read succeeds, so the
+  // submit must say *why* it can't grade, not deny the problem exists.
+  it('answers 409 problem_not_submittable for a public problem with no published revision', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const owner = await insertUser(db, 'norev-owner');
+      await db
+        .insert(problems)
+        .values({ code: 'norev', name: 'No revision yet', statement: 's', createdBy: owner.id });
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'norev-caller');
+
+        // Path 1: the read side sees it — visibility is already established.
+        const detail = await agent.get('/problems/norev');
+        expect(detail.status).toBe(200);
+        expect(detail.body.code).toBe('norev');
+
+        // Path 2: the same session submits and is told the real reason.
+        const res = await agent
+          .post('/submissions')
+          .send({ problemCode: 'norev', languageKey: 'cpp17', source: 'int main(){}' });
+        expect(res.status).toBe(409);
+        expect(res.body.code).toBe('problem_not_submittable');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  // The oracle property the old ordering protected, kept under the new one:
+  // for a problem the actor cannot see, "no revision" must remain
+  // indistinguishable from "does not exist". Visibility answers first, so a
+  // stranger probing a private draft-only problem still gets the same 404 a
+  // nonexistent code gets.
+  it('still answers 404 problem_not_found for a private draft-only problem probed by a stranger', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const owner = await insertUser(db, 'norev-priv-owner');
+      await db.insert(problems).values({
+        code: 'norevpriv',
+        name: 'Private, no revision',
+        statement: 's',
+        visibility: 'private',
+        createdBy: owner.id,
+      });
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'norev-stranger');
+
+        const res = await agent
+          .post('/submissions')
+          .send({ problemCode: 'norevpriv', languageKey: 'cpp17', source: 'int main(){}' });
+        expect(res.status).toBe(404);
+        expect(res.body.code).toBe('problem_not_found');
+      } finally {
+        await app.close();
+      }
     });
   }, 120_000);
 });

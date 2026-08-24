@@ -13,6 +13,25 @@ export const HEARTBEAT_MS = 20_000;
  * logs it and the loop moves on; the abandoned job's lease lapses normally.
  */
 export const MAX_GRADING_MS = 300_000;
+/**
+ * Hard cap on the dataset-aware ceiling below: a hostile 10k-test package
+ * must not be able to pin the judge for an afternoon per attempt.
+ */
+export const ABSOLUTE_MAX_GRADING_MS = 1_800_000;
+
+/**
+ * A 350-test problem with 1s limits legitimately needs >350s for a
+ * TLE-prone submission; a fixed 300s ceiling turned that into an infinite
+ * terminate → re-lease → terminate loop (claim() takes the oldest job
+ * first, so the same one starves everything behind it forever). 3x per
+ * case covers compile + checker + sandbox overhead; the minute of slack
+ * covers dispatch and package materialisation.
+ */
+export function gradingCeilingMs(job: { testCount: number | null; timeMs: number }): number {
+  if (job.testCount === null) return MAX_GRADING_MS;
+  const budget = job.testCount * job.timeMs * 3 + 60_000;
+  return Math.min(Math.max(MAX_GRADING_MS, budget), ABSOLUTE_MAX_GRADING_MS);
+}
 const POLL_MS = 500;
 
 /**
@@ -85,13 +104,14 @@ export class Worker {
 
       try {
         await new Promise<void>((resolve, reject) => {
+          const ceilingMs = Math.min(gradingCeilingMs(claimed), this.maxGradingMs === MAX_GRADING_MS ? Infinity : this.maxGradingMs);
           watchdog = setTimeout(() => {
             reject(
               new Error(
-                `grading exceeded ${this.maxGradingMs}ms for job ${claimed.id} attempt ${claimed.attempt}`,
+                `grading exceeded ${ceilingMs}ms for job ${claimed.id} attempt ${claimed.attempt}`,
               ),
             );
-          }, this.maxGradingMs);
+          }, ceilingMs);
 
           this.driver
             .dispatch(
@@ -106,7 +126,20 @@ export class Worker {
                 limits: { timeMs: claimed.timeMs, memoryKb: claimed.memoryKb },
               },
               async (event) => {
-                const current = await this.writer.apply(claimed, event);
+                // A failed write must fail the ATTEMPT, not vanish into the
+                // driver's per-packet catch: before this, a rejected
+                // submission_cases insert was logged and skipped while
+                // grading sailed on to a clean 'done' with rows silently
+                // missing — an at-most-once delivery under a comment economy
+                // that promises at-least-once. Rejecting here leaves the job
+                // uncompleted, so the lease lapse regrades the whole attempt.
+                let current: boolean;
+                try {
+                  current = await this.writer.apply(claimed, event);
+                } catch (error) {
+                  reject(error instanceof Error ? error : new Error(String(error)));
+                  throw error;
+                }
                 if (!current) return resolve();
                 if (
                   event.type === 'finished' ||

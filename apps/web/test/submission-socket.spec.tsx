@@ -116,6 +116,32 @@ describe('useSubmissionSocket', () => {
     expect(fetchSubmission).toHaveBeenCalledTimes(1);
   });
 
+  it("re-fetches on the gateway's 'subscribed' ack — the authoritative gap-closer", () => {
+    // The open-time fetch races the server-side subscriptions.add; a
+    // terminal publish in that window was permanently dropped. The ack
+    // proves the subscription is live, so the fetch it triggers is the one
+    // that closes the gap. Before the fix nothing listened for this frame.
+    const fetchSubmission = vi.fn(async () => {});
+    const terminalRef = { current: false };
+    renderHook(() => useSubmissionSocket(42, fetchSubmission, terminalRef));
+    const ws = FakeWebSocket.instances[0]!;
+    act(() => {
+      ws.simulateOpen();
+    });
+    expect(fetchSubmission).toHaveBeenCalledTimes(1); // provisional, on open
+
+    act(() => {
+      ws.simulateMessage({ type: 'subscribed', id: 42 });
+    });
+    expect(fetchSubmission).toHaveBeenCalledTimes(2); // authoritative, on ack
+
+    // An ack for some other submission is ignored like any stray frame.
+    act(() => {
+      ws.simulateMessage({ type: 'subscribed', id: 7 });
+    });
+    expect(fetchSubmission).toHaveBeenCalledTimes(2);
+  });
+
   it('resubscribes (before re-fetching) on the reconnected socket after a non-terminal close', async () => {
     const order: string[] = [];
     const fetchSubmission = vi.fn(async (id: number) => {

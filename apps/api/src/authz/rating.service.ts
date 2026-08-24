@@ -9,7 +9,7 @@
  * corrected scoreboard propagate forward into every rating that followed it.
  */
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import { contestParticipations, contests, ratingEvents } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { DEFAULT_PLAYER, rateContest } from '@duckoj/glicko2';
@@ -19,6 +19,15 @@ import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from './actor.js';
 import { ContestAccessService } from './contest.access.js';
+
+/**
+ * Advisory-lock key serialising every replay (and the `isRated` flip that
+ * triggers it). Replays are full rewrites of `rating_events`; two overlapping
+ * ones would let a stale fold commit last, leaving a contest flagged rated
+ * but absent from the record — permanently, since nothing reconciles outside
+ * the next replay.
+ */
+const RATING_REPLAY_LOCK = 0x72617465; // 'rate'
 
 interface PendingEvent {
   contestId: number;
@@ -49,8 +58,16 @@ export class RatingService {
     )[0];
     if (!contest) throw new AppError(404, 'contest_not_found', 'No such contest.');
 
-    await this.db.update(contests).set({ isRated }).where(eq(contests.id, contest.id));
-    return { contestsRated: await this.replayAll() };
+    // Flag flip and replay share ONE transaction, behind the replay lock:
+    // if the replay throws (an ioi16 contest whose problem lost its dataset,
+    // say), the flag flip rolls back with it — otherwise the poisoned flag
+    // makes every future setRated on ANY contest fail at this one, wedging
+    // the whole pipeline until someone divines which contest to unrate.
+    return await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(${RATING_REPLAY_LOCK})`);
+      await tx.update(contests).set({ isRated }).where(eq(contests.id, contest.id));
+      return { contestsRated: await this.replayInto(tx) };
+    });
   }
 
   /**
@@ -64,11 +81,26 @@ export class RatingService {
    * definition of the thing §2 requires to be reproducible.
    */
   async replayAll(): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(${RATING_REPLAY_LOCK})`);
+      return this.replayInto(tx);
+    });
+  }
+
+  /**
+   * The fold itself, inside the caller's already-locked transaction. The
+   * rated set is read through `tx` so a serialised replay sees the flag
+   * state as of ITS turn, not a stale snapshot. Scoreboards are still
+   * computed through `this.db`: replays modify only `rating_events` and the
+   * cached user ratings, never contest data, so those outside-transaction
+   * reads cannot see replay-torn state.
+   */
+  private async replayInto(tx: Db): Promise<number> {
     // Ordered by `(end_time, id)`, never `end_time` alone: two contests ending
     // in the same second must fold in a defined order, or the result depends
     // on Postgres' row order and the determinism claim collapses on a tie
     // nobody would think to test.
-    const rated = await this.db
+    const rated = await tx
       .select({ id: contests.id })
       .from(contests)
       .where(eq(contests.isRated, true))
@@ -99,7 +131,7 @@ export class RatingService {
       }
     }
 
-    await this.db.transaction(async (tx) => {
+    {
       await tx.delete(ratingEvents);
       if (pending.length > 0) {
         await tx.insert(ratingEvents).values(
@@ -135,7 +167,7 @@ export class RatingService {
           .set({ rating, maxRating: peak.get(userId)! })
           .where(eq(schema.users.id, userId));
       }
-    });
+    }
 
     return contestsRated;
   }
@@ -181,7 +213,9 @@ export class RatingService {
     const [user] = await this.db
       .select({ id: schema.users.id })
       .from(schema.users)
-      .where(eq(schema.users.username, username))
+      // lower() = lower(), like every other username resolution — the
+      // profile route resolves /users/Alice; its sibling must not 404 her.
+      .where(sql`lower(${schema.users.username}) = lower(${username})`)
       .limit(1);
     if (!user) throw new AppError(404, 'user_not_found', 'No such user.');
 

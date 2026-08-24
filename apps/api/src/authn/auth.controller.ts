@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Logger, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import {
   ForgotPasswordRequest,
@@ -27,6 +27,8 @@ import { NoScopeRequired } from './require-scope.decorator.js';
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(SessionService) private readonly sessions: SessionService,
@@ -45,10 +47,24 @@ export class AuthController {
   @Post('register')
   @Public()
   @HttpCode(201)
-  register(
+  async register(
     @Body(new ZodValidationPipe(RegisterRequest)) body: RegisterRequestDto,
   ): Promise<MeResponseDto> {
-    return this.auth.register(body);
+    const user = await this.auth.register(body);
+    // The user row is committed; the verification mail is best-effort on top
+    // of it. A mailer outage (or anything else `sendVerification` trips on)
+    // must not turn a successful signup into a 500 — the resend endpoint
+    // above exists exactly for the mail that never arrived. Rate limiting
+    // lives inside `sendVerification` (5/user/hour), shared with resends.
+    try {
+      await this.recovery.sendVerification(user.id);
+    } catch (error) {
+      this.logger.error(
+        `verification mail failed for user ${String(user.id)}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+    return user;
   }
 
   @Post('login')

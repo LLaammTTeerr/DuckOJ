@@ -22,6 +22,9 @@ import { isAdmin, type Actor } from './actor.js';
 import { visibleOrgsWhere } from './org.visibility.js';
 
 /** Postgres SQLSTATE for a unique-constraint violation. */
+/** Advisory-lock namespace for the per-org owner invariant (two-int form). */
+const ORG_OWNER_LOCK = 0x0e6f7267; // 'org'
+
 const UNIQUE_VIOLATION = '23505';
 const ORG_SLUG_CONSTRAINT = 'organizations_slug_lower_idx';
 
@@ -266,7 +269,17 @@ export class OrgAccessService {
     }
 
     if (row.joinPolicy === 'open') {
-      await this.db.insert(orgMembers).values({ orgId: row.id, userId: actor.userId, role: 'member' });
+      // Race-safe: the roleIn pre-check above gives the friendly 409 in the
+      // common case, but two concurrent joins both pass it — the insert
+      // itself must decide. Empty `returning` means the other request won.
+      const inserted = await this.db
+        .insert(orgMembers)
+        .values({ orgId: row.id, userId: actor.userId, role: 'member' })
+        .onConflictDoNothing()
+        .returning({ userId: orgMembers.userId });
+      if (inserted.length === 0) {
+        throw new AppError(409, 'organization_member_exists', 'You are already a member.');
+      }
       return { result: { outcome: 'joined', role: 'member' }, created: true };
     }
 
@@ -380,7 +393,16 @@ export class OrgAccessService {
     if ((await this.roleIn({ ...actor, userId: target }, row.id)) !== null) {
       throw new AppError(409, 'organization_member_exists', 'They are already a member.');
     }
-    await this.db.insert(orgMembers).values({ orgId: row.id, userId: target, role: body.role });
+    // Same race shape as the open join: a concurrent approval or direct add
+    // can land between the pre-check and this insert.
+    const added = await this.db
+      .insert(orgMembers)
+      .values({ orgId: row.id, userId: target, role: body.role })
+      .onConflictDoNothing()
+      .returning({ userId: orgMembers.userId });
+    if (added.length === 0) {
+      throw new AppError(409, 'organization_member_exists', 'They are already a member.');
+    }
     return this.rosterOf(row.id);
   }
 
@@ -396,11 +418,19 @@ export class OrgAccessService {
     // Leaving is this same route with your own name, so one code path decides
     // whether a removal is allowed.
     if (target !== actor.userId) await this.requireOutranks(actor, row.id, targetRole);
-    await this.assertNotLastOwner(row.id, targetRole, null);
 
-    await this.db
-      .delete(orgMembers)
-      .where(and(eq(orgMembers.orgId, row.id), eq(orgMembers.userId, target)));
+    // The last-owner check and the delete must be atomic per organization:
+    // two concurrent owner-removals each counting "2 owners remain" is how
+    // an org ends up with zero, a state only a database edit repairs. A
+    // per-org advisory lock inside one transaction serialises exactly the
+    // writers that contend on this invariant and nobody else.
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(${ORG_OWNER_LOCK}, ${row.id})`);
+      await this.assertNotLastOwner(tx, row.id, targetRole, null);
+      await tx
+        .delete(orgMembers)
+        .where(and(eq(orgMembers.orgId, row.id), eq(orgMembers.userId, target)));
+    });
     return this.rosterOf(row.id);
   }
 
@@ -420,12 +450,16 @@ export class OrgAccessService {
     if (targetRole === null) {
       throw new AppError(404, 'organization_member_not_found', 'They are not a member.');
     }
-    await this.assertNotLastOwner(row.id, targetRole, role);
-
-    await this.db
-      .update(orgMembers)
-      .set({ role })
-      .where(and(eq(orgMembers.orgId, row.id), eq(orgMembers.userId, target)));
+    // Same advisory-locked transaction as removeMember: a demotion races a
+    // removal on the same invariant.
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(${ORG_OWNER_LOCK}, ${row.id})`);
+      await this.assertNotLastOwner(tx, row.id, targetRole, role);
+      await tx
+        .update(orgMembers)
+        .set({ role })
+        .where(and(eq(orgMembers.orgId, row.id), eq(orgMembers.userId, target)));
+    });
     return this.rosterOf(row.id);
   }
 
@@ -443,13 +477,14 @@ export class OrgAccessService {
    * one, that one is them.
    */
   private async assertNotLastOwner(
+    tx: Db,
     orgId: number,
     currentRole: OrgRoleDto,
     nextRole: OrgRoleDto | null,
   ): Promise<void> {
     if (currentRole !== 'owner') return;
     if (nextRole === 'owner') return;
-    const owners = await this.db
+    const owners = await tx
       .select({ userId: orgMembers.userId })
       .from(orgMembers)
       .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.role, 'owner')));

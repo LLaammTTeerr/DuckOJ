@@ -44,6 +44,9 @@ describe('POST /auth/password/forgot', () => {
       const app = await buildApp(db);
       try {
         await seedUser(app, 'knownuser');
+        // Registration itself now sends a verification mail; count from here
+        // so the assertion below stays about the forgot endpoint alone.
+        const before = mailerOf(app).sent.length;
         const known = await request(app.getHttpServer())
           .post('/auth/password/forgot')
           .send({ email: 'knownuser@example.com' });
@@ -57,7 +60,7 @@ describe('POST /auth/password/forgot', () => {
         expect(unknown.status).toBe(known.status);
         expect(unknown.text).toEqual(known.text);
         // …and only the real one produced mail.
-        expect(mailerOf(app).sent).toHaveLength(1);
+        expect(mailerOf(app).sent.length - before).toBe(1);
       } finally {
         await app.close();
       }
@@ -191,9 +194,12 @@ describe('redeeming a reset', () => {
           .send({ email: 'hashed@example.com' });
         const token = tokenFromLastMail(app);
 
+        // Registration mints a verification token too, so scope this to the
+        // reset token the test is about.
         const rows = await db
           .select({ hash: schema.oneTimeTokens.tokenHash })
-          .from(schema.oneTimeTokens);
+          .from(schema.oneTimeTokens)
+          .where(eq(schema.oneTimeTokens.purpose, 'password_reset'));
         expect(rows).toHaveLength(1);
         // A database leak must not hand over working reset links.
         expect(rows[0]!.hash).not.toBe(token);

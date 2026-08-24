@@ -50,29 +50,36 @@ export function ContestNewPage() {
       return;
     }
     setBusy(true);
-    const { data, error: err } = await api.POST('/contests', {
-      body: {
-        key,
-        name,
-        // `datetime-local` yields a zoneless string; `new Date(...)` reads
-        // it in the browser's zone, and toISOString sends the instant.
-        startTime: new Date(start).toISOString(),
-        endTime: new Date(end).toISOString(),
-        format,
-        visibility,
-        problems: problems.map((row) => ({
-          code: row.code.trim(),
-          points: Number(row.points),
-          partial: row.partial,
-        })),
-      },
-    });
-    setBusy(false);
-    if (err) {
-      setError(err.detail ?? 'Could not create the contest.');
-      return;
+    try {
+      const { data, error: err } = await api.POST('/contests', {
+        body: {
+          key,
+          name,
+          // `datetime-local` yields a zoneless string; `new Date(...)` reads
+          // it in the browser's zone, and toISOString sends the instant.
+          startTime: new Date(start).toISOString(),
+          endTime: new Date(end).toISOString(),
+          format,
+          visibility,
+          problems: problems.map((row) => ({
+            code: row.code.trim(),
+            points: Number(row.points),
+            partial: row.partial,
+          })),
+        },
+      });
+      if (err) {
+        setError(err.detail ?? 'Could not create the contest.');
+        return;
+      }
+      await navigate({ to: '/contests/$key', params: { key: data.key } });
+    } catch {
+      // openapi-fetch rethrows network-level failures rather than resolving
+      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+      setError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setBusy(false);
     }
-    await navigate({ to: '/contests/$key', params: { key: data.key } });
   }
 
   return (

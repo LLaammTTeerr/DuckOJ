@@ -414,7 +414,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The contest cannot be scored as configured — an `ioi16` problem with no published revision has no dataset to scale against (`contest_problem_missing_dataset`) */
+                /** @description Not started (`contest_not_started`) — the scoreboard and its problem codes/names are concealed pre-start from everyone but a global admin — or the contest cannot be scored as configured: an `ioi16` problem with no published revision (or an all-zero dataset) has nothing to scale against (`contest_problem_missing_dataset`) */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -3401,6 +3401,26 @@ export interface paths {
                 };
                 /** @description No such problem, or no such language */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The problem is visible to the caller but has no published revision to grade against (`problem_not_submittable`) — unlike 404, which never distinguishes "invisible" from "nonexistent" */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };

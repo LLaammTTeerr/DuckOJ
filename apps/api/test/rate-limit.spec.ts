@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
+import { eq } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
@@ -39,6 +40,9 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
       try {
         await registerAndLogin(request.agent(app.getHttpServer()), 'lam');
         const email = 'lam@example.com';
+        // Registration sends its own verification mail; count from here so
+        // the pinned 5 below stays about the forgot endpoint alone.
+        const before = mailerOf(app).sent.length;
 
         let firstBody = '';
         for (let i = 1; i <= 6; i++) {
@@ -50,7 +54,7 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
         }
         // The literal 5, not the constant — pinned the same way
         // MIN_RATED_PARTICIPANTS is.
-        expect(mailerOf(app).sent).toHaveLength(5);
+        expect(mailerOf(app).sent.length - before).toBe(5);
       } finally {
         await app.close();
       }
@@ -65,7 +69,13 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
         await registerAndLogin(request.agent(app.getHttpServer()), 'kim');
         for (let i = 0; i < 6; i++) await forgot(app, 'lam@example.com');
         await forgot(app, 'kim@example.com');
-        expect(mailerOf(app).sent.filter((m) => m.to === 'kim@example.com')).toHaveLength(1);
+        // Filter on subject too: kim's registration mailed her a verification
+        // link, and this assertion is about the one *reset* mail.
+        expect(
+          mailerOf(app).sent.filter(
+            (m) => m.to === 'kim@example.com' && m.subject === 'Reset your DuckOJ password',
+          ),
+        ).toHaveLength(1);
       } finally {
         await app.close();
       }
@@ -77,15 +87,26 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
       const app = await buildApp(db);
       try {
         await registerAndLogin(request.agent(app.getHttpServer()), 'lam');
+        // Offset past the registration verification mail (and its rate event,
+        // which lives under the email_verification purpose and so survives
+        // the reset-scoped cleanup below).
+        const before = mailerOf(app).sent.length;
         for (let i = 0; i < 6; i++) await forgot(app, 'lam@example.com');
-        expect(mailerOf(app).sent).toHaveLength(5);
+        expect(mailerOf(app).sent.length - before).toBe(5);
 
         await ageAllEvents(db);
         await forgot(app, 'lam@example.com');
-        expect(mailerOf(app).sent).toHaveLength(6);
+        expect(mailerOf(app).sent.length - before).toBe(6);
         // The aged rows are gone, not merely uncounted — the opportunistic
-        // delete is the only thing keeping this table bounded.
-        expect(await db.select().from(schema.rateEvents)).toHaveLength(1);
+        // delete is the only thing keeping this table bounded. (Scoped to
+        // this purpose: the delete is per purpose+key, so the aged
+        // email_verification row from registration is not its business.)
+        expect(
+          await db
+            .select()
+            .from(schema.rateEvents)
+            .where(eq(schema.rateEvents.purpose, 'password_reset')),
+        ).toHaveLength(1);
       } finally {
         await app.close();
       }
@@ -124,11 +145,13 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
       try {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'lam');
-        const before = mailerOf(app).sent.length;
         for (let i = 0; i < 7; i++) {
           await agent.post('/auth/email/verify/send').expect(202);
         }
-        expect(mailerOf(app).sent.length - before).toBe(5);
+        // Five verification mails total per user per hour — and registration's
+        // own automatic send consumed the first of those slots, so the seven
+        // resends above only got four more through. Same window, shared.
+        expect(mailerOf(app).sent).toHaveLength(5);
       } finally {
         await app.close();
       }

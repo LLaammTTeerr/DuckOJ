@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { eq } from 'drizzle-orm';
 import type { INestApplication } from '@nestjs/common';
-import { contestOrgs, contests, orgMembers, organizations } from '@duckoj/db/guarded';
+import { contestOrgs, contestProblems, contests, orgMembers, organizations, problems } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { ContestDetail, ContestPage, Scoreboard } from '@duckoj/contracts';
 import { buildApp } from './app.harness.js';
@@ -282,6 +282,141 @@ describe('GET /contests/:key/scoreboard over HTTP', () => {
           ['alice', 266.667],
           ['bob', 180],
         ]);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});
+
+describe('a contest conceals its problems until it starts', () => {
+  const HOUR = 60 * 60 * 1000;
+
+  /** A private problem whose code and name must never reach a pre-start viewer. */
+  async function seedProbeProblem(db: Db, ownerId: number): Promise<number> {
+    const [problem] = await db
+      .insert(problems)
+      .values({
+        code: 'zz-leak-probe',
+        name: 'Secret Leak Probe',
+        statement: 's',
+        visibility: 'private',
+        createdBy: ownerId,
+      })
+      .returning({ id: problems.id });
+    return problem!.id;
+  }
+
+  /** A public contest whose window is relative to now, with one attached problem. */
+  async function seedTimedContest(
+    db: Db,
+    opts: { key: string; startsInMs: number; createdBy: number; problemId: number },
+  ): Promise<void> {
+    const now = Date.now();
+    const [contest] = await db
+      .insert(contests)
+      .values({
+        key: opts.key,
+        name: opts.key,
+        startTime: new Date(now + opts.startsInMs),
+        endTime: new Date(now + opts.startsInMs + HOUR),
+        format: 'icpc',
+        visibility: 'public',
+        createdBy: opts.createdBy,
+      })
+      .returning({ id: contests.id });
+    await db.insert(contestProblems).values({
+      contestId: contest!.id,
+      problemId: opts.problemId,
+      label: 'A',
+      points: 100,
+      order: 0,
+    });
+  }
+
+  it('pre-start, an anonymous detail read gets an empty problems array and no trace of a private problem', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const owner = await insertUser(db, 'leak-owner');
+        const problemId = await seedProbeProblem(db, owner.id);
+        await seedTimedContest(db, { key: 'future-pub', startsInMs: HOUR, createdBy: owner.id, problemId });
+
+        const res = await request(app.getHttpServer()).get('/contests/future-pub');
+        expect(res.status).toBe(200);
+        expect(ContestDetail.parse(res.body).problems).toEqual([]);
+        // The private problem's existence must appear NOWHERE in the body —
+        // GET /problems/zz-leak-probe 404s this caller, and the contest must
+        // not become the side channel that undoes that.
+        const raw = JSON.stringify(res.body);
+        expect(raw).not.toContain('zz-leak-probe');
+        expect(raw).not.toContain('Secret Leak Probe');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('pre-start, a global admin still sees the problems', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const owner = await insertUser(db, 'leak-admin-owner');
+        const problemId = await seedProbeProblem(db, owner.id);
+        await seedTimedContest(db, { key: 'future-adm', startsInMs: HOUR, createdBy: owner.id, problemId });
+
+        const adminAgent = request.agent(app.getHttpServer());
+        await registerAndLogin(adminAgent, 'prestart-admin');
+        await db
+          .update(schema.users)
+          .set({ globalRole: 'admin' })
+          .where(eq(schema.users.username, 'prestart-admin'));
+
+        const res = await adminAgent.get('/contests/future-adm');
+        expect(res.status).toBe(200);
+        expect(ContestDetail.parse(res.body).problems.map((p) => p.code)).toEqual(['zz-leak-probe']);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('pre-start, an anonymous scoreboard read is 409 contest_not_started; post-start it serves', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const owner = await insertUser(db, 'leak-board-owner');
+        const problemId = await seedProbeProblem(db, owner.id);
+        await seedTimedContest(db, { key: 'future-board', startsInMs: HOUR, createdBy: owner.id, problemId });
+        await seedTimedContest(db, { key: 'past-board', startsInMs: -HOUR, createdBy: owner.id, problemId });
+
+        const before = await request(app.getHttpServer()).get('/contests/future-board/scoreboard');
+        expect(before.status).toBe(409);
+        expect(before.body.code).toBe('contest_not_started');
+        const raw = JSON.stringify(before.body);
+        expect(raw).not.toContain('zz-leak-probe');
+        expect(raw).not.toContain('Secret Leak Probe');
+
+        const after = await request(app.getHttpServer()).get('/contests/past-board/scoreboard');
+        expect(after.status).toBe(200);
+        expect(Scoreboard.parse(after.body).problems.map((p) => p.code)).toEqual(['zz-leak-probe']);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('post-start, an anonymous detail read still gets the problems (regression guard)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const owner = await insertUser(db, 'leak-started-owner');
+        const problemId = await seedProbeProblem(db, owner.id);
+        await seedTimedContest(db, { key: 'started-pub', startsInMs: -HOUR, createdBy: owner.id, problemId });
+
+        const res = await request(app.getHttpServer()).get('/contests/started-pub');
+        expect(res.status).toBe(200);
+        expect(ContestDetail.parse(res.body).problems.map((p) => p.code)).toEqual(['zz-leak-probe']);
       } finally {
         await app.close();
       }

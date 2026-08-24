@@ -144,6 +144,7 @@ describe('Worker', () => {
       languageKey: 'cpp17',
       timeMs: 1000,
       memoryKb: 65536,
+      testCount: null,
     };
     const jobB: ClaimedJob = { ...jobA, id: 2 };
 

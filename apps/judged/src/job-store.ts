@@ -28,6 +28,8 @@ export interface ClaimedJob {
   languageKey: string;
   timeMs: number;
   memoryKb: number;
+  /** From the revision; `null` on rows predating the column. */
+  testCount: number | null;
 }
 
 export class JobStore {
@@ -63,6 +65,9 @@ export class JobStore {
       package_hash: string;
       source: string | null;
       language_key: string | null;
+      revision_time_ms: number | null;
+      revision_memory_kb: number | null;
+      revision_test_count: number | null;
     }>(sql`
       with claimed as (
         update grading_jobs
@@ -83,10 +88,14 @@ export class JobStore {
          )
         returning id, attempt, submission_id, revision_id, package_hash
       )
-      select claimed.*, submissions.source, languages.key as language_key
+      select claimed.*, submissions.source, languages.key as language_key,
+             problem_revisions.time_ms   as revision_time_ms,
+             problem_revisions.memory_kb as revision_memory_kb,
+             problem_revisions.test_count as revision_test_count
         from claimed
-        left join submissions on submissions.id = claimed.submission_id
-        left join languages   on languages.id   = submissions.language_id
+        left join submissions       on submissions.id       = claimed.submission_id
+        left join languages         on languages.id         = submissions.language_id
+        left join problem_revisions on problem_revisions.id = claimed.revision_id
     `);
 
     const row = rows[0];
@@ -99,10 +108,13 @@ export class JobStore {
       packageHash: row.package_hash,
       source: row.source ?? '',
       languageKey: row.language_key ?? 'cpp17',
-      // Phase 1 has no per-problem limits table — the spec fixes these at
-      // 1000 ms / 65536 KB. Phase 2's `language_limit` replaces the constants.
-      timeMs: 1000,
-      memoryKb: 65536,
+      // The revision's own limits — the constants this replaced ("Phase 1
+      // fixes these at 1000 ms / 65536 KB") had quietly outlived the phase:
+      // a problem declaring 2000 ms displayed 2000 everywhere and GRADED at
+      // 1000. The fallbacks only cover a revision predating the columns.
+      timeMs: row.revision_time_ms === null ? 1000 : Number(row.revision_time_ms),
+      memoryKb: row.revision_memory_kb === null ? 65536 : Number(row.revision_memory_kb),
+      testCount: row.revision_test_count === null ? null : Number(row.revision_test_count),
     };
   }
 

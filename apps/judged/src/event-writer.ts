@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { submissions, submissionCases } from '@duckoj/db/guarded';
-import type { Db } from '@duckoj/db';
+
+import { schema, type Db } from '@duckoj/db';
 import type { GradingEvent } from '@duckoj/judge-protocol';
 import type { ClaimedJob } from './job-store.js';
 import type { JobStore } from './job-store.js';
@@ -35,7 +36,7 @@ export class EventWriter {
     if (job.submissionId === null) return true;
 
     const submissionId = job.submissionId;
-    await this.write(submissionId, job.attempt, event);
+    await this.write(submissionId, job, event);
 
     // Deliberately after `write` resolves, and only once it has resolved
     // successfully: a write that throws never reaches this line, so a
@@ -50,17 +51,35 @@ export class EventWriter {
     return true;
   }
 
-  private async write(submissionId: number, attempt: number, event: GradingEvent): Promise<void> {
+  /**
+   * The in-statement fence every `submissions` UPDATE below carries.
+   *
+   * `isCurrentAttempt` above is a separate SELECT — cheap, but check-then-act:
+   * a stale attempt whose terminal UPDATE stalls (network partition, TCP
+   * retry) can land AFTER the retry's, permanently overwriting the good
+   * verdict with `errored`/`IE`. Folding the attempt check into the UPDATE's
+   * own WHERE makes a superseded write match zero rows instead — the check
+   * and the act become one statement, which is the only place a fence holds.
+   */
+  private fencedById(submissionId: number, job: ClaimedJob) {
+    return and(
+      eq(submissions.id, submissionId),
+      sql`(select ${schema.gradingJobs.attempt} from ${schema.gradingJobs} where ${schema.gradingJobs.id} = ${job.id}) = ${job.attempt}`,
+    );
+  }
+
+  private async write(submissionId: number, job: ClaimedJob, event: GradingEvent): Promise<void> {
+    const attempt = job.attempt;
     switch (event.type) {
       case 'dispatched':
-        return void (await this.setState(submissionId, 'queued'));
+        return void (await this.setState(submissionId, job, 'queued'));
       case 'compiling':
-        return void (await this.setState(submissionId, 'compiling'));
+        return void (await this.setState(submissionId, job, 'compiling'));
       case 'compileMessage':
         return void (await this.db
           .update(submissions)
           .set({ compileOutput: event.message })
-          .where(eq(submissions.id, submissionId)));
+          .where(this.fencedById(submissionId, job)));
       case 'compileError':
         return void (await this.db
           .update(submissions)
@@ -71,7 +90,7 @@ export class EventWriter {
             points: 0,
             judgedAt: new Date(),
           })
-          .where(eq(submissions.id, submissionId)));
+          .where(this.fencedById(submissionId, job)));
       case 'caseResult':
         // The first case result is the only signal that grading has actually
         // started running tests, as opposed to still compiling — without
@@ -82,7 +101,7 @@ export class EventWriter {
         // chain processes packets strictly in the order judge-server sends
         // them, so a case result can never arrive after `finished` has
         // already moved this submission to `done`.
-        await this.setState(submissionId, 'grading');
+        await this.setState(submissionId, job, 'grading');
         return void (await this.db
           .insert(submissionCases)
           .values({
@@ -114,7 +133,7 @@ export class EventWriter {
             memoryKb: event.memoryKb,
             judgedAt: new Date(),
           })
-          .where(eq(submissions.id, submissionId)));
+          .where(this.fencedById(submissionId, job)));
       case 'internalError':
         // The raw message (judge-internal traceback) is operator-only: log
         // it here, and never let it reach `compileOutput`, which `submission
@@ -130,7 +149,7 @@ export class EventWriter {
             compileOutput: GENERIC_INTERNAL_ERROR_MESSAGE,
             judgedAt: new Date(),
           })
-          .where(eq(submissions.id, submissionId)));
+          .where(this.fencedById(submissionId, job)));
       case 'terminated':
         // Not a requeue: `worker.ts` already treats `terminated` as terminal
         // — it resolves the dispatch promise and calls `jobs.complete`, so
@@ -151,7 +170,7 @@ export class EventWriter {
             compileOutput: GENERIC_INTERNAL_ERROR_MESSAGE,
             judgedAt: new Date(),
           })
-          .where(eq(submissions.id, submissionId)));
+          .where(this.fencedById(submissionId, job)));
       default: {
         // Exhaustiveness guard: `noImplicitReturns` is not part of the
         // `strict` family, so without this, a new `GradingEvent` variant
@@ -167,8 +186,9 @@ export class EventWriter {
 
   private async setState(
     submissionId: number,
+    job: ClaimedJob,
     state: 'queued' | 'compiling' | 'grading' | 'done' | 'errored',
   ): Promise<void> {
-    await this.db.update(submissions).set({ state }).where(eq(submissions.id, submissionId));
+    await this.db.update(submissions).set({ state }).where(this.fencedById(submissionId, job));
   }
 }

@@ -154,6 +154,13 @@ registry.registerPath({
       description: 'No such problem, or no such language',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
+    409: {
+      description:
+        'The problem is visible to the caller but has no published revision to grade ' +
+        'against (`problem_not_submittable`) — unlike 404, which never distinguishes ' +
+        '"invisible" from "nonexistent"',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
     422: {
       description: 'The request body failed validation',
       content: { 'application/problem+json': { schema: ProblemDetails } },

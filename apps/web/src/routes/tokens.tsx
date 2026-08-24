@@ -21,6 +21,10 @@ export function TokensPage() {
   const [scopes, setScopes] = useState<string[]>(['problems:read', 'submissions:write']);
   const [minted, setMinted] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // One flag for create AND revoke: a double-click on Create mints two live
+  // tokens and silently replaces the first plaintext with the second, so the
+  // buttons must not fire while a request is in flight.
+  const [busy, setBusy] = useState(false);
 
   const tokens = useQuery({
     queryKey: ['tokens'],
@@ -35,27 +39,43 @@ export function TokensPage() {
   }
 
   async function create(): Promise<void> {
-    const { data, error: err } = await api.POST('/auth/tokens', {
-      body: { name, scopes: scopes as never },
-    });
-    if (err) {
-      setError(err.detail ?? 'Could not create the token.');
-      return;
+    setBusy(true);
+    try {
+      const { data, error: err } = await api.POST('/auth/tokens', {
+        body: { name, scopes: scopes as never },
+      });
+      if (err) {
+        setError(err.detail ?? 'Could not create the token.');
+        return;
+      }
+      setError(null);
+      setMinted(data.token);
+      setName('');
+      await client.invalidateQueries({ queryKey: ['tokens'] });
+    } catch {
+      // openapi-fetch rethrows network-level failures rather than resolving
+      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+      setError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setBusy(false);
     }
-    setError(null);
-    setMinted(data.token);
-    setName('');
-    await client.invalidateQueries({ queryKey: ['tokens'] });
   }
 
   async function revoke(id: number): Promise<void> {
-    const { error: err } = await api.DELETE('/auth/tokens/{id}', { params: { path: { id } } });
-    if (err) {
-      setError(err.detail ?? 'Could not revoke the token.');
-      return;
+    setBusy(true);
+    try {
+      const { error: err } = await api.DELETE('/auth/tokens/{id}', { params: { path: { id } } });
+      if (err) {
+        setError(err.detail ?? 'Could not revoke the token.');
+        return;
+      }
+      setError(null);
+      await client.invalidateQueries({ queryKey: ['tokens'] });
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setBusy(false);
     }
-    setError(null);
-    await client.invalidateQueries({ queryKey: ['tokens'] });
   }
 
   if (tokens.isPending) return <p className="muted">Loading…</p>;
@@ -96,7 +116,7 @@ export function TokensPage() {
         ))}
       </p>
       <p>
-        <button type="button" disabled={name === ''} onClick={() => void create()}>
+        <button type="button" disabled={busy || name === ''} onClick={() => void create()}>
           Create token
         </button>
       </p>
@@ -121,7 +141,7 @@ export function TokensPage() {
                 <td>{token.scopes.join(' ') || 'none'}</td>
                 <td>{token.lastUsedAt === null ? 'never' : new Date(token.lastUsedAt).toLocaleDateString()}</td>
                 <td>
-                  <button type="button" onClick={() => void revoke(token.id)}>
+                  <button type="button" disabled={busy} onClick={() => void revoke(token.id)}>
                     Revoke
                   </button>
                 </td>

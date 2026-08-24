@@ -166,6 +166,31 @@ describe('submission realtime', () => {
     });
   }, 120_000);
 
+  it("acks a successful subscribe with a 'subscribed' frame — the client's cue to re-fetch", async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { app, url } = await buildAppWithRealtime(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        const cookie = await registerAndLogin(agent, 'acker');
+        const created = await agent
+          .post('/submissions')
+          .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' });
+
+        const socket = await open(`${url}/ws`, { cookie });
+        const first = new Promise<string>((resolve) => socket.once('message', (d) => resolve(String(d))));
+        socket.send(JSON.stringify({ type: 'subscribe', submissionId: created.body.id }));
+        // Before the fix no ack existed: a publish landing between the
+        // client's post-subscribe fetch and the server-side add was
+        // permanently lost, and the page stayed on 'grading' forever.
+        expect(JSON.parse(await first)).toEqual({ type: 'subscribed', id: created.body.id });
+        socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('delivers a wake-up signal carrying no submission data', async () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);

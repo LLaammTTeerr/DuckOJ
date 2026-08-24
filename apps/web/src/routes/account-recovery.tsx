@@ -63,19 +63,29 @@ export function ForgotPasswordPage() {
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setBusy(true);
-    const { error } = await api.POST('/auth/password/forgot', { body: { email } });
-    setBusy(false);
-    // The server answers the same way whether or not the account exists, and
-    // so does this screen — saying "we sent it" only for real addresses would
-    // undo the whole point of that.
-    setOutcome(
-      error
-        ? { kind: 'error', message: error.detail ?? 'That does not look like an email address.' }
-        : {
-            kind: 'done',
-            message: 'If that address has an account, a reset link is on its way. It expires in an hour.',
-          },
-    );
+    try {
+      const { error } = await api.POST('/auth/password/forgot', { body: { email } });
+      // The server answers the same way whether or not the account exists, and
+      // so does this screen — saying "we sent it" only for real addresses would
+      // undo the whole point of that.
+      setOutcome(
+        error
+          ? { kind: 'error', message: error.detail ?? 'That does not look like an email address.' }
+          : {
+              kind: 'done',
+              message: 'If that address has an account, a reset link is on its way. It expires in an hour.',
+            },
+      );
+    } catch {
+      // openapi-fetch rethrows network-level failures rather than resolving
+      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+      setOutcome({
+        kind: 'error',
+        message: 'Could not reach the server. Check your connection and try again.',
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -110,16 +120,24 @@ export function ResetPasswordPage() {
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setBusy(true);
-    const { error } = await api.POST('/auth/password/reset', { body: { token, password } });
-    setBusy(false);
-    setOutcome(
-      error
-        ? { kind: 'error', message: error.detail ?? 'That link is invalid or has expired.' }
-        : {
-            kind: 'done',
-            message: 'Password changed. Every other session has been signed out — sign in again.',
-          },
-    );
+    try {
+      const { error } = await api.POST('/auth/password/reset', { body: { token, password } });
+      setOutcome(
+        error
+          ? { kind: 'error', message: error.detail ?? 'That link is invalid or has expired.' }
+          : {
+              kind: 'done',
+              message: 'Password changed. Every other session has been signed out — sign in again.',
+            },
+      );
+    } catch {
+      setOutcome({
+        kind: 'error',
+        message: 'Could not reach the server. Check your connection and try again.',
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!token) {
@@ -166,13 +184,21 @@ export function VerifyEmailPage() {
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setBusy(true);
-    const { error } = await api.POST('/auth/email/verify', { body: { token } });
-    setBusy(false);
-    setOutcome(
-      error
-        ? { kind: 'error', message: error.detail ?? 'That link is invalid or has expired.' }
-        : { kind: 'done', message: 'Address confirmed.' },
-    );
+    try {
+      const { error } = await api.POST('/auth/email/verify', { body: { token } });
+      setOutcome(
+        error
+          ? { kind: 'error', message: error.detail ?? 'That link is invalid or has expired.' }
+          : { kind: 'done', message: 'Address confirmed.' },
+      );
+    } catch {
+      setOutcome({
+        kind: 'error',
+        message: 'Could not reach the server. Check your connection and try again.',
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
   // Deliberately a button rather than a request fired on mount: link

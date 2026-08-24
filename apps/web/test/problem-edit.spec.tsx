@@ -177,3 +177,35 @@ describe('ProblemRevisionsPage', () => {
     expect(publishButtons).toHaveLength(1);
   });
 });
+
+describe('the form reseeds when the route code changes without a remount', () => {
+  it('shows problem B after a param-only navigation from problem A', async () => {
+    const A = { ...PROBLEM_DETAIL, code: 'aaa', name: 'Problem A', statement: 'sa', orgSlugs: [] };
+    const B = { ...PROBLEM_DETAIL, code: 'bbb', name: 'Problem B', statement: 'sb', orgSlugs: [] };
+    mockedGet.mockImplementation((async (_path: string, options: { params: { path: { code: string } } }) => ({
+      data: options.params.path.code === 'aaa' ? A : B,
+      error: undefined,
+      response: new Response(),
+    })) as never);
+
+    // One client across both renders — the exact reused-instance shape the
+    // router produces on a history jump between two edit URLs.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <ProblemEditPage code="aaa" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByDisplayValue('Problem A')).toBeInTheDocument();
+
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <ProblemEditPage code="bbb" />
+      </QueryClientProvider>,
+    );
+    // Before the fix the boolean `initialized` gate kept Problem A's content
+    // here — the state a Save would then write over problem B.
+    expect(await screen.findByDisplayValue('Problem B')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('Problem A')).toBeNull();
+  });
+});

@@ -88,3 +88,15 @@ describe('VerifyEmailPage', () => {
     expect(screen.getByRole('button', { name: /confirm address/i })).toBeDisabled();
   });
 });
+
+describe('ForgotPasswordPage transport failures', () => {
+  it('surfaces a connection message instead of saying Working… forever', async () => {
+    post.mockRejectedValue(new TypeError('fetch failed'));
+    render(<ForgotPasswordPage />);
+    await userEvent.type(screen.getByLabelText(/email/i), 'someone@example.com');
+    await userEvent.click(screen.getByRole('button', { name: /send reset link/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
+    // The button reads "Send reset link" again — not a stuck "Working…".
+    expect(screen.getByRole('button', { name: /send reset link/i })).toBeEnabled();
+  });
+});

@@ -100,6 +100,20 @@ export class ContestAccessService {
 
   async getVisible(actor: Actor | null, key: string): Promise<ContestDetailDto> {
     const contest = await this.loadVisible(actor, key);
+    // Before the start, the problem list is CONCEALED from everyone but a
+    // global admin: a private problem attached to a tomorrow-starting public
+    // contest must not leak its code and name today through this route while
+    // `GET /problems/{code}` 404s the same caller — the exact side channel
+    // `resolveProblemIds`' comment forbids. Post-start, every contest viewer
+    // sees the problems (participants need them, and the joined-contest
+    // grant opens the problems themselves anyway).
+    if (new Date() < contest.startTime && !isAdmin(actor)) {
+      return {
+        ...toSummary(contest),
+        formatConfig: contest.formatConfig as Record<string, unknown> | null,
+        problems: [],
+      };
+    }
     const problemRows = await this.loadProblemRows(contest.id);
     return {
       ...toSummary(contest),
@@ -121,7 +135,16 @@ export class ContestAccessService {
    * the orders that mapping documents as load-bearing.
    */
   async getScoreboard(actor: Actor | null, key: string): Promise<Scoreboard> {
-    return this.computeScoreboard(await this.loadVisible(actor, key));
+    const contest = await this.loadVisible(actor, key);
+    // Same pre-start concealment as `getVisible`: a scoreboard's `problems`
+    // and `label_by_problem` carry codes and names, and before the start
+    // there is nothing ranked to show anyway. 409, mirroring `join`'s
+    // existing `contest_not_started`. `scoreboardForSystem` (the rating
+    // replay) deliberately bypasses this — it is not acting for a caller.
+    if (new Date() < contest.startTime && !isAdmin(actor)) {
+      throw new AppError(409, 'contest_not_started', 'This contest has not started yet.');
+    }
+    return this.computeScoreboard(contest);
   }
 
   /**
@@ -162,7 +185,10 @@ export class ContestAccessService {
     // `points_scaling_factor` divides by the dataset's total. 4b throws for
     // it; a bare throw would surface as a 500, so it is named here instead.
     if (contest.format === 'ioi16') {
-      const missing = problemRows.find((row) => row.datasetTotalPoints === null);
+      // `null` (no published revision) and `0` (an all-zero dataset) are the
+      // same unusable state here: `points_scaling_factor` divides by this
+      // total, and 0 would make it Infinity and every score NaN.
+      const missing = problemRows.find((row) => !row.datasetTotalPoints);
       if (missing) {
         throw new AppError(
           409,

@@ -78,16 +78,21 @@ export function ProblemEditPage(props: { code?: string }) {
   // the same query never clobbers edits already in progress — this effect
   // is meant to run exactly once, the first time the fetched problem
   // becomes available.
-  const [initialized, setInitialized] = useState(false);
+  // Which problem the form state was seeded FROM — a code, not a boolean:
+  // if the route's $code changes under a reused component instance, a
+  // boolean stays true and the form keeps the previous problem's content,
+  // then saves it over the new one. (The route also keys this component by
+  // code — router.tsx — so this is defense in depth.)
+  const [seededFrom, setSeededFrom] = useState<string | null>(null);
   useEffect(() => {
-    if (initialized || !query.data) return;
+    if (!query.data || seededFrom === query.data.code) return;
     setCode(query.data.code);
     setName(query.data.name);
     setStatement(query.data.statement);
     setVisibility(query.data.visibility);
     setOrgSlugsRaw(query.data.orgSlugs.join(', '));
-    setInitialized(true);
-  }, [initialized, query.data]);
+    setSeededFrom(query.data.code);
+  }, [seededFrom, query.data]);
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();

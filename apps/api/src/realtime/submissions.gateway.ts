@@ -199,6 +199,14 @@ export class SubmissionsGateway implements OnModuleDestroy {
       // any signed-in user could watch anyone's grading in real time.
       await this.submissions.getVisible(client.actor, submissionId);
       client.subscriptions.add(submissionId);
+      // The ack closes a real staleness window: the client's post-subscribe
+      // re-fetch used to race the multi-query authz above — a terminal
+      // publish landing between the re-fetch's snapshot and this `add` was
+      // dropped, and nothing ever fired again. The client now re-fetches on
+      // THIS frame, which proves the subscription is live server-side.
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribed', id: submissionId }));
+      }
     } catch (error: unknown) {
       // `getVisible` throws `AppError(404, 'submission_not_found', …)` for
       // both "does not exist" and "exists but isn't yours" — deliberately

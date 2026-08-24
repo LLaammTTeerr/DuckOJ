@@ -102,6 +102,11 @@ export type ContestPageDto = z.infer<typeof ContestPage>;
 
 export const ContestDetail = ContestSummary.extend({
   formatConfig: z.record(z.string(), z.unknown()).nullable(),
+  /**
+   * EMPTY until the contest starts, for everyone but a global admin — a
+   * private problem attached to a future contest must not leak its code and
+   * name through this route (its own route 404s the same caller).
+   */
   problems: z.array(ContestProblemSummary),
 });
 export type ContestDetailDto = z.infer<typeof ContestDetail>;
@@ -231,8 +236,10 @@ registry.registerPath({
     404: CONTEST_NOT_FOUND,
     409: {
       description:
-        'The contest cannot be scored as configured — an `ioi16` problem with no published ' +
-        'revision has no dataset to scale against (`contest_problem_missing_dataset`)',
+        'Not started (`contest_not_started`) — the scoreboard and its problem codes/names are ' +
+        'concealed pre-start from everyone but a global admin — or the contest cannot be scored ' +
+        'as configured: an `ioi16` problem with no published revision (or an all-zero dataset) ' +
+        'has nothing to scale against (`contest_problem_missing_dataset`)',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },

@@ -192,3 +192,30 @@ describe('contest submissions links', () => {
     expect(screen.queryAllByRole('link', { name: 'My submissions' })).toHaveLength(1);
   });
 });
+
+describe('ContestPage join transport safety', () => {
+  it('disables Join while the request is in flight', async () => {
+    get.mockImplementation((path: string) =>
+      path === '/contests/{key}' ? Promise.resolve({ data: RUNNING }) : Promise.resolve({ data: undefined }),
+    );
+    let resolve!: (value: unknown) => void;
+    post.mockImplementation(() => new Promise((r) => { resolve = r; }));
+    wrap(<ContestPage contestKey="spring" />);
+    const button = await screen.findByRole('button', { name: /^join$/i });
+    await userEvent.click(button);
+    expect(button).toBeDisabled();
+    resolve({ error: undefined });
+    expect(await screen.findByRole('button', { name: /^join$/i })).toBeEnabled();
+  });
+
+  it('surfaces a connection message when the join request cannot reach the server', async () => {
+    get.mockImplementation((path: string) =>
+      path === '/contests/{key}' ? Promise.resolve({ data: RUNNING }) : Promise.resolve({ data: undefined }),
+    );
+    post.mockRejectedValue(new TypeError('fetch failed'));
+    wrap(<ContestPage contestKey="spring" />);
+    await userEvent.click(await screen.findByRole('button', { name: /^join$/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
+    expect(screen.getByRole('button', { name: /^join$/i })).toBeEnabled();
+  });
+});

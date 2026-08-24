@@ -1020,7 +1020,7 @@
             }
           },
           "409": {
-            "description": "The contest cannot be scored as configured — an `ioi16` problem with no published revision has no dataset to scale against (`contest_problem_missing_dataset`)",
+            "description": "Not started (`contest_not_started`) — the scoreboard and its problem codes/names are concealed pre-start from everyone but a global admin — or the contest cannot be scored as configured: an `ioi16` problem with no published revision (or an all-zero dataset) has nothing to scale against (`contest_problem_missing_dataset`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6173,6 +6173,51 @@
           },
           "404": {
             "description": "No such problem, or no such language",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The problem is visible to the caller but has no published revision to grade against (`problem_not_submittable`) — unlike 404, which never distinguishes \"invisible\" from \"nonexistent\"",
             "content": {
               "application/problem+json": {
                 "schema": {

@@ -288,6 +288,7 @@ export function useSubmissionSocket(
         if (disposed) return;
         attempt = 0;
         ws.send(JSON.stringify({ type: 'subscribe', submissionId: id }));
+        // Provisional; the authoritative fetch fires on the 'subscribed' ack.
         safeFetch(id);
       });
 
@@ -304,6 +305,16 @@ export function useSubmissionSocket(
         // The frame is a signal only and carries no grading data — only its
         // `id` is read. A frame for a different submission is ignored.
         if (frame.type === 'submission' && frame.id === id) {
+          safeFetch(id);
+          return;
+        }
+        // The gateway's proof that the subscription is live. The open-time
+        // fetch below is provisional (it races the server-side add — a
+        // terminal event in that window was permanently lost); this one is
+        // authoritative: any event after it will be delivered, so together
+        // they close the gap. An ack for a stale id is ignored like any
+        // other frame for a different submission.
+        if (frame.type === 'subscribed' && frame.id === id) {
           safeFetch(id);
           return;
         }

@@ -78,6 +78,13 @@ export interface BuildAppOptions {
    * reachable without actually uploading hundreds of megabytes.
    */
   configOverrides?: Partial<AppConfig>;
+  /**
+   * Provider substitutions applied on top of the usual `DB`/`APP_CONFIG`
+   * overrides — the same fault-injection seam `buildAppWithRealtime` has,
+   * e.g. swapping `MAILER` for one whose `send` rejects to prove an outage
+   * does not block registration.
+   */
+  overrides?: RealtimeOverride[];
 }
 
 export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<INestApplication> {
@@ -88,7 +95,7 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
   // state leak into another's.
   const packageStoreDir = await mkdtemp(join(tmpdir(), 'duckoj-test-packages-'));
 
-  const moduleRef = await Test.createTestingModule({
+  let builder = Test.createTestingModule({
     // Deliberately NOT `AppModule`'s list, and deliberately not shared with it:
     // this omits `ConfigModule` (which would build its own database pool
     // instead of the Testcontainers one overridden below), `RealtimeModule`
@@ -112,8 +119,13 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
     .overrideProvider(DB)
     .useValue(db)
     .overrideProvider(APP_CONFIG)
-    .useValue({ ...TEST_CONFIG, packageStoreDir, ...options.configOverrides })
-    .compile();
+    .useValue({ ...TEST_CONFIG, packageStoreDir, ...options.configOverrides });
+
+  for (const override of options.overrides ?? []) {
+    builder = builder.overrideProvider(override.provide).useValue(override.useValue);
+  }
+
+  const moduleRef = await builder.compile();
 
   const app = moduleRef.createNestApplication();
   if (options.logging) {

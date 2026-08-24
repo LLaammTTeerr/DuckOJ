@@ -61,13 +61,23 @@ function useAuthGate() {
   const [needsTotp, setNeedsTotp] = useState(false);
 
   async function handleLogin(values: LoginValues): Promise<void> {
-    const { error } = await api.POST('/auth/login', {
-      body: {
-        usernameOrEmail: values.usernameOrEmail,
-        password: values.password,
-        ...(values.totpCode ? { totpCode: values.totpCode } : {}),
-      },
-    });
+    // openapi-fetch resolves HTTP errors to `{ error }` but RETHROWS
+    // network-level failures (submit.tsx documents this); without the catch
+    // a sign-in click during an outage was silently lost.
+    let response;
+    try {
+      response = await api.POST('/auth/login', {
+        body: {
+          usernameOrEmail: values.usernameOrEmail,
+          password: values.password,
+          ...(values.totpCode ? { totpCode: values.totpCode } : {}),
+        },
+      });
+    } catch {
+      setLoginError('Could not reach the server. Check your connection and try again.');
+      return;
+    }
+    const { error } = response;
     if (error) {
       setLoginError(error.detail ?? 'Sign in failed.');
       setNeedsTotp(error.code === 'totp_required' || error.code === 'invalid_totp_code');
@@ -200,7 +210,11 @@ function ProblemRouteComponent() {
 
 function ProblemEditRouteComponent() {
   const { code } = useParams({ from: '/problems/$code/edit' });
-  return <ProblemEditPage code={code} />;
+  // Keyed: the router reuses a mounted component across $code changes, and
+  // an edit form whose state survives that carries problem A's content into
+  // a save against problem B. The component also reseeds itself (belt and
+  // suspenders — see problem-edit.tsx), but the remount is the hard wall.
+  return <ProblemEditPage key={code} code={code} />;
 }
 
 function ProblemRevisionsRouteComponent() {
@@ -235,8 +249,14 @@ function SubmissionsRouteComponent() {
       </>
     );
   }
+  // Keyed by the search values: a nav click to plain /submissions after a
+  // deep link reuses the component, and un-keyed state kept the old filters
+  // while the URL claimed none. A search change from OUTSIDE (nav, links)
+  // remounts with fresh seeds; typing in the filter boxes (local state,
+  // no search change) is untouched.
   return (
     <SubmissionsPage
+      key={`${search.problem ?? ''}|${search.user ?? ''}|${search.contest ?? ''}`}
       {...(search.problem !== undefined ? { initialProblem: search.problem } : {})}
       {...(search.user !== undefined ? { initialUser: search.user } : {})}
       {...(search.contest !== undefined ? { initialContest: search.contest } : {})}

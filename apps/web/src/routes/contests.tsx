@@ -85,6 +85,10 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
   const client = useQueryClient();
   const me = useQuery(meQueryOptions);
   const [joinError, setJoinError] = useState<string | null>(null);
+  // Joining a FINISHED contest mints a new virtual attempt server-side on
+  // every call (max(virtual)+1, by design) — so the button must not be able
+  // to fire twice before the refetch lands.
+  const [joinBusy, setJoinBusy] = useState(false);
 
   const contest = useQuery({
     queryKey: ['contest', contestKey],
@@ -106,18 +110,27 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
   });
 
   async function join(): Promise<void> {
-    const { error } = await api.POST('/contests/{key}/join', {
-      params: { path: { key: contestKey } },
-    });
-    if (error) {
-      setJoinError(error.detail ?? 'Could not join.');
-      return;
+    setJoinBusy(true);
+    try {
+      const { error } = await api.POST('/contests/{key}/join', {
+        params: { path: { key: contestKey } },
+      });
+      if (error) {
+        setJoinError(error.detail ?? 'Could not join.');
+        return;
+      }
+      setJoinError(null);
+      await client.invalidateQueries({ queryKey: ['contest-me', contestKey] });
+      // Joining widens what problems the viewer may see, so the problem list is
+      // stale the moment this succeeds.
+      await client.invalidateQueries({ queryKey: ['problems'] });
+    } catch {
+      // openapi-fetch rethrows network-level failures rather than resolving
+      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+      setJoinError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setJoinBusy(false);
     }
-    setJoinError(null);
-    await client.invalidateQueries({ queryKey: ['contest-me', contestKey] });
-    // Joining widens what problems the viewer may see, so the problem list is
-    // stale the moment this succeeds.
-    await client.invalidateQueries({ queryKey: ['problems'] });
   }
 
   if (contest.isPending) return <p className="muted">Loading…</p>;
@@ -141,7 +154,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         </p>
       ) : (
         <p>
-          <button type="button" onClick={() => void join()} disabled={phase === 'upcoming'}>
+          <button type="button" onClick={() => void join()} disabled={joinBusy || phase === 'upcoming'}>
             {phase === 'finished' ? 'Join virtually' : 'Join'}
           </button>
           {phase === 'upcoming' ? <span className="muted"> Not started yet.</span> : null}
