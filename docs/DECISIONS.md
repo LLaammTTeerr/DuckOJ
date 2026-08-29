@@ -150,3 +150,45 @@ today via Markdown+KaTeX.
 **Resolved the same day:** the user approved installing typst, and the
 port shipped as designed — `TYPST_BIN` config, `TypstStatementRenderer`
 with mitex for math, 501 when unconfigured. Phase 7b ledger.
+
+## D16 — The first admin is minted by CLI, with a verified address
+
+`corepack pnpm bootstrap:admin <username>` (`scripts/bootstrap-admin.ts`)
+replaces the hand-typed `UPDATE users SET global_role = 'admin'` the runbook
+used to prescribe. Three rulings inside it, taken during Task P4 because no
+one was available to ask:
+
+- **It creates as well as promotes**, and marks the address verified
+  (`email_verified_at = now()`). A fresh install has no SMTP server
+  configured, so the alternative parks the one account that can configure
+  one behind a mail that will never be delivered.
+- **On an existing account it promotes and nothing else** — never resets the
+  password, never rewrites the address. A "bootstrap" command that quietly
+  did either would be a foot-gun aimed at the account with the most to lose.
+- **`--email` defaults to `<username>@bootstrap.local`.** The command has to
+  work unattended in a provisioning script, and the admin can change the
+  address from their own profile afterwards.
+
+The SQL stays documented as the recovery fallback for a database the script
+cannot reach. Cost: one more entry point that can create an admin, which is
+why it is a CLI against `DATABASE_URL` and not a route — an HTTP endpoint
+that mints admins only has to be reachable once to be a breach.
+
+## D17 — Demo content ships as Polygon source, with sub-maximal tests
+
+`content/problems/` holds five provincial-olympiad problems as Polygon
+package *source* (`problem.xml`, `statement.md`, `solution.cpp`, `gen.py`,
+`tests/`), imported into a stack through `polygon:import` → `package:build`
+→ upload rather than seeded like `problems/`. Two rulings:
+
+- **The committed tests are below the stated bounds** (largest: N = 5000 for
+  the LIS problem, N = 2000 / M = 5000 for the graph problems; ~1.2 MB
+  total). Test data at the real bounds is megabytes per problem in git for
+  content whose job is to demonstrate the pipeline. Each generator exposes
+  a `LARGE_N`/`LARGE_M` constant to produce bound-sized data on demand.
+  Cost: as committed, these tests do not prove a solution is fast enough at
+  the constraints their statements advertise.
+- **No checkers.** Every answer is a single integer, so the standard token
+  comparison is the whole of what a `wcmp`-style checker would do.
+
+Statements are Vietnamese with an English section, per D10.

@@ -15,3 +15,6 @@ apps/web/playwright-report/
 
 # graphify build output — derived from the repo, regenerable with /graphify
 graphify-out/
+
+# Python bytecode from content/ generators
+__pycache__/
