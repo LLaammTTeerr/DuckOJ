@@ -98,25 +98,15 @@ export async function resolveContestTarget(
   problemId: number,
   at: Date,
 ): Promise<{ participationId: number; contestProblemId: number }> {
-  const contestProblem = (
-    await db
-      .select({ id: contestProblems.id })
-      .from(contestProblems)
-      .where(
-        and(eq(contestProblems.contestId, contest.id), eq(contestProblems.problemId, problemId)),
-      )
-      .limit(1)
-  )[0];
-  // 400, not 404: the caller can see both the contest and the problem — the
-  // pairing is what does not exist, and saying so leaks nothing.
-  if (!contestProblem) {
-    throw new AppError(
-      400,
-      'problem_not_in_contest',
-      'That problem is not part of this contest.',
-    );
-  }
-
+  // The PARTICIPATION checks run first, and that ordering is load-bearing
+  // rather than stylistic. `ContestAccessService.getVisible` conceals a
+  // contest's problem list until it starts — `problems: []` for anyone who
+  // does not run it — and nobody can join before the start either, so a
+  // pairing check answering 400 `problem_not_in_contest` here while a
+  // problem that IS in the contest answered 403 `contest_not_joined` read
+  // the concealed list back one public problem code at a time. Refuse on the
+  // caller's own standing first; only somebody with an open, undisqualified
+  // window learns which problems the contest holds.
   const participations = await listParticipations(db, contest.id, userId);
   if (participations.length === 0) {
     throw new AppError(403, 'contest_not_joined', 'Join this contest before submitting to it.');
@@ -139,6 +129,26 @@ export async function resolveContestTarget(
   }
   if (open.isDisqualified) {
     throw new AppError(403, 'contest_disqualified', 'You are disqualified from this contest.');
+  }
+
+  const contestProblem = (
+    await db
+      .select({ id: contestProblems.id })
+      .from(contestProblems)
+      .where(
+        and(eq(contestProblems.contestId, contest.id), eq(contestProblems.problemId, problemId)),
+      )
+      .limit(1)
+  )[0];
+  // 400, not 404: this caller holds an open participation, so they can see
+  // the contest's problem list on the contest page — the pairing is what does
+  // not exist, and saying so leaks nothing they cannot already read.
+  if (!contestProblem) {
+    throw new AppError(
+      400,
+      'problem_not_in_contest',
+      'That problem is not part of this contest.',
+    );
   }
 
   return { participationId: open.id, contestProblemId: contestProblem.id };
