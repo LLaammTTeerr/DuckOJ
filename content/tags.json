@@ -1,0 +1,23 @@
+{
+  "$comment": "Topics and difficulty for the five demo problems, keyed by problem code. Slugs are the ones migration 0018 seeds into `tags`; GET /tags lists them. Applied through PATCH /problems/{code} — see content/README.md, step 7. Nothing reads this file automatically: it is the record of what the demo set is classified as, so a rebuilt stack ends up with the same classification as the last one rather than whatever the operator remembered.",
+  "tong-hai-so": {
+    "tags": ["mo-phong", "toan"],
+    "difficulty": 1
+  },
+  "so-nguyen-to": {
+    "tags": ["so-hoc", "mo-phong"],
+    "difficulty": 3
+  },
+  "day-con-tang": {
+    "tags": ["quy-hoach-dong", "tim-kiem-nhi-phan"],
+    "difficulty": 5
+  },
+  "duong-di-ngan-nhat": {
+    "tags": ["do-thi", "duong-di-ngan-nhat", "cau-truc-du-lieu"],
+    "difficulty": 6
+  },
+  "cay-khung-nho-nhat": {
+    "tags": ["do-thi", "cay-khung", "dsu", "sap-xep"],
+    "difficulty": 6
+  }
+}

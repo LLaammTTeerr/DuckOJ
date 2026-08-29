@@ -14,7 +14,7 @@ Each iteration N:
   starts N+1. A killed agent is resumed from its transcript, not re-run.
 
 Backlog (strike when shipped): ~~contest clarifications/announcements~~
-(F1, D31) · problem tags + filter · TOTP recovery codes · editorials (per problem,
+(F1, D31) · ~~problem tags + filter~~ (F2, D35) · TOTP recovery codes · editorials (per problem,
 visible after solve or after contest) · real rank names (D6) · contest PDF
 booklet (typst) · user settings (display name, preferred locale server-side)
 · org-restricted contests · comments · submission source diff between

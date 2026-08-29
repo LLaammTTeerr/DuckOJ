@@ -102,10 +102,33 @@ the runbook for `corepack pnpm bootstrap:admin`, which mints one.
         -d "{\"packageHash\":\"$HASH\",\"notes\":\"demo content import\"}"
       curl -sk -b oj.cookies -X POST "$BASE/problems/$code/revisions/1/publish"
 
-      # 6. Make it public.
-      curl -sk -b oj.cookies -X PATCH "$BASE/problems/$code" \
-        -H 'content-type: application/json' -d '{"visibility":"public"}'
+      # 6. Make it public, and classify it. `tags` are slugs from `GET /tags`
+      #    (seeded by migration 0018); `difficulty` is the setter's own 1-10
+      #    estimate. Both come out of `content/tags.json`, which is the
+      #    record of what this demo set is classified as — see below.
+      jq -c --arg code "$code" '.[$code] + {visibility:"public"}' content/tags.json \
+        | curl -sk -b oj.cookies -X PATCH "$BASE/problems/$code" \
+            -H 'content-type: application/json' --data-binary @-
     done
+
+## Topics and difficulty
+
+`tags.json` holds, per problem code, the topic slugs and the 1-10 difficulty
+the demo set is classified under. It is **data, not a step that runs itself**:
+nothing in the seed path reads it, and the loop above applies it through the
+ordinary `PATCH /problems/{code}` the API exposes to any setter. Keeping it in
+git is what stops a rebuilt stack from ending up classified differently from
+the last one — or, more likely, not classified at all.
+
+An unknown slug is refused with 422 `problem_tag_unknown`, so a typo here
+fails the PATCH loudly rather than quietly dropping a topic. `tags` is a
+whole-set replacement, not a merge: what is in this file is exactly what the
+problem ends up carrying.
+
+Note what a tag is NOT for: **D35 hides both tags and difficulty from a
+viewer who is sitting a running contest that uses the problem**, because a
+tag is a third of the hint on a hard problem. Classifying the demo set does
+not leak anything into a contest built from it.
 
 Step 3 is separate from step 4 on purpose: uploading a package and having
 standing to attach it to a problem are different permissions, and the

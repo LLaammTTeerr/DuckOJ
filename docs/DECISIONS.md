@@ -934,3 +934,50 @@ later on their phone.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B1 auth
 brief), no human available to consult.*
+
+## D35 — A tag is a hint, so tags and difficulty vanish for the duration of a contest
+
+The province's teachers organise practice by topic, so problems carry tags
+(`tags` + `problem_tags`, migration 0018) and a nullable 1–10 `difficulty`,
+and `GET /problems` filters on both. That same classification is a hint: "this
+is a segment-tree problem" is a third of the work on the hardest problem in
+the room, and a scoreboard that rewards reading the tag list rewards the wrong
+thing.
+
+- **Hidden from a participant, while the contest runs.** A viewer holding a
+  participation in a contest that is running *now* and that uses the problem
+  sees `tags: []` and `difficulty: null` on both `GET /problems` and
+  `GET /problems/{code}`. Nothing is stored and nothing is scheduled — this is
+  a clock question, and the hint comes back on its own when the contest ends.
+- **Blanked, never signalled.** The masked values are exactly what an
+  untagged, unrated problem returns. A distinguishable "hidden" state would
+  itself confirm the problem is in the contest the viewer is sitting, which is
+  the fact the mask exists to withhold.
+- **The filter runs over the masked view, not under it.** A hidden problem
+  drops out of a tag- or difficulty-filtered page entirely. Masking the field
+  while still letting `?tag=do-thi` match it would leave the filter as an
+  oracle answering exactly what the blank chip row refused. An *unfiltered*
+  page still lists it, blanked: hiding the hint must not hide the problem.
+- **Exempt: the contest's organiser (`created_by`) and any global admin.**
+  Both already read the problem's edit screen; a mask they can trivially step
+  around is a mask that only costs the people running the room.
+- **The contest's window, not the participant's virtual one.** A virtual
+  attempt begun after `end_time` sees the tags. The hint is withheld from the
+  live room, which is what the ranking depends on.
+- **Every participation counts** — spectators (`virtual = -1`) and
+  disqualified entries included. Hiding a chip from someone who is only
+  watching costs them nothing that matters; showing it to someone quietly
+  competing costs the contest.
+- **Signing out defeats it, and that is accepted.** An anonymous viewer holds
+  no participation, so nothing is hidden from them. The ruling is about not
+  putting a hint in front of a competitor, not about making the tag list
+  unobtainable — the vocabulary is public (`GET /tags`) and so is every
+  problem outside a live contest.
+- **`PATCH` echoes what it wrote.** The mask lives on the read paths only; a
+  setter who just set `tags` gets them back, or the write would look lost.
+- **An unknown slug on a PATCH is a named 422 `problem_tag_unknown`**, not the
+  blurred `problem_org_unknown` its neighbour uses. An organization's
+  existence is a secret; a tag's is published, so naming the offending slug
+  costs nothing and turns a rejected request into a fixed one.
+
+Rulings taken during loop task F2 with nobody to ask. Migration 0018.
