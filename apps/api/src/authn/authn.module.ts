@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { AccountRecoveryService } from './account-recovery.service.js';
 import { RateLimiter } from '../common/rate-limiter.js';
+import { ExpiredRowsSweeper } from './expired-rows.sweeper.js';
 import { PasswordService } from './password.service.js';
 import { SessionService } from './session.service.js';
 import { TokenService } from './token.service.js';
@@ -48,6 +49,11 @@ import { JudgeService } from './judge.service.js';
     AuthService,
     AccountRecoveryService,
     RateLimiter,
+    // m3 — the janitor for `rate_events`, `sessions` and `one_time_tokens`,
+    // none of which anything else ever deletes from on expiry. Lives here
+    // rather than in a scheduling module because all three tables belong to
+    // this one, and it needs no wiring beyond being instantiated.
+    ExpiredRowsSweeper,
     PasswordService,
     SessionService,
     TokenService,
