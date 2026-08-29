@@ -297,3 +297,18 @@ package *source* (`problem.xml`, `statement.md`, `solution.cpp`, `gen.py`,
   comparison is the whole of what a `wcmp`-style checker would do.
 
 Statements are Vietnamese with an English section, per D10.
+
+## D21 — A rejudge never replays ratings; it names the contests to re-rate
+
+`POST /admin/submissions/{id}/rejudge` and `POST /admin/problems/{code}/rejudge`
+answer with `ratedContestKeys`. They do not call `replayAll()`: at the
+moment a rejudge runs, the case rows are gone and every affected score is
+zero, so a replay there would fold zeros into every later rating — and the
+judged worker, which is where grading actually finishes, has no rating
+service to re-fold. D4 (regrading changes history) is honoured through D5
+(rating is manual): the admin re-rates each listed contest once the queue
+drains, and `POST /admin/contests/{key}/rate` replays.
+
+The honest alternative — a completion hook in judged that replays — is a
+cross-service dependency for a rare operation; deferred until a real contest
+needs it.

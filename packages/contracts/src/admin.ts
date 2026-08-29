@@ -73,10 +73,21 @@ export const RejudgeSubmissionResponse = z.object({
   submissionId: z.number().int(),
   /** The `grading_jobs` row now queued for it — re-queued, not a new row. */
   jobId: z.number().int(),
+  /**
+   * Keys of RATED contests this submission counts towards. Ratings are NOT
+   * replayed by a rejudge (the scores are zero until grading finishes — D21);
+   * re-rate each listed contest via `POST /admin/contests/{key}/rate` once
+   * the queue drains.
+   */
+  ratedContestKeys: z.array(z.string()),
 });
 export type RejudgeSubmissionResponseDto = z.infer<typeof RejudgeSubmissionResponse>;
 
-export const RejudgeProblemResponse = z.object({ submissionsQueued: z.number().int() });
+export const RejudgeProblemResponse = z.object({
+  submissionsQueued: z.number().int(),
+  /** As on `RejudgeSubmissionResponse`: rated contests to re-rate afterwards (D21). */
+  ratedContestKeys: z.array(z.string()),
+});
 export type RejudgeProblemResponseDto = z.infer<typeof RejudgeProblemResponse>;
 
 registry.registerPath({

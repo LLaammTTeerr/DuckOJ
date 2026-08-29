@@ -1374,6 +1374,7 @@ export interface paths {
                         "application/json": {
                             submissionId: number;
                             jobId: number;
+                            ratedContestKeys: string[];
                         };
                     };
                 };
@@ -1474,6 +1475,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             submissionsQueued: number;
+                            ratedContestKeys: string[];
                         };
                     };
                 };

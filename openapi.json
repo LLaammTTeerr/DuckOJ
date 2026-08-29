@@ -2870,11 +2870,18 @@
                     },
                     "jobId": {
                       "type": "integer"
+                    },
+                    "ratedContestKeys": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
                   "required": [
                     "submissionId",
-                    "jobId"
+                    "jobId",
+                    "ratedContestKeys"
                   ]
                 }
               }
@@ -3044,10 +3051,17 @@
                   "properties": {
                     "submissionsQueued": {
                       "type": "integer"
+                    },
+                    "ratedContestKeys": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
                   "required": [
-                    "submissionsQueued"
+                    "submissionsQueued",
+                    "ratedContestKeys"
                   ]
                 }
               }

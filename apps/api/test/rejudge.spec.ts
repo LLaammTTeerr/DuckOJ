@@ -274,7 +274,7 @@ describe('rejudging a whole problem', () => {
       const newRevisionId = await publishNextRevision(db, problem!.id, 'aplusb');
 
       const result = await serviceFor(db).rejudgeProblem(adminActor(admin.id), 'APLUSB');
-      expect(result).toEqual({ submissionsQueued: 3 });
+      expect(result).toEqual({ submissionsQueued: 3, ratedContestKeys: [] });
 
       const jobs = await db
         .select({
@@ -352,7 +352,7 @@ describe('the rejudge routes', () => {
 
         const ok = await adminAgent.post(`/admin/submissions/${String(submissionId)}/rejudge`).send({});
         expect(ok.status).toBe(202);
-        expect(ok.body).toEqual({ submissionId, jobId: expect.any(Number) });
+        expect(ok.body).toEqual({ submissionId, jobId: expect.any(Number), ratedContestKeys: [] });
         expect(publisher.published).toEqual([submissionId]);
 
         const denied = await plainAgent
@@ -365,7 +365,7 @@ describe('the rejudge routes', () => {
 
         const problemWide = await adminAgent.post('/admin/problems/aplusb/rejudge').send({});
         expect(problemWide.status).toBe(202);
-        expect(problemWide.body).toEqual({ submissionsQueued: 1 });
+        expect(problemWide.body).toEqual({ submissionsQueued: 1, ratedContestKeys: [] });
 
         // Session-only: an access token minted by the admin gets nowhere.
         const minted = await adminAgent
@@ -384,8 +384,8 @@ describe('the rejudge routes', () => {
   }, 120_000);
 });
 
-describe('a rejudge that touches a rated contest replays ratings (D4)', () => {
-  it('replays when a rejudged submission belongs to a rated contest, and not otherwise', async () => {
+describe('a rejudge names the rated contests it touches, and never replays ratings itself (D4, D21)', () => {
+  it('returns the rated contest keys and leaves replayAll uncalled', async () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);
       const [problem] = await db
@@ -412,7 +412,8 @@ describe('a rejudge that touches a rated contest replays ratings (D4)', () => {
       const service = new RejudgeService(db, new RecordingPublisher(), rating);
 
       // Not in any contest yet.
-      await service.rejudgeSubmission(adminActor(admin.id), submissionId);
+      const first = await service.rejudgeSubmission(adminActor(admin.id), submissionId);
+      expect(first.ratedContestKeys).toEqual([]);
       expect(replays).toBe(0);
 
       const now = new Date();
@@ -447,8 +448,14 @@ describe('a rejudge that touches a rated contest replays ratings (D4)', () => {
         submissionId,
       });
 
-      await service.rejudgeSubmission(adminActor(admin.id), submissionId);
-      expect(replays).toBe(1);
+      const second = await service.rejudgeSubmission(adminActor(admin.id), submissionId);
+      expect(second.ratedContestKeys).toEqual(['rr-open']);
+      // The scores are zero at this moment; folding them would corrupt every
+      // later rating, and nothing re-folds when grading finishes. Never here.
+      expect(replays).toBe(0);
+      const whole = await service.rejudgeProblem(adminActor(admin.id), 'aplusb');
+      expect(whole.ratedContestKeys).toEqual(['rr-open']);
+      expect(replays).toBe(0);
     });
   }, 120_000);
 });

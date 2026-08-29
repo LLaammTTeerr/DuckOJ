@@ -88,8 +88,8 @@ export class RejudgeService {
       packageHash: row.packageHash,
     };
     const jobIds = await this.db.transaction((tx) => this.requeueAll(tx as Db, [target]));
-    await this.announce([target.submissionId]);
-    return { submissionId: target.submissionId, jobId: jobIds[0]! };
+    const ratedContestKeys = await this.announce([target.submissionId]);
+    return { submissionId: target.submissionId, jobId: jobIds[0]!, ratedContestKeys };
   }
 
   /**
@@ -136,7 +136,7 @@ export class RejudgeService {
       .from(submissions)
       .where(eq(submissions.problemId, problem.id))
       .orderBy(desc(submissions.id));
-    if (rows.length === 0) return { submissionsQueued: 0 };
+    if (rows.length === 0) return { submissionsQueued: 0, ratedContestKeys: [] };
 
     const targets: RejudgeTarget[] = rows.map((row) => ({
       submissionId: row.id,
@@ -144,8 +144,8 @@ export class RejudgeService {
       packageHash: revision.packageHash,
     }));
     await this.db.transaction((tx) => this.requeueAll(tx as Db, targets));
-    await this.announce(targets.map((target) => target.submissionId));
-    return { submissionsQueued: targets.length };
+    const ratedContestKeys = await this.announce(targets.map((target) => target.submissionId));
+    return { submissionsQueued: targets.length, ratedContestKeys };
   }
 
   /**
@@ -225,31 +225,32 @@ export class RejudgeService {
   }
 
   /**
-   * Wake open pages, then rewrite ratings if any of these submissions counted
-   * towards a rated contest.
+   * Wake open pages, then name every RATED contest these submissions count
+   * towards — without touching ratings.
    *
-   * Both happen strictly AFTER the requeue transaction commits: `publish` is
-   * not transactional (see `SubmissionEvents`), and `replayAll` opens a
-   * transaction of its own — calling it from inside another one would nest
-   * the advisory lock it takes.
+   * D4 says regrading changes rating history, and D5 says rating is applied
+   * manually. The two meet here: the only moment this code runs is the
+   * *queueing*, when the case rows have just been deleted and every rejudged
+   * score is zero. A `replayAll()` here would fold those zeros into every
+   * later rating and nothing would re-fold when grading actually finished
+   * (the judged worker has no rating service). So the rejudge reports which
+   * rated contests are affected and the admin re-rates them once the queue
+   * drains (`POST /admin/contests/{key}/rate`, which replays). Ruled D21.
    *
-   * D4: regrading a problem changes rating history. The replay is fired here,
-   * on the *queueing*, because that is the only moment this code runs — see
-   * this task's report for the honest limit that follows from it.
+   * `publish` runs strictly AFTER the requeue transaction commits: it is not
+   * transactional (see `SubmissionEvents`).
    */
-  private async announce(submissionIds: number[]): Promise<void> {
+  private async announce(submissionIds: number[]): Promise<string[]> {
     for (const submissionId of submissionIds) {
       await this.publisher.publish(submissionId);
     }
-    if (await this.touchesRatedContest(submissionIds)) {
-      await this.rating.replayAll();
-    }
+    return this.ratedContestKeys(submissionIds);
   }
 
-  private async touchesRatedContest(submissionIds: number[]): Promise<boolean> {
-    if (submissionIds.length === 0) return false;
+  private async ratedContestKeys(submissionIds: number[]): Promise<string[]> {
+    if (submissionIds.length === 0) return [];
     const rows = await this.db
-      .select({ id: contestSubmissions.id })
+      .selectDistinct({ key: contests.key })
       .from(contestSubmissions)
       .innerJoin(
         contestParticipations,
@@ -262,8 +263,8 @@ export class RejudgeService {
           inArray(contestSubmissions.submissionId, submissionIds),
         ),
       )
-      .limit(1);
-    return rows.length > 0;
+      .orderBy(contests.key);
+    return rows.map((row) => row.key);
   }
 }
 
