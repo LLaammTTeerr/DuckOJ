@@ -20,3 +20,4 @@
 - 15:12 P1-B DONE_WITH_CONCERNS on `worktree-agent-a35dec3c52fa8290b` (6ae754c): /account/security + formatPoints; QR encoder vendored (Nayuki, MIT, decode-verified 4/4). Ruling: keep vendored copy (no lockfile churn; verified). Merge into main after P1-A finishes.
 - 15:13 P2 i18n dispatched (worktree, opus) on top of P1-B's branch.
 - Host process restarted; all four agents killed. State found: P1-A rejudge committed (9eaa670), disqualify uncommitted; P4 two commits; P3 14 dirty files; P2 only the merge. All four resumed via their transcripts (not re-dispatched).
+- P3 DONE_WITH_CONCERNS on `worktree-agent-a4d3c6ce2ceb84430` (c6361a1..100efce): backup/restore proven on throwaway pg; JUDGED_CONCURRENCY pool; k6 script (10-VU sanity p95 15ms). Concerns carried: restore's stop/start path unexercised; 2k-VU run still owed (Phase 5); D-number collisions (P3 D17, P4 D16/D17, P1-A D16) → renumber at merge.
