@@ -248,9 +248,21 @@ export class ContestClarificationsService {
    * their own. Anonymous is deliberate: an announcement is for the people
    * watching as much as for the people competing, and a signed-out reader
    * has no rows of their own to add.
+   *
+   * **`problemCode` is withheld before the start.** `ContestAccessService`
+   * serves `problems: []` on `GET /contests/{key}` and 409s the scoreboard
+   * until a contest starts, for a reason it states there: "a private problem
+   * attached to a tomorrow-starting public contest must not leak its code and
+   * name through this route while `GET /problems/{code}` 404s the same
+   * caller". A `@Public()` feed carrying the code of a problem an organiser
+   * announced against is the same list by a third door, so it obeys the same
+   * rule — the announcement's *text* is published either way, since a "we
+   * start fifteen minutes late" notice is exactly what a pre-start
+   * announcement is for.
    */
   async list(actor: Actor | null, key: string): Promise<ClarificationListDto> {
     const contest = await this.contests.loadVisible(actor, key);
+    const runsIt = canRunContest(actor, contest);
     const mine = actor
       ? or(
           eq(contestClarifications.visibility, 'public'),
@@ -259,9 +271,12 @@ export class ContestClarificationsService {
       : eq(contestClarifications.visibility, 'public');
     const scope = eq(contestClarifications.contestId, contest.id);
     const rows = await this.rowsWith(this.db)
-      .where(canRunContest(actor, contest) ? scope : and(scope, mine))
+      .where(runsIt ? scope : and(scope, mine))
       .orderBy(desc(contestClarifications.id));
-    return { items: rows.map(toDto) };
+    // "Runs it", not "is an admin", and one clock for the whole response —
+    // the same two choices `getVisible` makes for the same concealment.
+    const conceal = !runsIt && new Date() < contest.startTime;
+    return { items: rows.map((row) => toDto(conceal ? { ...row, problemCode: null } : row)) };
   }
 
   /**

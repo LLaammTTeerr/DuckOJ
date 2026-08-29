@@ -405,6 +405,92 @@ describe('announcements', () => {
   }, 120_000);
 });
 
+describe('the pre-start problem-list concealment', () => {
+  it("withholds an announcement's problemCode until the contest starts", async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const organiser = await agentFor(app, 'pre-boss');
+        const organiserId = await userIdOf(db, 'pre-boss');
+        // Tomorrow. `getVisible` serves `problems: []` for a contest in this
+        // state and the scoreboard 409s, both because "a private problem
+        // attached to a tomorrow-starting public contest must not leak its
+        // code and name". The feed is the third door onto the same list.
+        const [contest] = await db
+          .insert(contests)
+          .values({
+            key: 'pre-c',
+            name: 'pre-c',
+            startTime: new Date(Date.now() + 24 * 60 * 60_000),
+            endTime: new Date(Date.now() + 27 * 60 * 60_000),
+            format: 'icpc',
+            visibility: 'public',
+            createdBy: organiserId,
+          })
+          .returning({ id: contests.id });
+        const [problem] = await db
+          .select({ id: problems.id, code: problems.code })
+          .from(problems)
+          .limit(1);
+        await db
+          .insert(contestProblems)
+          .values({ contestId: contest!.id, problemId: problem!.id, label: 'A', points: 100, order: 0 });
+
+        const posted = await organiser
+          .post('/contests/pre-c/announcements')
+          .send({ problemCode: problem!.code, text: 'The English statement lands at 08:00.' });
+        expect(posted.status).toBe(201);
+
+        // The detail route already conceals the list; the feed must agree.
+        const concealed = await request(app.getHttpServer()).get('/contests/pre-c');
+        expect(concealed.body.problems).toEqual([]);
+
+        const anon = await request(app.getHttpServer()).get('/contests/pre-c/clarifications');
+        expect(anon.status).toBe(200);
+        const items = ClarificationList.parse(anon.body).items;
+        expect(items).toHaveLength(1);
+        // The text is public; which problem it is about is not, yet.
+        expect(items[0]!.answer).toContain('English statement');
+        expect(items[0]!.problemCode).toBeNull();
+
+        // The organiser, who chose the problems, still sees it.
+        const mine = await organiser.get('/contests/pre-c/clarifications');
+        expect(ClarificationList.parse(mine.body).items[0]!.problemCode).toBe(problem!.code);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('reveals it once the contest has started', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const organiser = await agentFor(app, 'post-boss');
+        const organiserId = await userIdOf(db, 'post-boss');
+        const contestId = await seedContest(db, { key: 'post-c', createdBy: organiserId });
+        const [problem] = await db
+          .select({ id: problems.id, code: problems.code })
+          .from(problems)
+          .limit(1);
+        await db
+          .insert(contestProblems)
+          .values({ contestId, problemId: problem!.id, label: 'A', points: 100, order: 0 });
+        await organiser
+          .post('/contests/post-c/announcements')
+          .send({ problemCode: problem!.code, text: 'Sample 2 was wrong; fixed.' });
+
+        const anon = await request(app.getHttpServer()).get('/contests/post-c/clarifications');
+        expect(ClarificationList.parse(anon.body).items[0]!.problemCode).toBe(problem!.code);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});
+
 describe('a malformed clarification id', () => {
   it('is 404, not a 500 from Postgres refusing NaN as a bigint', async () => {
     await withTestDb(async (db) => {
