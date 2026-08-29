@@ -473,6 +473,21 @@ export class ContestAccessService {
           'This contest has started; its format can no longer change.',
         );
       }
+      // D38. `startTime` is the origin of every clock this contest has: a live
+      // participation with no time limit STARTS there (`participationStartMs`),
+      // `lower()` voids any submission outside that window, and `icpc` counts
+      // its penalty minutes from it. Moving it on a running contest therefore
+      // deletes submissions from the board and rewrites every `cumtime` — with
+      // a 200 and nothing on screen — and there is no operational need it
+      // serves. Compared by instant, so re-sending the stored value is the
+      // no-op it looks like.
+      if (startTime.getTime() !== contest.startTime.getTime()) {
+        throw new AppError(
+          409,
+          'contest_started',
+          'This contest has started; its start time can no longer change.',
+        );
+      }
     }
 
     // Resolved before the transaction opens, exactly as `create` does it: a

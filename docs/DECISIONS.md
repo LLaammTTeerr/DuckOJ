@@ -1010,3 +1010,46 @@ restored by the same single PATCH.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B2 contests
 brief), no human available to consult.*
+
+## D38 — A started contest's start time is frozen; its end time is not
+
+`update`'s started guard covered `format` (and, since D28, a problem removal)
+and nothing else. `startTime` and `endTime` were editable on a running contest
+with no check at all, and moving either is destructive: `participationStartMs`
+and `participationEndMs` are computed from them for every live participation
+with no time limit, `lower()` drops any submission outside that window
+(DIV-1), and `icpc` counts its penalty minutes from the participation's start.
+Probed live: a contest running with one submission on the board, one
+`PATCH {startTime}` two hours forward, `200 OK`, and the board's
+`submission_count` goes `1 → 0` with nothing said.
+
+**The ruling: once a contest has started, `startTime` may no longer change
+(409 `contest_started`); `endTime` still may, in either direction.**
+
+- **`startTime` serves no operational need after the start.** It is the origin
+  of every clock the contest has. Moving it forward voids what was submitted
+  before the new origin; moving it back rewrites every `cumtime` on the board.
+  Neither is something an organiser mid-contest is trying to do.
+- **`endTime` is the lever they *are* trying to pull** — "we start fifteen
+  minutes late, everyone gets fifteen more" is the single most common
+  contest-day edit, and ending early (a fire alarm, a power cut) is a real one
+  too. Refusing it would repeat D28's mistake: a guard that never fires on the
+  edit that destroys data and always fires on the edit the organiser needs.
+- The accidental version of that damage was the actual hazard, and it is fixed
+  on the web instead: `contest-edit.tsx` rendered a stored `10:00:37Z` into a
+  minute-resolution `datetime-local` and saved `10:00:00Z` back, so an
+  untouched save moved `endTime` up to 59 s EARLIER and could void a genuinely
+  last-minute submission. A field the reader did not touch now sends the exact
+  instant it was seeded with.
+- Compared by instant, not by presence, so a form that PATCHes the whole body
+  back is a no-op — the same rule D28 states for the problem list.
+
+Residual, stated rather than fixed: shrinking `endTime` on a running contest
+still voids submissions made after the new end, deliberately (that is what
+"the contest ended at 15:30" means), and the edit screen does not warn about
+it. Refusing only an `endTime` that would void an existing submission needs a
+per-participation window query on the write path; it is worth doing when the
+edit screen grows a confirmation step.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B2 contests
+brief), no human available to consult.*
