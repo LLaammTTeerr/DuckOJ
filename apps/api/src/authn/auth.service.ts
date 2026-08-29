@@ -77,8 +77,12 @@ export class AuthService {
       const conflict = toRegistrationConflict(error);
       // The race the pre-check above cannot close. It has to answer the same
       // way the pre-check does, or the oracle survives under concurrency —
-      // which is a condition an attacker can simply create.
-      if (conflict.code === 'email_taken') return { created: false, user: syntheticMe(input) };
+      // which is a condition an attacker can simply create. `unknown` in,
+      // `unknown` out: `toRegistrationConflict` passes anything it does not
+      // recognise straight through, so this narrows rather than casts.
+      if (conflict instanceof AppError && conflict.code === 'email_taken') {
+        return { created: false, user: syntheticMe(input) };
+      }
       throw conflict;
     }
 

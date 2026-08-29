@@ -12,11 +12,12 @@ import { eq } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import { orgJoinRequests, orgMembers, organizations } from '@duckoj/db/guarded';
 import { withTestDb } from './db.harness.js';
-import { buildApp } from './app.harness.js';
+import { buildApp, TEST_CONFIG } from './app.harness.js';
 import { insertUser, registerAndLogin } from './submissions.fixtures.js';
 import { OrgAccessService } from '../src/authz/org.access.js';
 import { NotificationsService } from '../src/notifications/notifications.service.js';
 import { AdminUsersService } from '../src/admin/admin-users.service.js';
+import { TotpService } from '../src/authn/totp.service.js';
 import type { Actor } from '../src/authz/actor.js';
 
 function actorFor(userId: number, globalRole: 'user' | 'setter' | 'admin' = 'user'): Actor {
@@ -114,7 +115,14 @@ describe('role-grant notifications', () => {
     await withTestDb(async (db) => {
       const root = await insertUser(db, 'g-root', 'admin');
       const target = await insertUser(db, 'g-target');
-      const service = new AdminUsersService(db, new NotificationsService(db));
+      // `AdminUsersService` also takes `TotpService` since M9 (the admin
+      // TOTP reset); this suite exercises neither, so a real one over the
+      // harness config is the cheapest honest construction.
+      const service = new AdminUsersService(
+        db,
+        new NotificationsService(db),
+        new TotpService(db, TEST_CONFIG),
+      );
 
       await service.grantRole(actorFor(root.id, 'admin'), 'g-target', { globalRole: 'setter' });
       expect((await feedOf(db, target.id)).items[0]).toMatchObject({

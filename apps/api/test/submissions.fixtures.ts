@@ -53,17 +53,40 @@ export async function seedProblemAndLanguage(db: Db): Promise<void> {
  * as a header by hand on a client `supertest`'s agent doesn't drive.
  */
 export async function registerAndLogin(agent: SupertestAgent, username: string): Promise<string> {
-  await agent.post('/auth/register').send({
-    username,
-    email: `${username}@example.com`,
-    password: PASSWORD,
-    displayName: username,
-  });
+  await agent
+    .post('/auth/register')
+    // D26 meters registration at 5 per client IP per hour, and every request
+    // in these tests comes off the same loopback socket — so a spec that
+    // seeds six users would have its sixth refused 429 and its login then
+    // fail with a confusing "no session cookie". Each fixture user gets its
+    // own synthetic client address, which is what the test means anyway:
+    // these are distinct people, not one host registering a crowd. The
+    // limiter's real behaviour is exercised deliberately, with explicit
+    // addresses, in `register.spec.ts`.
+    .set('X-Forwarded-For', fixtureClientIp(username))
+    .send({
+      username,
+      email: `${username}@example.com`,
+      password: PASSWORD,
+      displayName: username,
+    });
   const res = await agent.post('/auth/login').send({ usernameOrEmail: username, password: PASSWORD });
   const setCookie: unknown = res.headers['set-cookie'];
   const raw = Array.isArray(setCookie) ? (setCookie[0] as string | undefined) : (setCookie as string | undefined);
   if (!raw) throw new Error(`login for ${username} did not set a session cookie`);
   return raw.split(';')[0]!;
+}
+
+/**
+ * A stable, per-username address in `198.18.0.0/15` — the RFC 2544 benchmark
+ * range, which is not routable and cannot collide with a real address a test
+ * might otherwise care about. Deterministic so a re-run of the same spec
+ * lands on the same window.
+ */
+function fixtureClientIp(username: string): string {
+  let hash = 0;
+  for (const char of username) hash = (hash * 31 + char.charCodeAt(0)) % 65_536;
+  return `198.18.${String(Math.floor(hash / 256))}.${String(hash % 256)}`;
 }
 
 /**
