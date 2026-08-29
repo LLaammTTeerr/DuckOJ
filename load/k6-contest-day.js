@@ -8,7 +8,8 @@
 // database this script has no business mutating.
 //
 // Run it:  k6 run load/k6-contest-day.js       (see load/README.md)
-// Env:     BASE_URL, CONTEST_KEY, PROBLEM_CODE, SESSION_COOKIE, SMOKE=1
+// Env:     BASE_URL, CONTEST_KEY, PROBLEM_CODE, SESSION_COOKIE, SMOKE=1,
+//          VUS + DURATION (a fixed-VU hold, for diagnosis)
 //
 // SMOKE=1 swaps the full profile for 10 VUs over 20s — enough to prove the
 // script parses and the endpoints answer, and small enough to point at a
@@ -31,6 +32,15 @@ const CONTEST_KEY = __ENV.CONTEST_KEY || 'probe-cup';
 const PROBLEM_CODE = __ENV.PROBLEM_CODE || 'aplusb';
 const SESSION_COOKIE = __ENV.SESSION_COOKIE || '';
 const SMOKE = __ENV.SMOKE === '1';
+// A third, explicit profile for diagnosis: `VUS=500 DURATION=60s`. It exists
+// because k6 refuses to mix execution sources — passing `--vus/--duration` on
+// the command line while `options.stages` is set is an error, not an override
+// — so a "hold N VUs for D" measurement run has to be selectable from inside
+// the script. Neither smoke nor the full profile answers "what is saturated
+// right now"; this one does, at a load small enough to sample `podman stats`
+// through.
+const VUS = Number(__ENV.VUS || 0);
+const DURATION = __ENV.DURATION || '60s';
 
 // GET /submissions is @RequireScope, not @Public: unauthenticated it answers
 // 401, which is the correct answer and not a failure — but it also means the
@@ -40,6 +50,14 @@ const SMOKE = __ENV.SMOKE === '1';
 const AUTHED = SESSION_COOKIE !== '';
 
 const smokeStages = [{ duration: '20s', target: 10 }];
+// A 10s ramp then a real hold. A single `{ duration, target }` stage is a
+// LINEAR RAMP from whatever is running now (zero, at start) — so
+// `VUS=500 DURATION=60s` as one stage averages ~250 VUs and never holds 500
+// at all, which is exactly the wrong shape for reading a CPU sample off.
+const holdStages = [
+  { duration: '10s', target: VUS },
+  { duration: DURATION, target: VUS },
+];
 const fullStages = [
   // 2 minutes to 2000, then hold 3. The ramp is part of the test: a stack
   // that survives 2000 steady VUs can still fall over on the arrival rate,
@@ -53,13 +71,28 @@ const fullStages = [
 const legErrors = new Rate('leg_errors');
 
 export const options = {
-  stages: SMOKE ? smokeStages : fullStages,
+  stages: SMOKE ? smokeStages : VUS > 0 ? holdStages : fullStages,
   thresholds: {
     // The brief's acceptance bar. p95, not mean: the mean hides the tail that
     // people actually experience as "the site is down".
     'http_req_duration': ['p(95)<800'],
     'http_req_failed': ['rate<0.01'],
     'leg_errors': ['rate<0.01'],
+    // The same bar again, once per route. An aggregate p95 says the stack is
+    // slow; it never says *which* endpoint spent the time, and the three legs
+    // fail for entirely different reasons (scoreboard is aggregation, the
+    // problem list is a cheap indexed read, submissions joins under a
+    // session). These are `abortOnFail: false` by construction — k6 reports
+    // every crossed threshold — so a run always yields the full per-route
+    // breakdown rather than stopping at the first one over.
+    //
+    // A threshold whose metric took ZERO samples passes silently: without
+    // SESSION_COOKIE the `submissions` leg never runs, so its line below is
+    // vacuously green. Read it together with the leg's request count.
+    'http_req_duration{name:problems_list}': ['p(95)<800'],
+    'http_req_duration{name:problem_detail}': ['p(95)<800'],
+    'http_req_duration{name:scoreboard}': ['p(95)<800'],
+    'http_req_duration{name:submissions}': ['p(95)<800'],
   },
   // Connection reuse on: 2000 VUs each opening a fresh TCP+TLS connection per
   // iteration measures the kernel's accept backlog, not the API.
@@ -71,8 +104,18 @@ function headers() {
   return SESSION_COOKIE ? { Cookie: `duckoj_session=${SESSION_COOKIE}` } : {};
 }
 
+// `leg` AND `name`: they are not redundant. `leg` is this script's own tag,
+// which `leg_errors` and load/README.md's breakdown instructions already use.
+// `name` is k6's built-in URL-grouping system tag — thresholds and the
+// end-of-run summary sub-metrics key off it, and a sub-metric can only be
+// defined over tags k6 collects by default. Setting both means the per-route
+// thresholds above work without changing what `leg` means to anything that
+// already reads it.
 function get(name, path, expected) {
-  const res = http.get(`${BASE_URL}${path}`, { headers: headers(), tags: { leg: name } });
+  const res = http.get(`${BASE_URL}${path}`, {
+    headers: headers(),
+    tags: { leg: name, name },
+  });
   const ok = check(res, { [`${name} -> ${expected}`]: (r) => r.status === expected });
   legErrors.add(!ok);
   return res;
