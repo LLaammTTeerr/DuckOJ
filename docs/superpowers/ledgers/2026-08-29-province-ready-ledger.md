@@ -42,3 +42,4 @@
 - k6 2000 VU / 5m30s on live: 319,727 reqs, ~970 req/s, 0.00% errors, p95 3.46 s (threshold 800 ms crossed). Single Node process on 16 cores → dispatched P7 (main, opus): measure, API_WORKERS cluster mode (or index if PG-bound), redeploy, rerun, load/RESULTS.md.
 - CI on 65e27a3: success.
 - P6 DONE_WITH_CONCERNS, merged (77b777b): /register page, contestKey/contestLabel on submissions (D24, renumbered). journey.spec kept P5's version — register-page walk for journey 1 owed to the final e2e pass. Web rebuilt (register page live); api redeploy waits for P7.
+- P7 DONE_WITH_CONCERNS (54186e9..d369236): API_WORKERS cluster (default 4; 8 needs max_connections), per-route k6 tags, load/RESULTS.md. 2000 VU: 969→1715 req/s, p95 3.46→2.28 s, 0% errors. Next ceiling: scoreboard fold in JS per request → P8. Pushed d369236067830cafd28e228f5159a64bd8657866.
