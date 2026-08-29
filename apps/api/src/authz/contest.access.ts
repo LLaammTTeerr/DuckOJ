@@ -751,7 +751,14 @@ export class ContestAccessService {
     };
   }
 
-  private async loadVisible(actor: Actor | null, key: string) {
+  /**
+   * Public, not private, because `ContestClarificationsService` needs exactly
+   * this — "the contest under this key, or 404" — and a second copy of it
+   * there would be a second answer to "may this actor see this contest", which
+   * is the split-predicate bug this project has found once per phase. One
+   * caller outside this class is worth more than the encapsulation.
+   */
+  async loadVisible(actor: Actor | null, key: string) {
     const contest = (
       await this.db
         .select()

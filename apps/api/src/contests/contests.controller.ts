@@ -12,15 +12,23 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
+  AnswerClarificationRequest,
+  AskClarificationRequest,
   ContestListQuery,
   CreateContestRequest,
+  PostAnnouncementRequest,
   SetDisqualifiedRequest,
   UpdateContestRequest,
+  type AnswerClarificationRequestDto,
+  type AskClarificationRequestDto,
+  type ClarificationDto,
+  type ClarificationListDto,
   type ContestDetailDto,
   type ContestParticipationDto,
   type ContestListQueryDto,
   type ContestPageDto,
   type CreateContestRequestDto,
+  type PostAnnouncementRequestDto,
   type ScoreboardDto,
   type SetDisqualifiedRequestDto,
   type UpdateContestRequestDto,
@@ -30,6 +38,7 @@ import { CurrentActor, MaybeActor, Public } from '../authn/auth.guard.js';
 import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { ContestAccessService } from '../authz/contest.access.js';
+import { ContestClarificationsService } from '../authz/contest.clarifications.js';
 
 /**
  * Anonymous callers are served on every `GET` here deliberately — they see
@@ -43,7 +52,11 @@ import { ContestAccessService } from '../authz/contest.access.js';
  */
 @Controller('contests')
 export class ContestsController {
-  constructor(@Inject(ContestAccessService) private readonly contests: ContestAccessService) {}
+  constructor(
+    @Inject(ContestAccessService) private readonly contests: ContestAccessService,
+    @Inject(ContestClarificationsService)
+    private readonly clarifications: ContestClarificationsService,
+  ) {}
 
   // `@Public()` is marked per handler, never on the class: `Public()` only
   // ever sets true, so a class-level marker is a one-way door that would
@@ -146,6 +159,66 @@ export class ContestsController {
     @Body(new ZodValidationPipe(SetDisqualifiedRequest)) body: SetDisqualifiedRequestDto,
   ): Promise<ContestParticipationDto> {
     return this.contests.setDisqualified(actor, key, username, body.disqualified);
+  }
+
+  /**
+   * Ask the organisers a question (D31).
+   *
+   * `@RequireScope('contests:write')`, exactly as `join` is marked and for
+   * the same reason: a token that may enter a contest may certainly ask
+   * about the contest it entered, and minting a narrower
+   * `contests:clarify` later would widen what an existing token is accepted
+   * for, which is backwards compatible — starting narrow is not.
+   */
+  @Post(':key/clarifications')
+  @HttpCode(201)
+  @RequireScope('contests:write')
+  ask(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Body(new ZodValidationPipe(AskClarificationRequest)) body: AskClarificationRequestDto,
+  ): Promise<ClarificationDto> {
+    return this.clarifications.ask(actor, key, body);
+  }
+
+  /**
+   * The clarification feed. `@Public()` like every other contest `GET`: an
+   * announcement is for the people watching as much as the people
+   * competing, and an anonymous caller sees the public rows only. Who sees
+   * what is `ContestClarificationsService`'s call, never this controller's.
+   */
+  @Get(':key/clarifications')
+  @Public()
+  @RequireScope('contests:read')
+  listClarifications(
+    @MaybeActor() actor: Actor | null,
+    @Param('key') key: string,
+  ): Promise<ClarificationListDto> {
+    return this.clarifications.list(actor, key);
+  }
+
+  /** Answer a clarification, or publish it — the contest creator or an admin. */
+  @Patch(':key/clarifications/:id')
+  @RequireScope('contests:write')
+  answerClarification(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(AnswerClarificationRequest)) body: AnswerClarificationRequestDto,
+  ): Promise<ClarificationDto> {
+    return this.clarifications.answer(actor, key, Number(id), body);
+  }
+
+  /** Post a public announcement — the contest creator or an admin. */
+  @Post(':key/announcements')
+  @HttpCode(201)
+  @RequireScope('contests:write')
+  announce(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Body(new ZodValidationPipe(PostAnnouncementRequest)) body: PostAnnouncementRequestDto,
+  ): Promise<ClarificationDto> {
+    return this.clarifications.announce(actor, key, body);
   }
 
   // Deliberately no @Public(): every write requires authentication at the

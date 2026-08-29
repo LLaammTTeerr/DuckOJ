@@ -31,6 +31,29 @@ export class NotificationsService {
     await tx.insert(schema.notifications).values({ userId, kind, payload });
   }
 
+  /**
+   * The same write, fanned out to many people in **one** statement.
+   *
+   * A contest announcement reaches every participant at once, and a loop of
+   * two thousand single-row inserts inside the organiser's transaction is a
+   * two-thousand-round-trip request holding a write lock on contest day.
+   * Callers de-duplicate and cap the id list before calling — a person who
+   * holds a live participation plus two virtual attempts is one recipient,
+   * not three — because only the caller knows what its ids mean.
+   *
+   * A caller with nothing to say inserts nothing: `VALUES ()` is a syntax
+   * error, not an empty write.
+   */
+  async notifyMany(
+    tx: Db,
+    userIds: number[],
+    kind: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    if (userIds.length === 0) return;
+    await tx.insert(schema.notifications).values(userIds.map((userId) => ({ userId, kind, payload })));
+  }
+
   async listFor(actor: Actor): Promise<NotificationListDto> {
     const [items, unread] = await Promise.all([
       this.db

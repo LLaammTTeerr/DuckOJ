@@ -6,7 +6,9 @@ import {
   RedisSubmissionPublisher,
   SUBMISSION_PUBLISHER,
 } from '../realtime/submission-publisher.js';
+import { RateLimiter } from '../common/rate-limiter.js';
 import { ContestAccessService } from './contest.access.js';
+import { ContestClarificationsService } from './contest.clarifications.js';
 import { OrgAccessService } from './org.access.js';
 import { ProblemAccessService } from './problem.access.js';
 import { RatingService } from './rating.service.js';
@@ -24,6 +26,12 @@ import {
   imports: [ConfigModule, PackagesModule, NotificationsModule],
   providers: [
     ContestAccessService,
+    ContestClarificationsService,
+    // `RateLimiter` is stateless — it counts rows in `rate_events` — so
+    // providing it here rather than importing `AuthnModule` (which would
+    // close a cycle: `AuthnModule` is imported by every controller module
+    // that also imports this one) costs nothing but a second instance.
+    RateLimiter,
     OrgAccessService,
     ProblemAccessService,
     RatingService,
@@ -45,6 +53,7 @@ import {
   ],
   exports: [
     ContestAccessService,
+    ContestClarificationsService,
     ScoreboardCache,
     OrgAccessService,
     ProblemAccessService,
