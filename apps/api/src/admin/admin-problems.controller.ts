@@ -6,12 +6,14 @@ import type { Actor } from '../authz/actor.js';
 import { RejudgeService } from '../authz/rejudge.access.js';
 
 /**
- * Its own file, not a second `@Controller` beside `AdminSubmissionsController`:
- * `packages/contracts/test/route-coverage.spec.ts` reads the FIRST
- * `@Controller(...)` in a file and attributes every route decorator below it to
- * that prefix, so two controllers sharing a file would have half their routes
- * scanned under the wrong path — and the guard would silently check the wrong
- * thing rather than fail.
+ * Its own file, not a second controller beside `AdminSubmissionsController`.
+ * `packages/contracts/test/route-coverage.spec.ts` reads the FIRST controller
+ * decorator in a file and attributes every route decorator below it to that
+ * prefix, so two controllers sharing a file would have half their routes
+ * scanned under the wrong path — the guard would then check the wrong thing
+ * rather than fail. (The same scanner is why this comment spells the decorator
+ * out in words: writing it with its parentheses would itself be the first
+ * match, and every route here would be scanned under an empty prefix.)
  *
  * `@SessionOnly()` and the in-service admin check: see
  * `admin-submissions.controller.ts`.

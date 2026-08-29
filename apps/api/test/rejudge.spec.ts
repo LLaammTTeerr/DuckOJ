@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import {
   contestParticipations,
