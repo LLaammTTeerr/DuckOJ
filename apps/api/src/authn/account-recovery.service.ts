@@ -85,10 +85,18 @@ export class AccountRecoveryService {
   }
 
   /**
-   * Redeems a reset token and **ends every session for that user**.
+   * Redeems a reset token and **ends every credential the account has** —
+   * every session *and* every personal access token (D32).
    *
    * That last part is the point of a reset: the plausible reason someone is
-   * resetting is that somebody else is signed in as them.
+   * resetting is that somebody else is signed in as them. Killing only the
+   * sessions leaves that intruder a way back in, because `POST /auth/tokens`
+   * is reachable with exactly the session they already hold — mint one
+   * before the owner reacts and the takeover outlives the password it was
+   * created under, with nothing in the UI to show for it. Both credential
+   * kinds die in the same transaction as the password change, so there is no
+   * instant at which the new password is live and an old credential still
+   * is.
    */
   async resetPassword(token: string, newPassword: string): Promise<void> {
     const passwordHash = await this.passwords.hash(newPassword);
@@ -99,6 +107,7 @@ export class AccountRecoveryService {
         .set({ passwordHash, updatedAt: new Date() })
         .where(eq(schema.users.id, row.userId));
       await tx.delete(schema.sessions).where(eq(schema.sessions.userId, row.userId));
+      await tx.delete(schema.accessTokens).where(eq(schema.accessTokens.userId, row.userId));
     });
   }
 

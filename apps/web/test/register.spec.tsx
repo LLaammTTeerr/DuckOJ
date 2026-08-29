@@ -226,6 +226,55 @@ describe('RegisterPage on a server refusal', () => {
     expect(screen.getByRole('button', { name: /^Đăng ký$/ })).toBeEnabled();
   });
 
+  it('a retry after a failed sign-in skips the registration it already made (m20)', async () => {
+    post
+      .mockResolvedValueOnce({ error: undefined, data: {} })
+      // The realistic failure: the chained sign-in hits D16's login meter, or
+      // a transient 500. The account exists.
+      .mockResolvedValueOnce({ error: { code: 'login_rate_limited', detail: 'Quá nhiều.' } })
+      .mockResolvedValueOnce({ error: undefined, data: {} });
+    wrap();
+    await fillValid();
+    await submit();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Quá nhiều.');
+
+    // Clicking again used to POST /auth/register a second time and tell the
+    // user their own username was taken — about the name they had just been
+    // given.
+    await submit();
+
+    expect(post).toHaveBeenCalledTimes(3);
+    expect(post).toHaveBeenNthCalledWith(3, '/auth/login', {
+      body: { usernameOrEmail: 'kim.new-1', password: 'a-long-enough-password' },
+    });
+    expect(navigate).toHaveBeenCalledWith({ to: '/' });
+  });
+
+  it('registers again if the retry is for different credentials (m20)', async () => {
+    post
+      .mockResolvedValueOnce({ error: undefined, data: {} })
+      .mockResolvedValueOnce({ error: { code: 'invalid_credentials', detail: 'Nope.' } })
+      .mockResolvedValue({ error: undefined, data: {} });
+    wrap();
+    await fillValid();
+    await submit();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Nope.');
+
+    // Changing the username means the remembered account is not the one this
+    // submission is about, so the skip must not apply — otherwise the page
+    // signs the user in as somebody else's name, or nobody's.
+    await userEvent.type(screen.getByLabelText(/^Tên đăng nhập$/), '2');
+    await submit();
+    expect(post).toHaveBeenNthCalledWith(3, '/auth/register', {
+      body: {
+        username: 'kim.new-12',
+        email: 'kim@example.com',
+        displayName: 'Kim',
+        password: 'a-long-enough-password',
+      },
+    });
+  });
+
   it('does not loop when the account was created but the sign-in that follows fails', async () => {
     post
       .mockResolvedValueOnce({ error: undefined, data: {} })

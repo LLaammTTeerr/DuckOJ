@@ -22,7 +22,7 @@
  * such field, because confirming a password is a typo guard for humans, not
  * a property of the account being created.
  */
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api } from '../api.js';
@@ -144,6 +144,22 @@ export function RegisterPage() {
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * The account this page has already created, if any (final review m20).
+   *
+   * Everything after `POST /auth/register` can fail on its own — the chained
+   * sign-in meets D16's login meter, or a transient 500 — and the account
+   * still exists. Without this, clicking the button again re-POSTs the
+   * registration, the server answers `username_taken`, and the page tells the
+   * user the name they were handed thirty seconds ago is somebody else's.
+   *
+   * A ref, not state: it is read inside the very handler that writes it and
+   * must never schedule a render. It remembers the CREDENTIALS, not a
+   * boolean, so editing the username (or the password) before retrying
+   * correctly registers again — the remembered account is not the one that
+   * submission is about.
+   */
+  const registered = useRef<{ username: string; password: string } | null>(null);
 
   function set(field: Field): (value: string) => void {
     return (value: string) => {
@@ -160,22 +176,28 @@ export function RegisterPage() {
 
     setBusy(true);
     try {
-      const created = await api.POST('/auth/register', {
-        body: {
-          username: values.username,
-          email: values.email,
-          displayName: values.displayName,
-          password: values.password,
-        },
-      });
-      if (created.error) {
-        const field = fieldForCode(created.error.code);
-        // The server's `detail` is its own wording and is shown verbatim —
-        // it is not in either catalogue, by design (see i18n/en.ts).
-        const message = created.error.detail ?? t('auth.registerFailed');
-        if (field) setFieldErrors({ [field]: message });
-        else setError(message);
-        return;
+      const alreadyCreated =
+        registered.current?.username === values.username &&
+        registered.current.password === values.password;
+      if (!alreadyCreated) {
+        const created = await api.POST('/auth/register', {
+          body: {
+            username: values.username,
+            email: values.email,
+            displayName: values.displayName,
+            password: values.password,
+          },
+        });
+        if (created.error) {
+          const field = fieldForCode(created.error.code);
+          // The server's `detail` is its own wording and is shown verbatim —
+          // it is not in either catalogue, by design (see i18n/en.ts).
+          const message = created.error.detail ?? t('auth.registerFailed');
+          if (field) setFieldErrors({ [field]: message });
+          else setError(message);
+          return;
+        }
+        registered.current = { username: values.username, password: values.password };
       }
 
       // The account exists from here on. Everything below can fail without

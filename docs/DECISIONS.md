@@ -806,3 +806,131 @@ nullable `answer`, `answered_by`/`answered_at`, `visibility private|public`.
   a failure mode no reader could perceive the absence of.
 
 Rulings taken during loop task F1 with nobody to ask. Migration 0017.
+
+## D32 — A password reset revokes access tokens too, not only sessions
+
+`resetPassword` ended every session for the account and left every personal
+access token alive. The two are not comparable in danger: a session dies on
+its own in `SESSION_TTL_HOURS`, whereas `POST /auth/tokens` accepts
+`expiresAt: null` and mints a credential that never expires — and that route
+is `@SessionOnly()`, which means the caller who can mint one is exactly the
+caller holding the session an intruder stole. Mint a token, wait for the
+victim to notice and reset, keep the account: the rescue the reset exists to
+perform was reachable around.
+
+**The rule.** Redeeming a `password_reset` token deletes every
+`access_tokens` row for that user in the same transaction as the password
+change and the session purge, so there is no instant at which the new
+password is live and an old credential still is.
+
+**Not the same as a routine password change**, which does not exist here —
+there is no "change my password" endpoint, only the mailed reset, and every
+reset is by construction a "someone may be in my account" event. If a
+self-service change is ever added, it is a separate decision: revoking a
+CI token because a person rotated their own password on a Tuesday is a
+different trade from revoking it because they are being locked out of their
+own account.
+
+**What this costs.** A person who resets their password re-issues their `oj`
+CLI token and any CI credential. That is the correct direction — the
+alternative is a reset that quietly leaves the compromise in place — and it
+is the same behaviour GitLab, Google and Atlassian all have for OAuth/app
+credentials after a credential-reset event. The one refinement worth having
+later is telling the user, on the reset-complete screen, that their tokens
+are gone; the web reset page is out of this brief's surface.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B1 auth
+brief), no human available to consult.*
+
+## D33 — Starting a TOTP enrolment cannot un-enrol an existing one
+
+`POST /auth/totp/begin` upserted a fresh secret with `confirmedAt: null`.
+Against a *pending* enrolment that is right — the last QR shown is the one
+that works. Against a *confirmed* one it was an un-enrol: `isEnabled` went
+false the moment the call returned, `login` stopped asking for a code, and
+the account was down to a password. Verified against the live stack: `begin`
+→ `GET /auth/me` reports `totpEnabled: false` → sign-in with the password
+alone answers 200.
+
+Two ways to arrive there, one hostile and one not. Hostile: whoever holds a
+stolen session strips the second factor with a single POST that proves
+nothing — not the current code, not the password — and the holder is not
+told. Accidental: a stale tab whose cached `/auth/me` still says "off" shows
+the Enable button; one click, then the user wanders off, and 2FA is now off
+with a pending secret nobody scanned.
+
+**The rule.** `begin` answers `409 totp_already_enabled` when a confirmed
+credential exists. Re-enrolling means `DELETE /auth/totp` first.
+
+**Why not stage the new secret and swap it on confirm** — the strictly better
+behaviour, and what a `pending_secret_enc` column would buy: it needs a
+migration, and this brief deliberately adds none (a migration number is
+shared state with the other agents working this repo tonight). The refusal is
+the subset of that fix which needs no schema change and gives up nothing that
+`DELETE` + `begin` does not restore in one extra click. If the column is ever
+added, this ruling is the thing to revisit.
+
+**The window is not closed, it is made explicit.** `DELETE /auth/totp` still
+needs no code, so a session holder can still end up with no second factor —
+in two steps, one of which the UI already guards with a confirm dialog and
+which raises a `totp_reset`-shaped absence the owner can see on their own
+security page. Step-up re-authentication (demand the current TOTP code, or
+the password, before `DELETE`) is the real fix for the hostile case and is a
+larger decision than this one: it needs a password-confirm flow the app does
+not have anywhere yet.
+
+**No UI change.** `security.tsx` renders Enable only when `totpEnabled` is
+false, so the refusal is unreachable from a correctly-loaded screen; it is
+the stale-tab and the raw-API paths that meet it, which are exactly the ones
+that should.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B1 auth
+brief), no human available to consult.*
+
+## D34 — A TOTP code is single-use
+
+`TotpService.verify` checked the code against the secret and stopped there,
+so the same six digits worked as many times as they were presented for the
+sixty seconds `window: [1, 0]` keeps them acceptable. Verified against the
+live stack: sign in with a code, present the identical code again, second
+sign-in also answers 200. RFC 6238 §5.2 is explicit that a verifier must not
+accept the same OTP twice, and the reason is the attack the second factor
+exists to stop: a code read over a shoulder, relayed through a phishing
+proxy, or lifted out of a proxied form is worth a whole extra sign-in.
+
+**The rule.** A correct code is spent on first use. A replay inside the
+retention window answers exactly like a wrong code — `401
+invalid_totp_code`, which also consumes one of D16's ten login attempts, so
+spraying replays is metered like any other failure.
+
+**Where the record lives.** `rate_events`, purpose `totp_used`, key
+`<userId>:<code>`, through a new `RateLimiter.consumeOnce`. In the database
+rather than in this process because the API runs `API_WORKERS` of them and
+an in-memory set lets the replay land on a different worker; in the existing
+table rather than a new one because this brief adds no migration (the
+migration number is shared state with the other agents working tonight) and
+the shape — a purpose, a key, a timestamp, an age-based sweep — is exactly
+what that table already is.
+
+**`consumeOnce` takes a lock; `allow(…, 1, …)` would not have.** The class
+comment on `RateLimiter` accepts a count-then-act race because the limits it
+was written for guard nuisance volume. A single-use credential inverts that:
+two simultaneous presentations of one code is the *defining* case, since a
+relay forwards the victim's code at the instant the victim submits it. So
+`consumeOnce` takes a transaction-scoped advisory lock on `(purpose, key)`
+and serialises them. Its test needs three real connections —
+`withTestDb`'s rolled-back transaction makes nested `db.transaction()` calls
+savepoints of one xid, and an advisory lock is re-entrant within a session.
+
+**Keyed on the code, not the step**, so no second copy of `window`'s
+arithmetic can drift from otplib's. Cost: if two steps within the two-minute
+retention produce the same six digits (~1 in 10^6) one legitimate sign-in is
+refused and the next code works. Refusing is the safe direction.
+
+**Not applied to `POST /auth/totp/confirm`.** Confirming an enrolment is not
+an authentication — the caller already holds the session — and spending the
+code there would refuse a sign-in the enrolling user attempts thirty seconds
+later on their phone.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B1 auth
+brief), no human available to consult.*

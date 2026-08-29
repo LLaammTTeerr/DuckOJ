@@ -121,6 +121,53 @@ describe('redeeming a reset', () => {
     });
   }, 120_000);
 
+  it('revokes the account access tokens too, not only its sessions (D32)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const signedIn = await seedUser(app, 'tokenholder');
+        // A personal access token minted from that session — exactly what an
+        // attacker who got hold of the session mints to outlive it, and what
+        // the account owner's reset is supposed to end.
+        const minted = await signedIn
+          .post('/auth/tokens')
+          .send({ name: 'stolen', scopes: ['users:read'] });
+        expect(minted.status).toBe(201);
+        const token = minted.body.token as string;
+        expect(
+          (await request(app.getHttpServer()).get('/auth/me').set('authorization', `Bearer ${token}`))
+            .status,
+        ).toBe(200);
+
+        await request(app.getHttpServer())
+          .post('/auth/password/forgot')
+          .send({ email: 'tokenholder@example.com' });
+        const reset = await request(app.getHttpServer())
+          .post('/auth/password/reset')
+          .send({ token: tokenFromLastMail(app), password: NEW_PASSWORD });
+        expect(reset.status).toBe(200);
+
+        // The session dies (already pinned above) — and so does the token,
+        // or the reset rescues nothing: `POST /auth/tokens` is reachable
+        // with the session an attacker already has, so a surviving token is
+        // a takeover that outlives the password it was minted under.
+        const after = await request(app.getHttpServer())
+          .get('/auth/me')
+          .set('authorization', `Bearer ${token}`);
+        expect(after.status).toBe(401);
+        expect(after.body.code).toBe('invalid_token');
+        expect(
+          await db
+            .select({ id: schema.accessTokens.id })
+            .from(schema.accessTokens)
+            .where(eq(schema.accessTokens.userId, await userIdOf(db, 'tokenholder'))),
+        ).toHaveLength(0);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('refuses an expired token', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);

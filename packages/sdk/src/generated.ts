@@ -6163,7 +6163,7 @@ export interface paths {
         put?: never;
         /**
          * Begin TOTP enrolment
-         * @description Upserts a fresh, unconfirmed secret. Calling this again before confirming silently replaces the previous secret — and calling it after 2FA is already enabled disables it until `confirm` succeeds.
+         * @description Upserts a fresh, unconfirmed secret. Calling this again while an enrolment is still pending replaces the previous secret, so the last QR shown is the one that works. Calling it once 2FA is already ON is refused (409 `totp_already_enabled`, D33): the upsert would clear `confirmedAt` and turn the second factor off with no code and no notice. Re-enrol by disabling first.
          */
         post: {
             parameters: {
@@ -6208,6 +6208,26 @@ export interface paths {
                 };
                 /** @description Signed in, but authenticated by an access token rather than an interactive session (`session_required`) — credential management is session-only */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Two-factor authentication is already enabled (`totp_already_enabled`) — disable it before enrolling again */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };

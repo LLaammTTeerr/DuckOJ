@@ -18,6 +18,7 @@ import { OrgAccessService } from '../src/authz/org.access.js';
 import { NotificationsService } from '../src/notifications/notifications.service.js';
 import { AdminUsersService } from '../src/admin/admin-users.service.js';
 import { TotpService } from '../src/authn/totp.service.js';
+import { RateLimiter } from '../src/common/rate-limiter.js';
 import type { Actor } from '../src/authz/actor.js';
 
 function actorFor(userId: number, globalRole: 'user' | 'setter' | 'admin' = 'user'): Actor {
@@ -121,7 +122,7 @@ describe('role-grant notifications', () => {
       const service = new AdminUsersService(
         db,
         new NotificationsService(db),
-        new TotpService(db, TEST_CONFIG),
+        new TotpService(db, TEST_CONFIG, new RateLimiter(db)),
       );
 
       await service.grantRole(actorFor(root.id, 'admin'), 'g-target', { globalRole: 'setter' });

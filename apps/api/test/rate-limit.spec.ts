@@ -11,9 +11,9 @@ import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
-import { schema, type Db } from '@duckoj/db';
+import { createDb, schema, type Db } from '@duckoj/db';
 import { buildApp } from './app.harness.js';
-import { withTestDb } from './db.harness.js';
+import { testDbUrl, withTestDb } from './db.harness.js';
 import { registerAndLogin } from './submissions.fixtures.js';
 import { MAILER, type LogMailer } from '../src/mail/mailer.js';
 import { RateLimiter } from '../src/common/rate-limiter.js';
@@ -137,6 +137,39 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
       expect(await limiter.allow('a', 'shared-key', 1, 60_000)).toBe(false);
       expect(await limiter.allow('b', 'shared-key', 1, 60_000)).toBe(true);
     });
+  }, 60_000);
+
+  it('consumeOnce admits exactly one of three CONCURRENT callers (D34)', async () => {
+    // `allow(purpose, key, 1, window)` counts and then inserts with no lock,
+    // which is fine for the mail limits it was written for and wrong for a
+    // single-use credential: three callers presenting the same TOTP code at
+    // the same instant — what a phishing relay does by construction — all
+    // read a count of zero and all pass.
+    //
+    // Three real connections, not `withTestDb`: that helper runs the whole
+    // test inside one rolled-back transaction, so a nested
+    // `db.transaction()` is a SAVEPOINT of the same xid and
+    // `pg_advisory_xact_lock` is re-entrant within it — the lock would be
+    // taken three times by one session and serialise nothing. See
+    // `testDbUrl`'s own comment.
+    const url = await testDbUrl();
+    const connections = [createDb(url), createDb(url), createDb(url)];
+    try {
+      const results = await Promise.all(
+        connections.map((c) => new RateLimiter(c.db).consumeOnce('totp_used', '7:123456', 120_000)),
+      );
+      expect(results.filter(Boolean)).toHaveLength(1);
+      // A different key is unaffected, so this is not passing by refusing
+      // everything.
+      expect(
+        await new RateLimiter(connections[0]!.db).consumeOnce('totp_used', '7:654321', 120_000),
+      ).toBe(true);
+    } finally {
+      await connections[0]!.db
+        .delete(schema.rateEvents)
+        .where(eq(schema.rateEvents.purpose, 'totp_used'));
+      await Promise.all(connections.map((c) => c.close()));
+    }
   }, 60_000);
 
   it('verification resends share the same discipline', async () => {
