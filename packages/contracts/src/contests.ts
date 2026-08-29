@@ -532,3 +532,195 @@ registry.registerPath({
 
 export const ContestListQuery = PaginationQuery;
 export type ContestListQueryDto = z.infer<typeof ContestListQuery>;
+
+/**
+ * Contest clarifications and announcements (D31) — the Q&A a provincial
+ * olympiad runs on contest day.
+ *
+ * One shape carries both. A **question** has `question` set and, once an
+ * organiser has replied, `answer` too. An **announcement** has no `question`
+ * at all: its text is in `answer`, it is `public` from the moment it is
+ * posted, and `askedBy` is the organiser who wrote it — `askedBy` means "who
+ * wrote this row", not "who is waiting for a reply". A client tells them
+ * apart by `question === null`, which is exactly how the server does.
+ */
+export const ClarificationVisibility = z.enum(['private', 'public']);
+export type ClarificationVisibilityDto = z.infer<typeof ClarificationVisibility>;
+
+export const Clarification = z.object({
+  id: z.number().int(),
+  /** The problem this is about, by `code`, or `null` for the contest itself. */
+  problemCode: z.string().nullable(),
+  /** Username, not an id — a snapshot a client can link to without a lookup. */
+  askedBy: z.string(),
+  /** `null` on an announcement. */
+  question: z.string().nullable(),
+  /** The organiser's reply, or an announcement's own text. */
+  answer: z.string().nullable(),
+  answeredBy: z.string().nullable(),
+  answeredAt: Timestamp.nullable(),
+  visibility: ClarificationVisibility,
+  createdAt: Timestamp,
+});
+export type ClarificationDto = z.infer<typeof Clarification>;
+
+/** Newest first. Not paginated: a contest's Q&A is read whole, on one screen. */
+export const ClarificationList = z.object({ items: z.array(Clarification) });
+export type ClarificationListDto = z.infer<typeof ClarificationList>;
+
+export const AskClarificationRequest = z
+  .object({
+    /** A problem attached to THIS contest, or omitted for a general question. */
+    problemCode: z.string().min(1).nullable().default(null),
+    question: z.string().min(1).max(2000),
+  })
+  .strict();
+export type AskClarificationRequestDto = z.infer<typeof AskClarificationRequest>;
+
+/**
+ * The organiser's PATCH. Both fields are optional and an absent one is left
+ * alone, exactly like `UpdateContestRequest` — but at least one must be
+ * present, because a PATCH that changes nothing is a request that was
+ * misunderstood somewhere, and answering it 200 hides that.
+ */
+export const AnswerClarificationRequest = z
+  .object({
+    answer: z.string().min(1).max(4000).optional(),
+    visibility: ClarificationVisibility.optional(),
+  })
+  .strict()
+  .refine((body) => body.answer !== undefined || body.visibility !== undefined, {
+    message: 'Send an answer, a visibility, or both.',
+  });
+export type AnswerClarificationRequestDto = z.infer<typeof AnswerClarificationRequest>;
+
+export const PostAnnouncementRequest = z
+  .object({
+    problemCode: z.string().min(1).nullable().default(null),
+    text: z.string().min(1).max(4000),
+  })
+  .strict();
+export type PostAnnouncementRequestDto = z.infer<typeof PostAnnouncementRequest>;
+
+const CLARIFICATION_NOT_FOUND = {
+  description:
+    'No such contest, one the caller may not see, or no such clarification in it ' +
+    '(`contest_not_found`, `clarification_not_found`)',
+  content: { 'application/problem+json': { schema: ProblemDetails } },
+};
+
+registry.registerPath({
+  method: 'post',
+  path: '/contests/{key}/clarifications',
+  tags: ['Contests'],
+  summary: 'Ask the organisers a question about this contest',
+  description:
+    'The asker must have joined. The new row is `private`: only the asker and the organisers ' +
+    'see it until an organiser publishes it. Rate limited to 20 questions per user per contest ' +
+    'per hour.',
+  request: {
+    params: ContestKeyParam,
+    body: { content: { 'application/json': { schema: AskClarificationRequest } } },
+  },
+  responses: {
+    201: {
+      description: 'The question, as stored',
+      content: { 'application/json': { schema: Clarification } },
+    },
+    401: NOT_SIGNED_IN,
+    403: {
+      description: 'The caller has not joined this contest (`contest_not_joined`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    404: {
+      description:
+        'No such contest, one the caller may not see, or a `problemCode` not attached to it ' +
+        '(`contest_not_found`, `problem_not_found`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
+    429: {
+      description: 'Too many questions this hour (`clarification_rate_limited`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/contests/{key}/clarifications',
+  tags: ['Contests'],
+  summary: 'Clarifications and announcements for this contest, newest first',
+  description:
+    'A participant sees every `public` row plus their own; an organiser (the creator) and a ' +
+    'global admin see all of them. An anonymous caller who may see the contest sees the public ' +
+    'rows — an announcement is for spectators too.',
+  request: { params: ContestKeyParam },
+  responses: {
+    200: {
+      description: 'What this caller may see',
+      content: { 'application/json': { schema: ClarificationList } },
+    },
+    404: CONTEST_NOT_FOUND,
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/contests/{key}/clarifications/{id}',
+  tags: ['Contests'],
+  summary: 'Answer a clarification, or publish it — the contest creator or an admin',
+  description:
+    'The asker is notified the first time an answer lands. Every participant is notified the ' +
+    'first time an answered row becomes `public`; later edits notify nobody, because a typo fix ' +
+    'is not news.',
+  request: {
+    params: z.object({ key: z.string(), id: z.string() }),
+    body: { content: { 'application/json': { schema: AnswerClarificationRequest } } },
+  },
+  responses: {
+    200: {
+      description: 'The clarification, after the change',
+      content: { 'application/json': { schema: Clarification } },
+    },
+    401: NOT_SIGNED_IN,
+    403: {
+      description: 'The caller can see this contest but does not run it (`contest_forbidden`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    404: CLARIFICATION_NOT_FOUND,
+    422: VALIDATION_FAILED,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/contests/{key}/announcements',
+  tags: ['Contests'],
+  summary: 'Post a public announcement — the contest creator or an admin',
+  description:
+    'An announcement is a clarification with no question: `public` on creation, and every ' +
+    'participant is notified once.',
+  request: {
+    params: ContestKeyParam,
+    body: { content: { 'application/json': { schema: PostAnnouncementRequest } } },
+  },
+  responses: {
+    201: {
+      description: 'The announcement, as stored',
+      content: { 'application/json': { schema: Clarification } },
+    },
+    401: NOT_SIGNED_IN,
+    403: {
+      description: 'The caller can see this contest but does not run it (`contest_forbidden`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    404: {
+      description:
+        'No such contest, one the caller may not see, or a `problemCode` not attached to it ' +
+        '(`contest_not_found`, `problem_not_found`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
+  },
+});
