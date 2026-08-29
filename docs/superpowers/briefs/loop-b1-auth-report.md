@@ -9,16 +9,14 @@ findings, all fixed, one commit each; D32–D34 used. Every fix was shown red fi
 1. **`6a8517a` D32 — a password reset revoked sessions but not access tokens.** Mint a
    `duck_…` from a session, redeem the mailed reset: session 401, token still 200.
    `POST /auth/tokens` is `@SessionOnly()`, i.e. reachable with exactly the session an
-   intruder stole, so the rescue was walk-around-able. Both die in the reset's
-   transaction now.
+   intruder stole. Both die in the reset's transaction now.
 2. **`b1e477a` D33 — `POST /auth/totp/begin` silently un-enrolled a confirmed 2FA.**
    begin → `/auth/me` says `totpEnabled:false` → password-only sign-in 200. One POST
    proving nothing turned the second factor off, and an abandoned re-enrol did it by
    accident. Now `409 totp_already_enabled` (contract + regen); re-enrol by disabling.
 3. **`9ef25e0` D34 — TOTP codes were replayable**: the same code twice, both 200; RFC
-   6238 §5.2 forbids it. Spent on first use through a new race-free
-   `RateLimiter.consumeOnce` (advisory lock — `allow(…,1,…)` is not race-free and says
-   so), whose concurrency test is mutation-checked by deleting the lock.
+   6238 §5.2 forbids it. Spent on first use via a new race-free
+   `RateLimiter.consumeOnce` (advisory lock — `allow(…,1,…)` is not race-free).
 4. **`26bed27` m2 — session rows recorded the proxy's address.** `req.ip` with `trust
    proxy` unset is the Caddy container (`10.89.0.7` in the live logs), the same string
    on every session ever issued. Now `clientIp(req)`.
@@ -49,15 +47,14 @@ findings, all fixed, one commit each; D32–D34 used. Every fix was shown red fi
 ## Rulings / concerns
 
 - D33 leaves `DELETE /auth/totp` needing no code; step-up re-auth needs a
-  password-confirm flow that does not exist anywhere yet. Staging the new secret in a
+  password-confirm flow that does not exist yet. Staging the new secret in a
   `pending_secret_enc` column is the better fix, skipped for want of a migration number
-  (shared state with the other agents tonight).
+  (shared with the other agents).
 - `POST /auth/totp/confirm` has no attempt limiter — twelve wrong codes all answer 422.
   The caller already holds the session, so this was left alone.
 - Two flakes in the first full run on this contended host (`contest-scoreboard-cache`,
   D25's 2 s TTL against a loaded machine, and one `packages/db` spec); both pass alone
   and the final `-r test` was green end to end.
-- Live stack: the `bh1-*` accounts remain, one with its password reset. Nothing was
-  stopped or rebuilt.
+- Live stack: the `bh1-*` accounts remain, one reset. Nothing was stopped or rebuilt.
 - Ritual green: `-r typecheck`, `typecheck:scripts`, `-r lint`, `lint:scripts`,
   `-r test` (16 packages), contracts + SDK regen (no diff), web `vite build`.
