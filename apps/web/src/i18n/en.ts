@@ -442,6 +442,11 @@ export const en = {
   'notifications.joinDecidedApproved': ' was approved.',
   'notifications.joinDecidedDeclined': ' was declined.',
   'notifications.roleGranted': 'You are now a {role}.',
+  // M9. No link: the page to go to is the reader's own security page, which
+  // the shell already offers, and a notification that scolded would be wrong
+  // — an admin reset is usually one the reader asked for.
+  'notifications.totpReset':
+    'An administrator turned off two-factor authentication on your account. If this was not at your request, tell an organiser.',
 
   // ── administration ────────────────────────────────────────────────────
   'admin.title': 'Administration',
@@ -461,6 +466,17 @@ export const en = {
   'admin.noContests': 'No contests.',
   'admin.replayedOne': 'Replayed the whole history: 1 contest now feeds ratings.',
   'admin.replayedMany': 'Replayed the whole history: {count} contests now feed ratings.',
+  // M9 — the lost-authenticator path. The note is the warning: this route
+  // hands an account to whoever asks, so the check is on the admin.
+  'admin.totpHeading': 'Reset two-factor authentication',
+  'admin.totpNote':
+    'For a student who lost their authenticator. There are no recovery codes, so this is the only way back into the account. Confirm who you are talking to first — this removes a security control from someone else\u2019s account.',
+  'admin.totpUser': 'User to reset',
+  'admin.totpReset': 'Disable two-factor',
+  'admin.totpConfirm':
+    'Disable two-factor authentication for {username}? They will then sign in with their password alone.',
+  'admin.totpDone': 'Two-factor authentication is off for {username}. They can enrol again from their security page.',
+  'admin.totpError': 'Could not reset two-factor authentication.',
   'globalRole.user': 'user',
   'globalRole.setter': 'setter',
   'globalRole.admin': 'admin',

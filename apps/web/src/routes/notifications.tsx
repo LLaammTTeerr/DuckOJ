@@ -76,6 +76,8 @@ function line(t: TFunction, item: Item): React.ReactNode {
           })}
         </>
       );
+    case 'totp_reset':
+      return <>{t('notifications.totpReset')}</>;
     default:
       return <>{item.kind}</>;
   }

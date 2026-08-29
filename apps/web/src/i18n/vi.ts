@@ -417,6 +417,8 @@ export const vi = {
   'notifications.joinDecidedApproved': ' của bạn đã được duyệt.',
   'notifications.joinDecidedDeclined': ' của bạn đã bị từ chối.',
   'notifications.roleGranted': 'Bạn hiện có quyền {role}.',
+  'notifications.totpReset':
+    'Quản trị viên đã tắt xác thực hai bước trên tài khoản của bạn. Nếu bạn không yêu cầu điều này, hãy báo cho ban tổ chức.',
 
   // ── administration ────────────────────────────────────────────────────
   'admin.title': 'Quản trị',
@@ -436,6 +438,15 @@ export const vi = {
   'admin.noContests': 'Chưa có kỳ thi nào.',
   'admin.replayedOne': 'Đã tính lại toàn bộ lịch sử: 1 kỳ thi đang tính vào rating.',
   'admin.replayedMany': 'Đã tính lại toàn bộ lịch sử: {count} kỳ thi đang tính vào rating.',
+  'admin.totpHeading': 'Đặt lại xác thực hai bước',
+  'admin.totpNote':
+    'Dùng khi thí sinh mất thiết bị xác thực. Không có mã dự phòng, nên đây là cách duy nhất để lấy lại tài khoản. Hãy xác minh danh tính người yêu cầu trước — thao tác này gỡ một lớp bảo vệ khỏi tài khoản của người khác.',
+  'admin.totpUser': 'Người dùng cần đặt lại',
+  'admin.totpReset': 'Tắt xác thực hai bước',
+  'admin.totpConfirm':
+    'Tắt xác thực hai bước cho {username}? Sau đó họ chỉ cần mật khẩu để đăng nhập.',
+  'admin.totpDone': 'Đã tắt xác thực hai bước cho {username}. Họ có thể bật lại ở trang bảo mật.',
+  'admin.totpError': 'Không đặt lại được xác thực hai bước.',
   'globalRole.user': 'người dùng',
   'globalRole.setter': 'người ra đề',
   'globalRole.admin': 'quản trị viên',

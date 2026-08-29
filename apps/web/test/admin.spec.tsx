@@ -11,11 +11,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const get = vi.fn();
 const post = vi.fn();
 const patch = vi.fn();
+const del = vi.fn();
 vi.mock('../src/api.js', () => ({
   api: {
     GET: (...a: unknown[]) => get(...a),
     POST: (...a: unknown[]) => post(...a),
     PATCH: (...a: unknown[]) => patch(...a),
+    DELETE: (...a: unknown[]) => del(...a),
   },
 }));
 
@@ -57,6 +59,8 @@ afterEach(() => {
   get.mockReset();
   post.mockReset();
   patch.mockReset();
+  del.mockReset();
+  vi.restoreAllMocks();
 });
 
 describe('AdminPage', () => {
@@ -113,5 +117,99 @@ describe('AdminPage', () => {
     await userEvent.type(await screen.findByLabelText(/^Tên đăng nhập$/), 'root');
     await userEvent.click(screen.getByRole('button', { name: /^Cấp$/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/your own admin role/i);
+  });
+});
+
+/**
+ * M11 — both write handlers used to have no `try/catch` and no busy flag, and
+ * the rating button no `disabled`. openapi-fetch RETHROWS network-level
+ * failures rather than resolving them to `{ error }`, so an API restart
+ * mid-request produced an unhandled rejection in the console and nothing at
+ * all on screen; and the rating replay — the most consequential retroactive
+ * operation in the system — was double-clickable.
+ */
+describe('AdminPage write handlers (M11)', () => {
+  it('surfaces a connection failure on the grant instead of an unhandled rejection', async () => {
+    serve('admin');
+    patch.mockRejectedValue(new TypeError('Failed to fetch'));
+    wrap(<AdminPage />);
+
+    await userEvent.type(await screen.findByLabelText(/^Tên đăng nhập$/), 'kim');
+    await userEvent.click(screen.getByRole('button', { name: /^Cấp$/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không kết nối được/);
+  });
+
+  it('surfaces a connection failure on the rating replay', async () => {
+    serve('admin');
+    post.mockRejectedValue(new TypeError('Failed to fetch'));
+    wrap(<AdminPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /^Bật tính rating$/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không kết nối được/);
+  });
+
+  it('fires exactly one rating replay for a double-click', async () => {
+    serve('admin');
+    let settle: (value: unknown) => void = () => undefined;
+    post.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle = resolve;
+        }),
+    );
+    wrap(<AdminPage />);
+
+    const button = await screen.findByRole('button', { name: /^Bật tính rating$/ });
+    await userEvent.click(button);
+    // Still in flight: the button must refuse the second click rather than
+    // queue a second replay of an operation that rewrites every rating after
+    // the contest.
+    expect(button).toBeDisabled();
+    await userEvent.click(button);
+    expect(post).toHaveBeenCalledTimes(1);
+
+    settle({ data: { contestsRated: 1 } });
+  });
+});
+
+/**
+ * M9 — the admin's TOTP reset, from the panel. Behind `confirm()` for the
+ * same reason the rejudge button is: it removes a security control from
+ * somebody else's account and there is no undo.
+ */
+describe('AdminPage TOTP reset (M9)', () => {
+  it('resets a lost authenticator after a confirmation', async () => {
+    serve('admin');
+    del.mockResolvedValue({ data: undefined });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    wrap(<AdminPage />);
+
+    await userEvent.type(await screen.findByLabelText(/^Người dùng cần đặt lại$/), 'kim');
+    await userEvent.click(screen.getByRole('button', { name: /^Tắt xác thực hai bước$/ }));
+    expect(del).toHaveBeenCalledWith('/admin/users/{username}/totp', {
+      params: { path: { username: 'kim' } },
+    });
+    expect(await screen.findByRole('status')).toHaveTextContent(/kim/);
+  });
+
+  it('does nothing when the confirmation is declined', async () => {
+    serve('admin');
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    wrap(<AdminPage />);
+
+    await userEvent.type(await screen.findByLabelText(/^Người dùng cần đặt lại$/), 'kim');
+    await userEvent.click(screen.getByRole('button', { name: /^Tắt xác thực hai bước$/ }));
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('shows the API refusal rather than claiming success', async () => {
+    serve('admin');
+    del.mockResolvedValue({ error: { code: 'user_not_found', detail: 'No such user: kim.' } });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    wrap(<AdminPage />);
+
+    await userEvent.type(await screen.findByLabelText(/^Người dùng cần đặt lại$/), 'kim');
+    await userEvent.click(screen.getByRole('button', { name: /^Tắt xác thực hai bước$/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No such user: kim.');
   });
 });

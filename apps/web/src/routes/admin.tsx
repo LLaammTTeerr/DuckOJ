@@ -10,6 +10,14 @@
  * follows), so the button is per-contest, labelled with what it does, and
  * the response's `contestsRated` is shown back — an admin who expected "1"
  * and reads "7" has just learned what replay means before wondering.
+ *
+ * Every write here follows the app's one shape (M11):
+ * `try { … } catch { setError(t('common.networkError')) } finally
+ * { setBusy(false) }`, with `disabled={busy}` on the button. openapi-fetch
+ * resolves HTTP errors to `{ error }` but RETHROWS network-level failures, so
+ * without the `catch` an API restart mid-request is an unhandled rejection in
+ * the console and nothing at all on screen; and without the flag the rating
+ * replay is double-clickable.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -29,25 +37,33 @@ function GrantRole() {
   const [role, setRole] = useState<'user' | 'setter' | 'admin'>('setter');
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function grant(): Promise<void> {
-    const { data, error: err } = await api.PATCH('/admin/users/{username}', {
-      params: { path: { username } },
-      body: { globalRole: role },
-    });
-    if (err) {
-      setError(err.detail ?? t('admin.grantError'));
-      setResult(null);
-      return;
-    }
+    setBusy(true);
     setError(null);
-    const granted: GrantResult = data;
-    setResult(
-      t('admin.granted', {
-        username: granted.username,
-        role: globalRoleLabel(t, granted.globalRole),
-      }),
-    );
+    setResult(null);
+    try {
+      const { data, error: err } = await api.PATCH('/admin/users/{username}', {
+        params: { path: { username } },
+        body: { globalRole: role },
+      });
+      if (err) {
+        setError(err.detail ?? t('admin.grantError'));
+        return;
+      }
+      const granted: GrantResult = data;
+      setResult(
+        t('admin.granted', {
+          username: granted.username,
+          role: globalRoleLabel(t, granted.globalRole),
+        }),
+      );
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -67,7 +83,7 @@ function GrantRole() {
             <option value="admin">{t('globalRole.admin')}</option>
           </select>
         </label>{' '}
-        <button type="button" disabled={username === ''} onClick={() => void grant()}>
+        <button type="button" disabled={busy || username === ''} onClick={() => void grant()}>
           {t('admin.grant')}
         </button>
       </p>
@@ -82,6 +98,7 @@ function RateContests() {
   const client = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const contests = useQuery({
     queryKey: ['contests'],
     queryFn: async () => {
@@ -91,24 +108,38 @@ function RateContests() {
     },
   });
 
+  /**
+   * One `busy` flag for the whole table rather than one per row: a replay
+   * rewrites every rating in the system, so while one is in flight no OTHER
+   * contest's button should be pressable either. Per-row state would disable
+   * the button that was clicked and leave the six beside it live, which is
+   * the same double-replay in slower motion.
+   */
   async function setRated(key: string, rated: boolean): Promise<void> {
-    const path = rated ? '/admin/contests/{key}/rate' : '/admin/contests/{key}/unrate';
-    const { data, error: err } = await api.POST(path, { params: { path: { key } } });
-    if (err) {
-      setError(err.detail ?? t('admin.rateError'));
-      setNotice(null);
-      return;
-    }
+    setBusy(true);
     setError(null);
-    // Two keys, not a plural rule: Vietnamese has no plural inflection, and
-    // the one English message that needs the distinction is cheaper as a
-    // branch than as a category engine (see i18n/index.tsx).
-    setNotice(
-      data.contestsRated === 1
-        ? t('admin.replayedOne')
-        : t('admin.replayedMany', { count: data.contestsRated }),
-    );
-    await client.invalidateQueries({ queryKey: ['contests'] });
+    setNotice(null);
+    try {
+      const path = rated ? '/admin/contests/{key}/rate' : '/admin/contests/{key}/unrate';
+      const { data, error: err } = await api.POST(path, { params: { path: { key } } });
+      if (err) {
+        setError(err.detail ?? t('admin.rateError'));
+        return;
+      }
+      // Two keys, not a plural rule: Vietnamese has no plural inflection, and
+      // the one English message that needs the distinction is cheaper as a
+      // branch than as a category engine (see i18n/index.tsx).
+      setNotice(
+        data.contestsRated === 1
+          ? t('admin.replayedOne')
+          : t('admin.replayedMany', { count: data.contestsRated }),
+      );
+      await client.invalidateQueries({ queryKey: ['contests'] });
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -136,7 +167,11 @@ function RateContests() {
                 </td>
                 <td>{contest.isRated ? t('admin.rated') : '—'}</td>
                 <td>
-                  <button type="button" onClick={() => void setRated(contest.key, !contest.isRated)}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void setRated(contest.key, !contest.isRated)}
+                  >
                     {contest.isRated ? t('admin.unrate') : t('admin.rate')}
                   </button>
                 </td>
@@ -147,6 +182,62 @@ function RateContests() {
       ) : (
         <p className="muted">{t('admin.noContests')}</p>
       )}
+    </>
+  );
+}
+
+/**
+ * M9 — the lost-authenticator path, from the panel.
+ *
+ * Behind `window.confirm` for the same reason the rejudge button is: it
+ * removes a security control from somebody else's account and there is no
+ * undo. The standing note above it carries the real warning — the API cannot
+ * tell a student from someone claiming to be one, so the identity check is
+ * the admin's job, not the route's.
+ */
+function ResetTotp() {
+  const t = useT();
+  const [username, setUsername] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function reset(): Promise<void> {
+    if (!window.confirm(t('admin.totpConfirm', { username }))) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { error: err } = await api.DELETE('/admin/users/{username}/totp', {
+        params: { path: { username } },
+      });
+      if (err) {
+        setError(err.detail ?? t('admin.totpError'));
+        return;
+      }
+      setNotice(t('admin.totpDone', { username }));
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <h2>{t('admin.totpHeading')}</h2>
+      <p className="muted">{t('admin.totpNote')}</p>
+      <p>
+        <label>
+          {t('admin.totpUser')}{' '}
+          <input value={username} onChange={(e) => setUsername(e.target.value)} />
+        </label>{' '}
+        <button type="button" disabled={busy || username === ''} onClick={() => void reset()}>
+          {t('admin.totpReset')}
+        </button>
+      </p>
+      {notice ? <p role="status">{notice}</p> : null}
+      {error ? <p role="alert">{error}</p> : null}
     </>
   );
 }
@@ -162,6 +253,7 @@ export function AdminPage() {
     <section className="panel">
       <h1>{t('admin.title')}</h1>
       <GrantRole />
+      <ResetTotp />
       <RateContests />
     </section>
   );
