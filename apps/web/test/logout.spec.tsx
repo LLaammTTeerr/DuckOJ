@@ -132,3 +132,39 @@ describe('ShellNav', () => {
     });
   });
 });
+
+describe('signing out and the rest of the cache', () => {
+  it('does not fire one last authenticated request on the way out', async () => {
+    // `resetQueries()` refetches every ACTIVE query, and the bell is active
+    // whenever a session is. Its `enabled` flag only goes false on the next
+    // render, so the reset got one more `GET /notifications` out the door
+    // under a cookie the server had just destroyed: a 401 in the console of
+    // every sign-out, and the browser-journey watchdog (e2e/watch.ts) failed
+    // on it. Found by Task P5's journey 5.
+    let signedIn = true;
+    get.mockImplementation((path: string) =>
+      path === '/auth/me'
+        ? Promise.resolve({ data: signedIn ? ME : undefined })
+        : Promise.resolve({ data: { unreadCount: 0, items: [] } }),
+    );
+    post.mockImplementation(() => {
+      signedIn = false;
+      return Promise.resolve({ data: undefined });
+    });
+
+    renderShell();
+    // The bell has polled at least once before the click, so "no calls after
+    // the click" is a claim about the sign-out and not about the mock.
+    await waitFor(() => {
+      expect(get).toHaveBeenCalledWith('/notifications');
+    });
+    get.mockClear();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Đăng xuất' }));
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Đăng nhập' })).toBeInTheDocument();
+    });
+
+    expect(get.mock.calls.map(([path]) => path as string)).not.toContain('/notifications');
+  });
+});

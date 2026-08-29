@@ -105,13 +105,21 @@ function SignOutButton() {
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
     } finally {
       setBusy(false);
-      // `clear()` is the wrong tool: it removes the cache entries but leaves
-      // every mounted observer holding the data it last rendered, so the nav
-      // keeps showing the departed viewer's name. `resetQueries()` puts each
-      // query back to its initial state AND refetches the active ones, which
-      // is what makes `GET /auth/me` answer 401 and the shell repaint as a
-      // visitor's.
-      await client.resetQueries();
+      // `['me']` first, and to exactly what a signed-out `fetchMe` returns:
+      // every `enabled` flag in the app keys off it (the bell polls only
+      // while signed in), so flipping it before touching anything else is
+      // what stops the shell from firing one more authenticated request that
+      // can only 401. `resetQueries()` — the first attempt — did fire one,
+      // because it refetches active queries before any of them has
+      // re-rendered as signed out.
+      client.setQueryData(meQueryOptions.queryKey, null);
+      // Everything else is REMOVED rather than invalidated or reset: those
+      // answers belong to the person leaving, and re-asking for them as a
+      // visitor is both pointless and, on a shared machine, the wrong
+      // instinct. `clear()` cannot do this job — it drops `['me']` too, and
+      // a mounted observer whose query vanished keeps rendering the data it
+      // last saw, so the nav went on showing the departed viewer's name.
+      client.removeQueries({ predicate: (query) => query.queryKey[0] !== 'me' });
     }
   }
   return (
