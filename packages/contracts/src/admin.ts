@@ -61,3 +61,67 @@ registry.registerPath({
     },
   },
 });
+
+/**
+ * Rejudging.
+ *
+ * `202`, not `200`: the routes below queue grading and return, exactly as
+ * `POST /submissions` does — the verdict arrives later, over the realtime
+ * channel or the submission's own endpoint.
+ */
+export const RejudgeSubmissionResponse = z.object({
+  submissionId: z.number().int(),
+  /** The `grading_jobs` row now queued for it — re-queued, not a new row. */
+  jobId: z.number().int(),
+});
+export type RejudgeSubmissionResponseDto = z.infer<typeof RejudgeSubmissionResponse>;
+
+export const RejudgeProblemResponse = z.object({ submissionsQueued: z.number().int() });
+export type RejudgeProblemResponseDto = z.infer<typeof RejudgeProblemResponse>;
+
+registry.registerPath({
+  method: 'post',
+  path: '/admin/submissions/{id}/rejudge',
+  tags: ['Admin'],
+  summary: 'Re-queue one submission for grading — admin only, session only',
+  // Uncoerced, exactly as `submissions.ts` documents its own `{id}`: a
+  // `z.coerce` schema emits a nullable, optional path parameter, which
+  // `openapi-path-params.spec.ts` rejects. The controller coerces.
+  request: { params: z.object({ id: z.number().int().positive() }) },
+  responses: {
+    202: {
+      description: 'Queued; the verdict arrives later',
+      content: { 'application/json': { schema: RejudgeSubmissionResponse } },
+    },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: {
+      description: 'No such submission',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/admin/problems/{code}/rejudge',
+  tags: ['Admin'],
+  summary: "Re-queue every submission of a problem against its current published revision",
+  request: { params: z.object({ code: z.string() }) },
+  responses: {
+    202: {
+      description: 'How many submissions were queued',
+      content: { 'application/json': { schema: RejudgeProblemResponse } },
+    },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: {
+      description: 'No such problem',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    409: {
+      description: 'The problem has no published revision to grade against (`problem_not_submittable`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});

@@ -4,7 +4,7 @@
     "noEmit": true,
     "declaration": false,
     "composite": false,
-    "rootDir": "."
+    "rootDir": ".."
   },
   "include": ["src", "test"]
 }

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { meQueryOptions } from '../me.js';
 import { renderStatement } from '../markdown.js';
 
 type ProblemDetail = paths['/problems/{code}']['get']['responses'][200]['content']['application/json'];
@@ -72,6 +73,44 @@ export function ProblemEditPage(props: { code?: string }) {
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  // Rejudging every submission of this problem is an admin operation that
+  // lives here rather than on its own screen: the moment you need it is
+  // right after republishing a corrected test set, which is this form.
+  const me = useQuery(meQueryOptions);
+  const [rejudgeBusy, setRejudgeBusy] = useState(false);
+  const [rejudgeMessage, setRejudgeMessage] = useState<string | null>(null);
+  const [rejudgeError, setRejudgeError] = useState<string | null>(null);
+
+  async function handleRejudge(): Promise<void> {
+    // No undo: every verdict on this problem is discarded and re-earned.
+    if (
+      !window.confirm(
+        `Rejudge every submission of ${props.code ?? ''}? Their current verdicts are discarded.`,
+      )
+    ) {
+      return;
+    }
+    setRejudgeBusy(true);
+    setRejudgeError(null);
+    setRejudgeMessage(null);
+    try {
+      const { data, error } = await api.POST('/admin/problems/{code}/rejudge', {
+        params: { path: { code: props.code! } },
+      });
+      if (error) {
+        setRejudgeError(error.code);
+        return;
+      }
+      setRejudgeMessage(`Queued ${String(data.submissionsQueued)} submissions.`);
+    } catch {
+      // openapi-fetch rethrows network-level failures rather than resolving
+      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+      setRejudgeError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setRejudgeBusy(false);
+    }
+  }
 
   // Pre-fills the form once the existing problem loads. Guarded by
   // `initialized` (not just `query.data`) so a later background refetch of
@@ -173,6 +212,19 @@ export function ProblemEditPage(props: { code?: string }) {
           {isEdit ? 'Save' : 'Create'}
         </button>
       </form>
+
+      {isEdit && me.data?.globalRole === 'admin' ? (
+        <section>
+          <h2>Rejudge</h2>
+          <p>
+            <button type="button" disabled={rejudgeBusy} onClick={() => void handleRejudge()}>
+              Rejudge all submissions
+            </button>
+          </p>
+          {rejudgeMessage ? <p role="status">{rejudgeMessage}</p> : null}
+          {rejudgeError ? <p role="alert">{rejudgeError}</p> : null}
+        </section>
+      ) : null}
 
       {isEdit && query.data ? (
         <section>
