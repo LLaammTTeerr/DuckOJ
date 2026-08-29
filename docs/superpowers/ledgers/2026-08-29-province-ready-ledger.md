@@ -47,3 +47,4 @@
 - CI on d369236: success.
 - P9 DONE_WITH_CONCERNS (77c9ef9): 8/8 journeys, 17/17 with smoke; no product bugs. Concern: source_access has no UI → dispatched P10 (main, sonnet, web-only).
 - P10 DONE (3d39b51): sourceAccess select on problem edit; web rebuilt.
+- P8 DONE_WITH_CONCERNS, merged (e609b08): Redis scoreboard cache TTL 2 s, D25; api tests 567 green; api rebuilt, header hit/miss verified live. k6 rerun started.
