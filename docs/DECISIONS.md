@@ -365,3 +365,24 @@ against the merged state on edit — shrinking a contest under a stored freeze
 window has to be refused too. The old blanket refusal
 (`contest_freeze_unsupported`) is gone from the API, the contracts and the
 schema comments.
+
+## D23 — A submission names its contest with no visibility check of its own
+
+`SubmissionSummary` and `SubmissionDetail` both carry `contestKey` /
+`contestLabel`, read from `contest_submissions ⋈ contest_participations ⋈
+contests` as a LEFT JOIN, and `null` for a practice submission. The link is
+the `contest_submissions` row — never "a submission targeting a problem this
+contest happens to contain".
+
+**No `canViewContest` gate is applied to it**, matching what
+`SubmissionListQuery.contest` already does: the filter narrows an
+already-`visibleSubmissionsWhere`-restricted set and asks nothing further
+about the contest. The rule is therefore *whoever may see the submission may
+see which contest it sits in*. The alternative — a per-row visibility check —
+would cost the one-query property `listVisible` is built around, and would be
+answering a question the caller can already answer by other means: they are
+looking at the submission itself.
+
+Safe against fan-out because `contest_submissions_submission_idx` is UNIQUE on
+`submission_id`: at most one contest row per submission, so page size and the
+keyset cursor computed from it are untouched.

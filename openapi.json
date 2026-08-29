@@ -7654,6 +7654,18 @@
                               "null"
                             ]
                           },
+                          "contestKey": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "contestLabel": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
@@ -7668,6 +7680,8 @@
                           "verdict",
                           "points",
                           "maxPoints",
+                          "contestKey",
+                          "contestLabel",
                           "createdAt"
                         ]
                       }
@@ -7940,6 +7954,18 @@
                         ]
                       }
                     },
+                    "contestKey": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "contestLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "createdAt": {
                       "type": "string",
                       "format": "date-time"
@@ -7965,6 +7991,8 @@
                     "memoryKb",
                     "compileOutput",
                     "cases",
+                    "contestKey",
+                    "contestLabel",
                     "createdAt",
                     "judgedAt"
                   ]

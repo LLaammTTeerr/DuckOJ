@@ -27,6 +27,7 @@ export const vi = {
   'nav.tokens': 'Mã truy cập',
   'nav.security': 'Bảo mật',
   'nav.signIn': 'Đăng nhập',
+  'nav.register': 'Đăng ký',
   'nav.notifications': 'Thông báo, {count} chưa đọc',
   'nav.language': 'Ngôn ngữ',
   'nav.languageVi': 'Tiếng Việt',
@@ -92,6 +93,22 @@ export const vi = {
   'auth.verifyIntroNoToken': 'Liên kết này thiếu mã.',
   'auth.verifySubmit': 'Xác nhận địa chỉ',
   'auth.verifyDone': 'Đã xác nhận địa chỉ.',
+  'auth.registerTitle': 'Tạo tài khoản',
+  'auth.registerIntro': 'Một tên đăng nhập, một địa chỉ email và một mật khẩu bạn chưa dùng ở nơi khác.',
+  'auth.registerSubmit': 'Đăng ký',
+  'auth.registerLink': 'Chưa có tài khoản? Đăng ký',
+  'auth.haveAccount': 'Đã có tài khoản? Đăng nhập',
+  'auth.displayName': 'Tên hiển thị',
+  'auth.confirmPassword': 'Nhập lại mật khẩu',
+  'auth.registerFailed': 'Không tạo được tài khoản.',
+  'auth.verificationSent':
+    'Một liên kết xác nhận đang được gửi tới địa chỉ của bạn. Không có gì ở đây phải chờ nó — bạn đã đăng nhập rồi.',
+  'auth.errUsernameLength': 'Từ 3 đến 32 ký tự.',
+  'auth.errUsernameChars': 'Chỉ gồm chữ cái, chữ số, dấu chấm, gạch dưới và gạch nối.',
+  'auth.errEmail': 'Đây không giống một địa chỉ email.',
+  'auth.errDisplayName': 'Từ 1 đến 64 ký tự.',
+  'auth.errPasswordLength': 'Ít nhất 10 ký tự.',
+  'auth.errPasswordMismatch': 'Hai mật khẩu không khớp nhau.',
 
   // ── home ──────────────────────────────────────────────────────────────
   'home.intro':
@@ -202,6 +219,7 @@ export const vi = {
   'submissions.any': 'Tất cả',
   'submissions.colId': 'số hiệu',
   'submissions.colProblem': 'bài',
+  'submissions.colContest': 'kỳ thi',
   'submissions.colUser': 'người nộp',
   'submissions.colLanguage': 'ngôn ngữ',
   'submissions.colVerdict': 'kết quả',
@@ -210,6 +228,7 @@ export const vi = {
   'submission.title': 'Bài nộp #{id}',
   'submission.notFound': 'Không có bài nộp này.',
   'submission.source': 'Mã nguồn',
+  'submission.contest': 'Kỳ thi',
 
   // ── contests ──────────────────────────────────────────────────────────
   'contests.title': 'Kỳ thi',

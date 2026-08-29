@@ -23,8 +23,9 @@ afterEach(() => {
 // reason `problems.spec.tsx` needs one: `<Link>` throws outside a router.
 const testRootRoute = createRootRoute();
 const testProblemRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/problems/$code' });
+const testContestRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/contests/$key' });
 const testRouter = createRouter({
-  routeTree: testRootRoute.addChildren([testProblemRoute]),
+  routeTree: testRootRoute.addChildren([testProblemRoute, testContestRoute]),
   history: createMemoryHistory({ initialEntries: ['/submissions'] }),
 });
 
@@ -46,6 +47,8 @@ const SUBMISSION_A = {
   verdict: 'AC' as const,
   points: 100,
   maxPoints: 100,
+  contestKey: 'spring-2026',
+  contestLabel: 'Spring Cup 2026',
   createdAt: '2026-01-01T00:00:00Z',
 };
 
@@ -58,6 +61,9 @@ const SUBMISSION_B = {
   verdict: null,
   points: null,
   maxPoints: null,
+  // A practice submission: no contest, so nothing to link to.
+  contestKey: null,
+  contestLabel: null,
   createdAt: '2026-01-01T00:00:00Z',
 };
 
@@ -82,7 +88,10 @@ describe('SubmissionsPage', () => {
     // SUBMISSION_B: still grading — no verdict, no points, both render as
     // the neutral "pend" badge / em dash, never blank.
     expect(within(rows[2]!).getByText('—', { selector: 'span' })).toHaveClass('badge', 'pend');
-    expect(within(rows[2]!).getByText('—', { selector: 'td' })).toBeInTheDocument();
+    // Two em-dashed cells on this row now: the contest (a practice
+    // submission belongs to none) and the points (nothing graded yet). Both
+    // are the same "empty on purpose" glyph, never a blank cell.
+    expect(within(rows[2]!).getAllByText('—', { selector: 'td' })).toHaveLength(2);
   });
 
   it('links each row to its problem', async () => {
@@ -111,6 +120,26 @@ describe('SubmissionsPage', () => {
       'href',
       `/users/${SUBMISSION_A.username}`,
     );
+  });
+
+  it('links a contest submission to its contest and leaves a practice row unlinked', async () => {
+    mockedGet.mockResolvedValueOnce({
+      data: { items: [SUBMISSION_A, SUBMISSION_B], nextCursor: null },
+      error: undefined,
+      response: new Response(),
+    } as never);
+
+    renderWithClient(<SubmissionsPage />);
+
+    // The contest's NAME is what a competitor recognizes; the key is what the
+    // URL is built from. Contest names are content and never translated.
+    const link = await screen.findByRole('link', { name: 'Spring Cup 2026' });
+    expect(link).toHaveAttribute('href', '/contests/spring-2026');
+
+    // The practice row shows the same em dash every other empty cell uses —
+    // never a link to nowhere, and never blank.
+    const rows = screen.getAllByRole('row');
+    expect(within(rows[2]!).queryByRole('link', { name: /Spring/ })).toBeNull();
   });
 
   it('seeds the filters from the deep link, and queries with them from the first request', async () => {

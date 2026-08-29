@@ -139,6 +139,7 @@ export function SubmissionsPage({
             <tr>
               <th className="num">{t('submissions.colId')}</th>
               <th>{t('submissions.colProblem')}</th>
+              <th>{t('submissions.colContest')}</th>
               <th>{t('submissions.colUser')}</th>
               <th>{t('submissions.colLanguage')}</th>
               <th>{t('submissions.colVerdict')}</th>
@@ -158,6 +159,21 @@ export function SubmissionsPage({
                   <Link to="/problems/$code" params={{ code: s.problemCode }}>
                     {s.problemCode}
                   </Link>
+                </td>
+                {/* Which contest the attempt was made INTO, never the
+                    contests that merely contain the problem: `contestKey` is
+                    the `contest_submissions` row. A practice submission takes
+                    the same em dash every other empty cell on this table
+                    uses. The contest's NAME is the label — contest names are
+                    content and are never translated. */}
+                <td>
+                  {s.contestKey ? (
+                    <Link to="/contests/$key" params={{ key: s.contestKey }}>
+                      {s.contestLabel ?? s.contestKey}
+                    </Link>
+                  ) : (
+                    '—'
+                  )}
                 </td>
                 <td>
                   <Link to="/users/$username" params={{ username: s.username }}>

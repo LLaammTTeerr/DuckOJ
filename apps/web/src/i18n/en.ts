@@ -32,6 +32,7 @@ export const en = {
   'nav.tokens': 'Tokens',
   'nav.security': 'Security',
   'nav.signIn': 'Sign in',
+  'nav.register': 'Register',
   'nav.notifications': 'Notifications, {count} unread',
   'nav.language': 'Language',
   'nav.languageVi': 'Vietnamese',
@@ -100,6 +101,22 @@ export const en = {
   'auth.verifyIntroNoToken': 'This link is missing its token.',
   'auth.verifySubmit': 'Confirm address',
   'auth.verifyDone': 'Address confirmed.',
+  'auth.registerTitle': 'Create an account',
+  'auth.registerIntro': 'A username, an address, and a password you have not used elsewhere.',
+  'auth.registerSubmit': 'Register',
+  'auth.registerLink': 'No account yet? Register',
+  'auth.haveAccount': 'Already have an account? Sign in',
+  'auth.displayName': 'Display name',
+  'auth.confirmPassword': 'Confirm password',
+  'auth.registerFailed': 'Could not create the account.',
+  'auth.verificationSent':
+    'A confirmation link is on its way to your address. Nothing here waits on it — you are signed in already.',
+  'auth.errUsernameLength': 'Between 3 and 32 characters.',
+  'auth.errUsernameChars': 'Letters, digits, dot, underscore and hyphen only.',
+  'auth.errEmail': 'That does not look like an email address.',
+  'auth.errDisplayName': 'Between 1 and 64 characters.',
+  'auth.errPasswordLength': 'At least 10 characters.',
+  'auth.errPasswordMismatch': 'The two passwords do not match.',
 
   // ── home ──────────────────────────────────────────────────────────────
   'home.intro':
@@ -214,6 +231,7 @@ export const en = {
   'submissions.any': 'Any',
   'submissions.colId': 'id',
   'submissions.colProblem': 'problem',
+  'submissions.colContest': 'contest',
   'submissions.colUser': 'user',
   'submissions.colLanguage': 'language',
   'submissions.colVerdict': 'verdict',
@@ -222,6 +240,7 @@ export const en = {
   'submission.title': 'Submission #{id}',
   'submission.notFound': 'No such submission.',
   'submission.source': 'Source',
+  'submission.contest': 'Contest',
 
   // ── contests ──────────────────────────────────────────────────────────
   'contests.title': 'Contests',

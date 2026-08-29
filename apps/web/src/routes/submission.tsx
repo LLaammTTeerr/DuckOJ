@@ -89,6 +89,18 @@ export function SubmissionPage({ id }: { id: number }) {
         {s.timeMs !== null ? ` · ${String(s.timeMs)} ms` : ''}
         {s.memoryKb !== null ? ` · ${String(s.memoryKb)} KB` : ''}
       </p>
+      {/* The contest this attempt belongs to, when it belongs to one. Until
+          this line, a contest submission and a practice submission to the
+          same problem rendered identically — the one fact that distinguishes
+          them was in the database and nowhere on screen. */}
+      {s.contestKey ? (
+        <p>
+          {t('submission.contest')}:{' '}
+          <Link to="/contests/$key" params={{ key: s.contestKey }}>
+            {s.contestLabel ?? s.contestKey}
+          </Link>
+        </p>
+      ) : null}
       {me.data?.globalRole === 'admin' ? (
         <p>
           <button type="button" disabled={rejudgeBusy} onClick={() => void rejudge()}>
