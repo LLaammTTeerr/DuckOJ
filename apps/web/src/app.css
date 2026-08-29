@@ -265,6 +265,38 @@ a:hover {
   font-size: 13px;
 }
 
+/* The VI | EN toggle (P2). Two buttons and a divider, not a <select>: the
+   choice has exactly two values and both are always worth showing, and the
+   active one is marked with `aria-pressed` rather than colour (app.css rule
+   1 reserves colour for verdicts).
+
+   No new className — this is `.shell-nav button`, styled by element, the
+   same contract the rest of this file keeps. The page-level `button` rule
+   below gives every button a `margin-top` and a boxy border, neither of
+   which belongs in a nav row, so both are reset here.
+
+   44×44px is the tap target, which is why the nav row's `min-height` above
+   is no longer what sets its height: a 13px-tall link is unmissable with a
+   mouse and a coin-flip with a thumb, and this app is meant to be usable on
+   the phone a contestant actually has. */
+.shell-nav button {
+  margin-top: 0;
+  border: 0;
+  padding: 0 6px;
+  min-width: 44px;
+  min-height: 44px;
+  color: var(--dim);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.shell-nav button:hover {
+  background: transparent;
+  color: var(--fg);
+}
+.shell-nav button[aria-pressed='true'] {
+  color: var(--fg);
+}
+
 main {
   max-width: 960px;
   margin: 0 auto;
