@@ -17,7 +17,13 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
-RUN pnpm --filter "@duckoj/api..." typecheck
+# `tsc -b` only — not the package's `typecheck` script, whose second half
+# (`tsc --noEmit -p tsconfig.test.json`) checks the test tree, and the tests
+# reach `apps/judged/src` by relative path (rejudge.spec.ts's fencing proof).
+# judged's dependencies are not installed in this image, so that half fails
+# here on a module the runtime never needs. The test tree is checked by CI
+# and the verify ritual, not by the image build.
+RUN pnpm --filter "@duckoj/api..." exec tsc -b
 
 # typst for statement PDFs (Phase 7b). x86_64 musl release — this Dockerfile
 # already assumes the build host's arch for node's own binaries; a different
