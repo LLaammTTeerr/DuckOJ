@@ -6,7 +6,7 @@ import { adminCredentials } from './credentials.js';
 import { watchForBrokenRequests } from './watch.js';
 
 /**
- * The end-to-end journeys (task P5): what a pupil, a teacher and an
+ * The end-to-end journeys (tasks P5 and P9): what a pupil, a teacher and an
  * administrator actually do, against the live composed stack — Caddy, the
  * API, the judge, Redis, Postgres — rather than against jsdom.
  *
@@ -18,6 +18,10 @@ import { watchForBrokenRequests } from './watch.js';
  * two-factor journey enrols a throwaway user of its own, because a run that
  * died between "enable TOTP" and "disable TOTP" on a shared account would
  * lock every later run out of it.
+ *
+ * The single exception is journey 8's `source_access` flip, which is
+ * restored in an `afterAll` — read its comment for why no browser can reach
+ * the freeze mask without it.
  *
  * Serial: they share one database, and journey 6 measures the contest
  * journey 4 created.
@@ -69,9 +73,15 @@ interface Account {
 }
 
 /**
- * Registration has no UI (see the report): `POST /auth/register` is reachable
- * only from the API. Journeys that need an account mint one through the API
- * and sign in through the form, which is the half the app actually renders.
+ * The API path to an account, for the THROWAWAY users the later journeys need
+ * as scenery — a rival to be masked, a pupil to disqualify.
+ *
+ * Registration does have a UI now (`/register`, task P6), and journey 1 walks
+ * it in a browser, which is what proves the screen works. Repeating that walk
+ * six more times would prove nothing further and would spend six form fills
+ * per run on users whose only job is to exist, so every other journey mints
+ * its account here and signs in through the form — the half of the front door
+ * those journeys are actually about.
  */
 async function register(page: Page, suffix: string): Promise<Account> {
   const username = `e2e${suffix}${RUN}`;
@@ -120,18 +130,49 @@ async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: `e2e/screenshots/${name}.png`, fullPage: true });
 }
 
-test('journey 1 — register, sign in, and read the site in Vietnamese, then English', async ({
+test('journey 1 — register on the form, refuse a mismatched confirmation, then read the site in Vietnamese and English', async ({
   page,
 }) => {
   const watch = watchForBrokenRequests(page);
-  const account = await register(page, 'j1');
+  const username = `e2ej1${RUN}`;
+  const displayName = `E2E j1 ${RUN}`;
 
-  await signIn(page, account.username, PASSWORD);
-
+  // The nav is where a visitor finds the door, so the journey opens it the
+  // way they would rather than by typing the URL.
+  await page.goto('/');
   const nav = page.locator('nav.shell-nav');
+  await nav.getByRole('link', { name: 'Đăng ký', exact: true }).click();
+  await expect(page).toHaveURL(/\/register$/);
+
+  await page.locator('#username').fill(username);
+  await page.locator('#email').fill(`${username}@example.invalid`);
+  await page.locator('#displayName').fill(displayName);
+  await page.locator('#password').fill(PASSWORD);
+  // Valid on every other rule, wrong only in the confirmation: the mismatch
+  // check sits in an `else` behind the length check, so a short password here
+  // would prove the length rule instead of this one.
+  await page.locator('#confirm').fill(`${PASSWORD}-khac`);
+  // The page's own submit button, not the nav's link of the same name.
+  await page.getByRole('button', { name: 'Đăng ký', exact: true }).click();
+
+  await expect(page.getByText('Hai mật khẩu không khớp nhau.')).toBeVisible();
+  // Refused in the browser, before any request: still on `/register`, and the
+  // watchdog below would have caught a 4xx if the form had posted anyway.
+  await expect(page).toHaveURL(/\/register$/);
+  await expect(nav.getByRole('link', { name: 'Đăng nhập', exact: true })).toBeVisible();
+  await shot(page, 'j1a-register-mismatch');
+
+  await page.locator('#confirm').fill(PASSWORD);
+  await page.getByRole('button', { name: 'Đăng ký', exact: true }).click();
+
+  // `POST /auth/register` mints no cookie, so the page chains a login: a
+  // successful signup ends with the visitor SIGNED IN on `/`, not back at the
+  // sign-in form.
+  await expect(page).toHaveURL(/\/$/);
+  await expect(nav.getByRole('button', { name: 'Đăng xuất' })).toBeVisible();
   // The display name, not the username: the nav shows what the person chose
   // to be called.
-  await expect(nav.getByText(account.displayName)).toBeVisible();
+  await expect(nav.getByText(displayName)).toBeVisible();
   // Vietnamese by default (D18) — no toggle, no stored preference, first
   // visit.
   await expect(nav.getByRole('link', { name: 'Bài tập' })).toBeVisible();
@@ -388,4 +429,204 @@ test.describe('journey 6 — a phone', () => {
       expect(watch.errors, `${path} reported: ${watch.errors.join(' | ')}`).toEqual([]);
     }
   });
+});
+
+/**
+ * The seeded demo contest (`scripts/seed-live`), public and month-long, with
+ * no freeze on it. Journey 7 needs a contest that is *running* and that
+ * outlives the run, and inventing one would prove the link works for contests
+ * this file made rather than for the ones the stack ships.
+ */
+const SEEDED_CONTEST = 'thu-nghiem-1';
+
+test('journey 7 — a contest submission names its contest, in the list and on its own page', async ({
+  page,
+}) => {
+  const watch = watchForBrokenRequests(page, [NOT_JOINED]);
+  const account = await register(page, 'j7');
+  await signIn(page, account.username, PASSWORD);
+
+  await page.goto(`/contests/${SEEDED_CONTEST}`);
+  // The contest's own name, read off the page rather than typed here: it is
+  // seeded content, and the link's LABEL is that name (`contestLabel`).
+  const contestName = (await page.getByRole('heading', { level: 1 }).innerText()).trim();
+  expect(contestName.length, 'the contest must have a name to link by').toBeGreaterThan(0);
+
+  await page.getByRole('button', { name: 'Tham gia' }).click();
+  await expect(page.getByRole('status')).toContainText('Đang thi chính thức');
+
+  // Through `?contest=`, so this becomes a `contest_submissions` row — a
+  // practice attempt at the same problem would have no contest to name.
+  //
+  // By href, not by name: this contest carries five problems and therefore
+  // five links reading "Nộp bài", one per row. Journey 4's single-problem
+  // contest can afford the name; here it is ambiguous by construction.
+  await page.locator(`a[href="/submit?problem=${PROBLEM}&contest=${SEEDED_CONTEST}"]`).click();
+  await expect(page).toHaveURL(new RegExp(`contest=${SEEDED_CONTEST}`));
+  await submitAndAwait(page, AC_SOURCE, 'AC');
+
+  // ── the list names it ────────────────────────────────────────────────
+  await page.goto(`/submissions?user=${account.username}`);
+  const row = page.getByRole('row').filter({ hasText: account.username });
+  await expect(row).toHaveCount(1);
+  // Asserted by HREF, not merely by text: a label with no link is exactly the
+  // state this column replaced.
+  const listLink = row.locator(`a[href="/contests/${SEEDED_CONTEST}"]`);
+  await expect(listLink).toHaveText(contestName);
+  await shot(page, 'j7a-submissions-contest-column');
+
+  // ── and so does the submission's own page ────────────────────────────
+  await row.getByRole('link').first().click();
+  await expect(page).toHaveURL(/\/submissions\/\d+$/);
+  await expect(page.locator('.badge')).toHaveText('AC');
+  await expect(page.locator(`a[href="/contests/${SEEDED_CONTEST}"]`)).toHaveText(contestName);
+
+  await shot(page, 'j7b-submission-contest-line');
+  expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
+});
+
+/**
+ * Journey 8 needs one rival to be able to SEE another's submission at all,
+ * and by design nobody can: `source_access` defaults to `private`, so
+ * `visibleSubmissionsWhere` admits only your own rows (design §2.2). The
+ * freeze mask (D23) sits *inside* that visibility, so with the default it is
+ * unreachable from a browser — there is no viewer who can see the row and is
+ * not exempt from the mask.
+ *
+ * So the journey opens the one door D23 was written for: the problem is
+ * flipped to `source_access = 'solved'`, which is the setting that lets
+ * people who solved a problem read each other's attempts — and therefore the
+ * setting under which a live scoreboard freeze would otherwise leak the
+ * verdict it is hiding. This is the ONLY thing in this file that mutates
+ * seeded content, so it is restored in `afterAll` rather than at the end of
+ * the test body: a run Playwright aborts on a timeout never reaches the end
+ * of a body, and leaving the demo stack's problem open would be a real
+ * change to the deployment.
+ */
+let sourceAccessFlipped = false;
+
+test.afterAll(async ({ browser }) => {
+  if (!sourceAccessFlipped) return;
+  const context = await browser.newContext();
+  try {
+    const admin = adminCredentials();
+    const signedIn = await context.request.post('/api/v1/auth/login', {
+      data: { usernameOrEmail: admin.username, password: admin.password },
+    });
+    expect(signedIn.ok(), `restoring source_access: admin sign-in ${signedIn.status()}`).toBe(true);
+    const restored = await context.request.patch(`/api/v1/problems/${PROBLEM}`, {
+      data: { sourceAccess: 'private' },
+    });
+    expect(restored.ok(), `restoring source_access: PATCH ${restored.status()}`).toBe(true);
+    sourceAccessFlipped = false;
+  } finally {
+    await context.close();
+  }
+});
+
+test('journey 8 — a live freeze masks a rival’s verdict, and never the organiser’s view', async ({
+  page,
+  browser,
+}: {
+  page: Page;
+  browser: Browser;
+}) => {
+  const admin = adminCredentials();
+  const watch = watchForBrokenRequests(page, [NOT_JOINED]);
+  const key = `e2e-p9-freeze-${RUN}`;
+
+  // ── the rival, first, and OUTSIDE the contest window ─────────────────
+  // Their own AC on the problem is what buys them sight of a competitor's
+  // row once the problem is open to solvers. It is a practice submission and
+  // it is made before the contest exists, so nothing about it is frozen and
+  // the contest's own five remaining minutes are spent only on the row this
+  // journey is actually about.
+  const rivalContext = await browser.newContext();
+  const rival = await rivalContext.newPage();
+  const rivalWatch = watchForBrokenRequests(rival, [NOT_JOINED]);
+  const rivalAccount = await register(rival, 'j8r');
+  await signIn(rival, rivalAccount.username, PASSWORD);
+  await rival.goto(`/submit?problem=${PROBLEM}`);
+  await submitAndAwait(rival, AC_SOURCE, 'AC');
+
+  await signIn(page, admin.username, admin.password);
+  const opened = await page.request.patch(`/api/v1/problems/${PROBLEM}`, {
+    data: { sourceAccess: 'solved' },
+  });
+  expect(opened.ok(), `opening ${PROBLEM} to solvers: ${opened.status()}`).toBe(true);
+  sourceAccessFlipped = true;
+
+  // ── a contest whose freeze is biting RIGHT NOW ───────────────────────
+  // A sixty-minute window that started fifty-five minutes ago and ends in
+  // five, frozen for its last ten: `now` is inside `[end − 10 min, end)`, so
+  // the freeze is not merely configured (journey 4's is) but in force. Ten
+  // is strictly less than sixty, which is the write-time rule (D22).
+  await page.goto('/contests/new');
+  await page.getByLabel('Mã kỳ thi').fill(key);
+  await page.getByLabel('Tên', { exact: true }).fill(`Đóng băng E2E ${RUN}`);
+  await page.getByLabel('Bắt đầu').fill(localInputValue(new Date(Date.now() - 55 * 60_000)));
+  await page.getByLabel('Kết thúc').fill(localInputValue(new Date(Date.now() + 5 * 60_000)));
+  await page.getByLabel('Đóng băng (phút)').fill('10');
+  await page.getByLabel('Phạm vi').selectOption('public');
+  await page.getByLabel('Mã bài 1').fill(PROBLEM);
+  await page.getByLabel('Điểm bài 1').fill('100');
+  await page.getByRole('button', { name: 'Tạo kỳ thi' }).click();
+  await expect(page).toHaveURL(new RegExp(`/contests/${key}$`));
+
+  // ── the competitor joins and solves it, inside the freeze ────────────
+  const studentContext = await browser.newContext();
+  const student = await studentContext.newPage();
+  const studentWatch = watchForBrokenRequests(student, [NOT_JOINED]);
+  const account = await register(student, 'j8s');
+  await signIn(student, account.username, PASSWORD);
+
+  await student.goto(`/contests/${key}`);
+  await student.getByRole('button', { name: 'Tham gia' }).click();
+  await expect(student.getByRole('status')).toContainText('Đang thi chính thức');
+  await student.getByRole('link', { name: 'Nộp bài', exact: true }).click();
+  await expect(student).toHaveURL(new RegExp(`contest=${key}`));
+  // The submitter is never masked from their own attempt (D23): they watch
+  // it grade to AC exactly as they would outside a contest.
+  await submitAndAwait(student, AC_SOURCE, 'AC');
+
+  // ── what the rival is allowed to know ────────────────────────────────
+  // Listed, not hidden: existence is public, the outcome is not. Note the
+  // filters are contest+user and NEVER `?verdict=` — a frozen row matches no
+  // verdict filter at all, by design, so filtering by AC here would return an
+  // empty page and prove nothing.
+  await rival.goto(`/submissions?contest=${key}&user=${account.username}`);
+  const maskedRow = rival.getByRole('row').filter({ hasText: account.username });
+  await expect(maskedRow).toHaveCount(1);
+  const maskedBadge = maskedRow.locator('.badge');
+  await expect(maskedBadge).toHaveText('?');
+  await expect(maskedBadge).toHaveAttribute(
+    'title',
+    'Được ẩn cho tới khi bảng điểm hết đóng băng.',
+  );
+  // Not "not graded yet", which is the other thing an empty cell could mean.
+  await expect(maskedBadge).not.toHaveText('AC');
+  await shot(rival, 'j8a-rival-masked-row');
+
+  await rival.goto(`/contests/${key}/scoreboard`);
+  await expect(rival.getByText(/Bảng điểm đang đóng băng/)).toBeVisible();
+  await shot(rival, 'j8b-rival-frozen-board');
+
+  // ── and what the organiser is ────────────────────────────────────────
+  // The admin created this contest and is a global admin twice over; either
+  // alone exempts them (D22, D23).
+  await page.goto(`/submissions?contest=${key}&user=${account.username}`);
+  const adminRow = page.getByRole('row').filter({ hasText: account.username });
+  await expect(adminRow).toHaveCount(1);
+  await expect(adminRow.locator('.badge')).toHaveText('AC');
+  await page.goto(`/contests/${key}/scoreboard`);
+  await expect(page.getByText(/Bảng điểm đang đóng băng/)).toHaveCount(0);
+  await shot(page, 'j8c-admin-live-board');
+
+  expect(rivalWatch.errors, `rival's page reported: ${rivalWatch.errors.join(' | ')}`).toEqual([]);
+  expect(studentWatch.errors, `pupil's page reported: ${studentWatch.errors.join(' | ')}`).toEqual(
+    [],
+  );
+  expect(watch.errors, `admin page reported: ${watch.errors.join(' | ')}`).toEqual([]);
+  await rivalContext.close();
+  await studentContext.close();
 });
