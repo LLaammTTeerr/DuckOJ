@@ -177,6 +177,20 @@ export function verdictName(t: TFunction, code: string): string {
 }
 
 /**
+ * A tag's name in the active locale.
+ *
+ * Takes the locale rather than `t`, because unlike every other label in this
+ * app a tag's words are DATA, not catalogue entries: they live in the `tags`
+ * table (both spellings on one row, D18 — two locales, no translation
+ * table), and every response that carries a tag carries both. So the switch
+ * is a field pick here, not a lookup, and changing locale re-renders from
+ * data already in hand rather than refetching every problem on screen.
+ */
+export function tagName(locale: Locale, tag: { nameVi: string; nameEn: string }): string {
+  return locale === 'vi' ? tag.nameVi : tag.nameEn;
+}
+
+/**
  * A global role (`user`/`setter`/`admin`) as a word.
  *
  * Takes a bare `string`, not the union: it is called with values that arrive

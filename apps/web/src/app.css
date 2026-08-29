@@ -739,3 +739,37 @@ section section > p:first-child {
   border: 1px solid var(--line);
   padding: 0.05em 0.35em;
 }
+
+/* --- topic tags --------------------------------------------------------
+ * A chip is a link (every entity is a hyperlink), so it inherits the link
+ * colour and underline; the box around it is what makes a row of them read
+ * as a set rather than as running prose. Deliberately NOT coloured per
+ * topic: colour is reserved for verdicts (this file's header comment), and
+ * twenty-five hues would drown the one signal that has to survive.
+ */
+.tag {
+  border: 1px solid var(--line);
+  padding: 0.05em 0.4em;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* The filter bar on the problem list, and the tag picker on the edit form.
+ * Checkboxes laid out inline and wrapping, so twenty-five topics are one
+ * block to scan rather than twenty-five lines to scroll past. */
+fieldset {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  margin: 8px 0;
+}
+fieldset legend {
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+fieldset label {
+  display: inline-block;
+  margin-right: 12px;
+  white-space: nowrap;
+}

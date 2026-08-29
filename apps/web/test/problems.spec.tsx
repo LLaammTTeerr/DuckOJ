@@ -41,6 +41,10 @@ function mockApiGet(handlers: Record<string, unknown>): void {
     // The page polls the shared `['me']` entry for the New-problem link;
     // default to signed-out unless a test overrides it explicitly.
     if (path === '/auth/me' && !queues.has(path)) return apiResponse(undefined);
+    // The list page's filter bar fetches the tag vocabulary; default it to
+    // empty so every test that does not care about tags stays a one-line
+    // mock, exactly as `/auth/me` above does for the New-problem link.
+    if (path === '/tags' && !queues.has(path)) return apiResponse({ items: [] });
     const queue = queues.get(path);
     if (!queue || queue.length === 0) {
       throw new Error(`unmocked GET ${path}`);
@@ -68,8 +72,11 @@ function apiResponse(data: unknown) {
 const testRootRoute = createRootRoute();
 const testProblemRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/problems/$code' });
 const testSubmitRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/submit' });
+// Tag chips link back into the filtered list (`/problems?tag=`), so that
+// path has to resolve here too.
+const testProblemsRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/problems' });
 const testRouter = createRouter({
-  routeTree: testRootRoute.addChildren([testProblemRoute, testSubmitRoute]),
+  routeTree: testRootRoute.addChildren([testProblemsRoute, testProblemRoute, testSubmitRoute]),
   history: createMemoryHistory({ initialEntries: ['/problems'] }),
 });
 
@@ -100,6 +107,8 @@ const PROBLEM_A = {
   memoryKb: 65536,
   testCount: 3,
   me: null,
+  tags: [],
+  difficulty: null,
 };
 
 const PROBLEM_B = {
@@ -112,6 +121,8 @@ const PROBLEM_B = {
   memoryKb: 131072,
   testCount: 12,
   me: null,
+  tags: [],
+  difficulty: null,
 };
 
 const PROBLEM_DRAFT_ONLY = {
@@ -124,6 +135,8 @@ const PROBLEM_DRAFT_ONLY = {
   memoryKb: null,
   testCount: null,
   me: null,
+  tags: [],
+  difficulty: null,
 };
 
 describe('formatMemoryMb', () => {
@@ -231,8 +244,10 @@ describe('ProblemsPage', () => {
 
     const rows = screen.getAllByRole('row');
     expect(within(rows[1]!).getByText('AC')).toHaveClass('badge', 'ac');
-    // bplusc: `me: null` on the response — a plain dash, not a badge.
-    expect(within(rows[2]!).getByText('—')).toHaveClass('muted');
+    // bplusc: `me: null` on the response — a plain dash, not a badge. The
+    // LAST dash in the row: the difficulty column now renders one too, and
+    // only the `me` cell's carries `muted`.
+    expect(within(rows[2]!).getAllByText('—').at(-1)!).toHaveClass('muted');
 
     // Exactly the one call to /problems — never /submissions.
     expect(mockedGet.mock.calls.filter((c) => c[0] === '/problems')).toHaveLength(1);

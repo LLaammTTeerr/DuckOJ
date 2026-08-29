@@ -53,6 +53,8 @@ const PROBLEM = {
   visibility: 'public' as const,
   hasPublishedRevision: true,
   orgSlugs: [],
+  tags: [],
+  difficulty: null,
   members: [],
 };
 

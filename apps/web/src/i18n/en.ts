@@ -152,6 +152,13 @@ export const en = {
   'problems.colMem': 'Mem',
   'problems.colTests': 'Tests',
   'problems.colMe': 'Me',
+  'problems.colTags': 'Topics',
+  'problems.colDifficulty': 'Diff',
+  'problems.filterTopics': 'Topics',
+  'problems.filterDifficulty': 'Difficulty',
+  'problems.difficultyFrom': 'From',
+  'problems.difficultyTo': 'To',
+  'problems.clearFilters': 'Clear filters',
 
   // ── one problem ───────────────────────────────────────────────────────
   'problem.notFound': 'No such problem.',
@@ -160,6 +167,8 @@ export const en = {
   'problem.pdf': 'PDF',
   'problem.edit': 'Edit',
   'problem.revisions': 'Revisions',
+  'problem.tags': 'Topics',
+  'problem.difficulty': 'Difficulty',
 
   // ── authoring ─────────────────────────────────────────────────────────
   'problemEdit.newTitle': 'New problem',
@@ -170,6 +179,8 @@ export const en = {
   'problemEdit.orgSlugs': 'Organizations (comma-separated)',
   'problemEdit.sourceAccess': 'Source access',
   'problemEdit.members': 'Members',
+  'problemEdit.tags': 'Topics',
+  'problemEdit.difficulty': 'Difficulty (1-10, blank for none)',
   'problemEdit.rejudgeConfirm':
     'Rejudge every submission of {code}? Their current verdicts are discarded.',
   'problemEdit.rejudgeAll': 'Rejudge all submissions',

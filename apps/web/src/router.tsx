@@ -1,10 +1,19 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, Outlet, createRootRoute, createRoute, createRouter, useParams, useSearch } from '@tanstack/react-router';
+import {
+  Link,
+  Outlet,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  useNavigate,
+  useParams,
+  useSearch,
+} from '@tanstack/react-router';
 import { LoginForm, type LoginValues } from './routes/login.js';
 import { RegisterPage } from './routes/register.js';
 import { DEFAULT_PROBLEM_CODE, SubmitPage } from './routes/submit.js';
-import { ProblemsPage } from './routes/problems.js';
+import { ProblemsPage, type ProblemFilterValues } from './routes/problems.js';
 import { ProblemPage } from './routes/problem.js';
 import { ProblemEditPage } from './routes/problem-edit.js';
 import { ProblemRevisionsPage } from './routes/problem-revisions.js';
@@ -331,6 +340,46 @@ function ProblemEditRouteComponent() {
   return <ProblemEditPage key={code} code={code} />;
 }
 
+/**
+ * `/problems`, with its topic and difficulty filters in the URL.
+ *
+ * The same two-way wiring `SubmissionsRouteComponent` uses, plus the return
+ * leg: `key` remounts the page when the search changes from OUTSIDE (a chip
+ * link, a nav click, the back button) so its seeds are fresh, and
+ * `onFiltersChange` writes a filter the person just picked back into the
+ * URL. `replace: true` — building a practice set is one act of narrowing,
+ * not eight, and a back button that walks a checkbox at a time is a back
+ * button nobody presses twice.
+ */
+function ProblemsRouteComponent() {
+  const search = useSearch({ from: '/problems' });
+  const navigate = useNavigate();
+  const filters: ProblemFilterValues = {
+    tags: search.tag ?? [],
+    difficultyMin: search.difficultyMin,
+    difficultyMax: search.difficultyMax,
+  };
+  return (
+    <ProblemsPage
+      key={`${filters.tags.join(',')}|${String(search.difficultyMin ?? '')}|${String(search.difficultyMax ?? '')}`}
+      initialFilters={filters}
+      onFiltersChange={(next) => {
+        void navigate({
+          to: '/problems',
+          replace: true,
+          // Absent, never present-but-undefined — an empty filter must
+          // leave the URL clean rather than spell out `?tag=`.
+          search: {
+            ...(next.tags.length > 0 ? { tag: next.tags } : {}),
+            ...(next.difficultyMin !== undefined ? { difficultyMin: next.difficultyMin } : {}),
+            ...(next.difficultyMax !== undefined ? { difficultyMax: next.difficultyMax } : {}),
+          },
+        });
+      }}
+    />
+  );
+}
+
 function ProblemRevisionsRouteComponent() {
   const { code } = useParams({ from: '/problems/$code/revisions' });
   return <ProblemRevisionsPage code={code} />;
@@ -393,7 +442,40 @@ function SubmissionsRouteComponent() {
 const rootRoute = createRootRoute({ component: RootComponent, notFoundComponent: IndexComponent });
 
 const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: IndexComponent });
-const problemsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/problems', component: ProblemsPage });
+const problemsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/problems',
+  // `tag` normalises to an array whichever way it arrives. TanStack Router
+  // owns serializing `search` and JSON-encodes an array (`?tag=["do-thi"]`),
+  // which is what a chip link produces and what its own parser hands back;
+  // the string branch is for a URL typed or trimmed by hand (`?tag=do-thi`,
+  // the API's own repeated-parameter spelling), which must narrow the list
+  // rather than be silently ignored. This is the SPA's URL, not a request:
+  // the page turns whatever comes out of here into repeated `?tag=`
+  // parameters when it actually calls `GET /problems`.
+  //
+  // A bound outside 1-10 is dropped rather than passed on: the API answers
+  // 422 for it, and a hand-edited URL should narrow to nothing rather than
+  // break the page.
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { tag?: string[]; difficultyMin?: number; difficultyMax?: number } => {
+    const raw = search.tag;
+    const tag = typeof raw === 'string' ? [raw] : Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
+    const bound = (value: unknown): number | undefined => {
+      const n = Number(value);
+      return value !== undefined && value !== '' && Number.isInteger(n) && n >= 1 && n <= 10 ? n : undefined;
+    };
+    const min = bound(search.difficultyMin);
+    const max = bound(search.difficultyMax);
+    return {
+      ...(tag.length > 0 ? { tag } : {}),
+      ...(min !== undefined ? { difficultyMin: min } : {}),
+      ...(max !== undefined ? { difficultyMax: max } : {}),
+    };
+  },
+  component: ProblemsRouteComponent,
+});
 const problemNewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/problems/new',

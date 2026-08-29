@@ -4,7 +4,8 @@ import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { meQueryOptions } from '../me.js';
 import { renderStatement } from '../markdown.js';
-import { useT } from '../i18n/index.js';
+import { tagsQueryOptions } from '../tags.js';
+import { useLocale, useT, tagName } from '../i18n/index.js';
 
 type ProblemDetail = paths['/problems/{code}']['get']['responses'][200]['content']['application/json'];
 type Visibility = ProblemDetail['visibility'];
@@ -59,6 +60,7 @@ function parseOrgSlugs(raw: string): string[] {
  */
 export function ProblemEditPage(props: { code?: string }) {
   const t = useT();
+  const { locale } = useLocale();
   const isEdit = props.code !== undefined;
 
   const query = useQuery({
@@ -84,6 +86,17 @@ export function ProblemEditPage(props: { code?: string }) {
   // initial value is never read on the create route.
   const [sourceAccess, setSourceAccess] = useState<SourceAccess>('private');
   const [orgSlugsRaw, setOrgSlugsRaw] = useState('');
+  // Edit-only, exactly like `sourceAccess` above and for the same reason:
+  // `CreateProblemRequest` carries neither field, so a problem is created
+  // untagged and unrated and gets classified deliberately afterwards.
+  //
+  // `difficultyRaw` is the string the input holds, not a number: an empty
+  // box is a real state ("nobody has said") that no number represents, and
+  // parsing on every keystroke would fight the person typing "10" through
+  // the intermediate "1".
+  const [tagSlugs, setTagSlugs] = useState<string[]>([]);
+  const [difficultyRaw, setDifficultyRaw] = useState('');
+  const allTags = useQuery(tagsQueryOptions);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -146,6 +159,8 @@ export function ProblemEditPage(props: { code?: string }) {
     setVisibility(query.data.visibility);
     setSourceAccess(query.data.sourceAccess);
     setOrgSlugsRaw(query.data.orgSlugs.join(', '));
+    setTagSlugs(query.data.tags.map((tag) => tag.slug));
+    setDifficultyRaw(query.data.difficulty === null ? '' : String(query.data.difficulty));
     setSeededFrom(query.data.code);
   }, [seededFrom, query.data]);
 
@@ -170,6 +185,13 @@ export function ProblemEditPage(props: { code?: string }) {
               visibility,
               sourceAccess,
               orgSlugs: parseOrgSlugs(orgSlugsRaw),
+              tags: tagSlugs,
+              // An empty box sends an explicit `null` — "clear it" — rather
+              // than omitting the key, which would mean "leave it alone".
+              // The two are different requests (see `UpdateProblemRequest`),
+              // and a form whose blank field silently kept the old value
+              // would give a setter no way to un-rate a problem at all.
+              difficulty: difficultyRaw.trim() === '' ? null : Number(difficultyRaw),
             },
           })
         : await api.POST('/problems', {
@@ -253,6 +275,47 @@ export function ProblemEditPage(props: { code?: string }) {
                 </option>
               ))}
             </select>
+          </>
+        ) : null}
+
+        {/* Checkboxes, not a comma-separated box like `orgSlugs` above:
+            the tag vocabulary is closed and short, so a picker can show
+            all of it and a typo is not representable. Org slugs are open
+            and unbounded, which is why that field stays free text. */}
+        {isEdit ? (
+          <fieldset>
+            <legend>{t('problemEdit.tags')}</legend>
+            {(allTags.data ?? []).map((tag) => (
+              <label key={tag.slug} htmlFor={`edit-tag-${tag.slug}`}>
+                <input
+                  id={`edit-tag-${tag.slug}`}
+                  type="checkbox"
+                  checked={tagSlugs.includes(tag.slug)}
+                  onChange={() =>
+                    setTagSlugs((current) =>
+                      current.includes(tag.slug)
+                        ? current.filter((slug) => slug !== tag.slug)
+                        : [...current, tag.slug],
+                    )
+                  }
+                />{' '}
+                {tagName(locale, tag)}
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
+
+        {isEdit ? (
+          <>
+            <label htmlFor="problem-difficulty">{t('problemEdit.difficulty')}</label>
+            <input
+              id="problem-difficulty"
+              type="number"
+              min={1}
+              max={10}
+              value={difficultyRaw}
+              onChange={(e) => setDifficultyRaw(e.target.value)}
+            />
           </>
         ) : null}
 

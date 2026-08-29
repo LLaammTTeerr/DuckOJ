@@ -141,6 +141,13 @@ export const vi = {
   'problems.colMem': 'Bộ nhớ',
   'problems.colTests': 'Test',
   'problems.colMe': 'Tôi',
+  'problems.colTags': 'Chủ đề',
+  'problems.colDifficulty': 'Độ khó',
+  'problems.filterTopics': 'Chủ đề',
+  'problems.filterDifficulty': 'Độ khó',
+  'problems.difficultyFrom': 'Từ',
+  'problems.difficultyTo': 'Đến',
+  'problems.clearFilters': 'Xoá bộ lọc',
 
   // ── one problem ───────────────────────────────────────────────────────
   'problem.notFound': 'Không có bài tập này.',
@@ -149,6 +156,8 @@ export const vi = {
   'problem.pdf': 'PDF',
   'problem.edit': 'Sửa',
   'problem.revisions': 'Phiên bản',
+  'problem.tags': 'Chủ đề',
+  'problem.difficulty': 'Độ khó',
 
   // ── authoring ─────────────────────────────────────────────────────────
   'problemEdit.newTitle': 'Bài tập mới',
@@ -159,6 +168,8 @@ export const vi = {
   'problemEdit.orgSlugs': 'Tổ chức (cách nhau bởi dấu phẩy)',
   'problemEdit.sourceAccess': 'Quyền xem mã nguồn',
   'problemEdit.members': 'Thành viên',
+  'problemEdit.tags': 'Chủ đề',
+  'problemEdit.difficulty': 'Độ khó (1-10, để trống nếu chưa đặt)',
   'problemEdit.rejudgeConfirm':
     'Chấm lại toàn bộ bài nộp của {code}? Kết quả hiện tại sẽ bị hủy.',
   'problemEdit.rejudgeAll': 'Chấm lại toàn bộ bài nộp',

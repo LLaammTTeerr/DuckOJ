@@ -50,6 +50,8 @@ const PROBLEM_DETAIL = {
   createdAt: '2026-01-01T00:00:00Z',
   members: [{ username: 'owner', role: 'author' as const }],
   orgSlugs: [],
+  tags: [],
+  difficulty: null,
 };
 
 describe('ProblemEditPage', () => {

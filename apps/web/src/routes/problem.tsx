@@ -4,7 +4,7 @@ import { meQueryOptions } from '../me.js';
 import { api } from '../api.js';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { renderStatement } from '../markdown.js';
-import { useT } from '../i18n/index.js';
+import { useLocale, useT, tagName } from '../i18n/index.js';
 
 // The API deliberately returns the same 404 `problem_not_found` for a
 // problem that does not exist and one the caller may not see (spec §3,
@@ -27,6 +27,7 @@ function statementPdfUrl(code: string): string {
 export function ProblemPage(props: { code: string }) {
   const { code } = props;
   const t = useT();
+  const { locale } = useLocale();
 
   const query = useQuery({
     queryKey: ['problem', code],
@@ -75,6 +76,26 @@ export function ProblemPage(props: { code: string }) {
           memory: problem.memoryKb !== null ? `${problem.memoryKb} KB` : '—',
         })}
       </p>
+      {/* Topics and difficulty. Absent entirely — not an empty row — when
+          the problem carries neither, which is also what a viewer sitting a
+          running contest that uses this problem sees: D35 blanks both to
+          exactly the values an untagged, unrated problem returns, so this
+          page cannot tell the two apart and must not try. Each chip links
+          into the filtered list, per "every entity is a hyperlink". */}
+      {problem.tags.length > 0 || problem.difficulty !== null ? (
+        <p>
+          {problem.difficulty !== null
+            ? `${t('problem.difficulty')}: ${String(problem.difficulty)}/10 `
+            : null}
+          {problem.tags.map((tag) => (
+            <span key={tag.slug}>
+              <Link className="tag" to="/problems" search={{ tag: [tag.slug] }}>
+                {tagName(locale, tag)}
+              </Link>{' '}
+            </span>
+          ))}
+        </p>
+      ) : null}
       {/* Statements are Markdown, sanitized client-side by renderStatement
           (see markdown.ts) — this is the one place in the app that hands
           rendered HTML straight to the DOM, and it is only safe because
