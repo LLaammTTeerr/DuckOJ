@@ -11,6 +11,7 @@ export * from './users.js';
 export * from './registry.js';
 export * from './scopes.js';
 export * from './submissions.js';
+export * from './tags.js';
 export * from './tokens.js';
 export * from './totp.js';
 export * from './notifications.js';

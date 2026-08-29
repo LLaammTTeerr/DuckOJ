@@ -4450,6 +4450,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every topic tag a problem can carry */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The whole vocabulary, ordered by slug */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                slug: string;
+                                nameVi: string;
+                                nameEn: string;
+                            }[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/submissions": {
         parameters: {
             query?: never;
@@ -4808,13 +4850,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Problems visible to the caller */
+        /** Problems visible to the caller, filtered by search text, tags and difficulty */
         get: {
             parameters: {
                 query?: {
                     cursor?: string;
                     limit?: number;
                     q?: string;
+                    tag?: string[];
+                    difficultyMin?: number;
+                    difficultyMax?: number;
                 };
                 header?: never;
                 path?: never;
@@ -4845,6 +4890,12 @@ export interface paths {
                                     points: number | null;
                                     maxPoints: number | null;
                                 } | null;
+                                tags: {
+                                    slug: string;
+                                    nameVi: string;
+                                    nameEn: string;
+                                }[];
+                                difficulty: number | null;
                             }[];
                             nextCursor: string | null;
                         };
@@ -4920,6 +4971,12 @@ export interface paths {
                                 points: number | null;
                                 maxPoints: number | null;
                             } | null;
+                            tags: {
+                                slug: string;
+                                nameVi: string;
+                                nameEn: string;
+                            }[];
+                            difficulty: number | null;
                             statement: string;
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
@@ -5065,6 +5122,12 @@ export interface paths {
                                 points: number | null;
                                 maxPoints: number | null;
                             } | null;
+                            tags: {
+                                slug: string;
+                                nameVi: string;
+                                nameEn: string;
+                            }[];
+                            difficulty: number | null;
                             statement: string;
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
@@ -5108,7 +5171,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update a problem's name, statement, visibility, sharing or membership */
+        /** Update a problem's name, statement, visibility, sharing, membership, tags or difficulty */
         patch: {
             parameters: {
                 query?: never;
@@ -5133,6 +5196,8 @@ export interface paths {
                             /** @enum {string} */
                             role: "author" | "curator" | "tester";
                         }[];
+                        tags?: string[];
+                        difficulty?: number | null;
                     };
                 };
             };
@@ -5159,6 +5224,12 @@ export interface paths {
                                 points: number | null;
                                 maxPoints: number | null;
                             } | null;
+                            tags: {
+                                slug: string;
+                                nameVi: string;
+                                nameEn: string;
+                            }[];
+                            difficulty: number | null;
                             statement: string;
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
@@ -5255,7 +5326,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The request failed validation */
+                /** @description The request failed validation, or named a tag slug that does not exist */
                 422: {
                     headers: {
                         [name: string]: unknown;

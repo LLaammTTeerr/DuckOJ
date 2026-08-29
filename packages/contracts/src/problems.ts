@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PaginationQuery, ProblemDetails, Timestamp, cursorPage } from './common.js';
 import { registry } from './registry.js';
+import { Difficulty, DifficultyQuery, Tag } from './tags.js';
 import { Verdict } from './submissions.js';
 
 export const PROBLEM_CODE = /^[a-z0-9][a-z0-9_-]{1,63}$/;
@@ -45,6 +46,23 @@ export const UpdateProblemRequest = z
     sourceAccess: ProblemSourceAccess.optional(),
     orgSlugs: z.array(z.string()).optional(),
     members: z.array(ProblemMember).optional(),
+    /**
+     * Tag **slugs**, and a whole-set replacement like `members`/`orgSlugs`
+     * — never a merge. Written by reference and read back expanded (a
+     * `ProblemDetail` carries full `Tag` objects), the same asymmetry
+     * `members` has between a username on the way in and a row on the way
+     * out. An unknown slug is a 422 `problem_tag_unknown`, not the blurred
+     * `problem_org_unknown` its neighbour uses: the tag vocabulary is
+     * public (`GET /tags` is `@Public()`), so there is no existence to
+     * leak by naming which slug was wrong.
+     */
+    tags: z.array(z.string()).max(20).optional(),
+    /**
+     * `null` clears the estimate; omitting the key leaves it. The two are
+     * different requests, which is why this is `.nullable().optional()`
+     * rather than either alone.
+     */
+    difficulty: Difficulty.nullable().optional(),
   })
   // Rejecting an unknown key is what turns "code is immutable" from a
   // comment into a rule: a PATCH carrying `code` fails validation instead of
@@ -57,8 +75,48 @@ export const UpdateProblemRequest = z
   .strict();
 export type UpdateProblemRequestDto = z.infer<typeof UpdateProblemRequest>;
 
-export const ProblemListQuery = PaginationQuery.extend({ q: z.string().max(100).optional() });
+/**
+ * A `?tag=` filter is **repeatable and ANDed**: `?tag=do-thi&tag=quy-hoach-dong`
+ * asks for problems carrying BOTH, which is what a teacher building a
+ * practice set on "DP on graphs" means. OR is expressible client-side as two
+ * requests; AND is not expressible at all without this.
+ *
+ * Capped at 10 terms — a filter naming more tags than the vocabulary has
+ * useful intersections is a mistake or a probe, and the cap bounds the
+ * `HAVING count(*)` join below it.
+ */
+const TAG_FILTER_MAX = 10;
+
+/**
+ * Two schemas for one query, mirroring `RevisionVersionParam` and for the
+ * same reason: the shape that documents correctly is not the shape that
+ * parses correctly.
+ *
+ * `ProblemListQuery` is what `registry.registerPath` documents — `tag` as a
+ * plain `array of string`, which OpenAPI 3.1 renders (style `form`, explode
+ * true, both defaults) as exactly the repeated `?tag=a&tag=b` this accepts.
+ * `ProblemListQueryParse` is what `ZodValidationPipe` actually runs, and it
+ * additionally accepts the *single* occurrence Express hands over as a bare
+ * string rather than a one-element array. Documenting the union instead
+ * would emit an `anyOf` query parameter, which generators handle badly and
+ * which describes an implementation detail of Express, not the contract.
+ */
+export const ProblemListQuery = PaginationQuery.extend({
+  q: z.string().max(100).optional(),
+  tag: z.array(z.string().max(64)).max(TAG_FILTER_MAX).optional(),
+  difficultyMin: DifficultyQuery.optional(),
+  difficultyMax: DifficultyQuery.optional(),
+});
 export type ProblemListQueryDto = z.infer<typeof ProblemListQuery>;
+
+export const ProblemListQueryParse = ProblemListQuery.extend({
+  tag: z
+    .preprocess(
+      (value) => (value === undefined || Array.isArray(value) ? value : [value]),
+      z.array(z.string().max(64)).max(TAG_FILTER_MAX),
+    )
+    .optional(),
+});
 
 export const AttachRevisionRequest = z.object({
   packageHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -112,6 +170,20 @@ export const ProblemSummary = z.object({
    */
   testCount: z.number().int().nullable(),
   me: ProblemMe,
+  /**
+   * Expanded, not slugs, and on the **summary** for the same reason
+   * `testCount` is: the list renders a chip per tag, and a slug-only
+   * response would force either a second request per row or a client-side
+   * join against `GET /tags` before anything could be drawn.
+   *
+   * Ordered by slug, and **empty rather than absent** when D35 hides them:
+   * a viewer sitting a running contest that uses this problem sees `[]`,
+   * exactly what an untagged problem returns. Two distinguishable states
+   * would be the hint the rule exists to withhold.
+   */
+  tags: z.array(Tag),
+  /** `null` for "nobody has said" — and, per D35, for "not while you are sitting the contest". */
+  difficulty: Difficulty.nullable(),
 });
 export type ProblemSummaryDto = z.infer<typeof ProblemSummary>;
 
@@ -198,7 +270,7 @@ registry.registerPath({
   method: 'get',
   path: '/problems',
   tags: ['Problems'],
-  summary: 'Problems visible to the caller',
+  summary: 'Problems visible to the caller, filtered by search text, tags and difficulty',
   request: { query: ProblemListQuery },
   responses: {
     200: { description: 'A page of problems', content: { 'application/json': { schema: ProblemPage } } },
@@ -259,7 +331,7 @@ registry.registerPath({
   method: 'patch',
   path: '/problems/{code}',
   tags: ['Problems'],
-  summary: "Update a problem's name, statement, visibility, sharing or membership",
+  summary: "Update a problem's name, statement, visibility, sharing, membership, tags or difficulty",
   request: {
     params: ProblemCodeParam,
     body: { content: { 'application/json': { schema: UpdateProblemRequest } } },
@@ -273,7 +345,10 @@ registry.registerPath({
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: PROBLEM_NOT_FOUND,
-    422: VALIDATION_FAILED,
+    422: {
+      description: 'The request failed validation, or named a tag slug that does not exist',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
 

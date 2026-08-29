@@ -8583,6 +8583,53 @@
         }
       }
     },
+    "/tags": {
+      "get": {
+        "tags": [
+          "Problems"
+        ],
+        "summary": "Every topic tag a problem can carry",
+        "responses": {
+          "200": {
+            "description": "The whole vocabulary, ordered by slug",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "nameVi": {
+                            "type": "string"
+                          },
+                          "nameEn": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "nameVi",
+                          "nameEn"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/submissions": {
       "post": {
         "tags": [
@@ -9468,7 +9515,7 @@
         "tags": [
           "Problems"
         ],
-        "summary": "Problems visible to the caller",
+        "summary": "Problems visible to the caller, filtered by search text, tags and difficulty",
         "parameters": [
           {
             "schema": {
@@ -9496,6 +9543,39 @@
             },
             "required": false,
             "name": "q",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "maxItems": 10
+            },
+            "required": false,
+            "name": "tag",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "required": false,
+            "name": "difficultyMin",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "required": false,
+            "name": "difficultyMax",
             "in": "query"
           }
         ],
@@ -9588,6 +9668,36 @@
                               "points",
                               "maxPoints"
                             ]
+                          },
+                          "tags": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "slug": {
+                                  "type": "string"
+                                },
+                                "nameVi": {
+                                  "type": "string"
+                                },
+                                "nameEn": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "slug",
+                                "nameVi",
+                                "nameEn"
+                              ]
+                            }
+                          },
+                          "difficulty": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "minimum": 1,
+                            "maximum": 10
                           }
                         },
                         "required": [
@@ -9599,7 +9709,9 @@
                           "timeMs",
                           "memoryKb",
                           "testCount",
-                          "me"
+                          "me",
+                          "tags",
+                          "difficulty"
                         ]
                       }
                     },
@@ -9800,6 +9912,36 @@
                         "maxPoints"
                       ]
                     },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "nameVi": {
+                            "type": "string"
+                          },
+                          "nameEn": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "nameVi",
+                          "nameEn"
+                        ]
+                      }
+                    },
+                    "difficulty": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 1,
+                      "maximum": 10
+                    },
                     "statement": {
                       "type": "string"
                     },
@@ -9867,6 +10009,8 @@
                     "memoryKb",
                     "testCount",
                     "me",
+                    "tags",
+                    "difficulty",
                     "statement",
                     "sourceAccess",
                     "totalPoints",
@@ -10163,6 +10307,36 @@
                         "maxPoints"
                       ]
                     },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "nameVi": {
+                            "type": "string"
+                          },
+                          "nameEn": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "nameVi",
+                          "nameEn"
+                        ]
+                      }
+                    },
+                    "difficulty": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 1,
+                      "maximum": 10
+                    },
                     "statement": {
                       "type": "string"
                     },
@@ -10230,6 +10404,8 @@
                     "memoryKb",
                     "testCount",
                     "me",
+                    "tags",
+                    "difficulty",
                     "statement",
                     "sourceAccess",
                     "totalPoints",
@@ -10293,7 +10469,7 @@
         "tags": [
           "Problems"
         ],
-        "summary": "Update a problem's name, statement, visibility, sharing or membership",
+        "summary": "Update a problem's name, statement, visibility, sharing, membership, tags or difficulty",
         "parameters": [
           {
             "schema": {
@@ -10363,6 +10539,21 @@
                         "role"
                       ]
                     }
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 20
+                  },
+                  "difficulty": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1,
+                    "maximum": 10
                   }
                 },
                 "additionalProperties": false
@@ -10455,6 +10646,36 @@
                         "maxPoints"
                       ]
                     },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "nameVi": {
+                            "type": "string"
+                          },
+                          "nameEn": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "nameVi",
+                          "nameEn"
+                        ]
+                      }
+                    },
+                    "difficulty": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 1,
+                      "maximum": 10
+                    },
                     "statement": {
                       "type": "string"
                     },
@@ -10522,6 +10743,8 @@
                     "memoryKb",
                     "testCount",
                     "me",
+                    "tags",
+                    "difficulty",
                     "statement",
                     "sourceAccess",
                     "totalPoints",
@@ -10715,7 +10938,7 @@
             }
           },
           "422": {
-            "description": "The request failed validation",
+            "description": "The request failed validation, or named a tag slug that does not exist",
             "content": {
               "application/problem+json": {
                 "schema": {
