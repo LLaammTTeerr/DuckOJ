@@ -233,12 +233,32 @@ export function lower(
       pending: new Map<string, number>(),
     };
   });
-  const byName = new Map(
-    participations.map((participation) => [participation.name, participation]),
-  );
+  // Keyed by `participation_id` where the caller supplies one, by name where
+  // it does not (D36). A name is only an identity while a person holds one
+  // participation, and the product's `join` makes that false routinely — a
+  // live entrant replaying the contest virtually holds two, and each is a
+  // ranked row of its own. Every golden omits `participation_id`, so they all
+  // lower by name exactly as they did.
+  const byKey = new Map<string, LoweredParticipation>();
+  input.participants.forEach((participant, index) => {
+    const key = participantKey(participant);
+    // Refused rather than silently overwritten: two participations under one
+    // key would merge their submissions into whichever came last and report a
+    // wrong board as a right one. Unreachable from the API, which keys every
+    // participation by its own primary key.
+    if (byKey.has(key)) {
+      throw new Error(`two participations share one key: ${participant.name}`);
+    }
+    byKey.set(key, participations[index]!);
+  });
 
   for (const submission of input.submissions) {
-    const participation = byName.get(submission.participant);
+    const participation = byKey.get(participantKey({
+      name: submission.participant,
+      ...(submission.participation_id === undefined
+        ? {}
+        : { participation_id: submission.participation_id }),
+    }));
     if (participation === undefined) {
       throw new Error(`submission by unknown participant: ${submission.participant}`);
     }
@@ -287,6 +307,16 @@ export function lower(
     frozenAt: contestFreezeMs === null ? null : new Date(contestFreezeMs).toISOString(),
     semantics,
   };
+}
+
+/**
+ * What a submission is matched to a participation on (D36): the
+ * `participation_id` when there is one, the name otherwise. The two spaces are
+ * prefixed apart so an id of `7` can never collide with a participant named
+ * `7`.
+ */
+function participantKey(who: { name: string; participation_id?: number }): string {
+  return who.participation_id === undefined ? `n:${who.name}` : `p:${String(who.participation_id)}`;
 }
 
 /** `(date - participation.start).total_seconds()`. */

@@ -934,3 +934,49 @@ later on their phone.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B1 auth
 brief), no human available to consult.*
+
+## D36 — A scoreboard row is a participation, not a person
+
+`mapContest` refused, with `409 contest_duplicate_participant`, any contest in
+which one user held more than one participation. The comment explaining that
+refusal named its own expiry date: *"nothing in this phase can create it:
+participations are seeded, and joining is out of scope … the phase that adds
+joining will have to widen the input shape's key."* Phase 4d added joining and
+never widened it.
+
+So the state is now routine and the refusal is a denial of service anybody can
+perform. `join` mints a fresh virtual attempt on every call **by design** ("a
+client that retries a virtual join blindly gets a second attempt, and that is
+the correct reading of the request it made twice"), and a live entrant may
+replay a finished contest virtually. Either one makes
+`GET /contests/{key}/scoreboard` answer 409 for **every** viewer, permanently,
+with no way back short of deleting a row by hand — and it poisons
+`scoreboardForSystem`, so one such contest flagged rated wedges
+`POST /admin/contests/{key}/rate` for every contest in the system.
+
+**The ruling: the identity a submission is attached to is the participation,
+and the name is only what the row prints.** `ParticipantSpec` and
+`SubmissionSpec` gain an optional `participation_id`; `lower()` matches on it
+where it is present and on `name` where it is not. The API sets it from
+`contest_participations.id` on every row, so one person legitimately appears
+twice on a board, once per attempt, exactly as `virtual` on the ranking row
+already implied and as the web's `key={participant-virtual}` already assumed.
+
+- **Optional, not required.** Every fixture under `fixtures/contest-goldens/`
+  omits it and therefore lowers by name exactly as before; all 27 goldens stay
+  byte-identical and the 23 replays with them. A required field would have
+  rewritten 46 files to record a fact DMOJ's own export does not carry.
+- **Two participations under one key is now an error in `lower()`**, not a
+  silent overwrite. The old `new Map(...)` kept the last row and merged the
+  first one's submissions into it — a wrong board reported as a right one,
+  which is what the 409 was really protecting against. The API cannot reach
+  the throw: it keys every participation by its primary key.
+- **`first_solve` is unaffected.** It already counts only `virtual === 0`, and
+  a person holds at most one live participation.
+
+Not done here: widening `ContestParticipationDto` or the ranking row with the
+participation id. Nothing client-side needs it — `(participant, virtual)` is
+already unique — and adding it would change the goldens' output shape.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B2 contests
+brief), no human available to consult.*

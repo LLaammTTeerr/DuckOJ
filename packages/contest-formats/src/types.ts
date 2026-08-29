@@ -59,6 +59,22 @@ export interface ParticipantSpec {
   /** 0 = live, -1 = spectator (excluded from the ranking), n > 0 = n-th virtual. */
   virtual: number;
   is_disqualified?: boolean;
+  /**
+   * DuckOJ's own addition (D36), absent from every golden: the identity a
+   * submission is attached to, when `name` is not one.
+   *
+   * The fixture shape keys a submission on the participant's **name**, which
+   * is only an identity while a person holds at most one participation. The
+   * product's `join` makes that false routinely — a live entrant may replay
+   * the contest virtually, and a virtual join is deliberately not idempotent
+   * — so one name can address two rows. Where this is set it, not the name,
+   * is what `lower()` matches on; the name stays what the ranking row and
+   * `first_solve` print.
+   *
+   * Absent throughout `fixtures/contest-goldens/`, so every golden lowers by
+   * name exactly as before and stays byte-identical.
+   */
+  participation_id?: number;
 }
 
 export interface TestCaseSpec {
@@ -72,6 +88,13 @@ export interface TestCaseSpec {
 
 export interface SubmissionSpec {
   participant: string;
+  /**
+   * The participation this submission counts toward, when the participant's
+   * name does not identify one (D36). Set it on both sides or neither: a
+   * submission carrying an id matches only a participant carrying the same
+   * one, and a submission without one matches only by name.
+   */
+  participation_id?: number;
   problem: string;
   date: Instant;
   /** `null` for an internal error. `CE`/`IE`/`null` are free of ICPC penalty. */
