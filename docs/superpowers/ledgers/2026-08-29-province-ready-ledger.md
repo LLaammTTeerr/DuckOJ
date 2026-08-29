@@ -60,3 +60,4 @@
 - Merged F2 (D29) and F3 (D30); decision renumbering done. Follow-ups: register meter 5→30/IP/hour (school NAT); contest_submissions FK cascade→restrict, migration 0016.
 - Full ritual green (all packages, regen no diff, web build, restore sh tests). Redeployed: migrate 0016 applied (FK confdeltype=r), judged pool=1, api healthy. e2e rerun started.
 - Installed systemd units re-synced with post-F3 deploy/ copies; tailscale URL 200.
+- CI on final HEAD 62623e2: success (38ae76b's run was cancelled by that push). Campaign closed.
