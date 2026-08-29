@@ -40,6 +40,24 @@ function raceOpen(
   ]);
 }
 
+/**
+ * Subscribes and waits for the server's own `subscribed` ack, rather than for
+ * a fixed number of milliseconds.
+ *
+ * The ack exists precisely because "the subscription is live" is a fact only
+ * the server knows; a `setTimeout(50)` here was a guess at it, and a wrong one
+ * as soon as `getVisible` grew a query (D23 added the freeze lookup). When the
+ * guess was short, the `once('message')` a test attached next caught the ack
+ * instead of the wake-up frame it was waiting for, and the assertion failed on
+ * timing rather than on behaviour.
+ */
+async function subscribeAcked(socket: WebSocket, submissionId: number): Promise<void> {
+  const ack = new Promise<string>((resolve) => socket.once('message', (d) => resolve(String(d))));
+  socket.send(JSON.stringify({ type: 'subscribe', submissionId }));
+  const parsed: unknown = JSON.parse(await ack);
+  expect(parsed).toEqual({ type: 'subscribed', id: submissionId });
+}
+
 describe('submission realtime', () => {
   it('rejects an unauthenticated upgrade', async () => {
     await withTestDb(async (db) => {
@@ -203,8 +221,7 @@ describe('submission realtime', () => {
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'secret-source-marker' });
 
         const socket = await open(`${url}/ws`, { cookie });
-        socket.send(JSON.stringify({ type: 'subscribe', submissionId: created.body.id }));
-        await new Promise((r) => setTimeout(r, 50));
+        await subscribeAcked(socket, created.body.id);
 
         const message = new Promise<string>((resolve) => socket.once('message', (d) => resolve(String(d))));
         await publish(created.body.id);
@@ -374,8 +391,7 @@ describe('submission realtime', () => {
 
         // Prove survival end to end: a well-formed subscribe on the SAME
         // socket afterwards still gets fed a real wake-up signal.
-        socket.send(JSON.stringify({ type: 'subscribe', submissionId: created.body.id }));
-        await new Promise((r) => setTimeout(r, 50));
+        await subscribeAcked(socket, created.body.id);
 
         const message = new Promise<string>((resolve) => socket.once('message', (d) => resolve(String(d))));
         await publish(created.body.id);

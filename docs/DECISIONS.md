@@ -365,3 +365,66 @@ against the merged state on edit — shrinking a contest under a stored freeze
 window has to be refused too. The old blanket refusal
 (`contest_freeze_unsupported`) is gone from the API, the contracts and the
 schema comments.
+
+## D23 — The freeze masks a submission's outcome; it never hides the submission
+
+D22 froze the *scoreboard* by filtering, and stopped there: every late verdict
+the board was hiding still travelled out through `GET /submissions` and
+`GET /submissions/{id}`, so a rival could read what the ranking would not say
+(the P1-C report named this hole in its own "Concerns"). D23 closes it.
+
+**The rule.** For a submission attached to a contest, made at or after its own
+participation's freeze instant, while `now` is inside that participation's
+`[end − F·60s, end)`, and belonging to somebody else: the row is still listed
+and still answers 200, with `frozen: true` and `verdict`, `points`, `timeMs`,
+`memoryKb`, `compileOutput` replaced by `null` and `cases` by `[]`. The
+submitter, the contest's creator and global admins are never masked, and at
+`now ≥ the participation's end` everything is revealed — D22's
+per-participation clause again, so a virtual entrant still inside their own
+window stays masked past the contest's `end_time`.
+
+Rulings taken during task P1-D with nobody to ask.
+
+- **Masking, not filtering.** Existence is public; the outcome is not.
+  Dropping the row would let a competitor tell "hidden" from "never
+  submitted" by paging, and it would break the keyset cursor, which reads
+  `items.at(-1).id` and so assumes nothing was removed after the query.
+  `frozen` is a **required** field on both the summary and the detail: it is
+  the only thing that distinguishes "withheld" from "not graded yet", and an
+  optional one would read as the latter in every client that forgot it.
+- **`?verdict=` is the one place the freeze filters.** A verdict filter is a
+  question about the verdict, and a masked row that still answered it would
+  hand the hidden verdict back in nine probes — the mask would be decorative.
+  A frozen row therefore matches no value of that filter, excluded in SQL
+  rather than thinned out of `items` afterwards.
+- **`compileOutput` is masked; `state`, `maxPoints`, `judgedAt` are not.**
+  `CE` is a verdict, and a compiler states it in full sentences. "Somebody
+  submitted and grading has finished" is exactly what the board's own
+  `pending` count already announces, and `maxPoints` is the contest problem's
+  published total.
+- **Two forms, and the SQL one restates `participationEndMs`.** The row form
+  (`isSubmissionFrozen`) takes the window from `participationWindow`; the SQL
+  form (`frozenSubmissionsWhere`) restates it as a `CASE`, because only a SQL
+  form can reach a `WHERE` clause and the `?verdict=` rule needs one. A second
+  derivation of the participation window is the split-predicate bug this
+  project has found once per phase, so an agreement test seeds every
+  participation shape — spectating, live ± time limit, virtual ± time limit,
+  no freeze — and asserts the two mark the same set.
+- **`source` is NOT masked.** It is not an outcome, and it is already governed
+  by `canViewSubmission` — a viewer who reaches a rival's source at all did so
+  through `source_access = 'solved'` or a problem role, both of which are
+  decisions about the *problem*. Reading a solution during a contest is a
+  wider question than the freeze; folding it in here would have made the
+  freeze the place that answers it.
+- **The realtime push and `GET /contests/{key}/me` needed no change, and that
+  is a finding, not an omission.** `SubmissionsGateway.notify` publishes
+  `{ type: 'submission', id }` — a signal, never data — and the client's
+  re-fetch goes through `getVisible`, which now masks; `realtime.spec.ts`'s
+  "delivers a wake-up signal carrying no submission data" is what keeps it
+  that way. `/contests/{key}/me` answers with one participation window and no
+  outcome at all, pinned by a test asserting its exact field set.
+- **Out of scope, deliberately: the profile's solved count.**
+  `UserAccessService` counts a user's distinct `AC` problems, which ticks up
+  during a freeze for anyone polling it. It is a leak of the same family and
+  it is not this task's; naming it here is what stops it being rediscovered as
+  a surprise.

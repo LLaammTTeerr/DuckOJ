@@ -65,6 +65,18 @@ export const SubmissionDetail = z.object({
   cases: z.array(SubmissionCaseDto),
   createdAt: Timestamp,
   judgedAt: Timestamp.nullable(),
+  /**
+   * The scoreboard freeze, reaching this route (D23). `true` means the fields
+   * above that describe the *outcome* — `verdict`, `points`, `timeMs`,
+   * `memoryKb`, `compileOutput`, `cases` — have been replaced by `null`/`[]`
+   * because this submission was made inside the freeze window of a contest
+   * whose board is still frozen for this viewer, and is not the viewer's own.
+   *
+   * Required, not optional: it is the only thing that distinguishes "hidden"
+   * from "not graded yet", and an absent field would read as the latter in
+   * every client that forgot to check for it.
+   */
+  frozen: z.boolean(),
 });
 export type SubmissionDetailDto = z.infer<typeof SubmissionDetail>;
 
@@ -99,6 +111,16 @@ export const SubmissionSummary = z.object({
   points: z.number().nullable(),
   maxPoints: z.number().nullable(),
   createdAt: Timestamp,
+  /**
+   * As on `SubmissionDetail` (D23): `verdict` and `points` are `null` because
+   * the freeze hides them, not because grading has not finished. The row is
+   * still listed — a frozen contest hides outcomes, never the fact that
+   * somebody submitted.
+   *
+   * `maxPoints` survives the mask: it is the contest problem's own total, the
+   * same number every viewer already reads off the problem.
+   */
+  frozen: z.boolean(),
 });
 export type SubmissionSummaryDto = z.infer<typeof SubmissionSummary>;
 
@@ -176,7 +198,9 @@ registry.registerPath({
   description:
     'Keyset-paginated on `id`, descending. Produces exactly the set `GET /submissions/{id}` would answer ' +
     "200 for, one id at a time — never more. `user=` naming someone else's username returns an empty page " +
-    'for a non-admin rather than a 403, which would itself confirm the username exists.',
+    'for a non-admin rather than a 403, which would itself confirm the username exists. ' +
+    'A row inside a live freeze window (D23) is listed with `frozen: true` and a null `verdict`/`points`; ' +
+    'because `verdict=` is a question about the verdict, a frozen row matches NO value of that filter.',
   request: { query: SubmissionListQuery },
   responses: {
     200: { description: 'A page of submissions', content: { 'application/json': { schema: SubmissionPage } } },
@@ -196,6 +220,11 @@ registry.registerPath({
   path: '/submissions/{id}',
   tags: ['Submissions'],
   summary: 'A submission visible to the caller',
+  description:
+    'During a contest freeze window (D23) a submission that is not the caller\'s own answers 200 with ' +
+    '`frozen: true` and `verdict`, `points`, `timeMs`, `memoryKb`, `compileOutput` null and `cases` empty. ' +
+    "The contest's creator and global admins are never masked, and everything is revealed once the " +
+    "submission's own participation has ended.",
   request: {
     params: z.object({ id: SubmissionIdParamSchema }),
   },

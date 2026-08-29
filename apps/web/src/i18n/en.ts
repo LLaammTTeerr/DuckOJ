@@ -222,6 +222,9 @@ export const en = {
   'submission.title': 'Submission #{id}',
   'submission.notFound': 'No such submission.',
   'submission.source': 'Source',
+  // D23. Hover text on the `?` a frozen row shows instead of a verdict —
+  // "there is a result and it is being withheld", never "still grading".
+  'submission.frozen': 'Hidden until the scoreboard unfreezes.',
 
   // ── contests ──────────────────────────────────────────────────────────
   'contests.title': 'Contests',

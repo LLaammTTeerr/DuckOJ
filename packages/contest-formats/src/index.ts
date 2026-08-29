@@ -50,7 +50,15 @@ export { contestSubmissionPoints } from './lower.js';
  * `dmojCompat` is named in exactly one place, the golden suite.
  */
 export type { FormatSemantics } from './lower.js';
-export { freezeAtMs, isFrozenAt, isWithinWindow, participationEndMs, participationStartMs } from './window.js';
+export {
+  LIVE,
+  SPECTATE,
+  freezeAtMs,
+  isFrozenAt,
+  isWithinWindow,
+  participationEndMs,
+  participationStartMs,
+} from './window.js';
 export type { WindowContest, WindowParticipant } from './window.js';
 
 /**
