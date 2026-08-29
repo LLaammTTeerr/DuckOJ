@@ -14,6 +14,7 @@ import { asc, eq } from 'drizzle-orm';
 import { contestOrgs, contestProblems, contests, organizations } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { ContestAccessService } from '../src/authz/contest.access.js';
+import { uncachedScoreboards } from './scoreboard.fixtures.js';
 import type { Actor } from '../src/authz/actor.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
@@ -73,7 +74,7 @@ describe('editing a contest', () => {
         startsInMs: 60 * MINUTE,
         endsInMs: 120 * MINUTE,
       });
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
       const before = await service.getVisible(actorFor(owner.id), 'ce1');
 
       const after = await service.update(actorFor(owner.id), 'ce1', { name: 'Renamed' });
@@ -101,7 +102,7 @@ describe('editing a contest', () => {
         startsInMs: 60 * MINUTE,
         endsInMs: 120 * MINUTE,
       });
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       // Only `endTime` moves — and it lands before the STORED start.
       await expect(
@@ -137,7 +138,7 @@ describe('editing a contest', () => {
         endsInMs: 120 * MINUTE,
       });
       await db.update(contests).set({ timeLimitSeconds: 900 }).where(eq(contests.id, contestId));
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       expect((await service.update(actorFor(owner.id), 'ce3', { name: 'x' })).timeLimitSeconds).toBe(
         900,
@@ -161,7 +162,7 @@ describe('editing a contest', () => {
         endsInMs: 120 * MINUTE,
       });
 
-      await new ContestAccessService(db).update(actorFor(owner.id), 'ce4', {
+      await new ContestAccessService(db, uncachedScoreboards()).update(actorFor(owner.id), 'ce4', {
         problems: [
           { code: 'ce4-q', points: 50, partial: false },
           { code: 'ce4-p', points: 200, partial: true },
@@ -201,7 +202,7 @@ describe('the pre-start concealment', () => {
         startsInMs: 60 * MINUTE,
         endsInMs: 120 * MINUTE,
       });
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       // The sweep concealed this from everyone but a global admin. It has to
       // reach the creator too, or the edit form prefills an empty problem
@@ -229,7 +230,7 @@ describe('once a contest has started', () => {
         startsInMs: -MINUTE,
         endsInMs: 60 * MINUTE,
       });
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       await expect(
         service.update(actorFor(owner.id), 'ce5', { format: 'ioi16' }),
@@ -252,7 +253,7 @@ describe('once a contest has started', () => {
         startsInMs: -MINUTE,
         endsInMs: 60 * MINUTE,
       });
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       // A client that PATCHes the whole form back must not be told the
       // contest has started: nothing it sent is a change.
@@ -280,7 +281,7 @@ describe('who may edit', () => {
         startsInMs: 60 * MINUTE,
         endsInMs: 120 * MINUTE,
       });
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       expect((await service.update(actorFor(admin.id, 'admin'), 'ce7', { name: 'By admin' })).name).toBe(
         'By admin',
@@ -314,7 +315,7 @@ describe('who may edit', () => {
         .returning({ id: organizations.id });
       await db.insert(contestOrgs).values({ contestId, orgId: org!.id });
 
-      const after = await new ContestAccessService(db).update(actorFor(owner.id), 'ce8', {
+      const after = await new ContestAccessService(db, uncachedScoreboards()).update(actorFor(owner.id), 'ce8', {
         visibility: 'org',
       });
       expect(after.visibility).toBe('org');

@@ -1,4 +1,16 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
 import {
   ContestListQuery,
   CreateContestRequest,
@@ -61,8 +73,19 @@ export class ContestsController {
   @Get(':key/scoreboard')
   @Public()
   @RequireScope('contests:read')
-  scoreboard(@MaybeActor() actor: Actor | null, @Param('key') key: string): Promise<ScoreboardDto> {
-    return this.contests.getScoreboard(actor, key);
+  async scoreboard(
+    @MaybeActor() actor: Actor | null,
+    @Param('key') key: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ScoreboardDto> {
+    const { board, cache } = await this.contests.getScoreboardCached(actor, key);
+    // A HEADER, never a body field (D25). The body is the goldens'
+    // snake_case shape and 23 golden replays compare it byte for byte; a
+    // `cache` key in there would be DuckOJ inventing a field inside a shape
+    // frozen from DMOJ, and every client would have to learn to ignore it.
+    // Operators and load tests read a header perfectly well.
+    res.setHeader('X-Scoreboard-Cache', cache);
+    return board;
   }
 
   /**

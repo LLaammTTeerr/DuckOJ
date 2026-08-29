@@ -13,6 +13,7 @@ import { schema, type Db } from '@duckoj/db';
 import type { ContestInput } from '@duckoj/contest-formats';
 import { RatingService } from '../src/authz/rating.service.js';
 import { ContestAccessService } from '../src/authz/contest.access.js';
+import { uncachedScoreboards } from './scoreboard.fixtures.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import { seedGoldenContest } from './contest-golden.fixtures.js';
@@ -60,7 +61,7 @@ function contestOf(
 const EIGHT = [100, 90, 80, 70, 60, 50, 40, 30];
 
 function service(db: Db): RatingService {
-  return new RatingService(db, new ContestAccessService(db));
+  return new RatingService(db, new ContestAccessService(db, uncachedScoreboards()));
 }
 
 async function markRated(db: Db, key: string): Promise<void> {

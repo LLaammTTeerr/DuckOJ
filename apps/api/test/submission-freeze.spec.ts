@@ -25,6 +25,7 @@ import {
 import { schema, type Db } from '@duckoj/db';
 import { SubmissionDetail, SubmissionPage } from '@duckoj/contracts';
 import { ContestAccessService } from '../src/authz/contest.access.js';
+import { uncachedScoreboards } from './scoreboard.fixtures.js';
 import { SubmissionAccessService } from '../src/authz/submission.access.js';
 import {
   frozenSubmissionsWhere,
@@ -392,7 +393,7 @@ describe('GET /contests/{key}/me', () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);
       const seeded = await seedFreezeContest(db, { key: 'sfme', ...INSIDE });
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       const me = await service.myParticipation(actorFor(seeded.aliceId), seeded.key);
 

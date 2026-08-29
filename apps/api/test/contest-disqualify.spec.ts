@@ -22,6 +22,7 @@ import { schema, type Db } from '@duckoj/db';
 import type { ContestInput } from '@duckoj/contest-formats';
 import { computeContestScoreboard } from '@duckoj/contest-formats';
 import { ContestAccessService } from '../src/authz/contest.access.js';
+import { uncachedScoreboards } from './scoreboard.fixtures.js';
 import { RatingService } from '../src/authz/rating.service.js';
 import type { Actor } from '../src/authz/actor.js';
 import { buildApp } from './app.harness.js';
@@ -114,7 +115,7 @@ describe('PATCH /contests/:key/participants/:username', () => {
       await join(db, contestId, cheat.id, 0);
       await join(db, contestId, cheat.id, 1);
 
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
       // Mixed case on purpose: usernames resolve case-insensitively
       // everywhere else, and this route must not be the exception.
       const dq = await service.setDisqualified(actorFor(owner.id), 'dq-open', 'DQ-Cheat', true);
@@ -148,7 +149,7 @@ describe('PATCH /contests/:key/participants/:username', () => {
       const problem = await seedProblemWithSourceAccess(db, { code: 'dq2-p' });
       const contestId = await seedContest(db, 'dq2-open', owner.id, problem.id);
       await join(db, contestId, cheat.id, 0);
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       expect(
         (await service.setDisqualified(actorFor(admin.id, 'admin'), 'dq2-open', 'dq2-cheat', true))
@@ -176,7 +177,7 @@ describe('PATCH /contests/:key/participants/:username', () => {
       await join(db, contestId, cheat.id, 0);
 
       await expect(
-        new ContestAccessService(db).setDisqualified(
+        new ContestAccessService(db, uncachedScoreboards()).setDisqualified(
           actorFor(outsider.id),
           'dq3-secret',
           'dq3-cheat',
@@ -193,7 +194,7 @@ describe('PATCH /contests/:key/participants/:username', () => {
       await insertUser(db, 'dq4-stranger');
       const problem = await seedProblemWithSourceAccess(db, { code: 'dq4-p' });
       await seedContest(db, 'dq4-open', owner.id, problem.id);
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       await expect(
         service.setDisqualified(actorFor(owner.id), 'dq4-open', 'nobody', true),
@@ -256,7 +257,7 @@ describe('what disqualification does to the standings', () => {
       await join(db, contestId, leader.id, 0);
       await join(db, contestId, runnerUp.id, 0);
 
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
       const before = await service.getScoreboard(actorFor(owner.id), 'dqs-open');
       expect(before.ranking.map((row) => row.participant)).toEqual(['dqs-leader', 'dqs-runner']);
 
@@ -297,7 +298,7 @@ describe('a disqualified participant is not in the rated field', () => {
       await seedGoldenContest(db, contestOf('dqr', scores));
       await db.update(contests).set({ isRated: true }).where(eq(contests.key, 'dqr'));
       const admin = await insertUser(db, 'dqr-admin', 'admin');
-      const rating = new RatingService(db, new ContestAccessService(db));
+      const rating = new RatingService(db, new ContestAccessService(db, uncachedScoreboards()));
 
       expect(await rating.replayAll()).toBe(1);
       const before = await db
@@ -306,7 +307,7 @@ describe('a disqualified participant is not in the rated field', () => {
       expect(before).toHaveLength(9);
 
       // The leader is disqualified after the fact — D4's whole point.
-      await new ContestAccessService(db).setDisqualified(
+      await new ContestAccessService(db, uncachedScoreboards()).setDisqualified(
         actorFor(admin.id, 'admin'),
         'dqr',
         'dqr-p0',

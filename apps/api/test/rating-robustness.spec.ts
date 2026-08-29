@@ -11,6 +11,7 @@ import { createDb, type Db } from '@duckoj/db';
 import type { ContestInput } from '@duckoj/contest-formats';
 import { RatingService } from '../src/authz/rating.service.js';
 import { ContestAccessService } from '../src/authz/contest.access.js';
+import { uncachedScoreboards } from './scoreboard.fixtures.js';
 import { withTestDb, testDbUrl } from './db.harness.js';
 import { seedGoldenContest } from './contest-golden.fixtures.js';
 import type { Actor } from '../src/authz/actor.js';
@@ -45,7 +46,7 @@ function contestOf(key: string, endTime: string, format = 'default'): ContestInp
 }
 
 function service(db: Db): RatingService {
-  return new RatingService(db, new ContestAccessService(db));
+  return new RatingService(db, new ContestAccessService(db, uncachedScoreboards()));
 }
 
 describe('setRated atomicity', () => {

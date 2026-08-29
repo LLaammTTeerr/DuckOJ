@@ -17,6 +17,7 @@ import { schema, type Db } from '@duckoj/db';
 import type { ContestInput } from '@duckoj/contest-formats';
 import { Scoreboard } from '@duckoj/contracts';
 import { ContestAccessService } from '../src/authz/contest.access.js';
+import { uncachedScoreboards } from './scoreboard.fixtures.js';
 import type { Actor } from '../src/authz/actor.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
@@ -97,7 +98,7 @@ describe('a scoreboard inside its freeze window', () => {
     await withTestDb(async (db) => {
       // Ends in ten minutes, freezes twenty before that: now is inside.
       const { contestId, key } = await seedGoldenContest(db, freezeContest('fz1', 10 * MINUTE));
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       const board = await service.getScoreboard(null, key);
 
@@ -113,7 +114,7 @@ describe('a scoreboard inside its freeze window', () => {
   it('shows the contest creator the live board', async () => {
     await withTestDb(async (db) => {
       const { contestId, key } = await seedGoldenContest(db, freezeContest('fz2', 10 * MINUTE));
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       const board = await service.getScoreboard(actorFor(await creatorOf(db, contestId)), key);
 
@@ -131,7 +132,7 @@ describe('a scoreboard inside its freeze window', () => {
         .update(schema.users)
         .set({ globalRole: 'admin' })
         .where(eq(schema.users.id, admin.id));
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       const board = await service.getScoreboard(actorFor(admin.id, 'admin'), key);
 
@@ -143,7 +144,7 @@ describe('a scoreboard inside its freeze window', () => {
   it('never freezes the board the rating replay folds', async () => {
     await withTestDb(async (db) => {
       const { contestId } = await seedGoldenContest(db, freezeContest('fz4', 10 * MINUTE));
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       // D22: `scoreboardForSystem` passes no clock, so a rating replay run
       // during a contest's freeze folds the real scores rather than zeros.
@@ -158,7 +159,7 @@ describe('a scoreboard inside its freeze window', () => {
     await withTestDb(async (db) => {
       // Ended five minutes ago: past the freeze instant AND past the end.
       const { key } = await seedGoldenContest(db, freezeContest('fz5', -5 * MINUTE));
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
 
       const board = await service.getScoreboard(null, key);
 

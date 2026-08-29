@@ -41,6 +41,13 @@ import {
   type ParticipationRow,
 } from './participation.js';
 import { loadOrgMembership } from './org.visibility.js';
+import {
+  ScoreboardCache,
+  scoreboardCacheKey,
+  scoreboardCacheKeys,
+  type ScoreboardCacheContest,
+  type ScoreboardCacheState,
+} from './scoreboard.cache.js';
 import { canViewProblem, loadProblemContext } from './problem.visibility.js';
 
 const UNIQUE_VIOLATION = '23505';
@@ -97,7 +104,10 @@ type ContestRow = typeof contests.$inferSelect;
  */
 @Injectable()
 export class ContestAccessService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    @Inject(ScoreboardCache) private readonly scoreboards: ScoreboardCache,
+  ) {}
 
   async listVisible(
     actor: Actor | null,
@@ -163,21 +173,64 @@ export class ContestAccessService {
    * the orders that mapping documents as load-bearing.
    */
   async getScoreboard(actor: Actor | null, key: string): Promise<Scoreboard> {
+    return (await this.getScoreboardCached(actor, key)).board;
+  }
+
+  /**
+   * The same board, plus where it came from — the only thing that knows, and
+   * the only reason `ContestsController` needs a second method.
+   *
+   * `cache` reaches the client as `X-Scoreboard-Cache` and **never** as a
+   * body field: the body is the goldens' snake_case shape, pinned byte for
+   * byte by 23 of them, and a cache is transport metadata rather than
+   * something the contest format has an opinion about.
+   */
+  async getScoreboardCached(
+    actor: Actor | null,
+    key: string,
+  ): Promise<{ board: Scoreboard; cache: ScoreboardCacheState }> {
     const contest = await this.loadVisible(actor, key);
+    // ONE clock for the whole request. It decides the 409 below, which cache
+    // key this read lands on, and what the fold freezes against; reading it
+    // twice could put a board folded on one side of a freeze boundary under a
+    // key naming the other, and leave it there for a whole TTL.
+    const now = new Date();
+    const privileged = canRunContest(actor, contest);
     // Same pre-start concealment as `getVisible`, and the same widening: a
     // scoreboard's `problems` and `label_by_problem` carry codes and names,
     // and before the start there is nothing ranked to show anyway. 409,
     // mirroring `join`'s existing `contest_not_started`.
     // `scoreboardForSystem` (the rating replay) deliberately bypasses this —
     // it is not acting for a caller.
-    if (new Date() < contest.startTime && !canRunContest(actor, contest)) {
+    if (now < contest.startTime && !privileged) {
       throw new AppError(409, 'contest_not_started', 'This contest has not started yet.');
     }
     // The freeze window, D22. `now` is what the formats judge it against, and
     // **omitting it means "no freeze"** — so the people who run the contest
     // get the live board by being handed no clock at all, rather than by a
     // second code path that could drift from this one.
-    return this.computeScoreboard(contest, canRunContest(actor, contest) ? undefined : new Date());
+    //
+    // The cache (D25) wraps exactly this, and nothing else: `scoreboardForSystem`
+    // stays uncached on purpose — a rating replay folding a board up to two
+    // seconds stale into everybody's rating is the failure D22 was designed
+    // against, and the cache must not reintroduce it by a side door.
+    return this.scoreboards.through(scoreboardCacheKey(contest, privileged, now), () =>
+      this.computeScoreboard(contest, privileged ? undefined : now),
+    );
+  }
+
+  /**
+   * Drop every cached board for these contests. Called after a write that
+   * changes what the board says — a disqualification, an edit, a rejudge.
+   *
+   * Best-effort by construction: the 2 s TTL is the floor, so a delete that
+   * does not land costs a moment of staleness rather than a wrong board
+   * forever. A verdict arriving from `judged` rides that TTL alone — the
+   * event writer is a separate process that never calls into the API.
+   */
+  async invalidateScoreboards(...contestRows: ScoreboardCacheContest[]): Promise<void> {
+    const keys = new Set(contestRows.flatMap((contest) => scoreboardCacheKeys(contest)));
+    await this.scoreboards.invalidate([...keys]);
   }
 
   /**
@@ -477,6 +530,12 @@ export class ContestAccessService {
       }
     });
 
+    // BOTH key sets, old and new (D25). `endTime` and `frozenLastMinutes` are
+    // in the key, and this patch may have moved either — invalidating only
+    // the merged state would leave the pre-edit board sitting under its old
+    // boundary's key, which is exactly the board this edit made wrong.
+    await this.invalidateScoreboards(contest, { id: contest.id, endTime, frozenLastMinutes });
+
     return this.getVisible(actor, contest.key);
   }
 
@@ -617,6 +676,12 @@ export class ContestAccessService {
           eq(contestParticipations.userId, user.id),
         ),
       );
+
+    // Every ranking row moved, so every cached board for this contest is now
+    // wrong (D25). Deleted after the UPDATE commits, never before: dropping
+    // the entry first only opens a window for a concurrent read to refill it
+    // with the pre-write board.
+    await this.invalidateScoreboards(contest);
 
     // Re-read rather than patching the row in memory: the summary must
     // describe what is now stored, and `listParticipations`' own ordering

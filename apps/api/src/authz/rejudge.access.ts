@@ -41,6 +41,7 @@ import {
 } from '../realtime/submission-publisher.js';
 import { isAdmin, type Actor } from './actor.js';
 import { RatingService } from './rating.service.js';
+import { ScoreboardCache, scoreboardCacheKeys } from './scoreboard.cache.js';
 
 /** What one requeue needs: which submission, and which package to grade it with. */
 interface RejudgeTarget {
@@ -55,6 +56,7 @@ export class RejudgeService {
     @Inject(DB) private readonly db: Db,
     @Inject(SUBMISSION_PUBLISHER) private readonly publisher: SubmissionPublisher,
     @Inject(RatingService) private readonly rating: RatingService,
+    @Inject(ScoreboardCache) private readonly scoreboards: ScoreboardCache,
   ) {}
 
   /**
@@ -244,7 +246,39 @@ export class RejudgeService {
     for (const submissionId of submissionIds) {
       await this.publisher.publish(submissionId);
     }
+    // Every requeued submission just lost its verdict and its case rows, so
+    // every board it counts towards is now wrong (D25). RATED-ness is
+    // irrelevant here — `ratedContestKeys` below answers a different question
+    // (which ratings an admin must replay), and a practice-only contest's
+    // scoreboard is read by exactly the people who would notice.
+    await this.invalidateScoreboards(submissionIds);
     return this.ratedContestKeys(submissionIds);
+  }
+
+  /**
+   * Drops the cached boards of every contest these submissions count towards.
+   *
+   * After the requeue transaction commits, for the same reason `publish` is:
+   * deleting an entry a still-uncommitted write has not yet invalidated only
+   * lets a concurrent read refill it with the board that is about to be
+   * wrong.
+   */
+  private async invalidateScoreboards(submissionIds: number[]): Promise<void> {
+    if (submissionIds.length === 0) return;
+    const rows = await this.db
+      .selectDistinct({
+        id: contests.id,
+        endTime: contests.endTime,
+        frozenLastMinutes: contests.frozenLastMinutes,
+      })
+      .from(contestSubmissions)
+      .innerJoin(
+        contestParticipations,
+        eq(contestParticipations.id, contestSubmissions.participationId),
+      )
+      .innerJoin(contests, eq(contests.id, contestParticipations.contestId))
+      .where(inArray(contestSubmissions.submissionId, submissionIds));
+    await this.scoreboards.invalidate(rows.flatMap((row) => scoreboardCacheKeys(row)));
   }
 
   private async ratedContestKeys(submissionIds: number[]): Promise<string[]> {

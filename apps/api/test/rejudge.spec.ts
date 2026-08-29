@@ -35,6 +35,7 @@ import { SUBMISSION_PUBLISHER, type SubmissionPublisher } from '../src/realtime/
 import type { Actor } from '../src/authz/actor.js';
 import { RatingService } from '../src/authz/rating.service.js';
 import { ContestAccessService } from '../src/authz/contest.access.js';
+import { uncachedScoreboards } from './scoreboard.fixtures.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import {
@@ -59,7 +60,12 @@ function adminActor(userId: number): Actor {
 }
 
 function serviceFor(db: Db, publisher: SubmissionPublisher = new RecordingPublisher()): RejudgeService {
-  return new RejudgeService(db, publisher, new RatingService(db, new ContestAccessService(db)));
+  return new RejudgeService(
+    db,
+    publisher,
+    new RatingService(db, new ContestAccessService(db, uncachedScoreboards())),
+    uncachedScoreboards(),
+  );
 }
 
 /** The `grading_jobs` row for a submission — the fencing token lives here. */
@@ -403,13 +409,18 @@ describe('a rejudge names the rated contests it touches, and never replays ratin
         packageHash: 'phase1-aplusb',
       });
 
-      const rating = new RatingService(db, new ContestAccessService(db));
+      const rating = new RatingService(db, new ContestAccessService(db, uncachedScoreboards()));
       let replays = 0;
       rating.replayAll = async (): Promise<number> => {
         replays += 1;
         return 0;
       };
-      const service = new RejudgeService(db, new RecordingPublisher(), rating);
+      const service = new RejudgeService(
+        db,
+        new RecordingPublisher(),
+        rating,
+        uncachedScoreboards(),
+      );
 
       // Not in any contest yet.
       const first = await service.rejudgeSubmission(adminActor(admin.id), submissionId);

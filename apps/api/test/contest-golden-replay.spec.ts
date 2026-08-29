@@ -40,6 +40,7 @@ import { describe, expect, it } from 'vitest';
 import { computeContestScoreboard, pyRound } from '@duckoj/contest-formats';
 import type { Scoreboard } from '@duckoj/contest-formats';
 import { ContestAccessService } from '../src/authz/contest.access.js';
+import { uncachedScoreboards } from './scoreboard.fixtures.js';
 import { withTestDb } from './db.harness.js';
 import { discoverFixtures, readContest, seedGoldenContest } from './contest-golden.fixtures.js';
 
@@ -72,7 +73,7 @@ describe('golden replay through Postgres', () => {
       const input = readContest(fixture);
       const { key } = await seedGoldenContest(db, input);
 
-      const service = new ContestAccessService(db);
+      const service = new ContestAccessService(db, uncachedScoreboards());
       const actual = norm(await service.getScoreboard(null, key)) as Scoreboard;
       // The same input, the same formats, without the round trip. A mismatch
       // therefore isolates to the mapping and nothing else.
