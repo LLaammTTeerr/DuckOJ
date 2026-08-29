@@ -49,3 +49,7 @@
 - P10 DONE (3d39b51): sourceAccess select on problem edit; web rebuilt.
 - P8 DONE_WITH_CONCERNS, merged (e609b08): Redis scoreboard cache TTL 2 s, D25; api tests 567 green; api rebuilt, header hit/miss verified live. k6 rerun started.
 - k6 rerun with cache: 2391 req/s, p95 1.20 s (list 643 ms ✓, detail 1.22 s, scoreboard 1.89 s), 0 failed. Recorded in load/RESULTS.md. Ruling: threshold is a stress target; contest-day load (~400 req/s) is far inside.
+- CI on 5d4e80b: success.
+- Final review (final-review.md): B1 contest-edit cascade-wipes contest_submissions; B2 judged cancel broadcasts terminate with concurrency 2; B3 backup timer never installed; M1–M11. Cleared with evidence: route markers, cluster state, cache view separation, freeze masks, rejudge fence, XFF (Caddy strips untrusted).
+- B3 fixed now: timer installed, first backup ran (dump 127 KB + store 386 KB), modes tightened to 700/600.
+- Dispatched F1 (main, opus): B1, M1, M2 (D26), M3 (D27), M9, M11. F2 (worktree, opus): B2 targeted cancel + back-pressure (D28). F3 (worktree, opus): M4–M8, M10.
