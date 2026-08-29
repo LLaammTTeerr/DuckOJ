@@ -297,6 +297,31 @@ export const en = {
   'scoreboard.dq': 'DQ {name}',
   'scoreboard.undq': 'un-DQ {name}',
   'contest.edit': 'Edit contest',
+
+  // ── contest clarifications and announcements (D31) ────────────────────
+  'clar.title': 'Q&A / Announcements',
+  'clar.loadError': 'Could not load the Q&A.',
+  'clar.empty': 'Nothing yet.',
+  'clar.announcement': 'Announcement',
+  'clar.question': 'Question',
+  'clar.unanswered': 'Waiting for an answer.',
+  'clar.private': '(only you and the organisers)',
+  'clar.about': 'About {problem}',
+  'clar.aboutContest': 'About the contest',
+  'clar.askTitle': 'Ask the organisers',
+  'clar.askPlaceholder': 'What is unclear?',
+  'clar.ask': 'Send',
+  'clar.askError': 'Could not send the question.',
+  'clar.joinToAsk': 'Join the contest to ask a question.',
+  'clar.anyProblem': 'The contest as a whole',
+  'clar.announceTitle': 'Post an announcement',
+  'clar.announcePlaceholder': 'What must everyone know?',
+  'clar.announce': 'Post',
+  'clar.answerPlaceholder': 'Answer',
+  'clar.answer': 'Answer',
+  'clar.publish': 'Publish',
+  'clar.published': 'Public',
+
   'submission.rejudge': 'Rejudge',
   // D21: a rejudge never replays ratings. The admin has to re-rate each
   // affected contest once the queue drains, so the screen names them.
@@ -445,6 +470,12 @@ export const en = {
   // M9. No link: the page to go to is the reader's own security page, which
   // the shell already offers, and a notification that scolded would be wrong
   // — an admin reset is usually one the reader asked for.
+  'notifications.clarificationAnsweredPrefix': 'Your question in ',
+  'notifications.clarificationAnsweredSuffix': ' has been answered.',
+  'notifications.clarificationPublishedPrefix': 'A clarification was published in ',
+  'notifications.clarificationPublishedSuffix': '.',
+  'notifications.contestAnnouncementPrefix': 'New announcement in ',
+  'notifications.contestAnnouncementSuffix': '.',
   'notifications.totpReset':
     'An administrator turned off two-factor authentication on your account. If this was not at your request, tell an organiser.',
 

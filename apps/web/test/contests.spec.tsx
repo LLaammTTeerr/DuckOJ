@@ -20,6 +20,15 @@ function wrap(ui: React.ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
+/**
+ * `GET /contests/{key}/clarifications` is the third request the contest page
+ * makes (D31's Q&A panel). Every mock here answers it with an empty feed
+ * rather than falling through to the participation stub — a query function
+ * that returns the wrong shape (or `undefined`, which TanStack Query treats
+ * as a failure) puts an error banner on the page these tests are reading.
+ */
+const NO_CLARIFICATIONS = { data: { items: [] } };
+
 const RUNNING = {
   key: 'spring',
   name: 'Spring Open',
@@ -36,11 +45,12 @@ afterEach(() => {
 
 describe('ContestPage', () => {
   it('offers to join, and only offers Submit once joined', async () => {
-    get.mockImplementation((path: string) =>
-      path === '/contests/{key}'
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
         ? Promise.resolve({ data: RUNNING })
-        : Promise.resolve({ data: undefined }),
-    );
+        : Promise.resolve({ data: undefined });
+    });
     wrap(<ContestPage contestKey="spring" />);
 
     expect(await screen.findByRole('button', { name: /^Tham gia$/ })).toBeInTheDocument();
@@ -56,11 +66,12 @@ describe('ContestPage', () => {
     // every anonymous visitor to a contest page — the most public page the
     // app has. Found by Task P5's journey 6, whose watchdog fails on any
     // 4xx that is not documented as by-design.
-    get.mockImplementation((path: string) =>
-      path === '/contests/{key}'
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
         ? Promise.resolve({ data: RUNNING })
-        : Promise.resolve({ data: undefined }),
-    );
+        : Promise.resolve({ data: undefined });
+    });
     wrap(<ContestPage contestKey="spring" />);
 
     // The page still renders, and still offers the join it cannot yet know
@@ -71,11 +82,12 @@ describe('ContestPage', () => {
 
   it('shows the window and attempt once joined', async () => {
     const endTime = new Date(Date.now() + 1_800_000).toISOString();
-    get.mockImplementation((path: string) =>
-      path === '/contests/{key}'
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
         ? Promise.resolve({ data: RUNNING })
-        : Promise.resolve({ data: { id: 1, contestKey: 'spring', virtual: 0, startTime: RUNNING.startTime, endTime, isDisqualified: false } }),
-    );
+        : Promise.resolve({ data: { id: 1, contestKey: 'spring', virtual: 0, startTime: RUNNING.startTime, endTime, isDisqualified: false } });
+    });
     wrap(<ContestPage contestKey="spring" />);
 
     expect(await screen.findByRole('status')).toHaveTextContent(/Đang thi chính thức/);
@@ -88,17 +100,23 @@ describe('ContestPage', () => {
       startTime: new Date(Date.now() + 3_600_000).toISOString(),
       endTime: new Date(Date.now() + 7_200_000).toISOString(),
     };
-    get.mockImplementation((path: string) =>
-      path === '/contests/{key}' ? Promise.resolve({ data: upcoming }) : Promise.resolve({ data: undefined }),
-    );
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
+        ? Promise.resolve({ data: upcoming })
+        : Promise.resolve({ data: undefined });
+    });
     wrap(<ContestPage contestKey="spring" />);
     expect(await screen.findByRole('button', { name: /^Tham gia$/ })).toBeDisabled();
   });
 
   it('surfaces the server message when joining is refused', async () => {
-    get.mockImplementation((path: string) =>
-      path === '/contests/{key}' ? Promise.resolve({ data: RUNNING }) : Promise.resolve({ data: undefined }),
-    );
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
+        ? Promise.resolve({ data: RUNNING })
+        : Promise.resolve({ data: undefined });
+    });
     post.mockResolvedValue({ error: { detail: 'This organization admits members by invitation only.' } });
     wrap(<ContestPage contestKey="spring" />);
     await userEvent.click(await screen.findByRole('button', { name: /^Tham gia$/ }));
@@ -194,6 +212,7 @@ describe('ScoreboardPage', () => {
 describe('contest submissions links', () => {
   it('links All submissions for everyone and My submissions only when signed in', async () => {
     get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
       if (path === '/contests/{key}') return Promise.resolve({ data: RUNNING });
       if (path === '/auth/me')
         return Promise.resolve({ data: { username: 'kim', displayName: 'Kim', globalRole: 'user' } });
@@ -203,9 +222,12 @@ describe('contest submissions links', () => {
     expect(await screen.findByRole('link', { name: 'Tất cả bài nộp' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Bài nộp của tôi' })).toBeInTheDocument();
 
-    get.mockImplementation((path: string) =>
-      path === '/contests/{key}' ? Promise.resolve({ data: RUNNING }) : Promise.resolve({ data: undefined }),
-    );
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
+        ? Promise.resolve({ data: RUNNING })
+        : Promise.resolve({ data: undefined });
+    });
     wrap(<ContestPage contestKey="spring" />);
     expect((await screen.findAllByRole('link', { name: 'Tất cả bài nộp' })).length).toBeGreaterThan(0);
     expect(screen.queryAllByRole('link', { name: 'Bài nộp của tôi' })).toHaveLength(1);
@@ -214,9 +236,12 @@ describe('contest submissions links', () => {
 
 describe('ContestPage join transport safety', () => {
   it('disables Join while the request is in flight', async () => {
-    get.mockImplementation((path: string) =>
-      path === '/contests/{key}' ? Promise.resolve({ data: RUNNING }) : Promise.resolve({ data: undefined }),
-    );
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
+        ? Promise.resolve({ data: RUNNING })
+        : Promise.resolve({ data: undefined });
+    });
     let resolve!: (value: unknown) => void;
     post.mockImplementation(() => new Promise((r) => { resolve = r; }));
     wrap(<ContestPage contestKey="spring" />);
@@ -228,9 +253,12 @@ describe('ContestPage join transport safety', () => {
   });
 
   it('surfaces a connection message when the join request cannot reach the server', async () => {
-    get.mockImplementation((path: string) =>
-      path === '/contests/{key}' ? Promise.resolve({ data: RUNNING }) : Promise.resolve({ data: undefined }),
-    );
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
+        ? Promise.resolve({ data: RUNNING })
+        : Promise.resolve({ data: undefined });
+    });
     post.mockRejectedValue(new TypeError('fetch failed'));
     wrap(<ContestPage contestKey="spring" />);
     await userEvent.click(await screen.findByRole('button', { name: /^Tham gia$/ }));

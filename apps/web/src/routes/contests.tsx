@@ -10,6 +10,8 @@ import { formatDateTime, formatTime, useLocale, useT, type Locale, type MsgKey, 
 type Contest = paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
 type Scoreboard = paths['/contests/{key}/scoreboard']['get']['responses'][200]['content']['application/json'];
+type Clarification =
+  paths['/contests/{key}/clarifications']['get']['responses'][200]['content']['application/json']['items'][number];
 
 /**
  * `2026-03-01T09:00:00Z` → `01/03/2026 16:00` (vi) or `3/1/2026 04:00` (en),
@@ -257,6 +259,14 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         </table>
       )}
 
+      <ClarificationsPanel
+        contestKey={contestKey}
+        phase={phase}
+        joined={joined}
+        canEdit={contest.data.canEdit}
+        problems={contest.data.problems.map((problem) => ({ code: problem.code, label: problem.label }))}
+      />
+
       <p>
         <Link to="/contests/$key/scoreboard" params={{ key: contestKey }}>
           {t('contest.scoreboard')}
@@ -276,6 +286,276 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
           </>
         ) : null}
       </p>
+    </section>
+  );
+}
+
+
+/**
+ * The contest-day Q&A panel (D31): announcements and clarifications, an ask
+ * form for a participant, answer/publish controls and an announcement form
+ * for an organiser.
+ *
+ * Polled every 30 s **while the contest is running** and never otherwise —
+ * `refetchInterval: false` once it has finished, because a finished
+ * contest's Q&A does not change and two thousand browsers asking anyway is
+ * the load profile this feature was cheapest to get wrong on. No WebSocket:
+ * the realtime channel carries submissions, and widening it for a feed that
+ * tolerates half a minute of staleness would be a new failure mode for no
+ * benefit a reader can perceive.
+ */
+function ClarificationsPanel({
+  contestKey,
+  phase,
+  joined,
+  canEdit,
+  problems,
+}: {
+  contestKey: string;
+  phase: Phase;
+  joined: boolean;
+  canEdit: boolean;
+  problems: { code: string; label: string }[];
+}) {
+  const t = useT();
+  const { locale } = useLocale();
+  const client = useQueryClient();
+  const [question, setQuestion] = useState('');
+  const [askProblem, setAskProblem] = useState('');
+  const [askBusy, setAskBusy] = useState(false);
+  const [announcement, setAnnouncement] = useState('');
+  const [announceProblem, setAnnounceProblem] = useState('');
+  const [announceBusy, setAnnounceBusy] = useState(false);
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [rowBusy, setRowBusy] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const feed = useQuery({
+    queryKey: ['clarifications', contestKey],
+    queryFn: async () => {
+      const { data, error: failure } = await api.GET('/contests/{key}/clarifications', {
+        params: { path: { key: contestKey } },
+      });
+      if (failure) throw new Error(failure.detail ?? t('clar.loadError'));
+      return data;
+    },
+    refetchInterval: phase === 'running' ? 30_000 : false,
+  });
+
+  async function refresh(): Promise<void> {
+    await client.invalidateQueries({ queryKey: ['clarifications', contestKey] });
+  }
+
+  async function ask(): Promise<void> {
+    setAskBusy(true);
+    setError(null);
+    try {
+      const { error: failure } = await api.POST('/contests/{key}/clarifications', {
+        params: { path: { key: contestKey } },
+        body: { question, problemCode: askProblem === '' ? null : askProblem },
+      });
+      if (failure) {
+        setError(failure.detail ?? t('clar.askError'));
+        return;
+      }
+      setQuestion('');
+      await refresh();
+    } catch {
+      // openapi-fetch rethrows network-level failures rather than resolving
+      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+      setError(t('common.networkError'));
+    } finally {
+      setAskBusy(false);
+    }
+  }
+
+  async function announce(): Promise<void> {
+    setAnnounceBusy(true);
+    setError(null);
+    try {
+      const { error: failure } = await api.POST('/contests/{key}/announcements', {
+        params: { path: { key: contestKey } },
+        body: { text: announcement, problemCode: announceProblem === '' ? null : announceProblem },
+      });
+      if (failure) {
+        setError(failure.detail ?? failure.code);
+        return;
+      }
+      setAnnouncement('');
+      await refresh();
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      setAnnounceBusy(false);
+    }
+  }
+
+  /**
+   * One row's PATCH. `answer` and `visibility` travel separately because
+   * they are separate decisions: an organiser writes a reply the asker alone
+   * should see far more often than they publish one, and a form that always
+   * sent both would make publishing the default.
+   */
+  async function patchRow(id: number, body: { answer?: string; visibility?: 'public' }): Promise<void> {
+    setRowBusy(id);
+    setError(null);
+    try {
+      const { error: failure } = await api.PATCH('/contests/{key}/clarifications/{id}', {
+        params: { path: { key: contestKey, id: String(id) } },
+        body,
+      });
+      if (failure) {
+        setError(failure.detail ?? failure.code);
+        return;
+      }
+      await refresh();
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  function scope(item: Clarification): string {
+    if (item.problemCode === null) return t('clar.aboutContest');
+    const label = problems.find((problem) => problem.code === item.problemCode)?.label;
+    return t('clar.about', { problem: label ?? item.problemCode });
+  }
+
+  return (
+    <section>
+      <h2>{t('clar.title')}</h2>
+
+      {canEdit ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void announce();
+          }}
+        >
+          <h3>{t('clar.announceTitle')}</h3>
+          <p>
+            <label>
+              {t('clar.aboutContest')}{' '}
+              <select value={announceProblem} onChange={(e) => setAnnounceProblem(e.target.value)}>
+                <option value="">{t('clar.anyProblem')}</option>
+                {problems.map((problem) => (
+                  <option key={problem.code} value={problem.code}>
+                    {problem.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </p>
+          <p>
+            <textarea
+              aria-label={t('clar.announceTitle')}
+              placeholder={t('clar.announcePlaceholder')}
+              value={announcement}
+              onChange={(e) => setAnnouncement(e.target.value)}
+              rows={3}
+            />
+          </p>
+          <p>
+            <button type="submit" disabled={announceBusy || announcement.trim() === ''}>
+              {t('clar.announce')}
+            </button>
+          </p>
+        </form>
+      ) : null}
+
+      {joined ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void ask();
+          }}
+        >
+          <h3>{t('clar.askTitle')}</h3>
+          <p>
+            <label>
+              {t('clar.aboutContest')}{' '}
+              <select value={askProblem} onChange={(e) => setAskProblem(e.target.value)}>
+                <option value="">{t('clar.anyProblem')}</option>
+                {problems.map((problem) => (
+                  <option key={problem.code} value={problem.code}>
+                    {problem.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </p>
+          <p>
+            <textarea
+              aria-label={t('clar.askTitle')}
+              placeholder={t('clar.askPlaceholder')}
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              rows={3}
+            />
+          </p>
+          <p>
+            <button type="submit" disabled={askBusy || question.trim() === ''}>
+              {t('clar.ask')}
+            </button>
+          </p>
+        </form>
+      ) : (
+        <p className="muted">{t('clar.joinToAsk')}</p>
+      )}
+
+      {error ? <p role="alert">{error}</p> : null}
+      {feed.error ? <p role="alert">{feed.error.message}</p> : null}
+      {feed.data && feed.data.items.length === 0 ? (
+        <p className="muted">{t('clar.empty')}</p>
+      ) : null}
+
+      {feed.data?.items.map((item) => (
+        <article key={item.id}>
+          <p className="muted">
+            {item.question === null ? t('clar.announcement') : t('clar.question')} · {scope(item)} ·{' '}
+            {when(item.createdAt, locale)}
+            {item.visibility === 'private' ? <> · {t('clar.private')}</> : null}
+          </p>
+          {item.question === null ? null : <p>{item.question}</p>}
+          {item.answer === null ? (
+            <p className="muted">{t('clar.unanswered')}</p>
+          ) : (
+            <p>
+              <strong>{item.answer}</strong>
+            </p>
+          )}
+          {canEdit && item.question !== null ? (
+            <p>
+              <textarea
+                aria-label={`${t('clar.answer')} #${String(item.id)}`}
+                placeholder={t('clar.answerPlaceholder')}
+                value={answers[item.id] ?? item.answer ?? ''}
+                onChange={(e) => setAnswers((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                rows={2}
+              />{' '}
+              <button
+                type="button"
+                disabled={rowBusy === item.id}
+                onClick={() => void patchRow(item.id, { answer: answers[item.id] ?? item.answer ?? '' })}
+              >
+                {t('clar.answer')}
+              </button>{' '}
+              {item.visibility === 'private' ? (
+                <button
+                  type="button"
+                  disabled={rowBusy === item.id}
+                  onClick={() => void patchRow(item.id, { visibility: 'public' })}
+                >
+                  {t('clar.publish')}
+                </button>
+              ) : (
+                <span className="muted">{t('clar.published')}</span>
+              )}
+            </p>
+          ) : null}
+        </article>
+      ))}
     </section>
   );
 }

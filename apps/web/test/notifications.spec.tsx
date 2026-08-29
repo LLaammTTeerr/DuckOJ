@@ -97,3 +97,50 @@ describe('NotificationsPage', () => {
     expect(await screen.findByText(/Đăng nhập để xem thông báo/)).toBeInTheDocument();
   });
 });
+
+/**
+ * D31's three kinds. The point of pinning them here is the fallback: a kind
+ * the switch does not know renders as its own raw name (`a_kind_from_the_
+ * future` above), which is fine for a kind the server grew yesterday and a
+ * bug for one this app ships.
+ */
+describe('contest clarification notifications', () => {
+  const CONTEST_FEED = {
+    unreadCount: 3,
+    items: [
+      {
+        id: 30,
+        kind: 'clarification_answered',
+        payload: { contestKey: 'spring', contestName: 'Spring Open', clarificationId: 7 },
+        readAt: null,
+        createdAt: '2026-08-01T00:00:00Z',
+      },
+      {
+        id: 29,
+        kind: 'clarification_published',
+        payload: { contestKey: 'spring', contestName: 'Spring Open', clarificationId: 7 },
+        readAt: null,
+        createdAt: '2026-08-01T00:00:00Z',
+      },
+      {
+        id: 28,
+        kind: 'contest_announcement',
+        payload: { contestKey: 'spring', contestName: 'Spring Open', clarificationId: 8 },
+        readAt: null,
+        createdAt: '2026-08-01T00:00:00Z',
+      },
+    ],
+  };
+
+  it('reads each as a sentence around a link to the contest, never as a raw kind', async () => {
+    get.mockResolvedValue({ data: CONTEST_FEED });
+    wrap(<NotificationsPage />);
+
+    expect(await screen.findByText(/Câu hỏi của bạn ở/)).toBeInTheDocument();
+    expect(screen.getByText(/Có câu hỏi được công bố ở/)).toBeInTheDocument();
+    expect(screen.getByText(/Thông báo mới ở/)).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Spring Open' })).toHaveLength(3);
+    expect(screen.queryByText('clarification_answered')).toBeNull();
+    expect(screen.queryByText('contest_announcement')).toBeNull();
+  });
+});

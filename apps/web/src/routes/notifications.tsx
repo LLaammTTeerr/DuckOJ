@@ -76,6 +76,36 @@ function line(t: TFunction, item: Item): React.ReactNode {
           })}
         </>
       );
+    // The three D31 kinds. All carry `contestKey`, and all read better as
+    // a sentence wrapped around a link to the contest than as a bare line —
+    // the reader's next move is always "open the contest and look".
+    case 'clarification_answered':
+    case 'clarification_published':
+    case 'contest_announcement': {
+      const contestKey = typeof p.contestKey === 'string' ? p.contestKey : '';
+      const name = typeof p.contestName === 'string' ? p.contestName : contestKey;
+      const prefix =
+        item.kind === 'clarification_answered'
+          ? 'notifications.clarificationAnsweredPrefix'
+          : item.kind === 'clarification_published'
+            ? 'notifications.clarificationPublishedPrefix'
+            : 'notifications.contestAnnouncementPrefix';
+      const suffix =
+        item.kind === 'clarification_answered'
+          ? 'notifications.clarificationAnsweredSuffix'
+          : item.kind === 'clarification_published'
+            ? 'notifications.clarificationPublishedSuffix'
+            : 'notifications.contestAnnouncementSuffix';
+      return (
+        <>
+          {t(prefix)}
+          <Link to="/contests/$key" params={{ key: contestKey }}>
+            {name}
+          </Link>
+          {t(suffix)}
+        </>
+      );
+    }
     case 'totp_reset':
       return <>{t('notifications.totpReset')}</>;
     default:
