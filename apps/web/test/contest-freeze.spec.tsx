@@ -161,7 +161,10 @@ describe('the freeze field on the contest forms', () => {
     patch.mockResolvedValue({ data: CONTEST });
     wrap(<ContestEditPage contestKey="spring" />);
 
-    expect(await screen.findByLabelText('Đóng băng (phút)')).toHaveValue('20');
+    // A number, not a string: the edit form's freeze box is `type="number"`
+    // so a browser refuses non-integers before the handler ever sees them
+    // (m6's other half).
+    expect(await screen.findByLabelText('Đóng băng (phút)')).toHaveValue(20);
     await userEvent.click(screen.getByRole('button', { name: 'Lưu kỳ thi' }));
 
     expect(patch.mock.calls[0]![1].body.frozenLastMinutes).toBe(20);
