@@ -3579,6 +3579,60 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many FAILED sign-in attempts (`login_rate_limited`) — ten per identifier and thirty per client IP, each per fifteen minutes (D16). A successful sign-in consumes neither window, and the refusal itself records nothing. `Retry-After` carries the whole seconds until the window frees up.",
+            "headers": {
+              "Retry-After": {
+                "description": "Whole seconds until another attempt will be accepted",
+                "required": true,
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
           }
         }
       }

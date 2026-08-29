@@ -69,6 +69,13 @@ export class ProblemFilter implements ExceptionFilter {
     const problem = this.toProblem(exception, req.originalUrl);
     if (problem.status >= 500) this.logger.error(describeError(exception));
 
+    // Set before `status`/`send`: headers an `AppError` carries are part of
+    // the answer (a 429's `Retry-After` is where a client actually looks),
+    // and they must not depend on any handler having remembered to reach for
+    // the response object itself.
+    if (exception instanceof AppError && exception.headers) {
+      for (const [name, value] of Object.entries(exception.headers)) res.setHeader(name, value);
+    }
     res.status(problem.status).type('application/problem+json').send(problem);
   }
 

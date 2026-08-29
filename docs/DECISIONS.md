@@ -150,3 +150,39 @@ today via Markdown+KaTeX.
 **Resolved the same day:** the user approved installing typst, and the
 port shipped as designed — `TYPST_BIN` config, `TypstStatementRenderer`
 with mitex for math, 501 when unconfigured. Phase 7b ledger.
+
+## D16 — Login is rate limited: 10 per identifier and 30 per IP, per 15 min
+
+Counted in `rate_events` under purpose `login`, reusing D13's DB-backed
+fixed-window limiter for the same reasons: deterministic under test and
+correct across several API instances. Two windows, checked together,
+because they stop different attacks — the per-identifier one stops a
+single account being ground down, the per-IP one stops one host spraying
+one password across many accounts, which the first never sees.
+
+**Only failed attempts count.** A successful sign-in consumes nothing, so
+someone who genuinely signs in all day is never affected; and a refused
+(429) request records nothing either, so the window drains rather than a
+shared IP staying locked out for as long as an attacker keeps knocking.
+Every 401 does count, `totp_required` included: exempting it would leave
+the six-digit code brute-forceable by anyone who already has the
+password, which is the one attack two-factor exists to stop. The cost is
+one of ten attempts per fifteen minutes for the ordinary two-step
+sign-in.
+
+The key is the identifier as SUBMITTED (lowercased), not the account it
+resolves to — an unknown username must have a window too, or the
+endpoint becomes an enumeration oracle. The IP is the first hop of
+`X-Forwarded-For` (what Caddy prepends), else the socket address; later
+entries in that header are client-supplied and would let a caller mint a
+fresh "IP" per request. Express' `req.ip` is not used: it ignores the
+header unless `trust proxy` is set, which this application deliberately
+does not set.
+
+The refusal is 429 `login_rate_limited` with `Retry-After` in whole
+seconds — the header, per RFC 9110, not a body field. `AppError` grew a
+`headers` bag for it and `ProblemFilter` writes them.
+
+The numbers (10/30/15 min) are a judgement, not a measurement, chosen
+autonomously under the province-ready campaign; they are three constants
+in `auth.controller.ts`.

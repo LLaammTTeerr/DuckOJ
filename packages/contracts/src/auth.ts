@@ -73,6 +73,21 @@ registry.registerPath({
       description: 'Invalid credentials or a TOTP code is required',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
+    429: {
+      description:
+        'Too many FAILED sign-in attempts (`login_rate_limited`) — ten per identifier and thirty ' +
+        'per client IP, each per fifteen minutes (D16). A successful sign-in consumes neither ' +
+        'window, and the refusal itself records nothing. `Retry-After` carries the whole seconds ' +
+        'until the window frees up.',
+      headers: {
+        'Retry-After': {
+          description: 'Whole seconds until another attempt will be accepted',
+          required: true,
+          schema: { type: 'integer' },
+        },
+      },
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
 

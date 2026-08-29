@@ -1735,6 +1735,28 @@ export interface paths {
                         };
                     };
                 };
+                /** @description Too many FAILED sign-in attempts (`login_rate_limited`) — ten per identifier and thirty per client IP, each per fifteen minutes (D16). A successful sign-in consumes neither window, and the refusal itself records nothing. `Retry-After` carries the whole seconds until the window frees up. */
+                429: {
+                    headers: {
+                        /** @description Whole seconds until another attempt will be accepted */
+                        "Retry-After": number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
             };
         };
         delete?: never;
