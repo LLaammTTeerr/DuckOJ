@@ -21,3 +21,4 @@
 - 15:13 P2 i18n dispatched (worktree, opus) on top of P1-B's branch.
 - Host process restarted; all four agents killed. State found: P1-A rejudge committed (9eaa670), disqualify uncommitted; P4 two commits; P3 14 dirty files; P2 only the merge. All four resumed via their transcripts (not re-dispatched).
 - P3 DONE_WITH_CONCERNS on `worktree-agent-a4d3c6ce2ceb84430` (c6361a1..100efce): backup/restore proven on throwaway pg; JUDGED_CONCURRENCY pool; k6 script (10-VU sanity p95 15ms). Concerns carried: restore's stop/start path unexercised; 2k-VU run still owed (Phase 5); D-number collisions (P3 D17, P4 D16/D17, P1-A D16) → renumber at merge.
+- P4 DONE on `worktree-agent-a33ac2f450a6db5eb` (262f016, 4a5b989, 3d72a87): bootstrap:admin (+ password.hash.ts extraction), five Polygon-layout Vietnamese demo problems (small committed tests; generators expose LARGE_N). Ruling: accept small committed tests — the sandbox proves the pipeline, not solution speed.
