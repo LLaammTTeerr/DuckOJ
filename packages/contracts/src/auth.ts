@@ -22,6 +22,15 @@ export const LoginRequest = z.object({
   usernameOrEmail: z.string().min(1),
   password: z.string().min(1),
   totpCode: z.string().regex(/^\d{6}$/).optional(),
+  /**
+   * A single-use TOTP recovery code (D39), the alternative to `totpCode` when
+   * the authenticator is gone. Deliberately loose — the server canonicalizes
+   * (uppercase, non-alphanumerics dropped) before hashing, so a code typed
+   * without its dash, in lowercase, or with a stray space still works. A
+   * strict shape here would answer 422 for a mistyped credential, which is a
+   * different thing from "that code is wrong" and would escape D16's window.
+   */
+  recoveryCode: z.string().min(1).max(64).optional(),
 });
 export type LoginRequestDto = z.infer<typeof LoginRequest>;
 
@@ -34,6 +43,12 @@ export const MeResponse = z.object({
   locale: z.string(),
   timezone: z.string(),
   totpEnabled: z.boolean(),
+  /**
+   * How many unused TOTP recovery codes the account still holds (D39). Zero
+   * whenever 2FA is off, so the security page can tell "none left, regenerate
+   * now" apart from "nothing to have".
+   */
+  recoveryCodesRemaining: z.number().int(),
   /** Nothing is gated on this yet — see 3f §5. */
   emailVerified: z.boolean(),
   createdAt: Timestamp,
@@ -91,11 +106,20 @@ registry.registerPath({
   path: '/auth/login',
   tags: ['Auth'],
   summary: 'Sign in and receive a session cookie',
+  description:
+    'When the account has 2FA on, exactly one of `totpCode` or `recoveryCode` must accompany the '+
+    'password; `totpCode` wins if both are sent. A recovery code is spent on the sign-in it '+
+    'succeeds at, and when it was the last one the account is sent a notification telling its '+
+    'holder to generate a new set (D39).',
   request: { body: { content: { 'application/json': { schema: LoginRequest } } } },
   responses: {
     200: { description: 'Signed in', content: { 'application/json': { schema: LoginResponse } } },
     401: {
-      description: 'Invalid credentials or a TOTP code is required',
+      description:
+        'Invalid credentials, or a second factor is required (`totp_required`), or the second factor ' +
+        'was wrong (`invalid_totp_code`). A `recoveryCode` that is unknown, malformed or ALREADY SPENT ' +
+        'answers `invalid_totp_code` too (D39): a caller must not be able to tell a code that never ' +
+        'existed from one that has already been used.',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     429: {

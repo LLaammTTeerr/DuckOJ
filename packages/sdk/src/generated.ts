@@ -2227,6 +2227,7 @@ export interface paths {
                             locale: string;
                             timezone: string;
                             totpEnabled: boolean;
+                            recoveryCodesRemaining: number;
                             emailVerified: boolean;
                             /** Format: date-time */
                             createdAt: string;
@@ -2312,7 +2313,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sign in and receive a session cookie */
+        /**
+         * Sign in and receive a session cookie
+         * @description When the account has 2FA on, exactly one of `totpCode` or `recoveryCode` must accompany the password; `totpCode` wins if both are sent. A recovery code is spent on the sign-in it succeeds at, and when it was the last one the account is sent a notification telling its holder to generate a new set (D39).
+         */
         post: {
             parameters: {
                 query?: never;
@@ -2326,6 +2330,7 @@ export interface paths {
                         usernameOrEmail: string;
                         password: string;
                         totpCode?: string;
+                        recoveryCode?: string;
                     };
                 };
             };
@@ -2347,6 +2352,7 @@ export interface paths {
                                 locale: string;
                                 timezone: string;
                                 totpEnabled: boolean;
+                                recoveryCodesRemaining: number;
                                 emailVerified: boolean;
                                 /** Format: date-time */
                                 createdAt: string;
@@ -2354,7 +2360,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Invalid credentials or a TOTP code is required */
+                /** @description Invalid credentials, or a second factor is required (`totp_required`), or the second factor was wrong (`invalid_totp_code`). A `recoveryCode` that is unknown, malformed or ALREADY SPENT answers `invalid_totp_code` too (D39): a caller must not be able to tell a code that never existed from one that has already been used. */
                 401: {
                     headers: {
                         [name: string]: unknown;
@@ -2474,6 +2480,7 @@ export interface paths {
                             locale: string;
                             timezone: string;
                             totpEnabled: boolean;
+                            recoveryCodesRemaining: number;
                             emailVerified: boolean;
                             /** Format: date-time */
                             createdAt: string;
@@ -6334,7 +6341,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Confirm TOTP enrolment */
+        /**
+         * Confirm TOTP enrolment
+         * @description Answers with the eight single-use RECOVERY CODES for the account (D39). This is the only time they are ever shown — only their hashes are stored — and confirming again replaces the set, because a confirm proves exactly what a regenerate does.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -6350,12 +6360,16 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description Enrolment confirmed; the account now requires a TOTP code at login */
-                204: {
+                /** @description Enrolment confirmed; the account now requires a TOTP code at login. The body carries the recovery codes, once. */
+                200: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            recoveryCodes: string[];
+                        };
+                    };
                 };
                 /** @description Not signed in */
                 401: {
@@ -6397,7 +6411,134 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The code is not a valid 6-digit code for the pending secret (`invalid_totp_enrolment_code`) */
+                /** @description The code is not a valid 6-digit code for the credential (`invalid_totp_enrolment_code`) — the same code this route and `recovery/regenerate` both use for "the code you typed at a credential-management route was wrong", which a client must be able to tell apart from the login-time 401 `invalid_totp_code` */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/totp/recovery/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace the TOTP recovery codes
+         * @description Issues a fresh set of eight and invalidates every previous code, used or not. Requires a live TOTP code: the recovery codes are the second factor in another shape, so minting a new set from a session alone would let whoever holds a stolen session walk out with eight standing logins. The code presented here is SPENT (D34), exactly as it would be at a sign-in.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        code: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The new codes, shown once */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            recoveryCodes: string[];
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but authenticated by an access token rather than an interactive session (`session_required`) — credential management is session-only */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Two-factor authentication is not enabled for this account (`totp_not_enabled`) — there is nothing to recover to, and the code check would otherwise pass vacuously */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The code is wrong or already spent (`invalid_totp_enrolment_code`) */
                 422: {
                     headers: {
                         [name: string]: unknown;

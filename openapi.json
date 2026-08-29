@@ -4603,6 +4603,9 @@
                     "totpEnabled": {
                       "type": "boolean"
                     },
+                    "recoveryCodesRemaining": {
+                      "type": "integer"
+                    },
                     "emailVerified": {
                       "type": "boolean"
                     },
@@ -4620,6 +4623,7 @@
                     "locale",
                     "timezone",
                     "totpEnabled",
+                    "recoveryCodesRemaining",
                     "emailVerified",
                     "createdAt"
                   ]
@@ -4780,6 +4784,7 @@
           "Auth"
         ],
         "summary": "Sign in and receive a session cookie",
+        "description": "When the account has 2FA on, exactly one of `totpCode` or `recoveryCode` must accompany the password; `totpCode` wins if both are sent. A recovery code is spent on the sign-in it succeeds at, and when it was the last one the account is sent a notification telling its holder to generate a new set (D39).",
         "requestBody": {
           "content": {
             "application/json": {
@@ -4797,6 +4802,11 @@
                   "totpCode": {
                     "type": "string",
                     "pattern": "^\\d{6}$"
+                  },
+                  "recoveryCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
                   }
                 },
                 "required": [
@@ -4847,6 +4857,9 @@
                         "totpEnabled": {
                           "type": "boolean"
                         },
+                        "recoveryCodesRemaining": {
+                          "type": "integer"
+                        },
                         "emailVerified": {
                           "type": "boolean"
                         },
@@ -4864,6 +4877,7 @@
                         "locale",
                         "timezone",
                         "totpEnabled",
+                        "recoveryCodesRemaining",
                         "emailVerified",
                         "createdAt"
                       ]
@@ -4877,7 +4891,7 @@
             }
           },
           "401": {
-            "description": "Invalid credentials or a TOTP code is required",
+            "description": "Invalid credentials, or a second factor is required (`totp_required`), or the second factor was wrong (`invalid_totp_code`). A `recoveryCode` that is unknown, malformed or ALREADY SPENT answers `invalid_totp_code` too (D39): a caller must not be able to tell a code that never existed from one that has already been used.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5035,6 +5049,9 @@
                     "totpEnabled": {
                       "type": "boolean"
                     },
+                    "recoveryCodesRemaining": {
+                      "type": "integer"
+                    },
                     "emailVerified": {
                       "type": "boolean"
                     },
@@ -5052,6 +5069,7 @@
                     "locale",
                     "timezone",
                     "totpEnabled",
+                    "recoveryCodesRemaining",
                     "emailVerified",
                     "createdAt"
                   ]
@@ -12864,6 +12882,7 @@
           "Auth"
         ],
         "summary": "Confirm TOTP enrolment",
+        "description": "Answers with the eight single-use RECOVERY CODES for the account (D39). This is the only time they are ever shown — only their hashes are stored — and confirming again replaces the set, because a confirm proves exactly what a regenerate does.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -12883,8 +12902,26 @@
           }
         },
         "responses": {
-          "204": {
-            "description": "Enrolment confirmed; the account now requires a TOTP code at login"
+          "200": {
+            "description": "Enrolment confirmed; the account now requires a TOTP code at login. The body carries the recovery codes, once.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recoveryCodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "recoveryCodes"
+                  ]
+                }
+              }
+            }
           },
           "401": {
             "description": "Not signed in",
@@ -12977,7 +13014,237 @@
             }
           },
           "422": {
-            "description": "The code is not a valid 6-digit code for the pending secret (`invalid_totp_enrolment_code`)",
+            "description": "The code is not a valid 6-digit code for the credential (`invalid_totp_enrolment_code`) — the same code this route and `recovery/regenerate` both use for \"the code you typed at a credential-management route was wrong\", which a client must be able to tell apart from the login-time 401 `invalid_totp_code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/totp/recovery/regenerate": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Replace the TOTP recovery codes",
+        "description": "Issues a fresh set of eight and invalidates every previous code, used or not. Requires a live TOTP code: the recovery codes are the second factor in another shape, so minting a new set from a session alone would let whoever holds a stolen session walk out with eight standing logins. The code presented here is SPENT (D34), exactly as it would be at a sign-in.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  }
+                },
+                "required": [
+                  "code"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new codes, shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recoveryCodes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "recoveryCodes"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in, but authenticated by an access token rather than an interactive session (`session_required`) — credential management is session-only",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Two-factor authentication is not enabled for this account (`totp_not_enabled`) — there is nothing to recover to, and the code check would otherwise pass vacuously",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The code is wrong or already spent (`invalid_totp_enrolment_code`)",
             "content": {
               "application/problem+json": {
                 "schema": {
