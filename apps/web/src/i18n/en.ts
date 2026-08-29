@@ -32,6 +32,7 @@ export const en = {
   'nav.tokens': 'Tokens',
   'nav.security': 'Security',
   'nav.signIn': 'Sign in',
+  'nav.signOut': 'Sign out',
   'nav.notifications': 'Notifications, {count} unread',
   'nav.language': 'Language',
   'nav.languageVi': 'Vietnamese',

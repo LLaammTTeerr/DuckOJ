@@ -27,6 +27,7 @@ export const vi = {
   'nav.tokens': 'Mã truy cập',
   'nav.security': 'Bảo mật',
   'nav.signIn': 'Đăng nhập',
+  'nav.signOut': 'Đăng xuất',
   'nav.notifications': 'Thông báo, {count} chưa đọc',
   'nav.language': 'Ngôn ngữ',
   'nav.languageVi': 'Tiếng Việt',

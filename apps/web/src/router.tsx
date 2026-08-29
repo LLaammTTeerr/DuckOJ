@@ -79,6 +79,48 @@ function LocaleToggle() {
   );
 }
 
+/**
+ * The way out. `POST /auth/logout` has existed since Phase 1 with no control
+ * anywhere in the app — the only way to end a session was to clear the
+ * cookie by hand, which on a shared school machine means the previous pupil
+ * stays signed in. Found by Task P5.
+ *
+ * The cache is RESET rather than merely invalidated: `['me']` is not the
+ * only entry holding the departing viewer's data (the notification feed, a
+ * private problem list, a contest participation), and leaving those to
+ * refetch would paint one person's data under the next person's session.
+ * A failed call still signs out locally — a cookie the server has already
+ * forgotten must not trap the browser in a session it cannot leave.
+ */
+function SignOutButton() {
+  const t = useT();
+  const client = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  async function signOut(): Promise<void> {
+    setBusy(true);
+    try {
+      await api.POST('/auth/logout');
+    } catch {
+      // openapi-fetch rethrows network-level failures rather than resolving
+      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+    } finally {
+      setBusy(false);
+      // `clear()` is the wrong tool: it removes the cache entries but leaves
+      // every mounted observer holding the data it last rendered, so the nav
+      // keeps showing the departed viewer's name. `resetQueries()` puts each
+      // query back to its initial state AND refetches the active ones, which
+      // is what makes `GET /auth/me` answer 401 and the shell repaint as a
+      // visitor's.
+      await client.resetQueries();
+    }
+  }
+  return (
+    <button type="button" disabled={busy} onClick={() => void signOut()}>
+      {t('nav.signOut')}
+    </button>
+  );
+}
+
 function useAuthGate() {
   const client = useQueryClient();
   const t = useT();
@@ -182,9 +224,12 @@ export function ShellNav() {
         ) : null}
         <LocaleToggle />
         {me.data ? (
-          <Link to="/users/$username" params={{ username: me.data.username }}>
-            {me.data.displayName}
-          </Link>
+          <>
+            <Link to="/users/$username" params={{ username: me.data.username }}>
+              {me.data.displayName}
+            </Link>
+            <SignOutButton />
+          </>
         ) : (
           <Link to="/">{t('nav.signIn')}</Link>
         )}
