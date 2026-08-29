@@ -101,6 +101,39 @@ export const totpCredentials = pgTable('totp_credentials', {
 });
 
 /**
+ * TOTP recovery codes (D39) — the way back in when the authenticator is gone.
+ *
+ * **Only the hash is stored**, exactly as `one_time_tokens` does and for the
+ * same reason: a database leak must not hand over eight working second
+ * factors. `sha256` rather than argon2 because the stored value is 50 bits of
+ * SERVER-generated randomness, not a user-chosen password — there is no
+ * dictionary to slow down, and a per-login argon2 verify against up to eight
+ * rows at 19 MiB each would be a denial-of-service surface on a route anyone
+ * can reach.
+ *
+ * `used_at` rather than a delete, so the count of what remains and the fact
+ * that one was spent survive; the consume is a single
+ * `UPDATE … WHERE used_at IS NULL RETURNING`, which is race-free on the row
+ * itself and needs no advisory lock (unlike D34's `consumeOnce`, which has no
+ * row to claim).
+ */
+export const totpRecoveryCodes = pgTable(
+  'totp_recovery_codes',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** `sha256(canonical code)`, hex. Never the code itself. */
+    codeHash: text('code_hash').notNull(),
+    /** Set the moment the code is spent, in the statement that spends it. */
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('totp_recovery_codes_user_hash_idx').on(t.userId, t.codeHash)],
+);
+
+/**
  * Password-reset and address-verification tokens.
  *
  * **Only the hash is stored.** A database leak must not hand over working reset
