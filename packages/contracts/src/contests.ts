@@ -53,13 +53,11 @@ export const CreateContestRequest = z
     formatConfig: z.record(z.string(), z.unknown()).nullable().default(null),
     pointsPrecision: z.number().int().min(0).max(9).default(3),
     /**
-     * Accepted only as `0`. A non-zero freeze window is refused with
-     * `contest_freeze_unsupported` rather than stored and ignored: the formats
-     * throw on it because `Contest.is_frozen` reads the wall clock, and a
-     * contest that accepts a freeze it does not honour is worse than one that
-     * refuses it (design §3, §6.3). The field exists — rather than being
-     * omitted — so the refusal is explicit and the column has a name to fill
-     * when freeze is implemented.
+     * Minutes of scoreboard freeze before the end; `0` means no freeze (D22).
+     * Must be **strictly less** than the contest's own duration in minutes —
+     * a freeze as long as the contest hides all of it — which is checked
+     * against the whole request rather than here, and refused with 422
+     * `contest_freeze_too_long`.
      */
     frozenLastMinutes: z.number().int().min(0).default(0),
     timeLimitSeconds: z.number().int().positive().nullable().default(null),
@@ -96,7 +94,11 @@ export const UpdateContestRequest = z
     format: ContestFormatName.optional(),
     formatConfig: z.record(z.string(), z.unknown()).nullable().optional(),
     pointsPrecision: z.number().int().min(0).max(9).optional(),
-    /** Still only ever `0` — see `CreateContestRequest.frozenLastMinutes`. */
+    /**
+     * See `CreateContestRequest.frozenLastMinutes`. The "shorter than the
+     * contest" check runs against the MERGED state, so shrinking a contest's
+     * window under a freeze it already stores is refused too.
+     */
     frozenLastMinutes: z.number().int().min(0).optional(),
     timeLimitSeconds: z.number().int().positive().nullable().optional(),
     visibility: ContestVisibility.optional(),
@@ -201,6 +203,13 @@ export const ScoreboardRankingRow = z.object({
   frozen_tiebreaker: z.number(),
   submission_count: z.number().int(),
   format_data: z.record(z.string(), ScoreboardFormatData),
+  /**
+   * Problem code → attempts the freeze is hiding from this row (D22).
+   * Present on every row iff the board is `frozen`, absent otherwise — and
+   * it can name a problem `format_data` has no cell for, which is exactly why
+   * it is a field of its own.
+   */
+  pending: z.record(z.string(), z.number().int()).optional(),
 });
 export type ScoreboardRankingRowDto = z.infer<typeof ScoreboardRankingRow>;
 
@@ -220,6 +229,17 @@ export const Scoreboard = z.object({
   label_by_problem: z.record(z.string(), z.string()),
   problems: z.array(ScoreboardProblem),
   ranking: z.array(ScoreboardRankingRow),
+  /**
+   * Whether this response hides anything: a ranked participation is inside
+   * its freeze window right now (D22). The contest's creator and global
+   * admins always read `false` — they are served the live board.
+   *
+   * camelCase beside a snake_case object on purpose: the snake_case fields
+   * are the goldens' own shape, frozen from DMOJ; these two are DuckOJ's.
+   */
+  frozen: z.boolean(),
+  /** `endTime − frozenLastMinutes` whenever there is a freeze window; else null. */
+  frozenAt: Timestamp.nullable(),
 });
 export type ScoreboardDto = z.infer<typeof Scoreboard>;
 
@@ -239,12 +259,13 @@ const FORBIDDEN = {
 };
 const BAD_REQUEST = {
   description:
-    'An unknown format (`unknown_contest_format`), a non-zero freeze window ' +
-    '(`contest_freeze_unsupported`), an end before the start, or an unknown problem',
+    'An unknown format (`unknown_contest_format`), an end before the start, or an unknown problem',
   content: { 'application/problem+json': { schema: ProblemDetails } },
 };
 const VALIDATION_FAILED = {
-  description: 'The request failed validation',
+  description:
+    'The request failed validation, or the freeze window is not shorter than the contest ' +
+    '(`contest_freeze_too_long`)',
   content: { 'application/problem+json': { schema: ProblemDetails } },
 };
 
@@ -278,7 +299,9 @@ registry.registerPath({
   request: { params: ContestKeyParam },
   responses: {
     200: {
-      description: 'The scoreboard — snake_case, mirroring the goldens field for field',
+      description:
+        'The scoreboard — snake_case, mirroring the goldens field for field, plus `frozen`, ' +
+        '`frozenAt` and per-row `pending` for the freeze window',
       content: { 'application/json': { schema: Scoreboard } },
     },
     404: CONTEST_NOT_FOUND,

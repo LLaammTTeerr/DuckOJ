@@ -405,7 +405,7 @@
             }
           },
           "400": {
-            "description": "An unknown format (`unknown_contest_format`), a non-zero freeze window (`contest_freeze_unsupported`), an end before the start, or an unknown problem",
+            "description": "An unknown format (`unknown_contest_format`), an end before the start, or an unknown problem",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -585,7 +585,7 @@
             }
           },
           "422": {
-            "description": "The request failed validation",
+            "description": "The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1044,7 +1044,7 @@
             }
           },
           "400": {
-            "description": "An unknown format (`unknown_contest_format`), a non-zero freeze window (`contest_freeze_unsupported`), an end before the start, or an unknown problem",
+            "description": "An unknown format (`unknown_contest_format`), an end before the start, or an unknown problem",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1224,7 +1224,7 @@
             }
           },
           "422": {
-            "description": "The request failed validation",
+            "description": "The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1289,7 +1289,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The scoreboard — snake_case, mirroring the goldens field for field",
+            "description": "The scoreboard — snake_case, mirroring the goldens field for field, plus `frozen`, `frozenAt` and per-row `pending` for the freeze window",
             "content": {
               "application/json": {
                 "schema": {
@@ -1408,6 +1408,12 @@
                                 "time"
                               ]
                             }
+                          },
+                          "pending": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "integer"
+                            }
                           }
                         },
                         "required": [
@@ -1425,12 +1431,24 @@
                           "format_data"
                         ]
                       }
+                    },
+                    "frozen": {
+                      "type": "boolean"
+                    },
+                    "frozenAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
                     }
                   },
                   "required": [
                     "label_by_problem",
                     "problems",
-                    "ranking"
+                    "ranking",
+                    "frozen",
+                    "frozenAt"
                   ]
                 }
               }
@@ -2544,7 +2562,7 @@
             }
           },
           "422": {
-            "description": "The request failed validation",
+            "description": "The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`)",
             "content": {
               "application/problem+json": {
                 "schema": {

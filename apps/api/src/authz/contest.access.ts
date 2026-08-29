@@ -173,7 +173,11 @@ export class ContestAccessService {
     if (new Date() < contest.startTime && !canRunContest(actor, contest)) {
       throw new AppError(409, 'contest_not_started', 'This contest has not started yet.');
     }
-    return this.computeScoreboard(contest);
+    // The freeze window, D22. `now` is what the formats judge it against, and
+    // **omitting it means "no freeze"** — so the people who run the contest
+    // get the live board by being handed no clock at all, rather than by a
+    // second code path that could drift from this one.
+    return this.computeScoreboard(contest, canRunContest(actor, contest) ? undefined : new Date());
   }
 
   /**
@@ -193,7 +197,12 @@ export class ContestAccessService {
     return this.computeScoreboard(contest);
   }
 
-  private async computeScoreboard(contest: ContestRow): Promise<Scoreboard> {
+  /**
+   * @param now The instant the freeze window is judged against, or `undefined`
+   *   for the live board. `scoreboardForSystem` passes nothing: a rating
+   *   replay that ran during a freeze would fold hidden scores as zeros.
+   */
+  private async computeScoreboard(contest: ContestRow, now?: Date): Promise<Scoreboard> {
     const [problemRows, participationRows] = await Promise.all([
       this.loadProblemRows(contest.id),
       this.db
@@ -247,16 +256,18 @@ export class ContestAccessService {
         participations: participationRows,
         submissions: submissionRows,
       }),
+      'duckoj',
+      now?.toISOString(),
     );
   }
 
   /**
    * Creates a contest, its org shares and its problems in one transaction.
    *
-   * Two refusals are the point of this method, both from design §6:
-   * a format the registry does not know, and a non-zero freeze window. Both
-   * are rejected *before* anything is written — a contest that stores either
-   * is a contest whose scoreboard throws on every read.
+   * Two refusals are the point of this method: a format the registry does not
+   * know (design §6), and a freeze window that is not shorter than the contest
+   * (D22). Both are rejected *before* anything is written — a contest that
+   * stores either is a contest whose scoreboard is unreadable.
    */
   async create(actor: Actor | null, body: CreateContestInput): Promise<ContestDetailDto> {
     if (!actor || !canCreateContest(actor)) {
@@ -273,23 +284,12 @@ export class ContestAccessService {
     }
 
     const frozenLastMinutes = body.frozenLastMinutes ?? 0;
-    if (frozenLastMinutes !== 0) {
-      // Refused, never stored and ignored: `Contest.is_frozen` compares the
-      // wall clock to the freeze instant, so the formats reject a freeze
-      // window outright (4b ledger). Accepting one here would produce a
-      // contest whose scoreboard is a 500.
-      throw new AppError(
-        400,
-        'contest_freeze_unsupported',
-        'A frozen scoreboard is not implemented yet; frozenLastMinutes must be 0.',
-      );
-    }
-
     const startTime = new Date(body.startTime);
     const endTime = new Date(body.endTime);
     if (endTime.getTime() <= startTime.getTime()) {
       throw new AppError(400, 'contest_window_invalid', 'A contest must end after it starts.');
     }
+    assertFreezeFits(frozenLastMinutes, startTime, endTime);
 
     const visibility = body.visibility ?? 'private';
     const orgSlugs = body.orgSlugs ?? [];
@@ -375,19 +375,15 @@ export class ContestAccessService {
     }
 
     const frozenLastMinutes = body.frozenLastMinutes ?? contest.frozenLastMinutes;
-    if (frozenLastMinutes !== 0) {
-      throw new AppError(
-        400,
-        'contest_freeze_unsupported',
-        'A frozen scoreboard is not implemented yet; frozenLastMinutes must be 0.',
-      );
-    }
-
     const startTime = body.startTime === undefined ? contest.startTime : new Date(body.startTime);
     const endTime = body.endTime === undefined ? contest.endTime : new Date(body.endTime);
     if (endTime.getTime() <= startTime.getTime()) {
       throw new AppError(400, 'contest_window_invalid', 'A contest must end after it starts.');
     }
+    // On the MERGED state, like every other check here: a patch that only
+    // moves `endTime` can make a freeze window the contest already stores
+    // longer than the contest itself, and nothing in the patch says so.
+    assertFreezeFits(frozenLastMinutes, startTime, endTime);
 
     const visibility = body.visibility ?? contest.visibility;
     if (visibility === 'org') {
@@ -883,6 +879,31 @@ export function canRunContest(
  * touch: `{ timeLimitSeconds: null }` means "remove the limit" and `{}`
  * means "leave it", and `body.timeLimitSeconds` is `undefined` for both.
  */
+/**
+ * The one write-time rule a freeze window has (D22): it must be **strictly
+ * shorter** than the contest, in whole minutes.
+ *
+ * A freeze as long as the contest hides the whole thing from everyone but its
+ * organisers for its entire duration, which is not a freeze — it is a private
+ * scoreboard with a public URL. Equality is refused too, for the same reason.
+ *
+ * 422, not the 400 its neighbours use: the value is a well-formed integer that
+ * the request as a whole makes impossible, which is exactly the distinction
+ * 422 draws, and it is what the brief specified.
+ */
+function assertFreezeFits(frozenLastMinutes: number, startTime: Date, endTime: Date): void {
+  if (frozenLastMinutes === 0) return;
+  const durationMinutes = (endTime.getTime() - startTime.getTime()) / 60_000;
+  if (frozenLastMinutes >= durationMinutes) {
+    throw new AppError(
+      422,
+      'contest_freeze_too_long',
+      `A freeze window of ${String(frozenLastMinutes)} minutes is not shorter than the ` +
+        `contest, which runs ${String(durationMinutes)} minutes.`,
+    );
+  }
+}
+
 function hasKey<T extends object>(body: T, key: keyof T): boolean {
   return Object.prototype.hasOwnProperty.call(body, key);
 }

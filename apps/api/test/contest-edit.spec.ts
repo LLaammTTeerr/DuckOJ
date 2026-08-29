@@ -113,9 +113,11 @@ describe('editing a contest', () => {
       await expect(
         service.update(actorFor(owner.id), 'ce2', { format: 'no-such-format' }),
       ).rejects.toMatchObject({ status: 400, code: 'unknown_contest_format' });
+      // A freeze window is legal since D22 — but not one as long as the
+      // contest, which runs 60 minutes here.
       await expect(
-        service.update(actorFor(owner.id), 'ce2', { frozenLastMinutes: 15 }),
-      ).rejects.toMatchObject({ status: 400, code: 'contest_freeze_unsupported' });
+        service.update(actorFor(owner.id), 'ce2', { frozenLastMinutes: 60 }),
+      ).rejects.toMatchObject({ status: 422, code: 'contest_freeze_too_long' });
       // Org visibility with nothing shared would hide the contest from
       // everyone, its own creator included.
       await expect(

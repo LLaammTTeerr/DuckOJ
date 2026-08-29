@@ -295,10 +295,10 @@ export const contests = pgTable(
     formatConfig: jsonb('format_config'),
     pointsPrecision: integer('points_precision').notNull().default(3),
     /**
-     * Always 0 for now, and refused at write time when it is not: the formats
-     * throw on a freeze window because `Contest.is_frozen` reads the wall
-     * clock (4b ledger). A contest that accepted a freeze it does not honour
-     * would be worse than one that refuses it.
+     * Minutes of scoreboard freeze before `end_time`; `0` is no freeze (D22).
+     * Refused at write time unless it is strictly shorter than the contest —
+     * a freeze as long as the contest hides all of it. The formats read the
+     * clock through an injected `now`, never `Date.now()`.
      */
     frozenLastMinutes: integer('frozen_last_minutes').notNull().default(0),
     /** `null` means "no per-participant time limit", which also pins `start`. */

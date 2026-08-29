@@ -60,25 +60,6 @@ async function seedContest(
 }
 
 describe('POST /contests refuses what it cannot honour', () => {
-  it('refuses a non-zero frozen_last_minutes with contest_freeze_unsupported, and stores nothing', async () => {
-    await withTestDb(async (db) => {
-      const app = await buildApp(db);
-      try {
-        const agent = await setterAgent(app, db, 'freeze-setter');
-        const res = await agent.post('/contests').send({ ...VALID, frozenLastMinutes: 15 });
-
-        expect(res.status).toBe(400);
-        expect(res.body.code).toBe('contest_freeze_unsupported');
-        // The refusal must be a refusal, not a silently-ignored field: a
-        // contest storing a freeze window it does not honour is worse than
-        // one that refuses it (design §3).
-        expect(await db.select().from(contests)).toHaveLength(0);
-      } finally {
-        await app.close();
-      }
-    });
-  }, 120_000);
-
   it('refuses an unknown format with unknown_contest_format, and stores nothing', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);

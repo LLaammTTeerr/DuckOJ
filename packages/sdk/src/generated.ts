@@ -138,7 +138,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description An unknown format (`unknown_contest_format`), a non-zero freeze window (`contest_freeze_unsupported`), an end before the start, or an unknown problem */
+                /** @description An unknown format (`unknown_contest_format`), an end before the start, or an unknown problem */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -218,7 +218,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The request failed validation */
+                /** @description The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`) */
                 422: {
                     headers: {
                         [name: string]: unknown;
@@ -409,7 +409,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description An unknown format (`unknown_contest_format`), a non-zero freeze window (`contest_freeze_unsupported`), an end before the start, or an unknown problem */
+                /** @description An unknown format (`unknown_contest_format`), an end before the start, or an unknown problem */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -489,7 +489,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The request failed validation */
+                /** @description The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`) */
                 422: {
                     headers: {
                         [name: string]: unknown;
@@ -532,7 +532,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description The scoreboard — snake_case, mirroring the goldens field for field */
+                /** @description The scoreboard — snake_case, mirroring the goldens field for field, plus `frozen`, `frozenAt` and per-row `pending` for the freeze window */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -572,7 +572,13 @@ export interface paths {
                                         is_frozen?: boolean;
                                     };
                                 };
+                                pending?: {
+                                    [key: string]: number;
+                                };
                             }[];
+                            frozen: boolean;
+                            /** Format: date-time */
+                            frozenAt: string | null;
                         };
                     };
                 };
@@ -1191,7 +1197,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The request failed validation */
+                /** @description The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`) */
                 422: {
                     headers: {
                         [name: string]: unknown;
