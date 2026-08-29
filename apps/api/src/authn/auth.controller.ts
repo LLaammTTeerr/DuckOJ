@@ -228,7 +228,13 @@ export class AuthController {
     }
 
     const { token, expiresAt } = await this.sessions.issue(user.id, {
-      ip: req.ip,
+      // `clientIp(req)`, not `req.ip` (final review m2). Express only honours
+      // `X-Forwarded-For` when `trust proxy` is set, which this application
+      // deliberately does not set, so `req.ip` behind Caddy is the proxy
+      // container's own compose-network address — the same string on every
+      // session ever issued, i.e. an audit column recording nothing. The
+      // limiter two dozen lines above already derives the real one.
+      ip: clientIp(req),
       userAgent: req.get('user-agent') ?? undefined,
     });
     res.cookie(this.config.sessionCookieName, token, {

@@ -169,6 +169,43 @@ describe('login / logout / me', () => {
     });
   }, 120_000);
 
+  it("records the CLIENT's address on the session row, not the proxy's (m2)", async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await agent.post('/auth/register').send({
+          username: 'audited',
+          email: 'audited@example.com',
+          password: 'a-long-enough-password',
+          displayName: 'Audited',
+        });
+        // What Caddy sends upstream: it strips whatever the client claimed
+        // and writes the connecting address itself (see `clientIp`).
+        await agent
+          .post('/auth/login')
+          .set('x-forwarded-for', '203.0.113.9')
+          .set('user-agent', 'bh1-probe/1.0')
+          .send({ usernameOrEmail: 'audited', password: 'a-long-enough-password' });
+
+        const [row] = await db
+          .select({ ip: schema.sessions.ip, userAgent: schema.sessions.userAgent })
+          .from(schema.sessions)
+          .innerJoin(schema.users, eq(schema.users.id, schema.sessions.userId))
+          .where(eq(schema.users.username, 'audited'));
+
+        // `req.ip` is the socket address, because `trust proxy` is
+        // deliberately unset — behind Caddy that is one container address,
+        // identical on every session ever issued, which makes the column an
+        // audit trail of nothing.
+        expect(row?.ip).toBe('203.0.113.9');
+        expect(row?.userAgent).toBe('bh1-probe/1.0');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('gives the same code for an unknown user as for a wrong password', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
