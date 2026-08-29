@@ -195,10 +195,10 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       await seedProblem(db, { code: 'other', name: 'Something Else', createdBy: owner.id });
       const service = new ProblemAccessService(db, UNUSED_STORE);
 
-      const byName = await service.listVisible(null, { limit: 25 }, 'PLUS');
+      const byName = await service.listVisible(null, { limit: 25 }, { q: 'PLUS' });
       expect(byName.items.map((p) => p.code)).toEqual(['aplusb']);
 
-      const byCode = await service.listVisible(null, { limit: 25 }, 'apl');
+      const byCode = await service.listVisible(null, { limit: 25 }, { q: 'apl' });
       expect(byCode.items.map((p) => p.code)).toEqual(['aplusb']);
     });
   }, 120_000);
@@ -213,7 +213,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       await seedProblem(db, { code: 'haspct', name: 'Get 100% off today', createdBy: owner.id });
       const service = new ProblemAccessService(db, UNUSED_STORE);
 
-      const page = await service.listVisible(null, { limit: 25 }, '100%');
+      const page = await service.listVisible(null, { limit: 25 }, { q: '100%' });
       expect(page.items.map((p) => p.code)).toEqual(['haspct']);
     });
   }, 120_000);

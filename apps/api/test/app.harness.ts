@@ -20,6 +20,7 @@ import { RealtimeModule } from '../src/realtime/realtime.module.js';
 import { NotificationsModule } from '../src/notifications/notifications.module.js';
 import { PackagesModule } from '../src/packages/packages.module.js';
 import { LanguagesModule } from '../src/languages/languages.module.js';
+import { TagsModule } from '../src/tags/tags.module.js';
 import { UsersModule } from '../src/users/users.module.js';
 import { RedisSubscriber } from '../src/realtime/redis-subscriber.js';
 import { SubmissionsGateway } from '../src/realtime/submissions.gateway.js';
@@ -112,6 +113,7 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
       SubmissionsModule,
       PackagesModule,
       LanguagesModule,
+      TagsModule,
       UsersModule,
       NotificationsModule,
     ],

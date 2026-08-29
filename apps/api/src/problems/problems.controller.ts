@@ -16,7 +16,7 @@ import type { Response } from 'express';
 import {
   AttachRevisionRequest,
   CreateProblemRequest,
-  ProblemListQuery,
+  ProblemListQueryParse,
   RevisionVersionParam,
   UpdateProblemRequest,
   type AttachRevisionRequestDto,
@@ -76,9 +76,25 @@ export class ProblemsController {
   @RequireScope('problems:read')
   list(
     @MaybeActor() actor: Actor | null,
-    @Query(new ZodValidationPipe(ProblemListQuery)) query: ProblemListQueryDto,
+    // `ProblemListQueryParse`, not `ProblemListQuery`: the registered schema
+    // documents `tag` as an array, and this one additionally accepts the
+    // bare string Express hands over when `?tag=` appears exactly once. See
+    // that pair's doc comment in `@duckoj/contracts`.
+    @Query(new ZodValidationPipe(ProblemListQueryParse)) query: ProblemListQueryDto,
   ): Promise<ProblemPageDto> {
-    return this.problems.listVisible(actor, { cursor: query.cursor, limit: query.limit }, query.q);
+    return this.problems.listVisible(
+      actor,
+      { cursor: query.cursor, limit: query.limit },
+      // Spelled out key by key rather than spread: `exactOptionalPropertyTypes`
+      // makes a present-but-undefined key a different type from an absent
+      // one, and `ProblemFilters` takes the tolerant form of both.
+      {
+        q: query.q,
+        tags: query.tag,
+        difficultyMin: query.difficultyMin,
+        difficultyMax: query.difficultyMax,
+      },
+    );
   }
 
   @Get(':code')

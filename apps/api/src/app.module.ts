@@ -14,6 +14,7 @@ import { RealtimeModule } from './realtime/realtime.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { PackagesModule } from './packages/packages.module.js';
 import { LanguagesModule } from './languages/languages.module.js';
+import { TagsModule } from './tags/tags.module.js';
 import { UsersModule } from './users/users.module.js';
 
 @Module({
@@ -32,6 +33,7 @@ import { UsersModule } from './users/users.module.js';
     RealtimeModule,
     PackagesModule,
     LanguagesModule,
+    TagsModule,
     UsersModule,
     NotificationsModule,
   ],

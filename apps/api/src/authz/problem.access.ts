@@ -1,11 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, isNotNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNotNull, lte, notInArray, or, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
+  contestParticipations,
+  contestProblems,
+  contests,
   organizations,
   problemMembers,
   problemOrgs,
   problemRevisions,
+  problemTags,
   problems,
   submissions,
 } from '@duckoj/db/guarded';
@@ -21,6 +25,7 @@ import {
   type ProblemPageDto,
   type ProblemSummaryDto,
   type RevisionSummaryDto,
+  type TagDto,
   type RevisionVersionResponseDto,
   type UpdateProblemRequestDto,
 } from '@duckoj/contracts';
@@ -92,6 +97,18 @@ export type AttachRevisionInput = AttachRevisionRequestDto;
 export type AttachRevisionResult = RevisionVersionResponseDto;
 
 export type PublishRevisionResult = RevisionVersionResponseDto;
+
+/**
+ * Everything `GET /problems` narrows by, beyond the page cursor. All four are
+ * independent and combine with AND; `tags` is itself an AND across its
+ * members (see `ProblemListQuery`'s doc comment in `@duckoj/contracts`).
+ */
+export interface ProblemFilters {
+  q?: string | undefined;
+  tags?: string[] | undefined;
+  difficultyMin?: number | undefined;
+  difficultyMax?: number | undefined;
+}
 
 /**
  * Escapes Postgres `LIKE` metacharacters — the escape character itself,
@@ -172,12 +189,12 @@ export class ProblemAccessService {
     // project compiles with `exactOptionalPropertyTypes`, under which a
     // parsed `PaginationQueryDto` is not assignable to the narrower form.
     page: Pick<PaginationQueryDto, 'limit'> & { cursor?: string | undefined },
-    q?: string | undefined,
+    filters: ProblemFilters = {},
   ): Promise<ProblemPageDto> {
     const after = parseCursor(page.cursor);
     const conditions = [visibleProblemsWhere(this.db, actor), gt(problems.id, after)];
-    if (q) {
-      const pattern = `%${likeEscape(q.toLowerCase())}%`;
+    if (filters.q) {
+      const pattern = `%${likeEscape(filters.q.toLowerCase())}%`;
       conditions.push(
         or(
           sql`lower(${problems.code}) like ${pattern}`,
@@ -185,6 +202,43 @@ export class ProblemAccessService {
         )!,
       );
     }
+
+    // Deduplicated on the way in: `?tag=cay&tag=cay` names one tag, and the
+    // `HAVING` below counts against this length — so leaving the duplicate
+    // in would demand a problem carry `cay` twice, which its primary key
+    // makes impossible, and answer an empty page to a harmless request.
+    const tagSlugs = [...new Set(filters.tags ?? [])];
+    if (tagSlugs.length > 0) {
+      // `count(distinct slug) = <how many were REQUESTED>` — deliberately
+      // not `= <how many resolved>`. An unknown slug then makes the whole
+      // conjunction unsatisfiable and the page empty, which is the honest
+      // answer; counting resolved ids instead would let a typo silently drop
+      // out of the AND and widen the result to whatever the rest matched.
+      const carryingAll = this.db
+        .select({ problemId: problemTags.problemId })
+        .from(problemTags)
+        .innerJoin(schema.tags, eq(schema.tags.id, problemTags.tagId))
+        .where(inArray(schema.tags.slug, tagSlugs))
+        .groupBy(problemTags.problemId)
+        .having(sql`count(distinct ${schema.tags.slug}) = ${tagSlugs.length}`);
+      conditions.push(inArray(problems.id, carryingAll));
+    }
+    // A null difficulty never satisfies either bound — SQL's own null
+    // semantics, and the right answer: "between 3 and 7" is a claim about a
+    // number, and "nobody has said" is not a number in that range.
+    if (filters.difficultyMin !== undefined) conditions.push(gte(problems.difficulty, filters.difficultyMin));
+    if (filters.difficultyMax !== undefined) conditions.push(lte(problems.difficulty, filters.difficultyMax));
+
+    const hidden = await this.contestHiddenProblemIds(actor);
+    const filtering =
+      tagSlugs.length > 0 || filters.difficultyMin !== undefined || filters.difficultyMax !== undefined;
+    // The filter runs over the MASKED view, not under it. Blanking `tags` on
+    // the row while still letting `?tag=do-thi` match it would leave the
+    // filter as an oracle answering exactly the question the blank refused
+    // — so a problem whose hint is hidden from this viewer drops out of a
+    // tag- or difficulty-filtered page entirely. An unfiltered page still
+    // lists it, blanked: hiding the hint must not hide the problem.
+    if (filtering && hidden.size > 0) conditions.push(notInArray(problems.id, [...hidden]));
 
     // The `state` term on the revision join is not redundant. Every path
     // that sets `currentRevisionId` today points it at a published
@@ -206,6 +260,7 @@ export class ProblemAccessService {
       code: string;
       name: string;
       visibility: ProblemVisibility;
+      difficulty: number | null;
       revisionId: number | null;
       timeMs: number | null;
       memoryKb: number | null;
@@ -227,6 +282,7 @@ export class ProblemAccessService {
           code: problems.code,
           name: problems.name,
           visibility: problems.visibility,
+          difficulty: problems.difficulty,
           revisionId: problemRevisions.id,
           timeMs: problemRevisions.timeMs,
           memoryKb: problemRevisions.memoryKb,
@@ -248,6 +304,7 @@ export class ProblemAccessService {
           code: problems.code,
           name: problems.name,
           visibility: problems.visibility,
+          difficulty: problems.difficulty,
           revisionId: problemRevisions.id,
           timeMs: problemRevisions.timeMs,
           memoryKb: problemRevisions.memoryKb,
@@ -260,7 +317,16 @@ export class ProblemAccessService {
         .limit(page.limit + 1);
     }
 
-    const items = rows.slice(0, page.limit).map(toSummary);
+    const pageRows = rows.slice(0, page.limit);
+    // One query for the whole page's tags, keyed by problem id — never one
+    // per row. Exactly the N+1 `testCount` was hoisted onto the summary to
+    // avoid, and the reason `tags` lives there too.
+    const tagsByProblem = await this.loadTagsByProblem(
+      pageRows.map((row) => row.id).filter((id) => !hidden.has(id)),
+    );
+    const items = pageRows.map((row) =>
+      toSummary(row, hidden.has(row.id) ? BLANK_HINT : { tags: tagsByProblem.get(row.id) ?? [], difficulty: row.difficulty }),
+    );
     const nextCursor = rows.length > page.limit ? String(items.at(-1)!.id) : null;
     return { items, nextCursor };
   }
@@ -279,6 +345,7 @@ export class ProblemAccessService {
           statement: string;
           visibility: ProblemVisibility;
           sourceAccess: 'private' | 'solved';
+          difficulty: number | null;
           createdAt: Date;
           revisionId: number | null;
           timeMs: number | null;
@@ -302,6 +369,7 @@ export class ProblemAccessService {
             statement: problems.statement,
             visibility: problems.visibility,
             sourceAccess: problems.sourceAccess,
+            difficulty: problems.difficulty,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
             timeMs: problemRevisions.timeMs,
@@ -329,6 +397,7 @@ export class ProblemAccessService {
             statement: problems.statement,
             visibility: problems.visibility,
             sourceAccess: problems.sourceAccess,
+            difficulty: problems.difficulty,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
             timeMs: problemRevisions.timeMs,
@@ -356,8 +425,18 @@ export class ProblemAccessService {
 
     const { members, orgSlugs } = await this.loadMembersAndOrgs(row.id, actor, canEditProblem(actor, ctx));
 
+    // D35: a tag is a hint, so both it and the difficulty are withheld from
+    // a viewer sitting a running contest that uses this problem. Blanked to
+    // `[]`/`null` — the same values an untagged, unrated problem returns —
+    // rather than signalled, because a distinguishable "hidden" state would
+    // itself confirm the problem is in the contest they are sitting.
+    const hidden = await this.contestHiddenProblemIds(actor, [row.id]);
+    const hint = hidden.has(row.id)
+      ? BLANK_HINT
+      : { tags: (await this.loadTagsByProblem([row.id])).get(row.id) ?? [], difficulty: row.difficulty };
+
     return {
-      ...toSummary(row),
+      ...toSummary(row, hint),
       statement: row.statement,
       // Not revision-derived, so unlike the three fields below it is never
       // nulled out on a problem whose only revision is a draft: the flag
@@ -466,6 +545,10 @@ export class ProblemAccessService {
     const orgIds = patch.orgSlugs
       ? await this.resolveOrgIds(actor!, patch.orgSlugs, new Set(ctx.sharedOrgIds))
       : undefined;
+    // Resolved here, outside the transaction, for the same reason the two
+    // above are: an unknown slug must fail the whole PATCH rather than let
+    // the name change land and the tags not.
+    const tagIds = patch.tags ? await this.resolveTagIds(patch.tags) : undefined;
 
     const effectiveVisibility = patch.visibility ?? row.visibility;
     if (effectiveVisibility === 'org') {
@@ -496,6 +579,11 @@ export class ProblemAccessService {
       // someone edit a problem they cannot read the submissions of, or the
       // reverse — neither is a state the table describes.
       if (patch.sourceAccess !== undefined) set.sourceAccess = patch.sourceAccess;
+      // `!== undefined`, not a truthiness test: `difficulty: null` is a
+      // request to CLEAR the estimate and an omitted key is a request to
+      // leave it, and `!patch.difficulty` would collapse the two (and treat
+      // a hypothetical 0 as absent besides).
+      if (patch.difficulty !== undefined) set.difficulty = patch.difficulty;
       if (Object.keys(set).length > 0) {
         await tx.update(problems).set(set).where(eq(problems.id, row.id));
       }
@@ -513,6 +601,16 @@ export class ProblemAccessService {
         await tx.delete(problemOrgs).where(eq(problemOrgs.problemId, row.id));
         if (orgIds.length > 0) {
           await tx.insert(problemOrgs).values(orgIds.map((orgId) => ({ problemId: row.id, orgId })));
+        }
+      }
+
+      // Whole-set replacement, like `members` and `orgSlugs` above — never a
+      // merge. `tags: []` therefore means "carry no tags", which is the only
+      // way to remove the last one.
+      if (tagIds) {
+        await tx.delete(problemTags).where(eq(problemTags.problemId, row.id));
+        if (tagIds.length > 0) {
+          await tx.insert(problemTags).values(tagIds.map((tagId) => ({ problemId: row.id, tagId })));
         }
       }
     });
@@ -805,6 +903,7 @@ export class ProblemAccessService {
       statement: string;
       visibility: ProblemVisibility;
       sourceAccess: 'private' | 'solved';
+      difficulty: number | null;
       createdAt: Date;
       revisionId: number | null;
       timeMs: number | null;
@@ -827,6 +926,7 @@ export class ProblemAccessService {
             statement: problems.statement,
             visibility: problems.visibility,
             sourceAccess: problems.sourceAccess,
+            difficulty: problems.difficulty,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
             timeMs: problemRevisions.timeMs,
@@ -854,6 +954,7 @@ export class ProblemAccessService {
             statement: problems.statement,
             visibility: problems.visibility,
             sourceAccess: problems.sourceAccess,
+            difficulty: problems.difficulty,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
             timeMs: problemRevisions.timeMs,
@@ -871,8 +972,14 @@ export class ProblemAccessService {
 
     const { members, orgSlugs } = await this.loadMembersAndOrgs(id, actor, true);
 
+    // Deliberately NOT masked by D35, unlike `getVisible`: both callers are
+    // editors of this exact problem (see this method's doc comment), and a
+    // PATCH that set `tags` must echo back what it just stored — a masked
+    // response would tell the author their write vanished.
+    const tags = (await this.loadTagsByProblem([id])).get(id) ?? [];
+
     return {
-      ...toSummary(row),
+      ...toSummary(row, { tags, difficulty: row.difficulty }),
       statement: row.statement,
       // Not revision-derived, so unlike the three fields below it is never
       // nulled out on a problem whose only revision is a draft: the flag
@@ -886,6 +993,125 @@ export class ProblemAccessService {
       members,
       orgSlugs,
     };
+  }
+
+  /**
+   * Which problems this actor must not be shown tags or a difficulty for
+   * (D35) — the ids of every problem attached to a contest that is running
+   * RIGHT NOW and that the actor holds a participation in, minus the ones
+   * they organise.
+   *
+   * A tag is a hint. "This is a segment tree problem" is a third of the work
+   * on the hardest problem in the room, and a scoreboard that rewards
+   * reading the tag list rewards the wrong thing. Once the contest ends the
+   * hint comes back on its own — nothing is stored, this is a clock
+   * question.
+   *
+   * Deliberate simplifications, each the safe direction:
+   * - The **contest's** window, not the participant's own virtual one. A
+   *   virtual attempt begun after `end_time` sees the tags; the hint is
+   *   withheld from the live room, which is what the ranking depends on.
+   * - **Every** participation counts, spectators (`virtual = -1`) and
+   *   disqualified entries included. Hiding a hint from someone who is only
+   *   watching costs them a chip; showing it to someone who is quietly
+   *   competing costs the contest.
+   * - An anonymous viewer is hidden nothing, because they hold no
+   *   participation. Signing out therefore defeats this — accepted: the
+   *   ruling is about not putting a hint in front of a competitor, not about
+   *   making the tag list unobtainable.
+   * - An admin, and the contest's own organiser (`created_by`), see
+   *   everything. Both already read the problem's edit screen.
+   *
+   * `problemIds`, when given, narrows the scan to the ids a caller is about
+   * to render — `getVisible` needs one row's answer, not the whole set.
+   */
+  private async contestHiddenProblemIds(
+    actor: Actor | null,
+    problemIds?: number[],
+  ): Promise<ReadonlySet<number>> {
+    if (!actor || isAdmin(actor)) return EMPTY_IDS;
+    if (problemIds !== undefined && problemIds.length === 0) return EMPTY_IDS;
+    const conditions = [
+      eq(contestParticipations.userId, actor.userId),
+      // `now()` is the database's clock, the same one every other
+      // contest-window predicate in this codebase reads.
+      sql`now() >= ${contests.startTime}`,
+      sql`now() < ${contests.endTime}`,
+      sql`${contests.createdBy} <> ${actor.userId}`,
+    ];
+    if (problemIds !== undefined) conditions.push(inArray(contestProblems.problemId, problemIds));
+    const rows = await this.db
+      .selectDistinct({ problemId: contestProblems.problemId })
+      .from(contestParticipations)
+      .innerJoin(contests, eq(contests.id, contestParticipations.contestId))
+      .innerJoin(contestProblems, eq(contestProblems.contestId, contests.id))
+      .where(and(...conditions));
+    return new Set(rows.map((row) => row.problemId));
+  }
+
+  /**
+   * Every given problem's tags, expanded and ordered by slug, in ONE query.
+   * Callers pass only the ids they intend to show — a problem masked by D35
+   * is left out here rather than fetched and then discarded, so the hint
+   * never enters the process at all.
+   */
+  private async loadTagsByProblem(problemIds: number[]): Promise<Map<number, TagDto[]>> {
+    const byProblem = new Map<number, TagDto[]>();
+    if (problemIds.length === 0) return byProblem;
+    const rows = await this.db
+      .select({
+        problemId: problemTags.problemId,
+        slug: schema.tags.slug,
+        nameVi: schema.tags.nameVi,
+        nameEn: schema.tags.nameEn,
+      })
+      .from(problemTags)
+      .innerJoin(schema.tags, eq(schema.tags.id, problemTags.tagId))
+      .where(inArray(problemTags.problemId, problemIds))
+      // By slug, not by insertion order: a chip row that reshuffles between
+      // two renders of the same problem is noise, and nothing else here
+      // defines an order for a set.
+      .orderBy(asc(problemTags.problemId), asc(schema.tags.slug));
+    for (const row of rows) {
+      const list = byProblem.get(row.problemId) ?? [];
+      list.push({ slug: row.slug, nameVi: row.nameVi, nameEn: row.nameEn });
+      byProblem.set(row.problemId, list);
+    }
+    return byProblem;
+  }
+
+  /**
+   * Slugs to tag ids, exact-match and deduplicated on the resolved id.
+   *
+   * Unlike `resolveOrgIds`, an unknown slug is NAMED: 422
+   * `problem_tag_unknown` carrying the offending slugs. Blurring it would
+   * protect nothing — `GET /tags` is `@Public()` and hands the whole
+   * vocabulary to anyone who asks — while costing a setter the one piece of
+   * information that turns a rejected PATCH into a fixed one.
+   *
+   * Exact match, not `lower(...)`: every seeded slug is already lowercase
+   * and URL-safe, and a case-insensitive lookup here would accept
+   * `Do-Thi` from a PATCH while `?tag=Do-Thi` (a plain `IN`, served by
+   * `tags_slug_idx`) matched nothing — two spellings that disagree about
+   * which one is the identity.
+   */
+  private async resolveTagIds(slugs: string[]): Promise<number[]> {
+    const unique = [...new Set(slugs)];
+    if (unique.length === 0) return [];
+    const rows = await this.db
+      .select({ id: schema.tags.id, slug: schema.tags.slug })
+      .from(schema.tags)
+      .where(inArray(schema.tags.slug, unique));
+    const idBySlug = new Map(rows.map((row) => [row.slug, row.id]));
+    const unknown = unique.filter((slug) => !idBySlug.has(slug));
+    if (unknown.length > 0) {
+      throw new AppError(
+        422,
+        'problem_tag_unknown',
+        `No such tag: ${unknown.join(', ')}. GET /tags lists every tag a problem can carry.`,
+      );
+    }
+    return unique.map((slug) => idBySlug.get(slug)!);
   }
 
   /**
@@ -1070,6 +1296,22 @@ function isUniqueViolationShape(value: unknown): value is { code: string; constr
   );
 }
 
+/**
+ * What a viewer sees where D35 withholds the hint: exactly what an untagged,
+ * unrated problem returns. One frozen object rather than a literal per call
+ * site, so "hidden" and "has none" cannot drift into two distinguishable
+ * shapes.
+ */
+const BLANK_HINT: ProblemHint = Object.freeze({ tags: [] as TagDto[], difficulty: null });
+
+/** The one empty set every "nothing is hidden" answer returns. */
+const EMPTY_IDS: ReadonlySet<number> = new Set<number>();
+
+interface ProblemHint {
+  tags: TagDto[];
+  difficulty: number | null;
+}
+
 function toSummary(row: {
   id: number;
   code: string;
@@ -1085,7 +1327,7 @@ function toSummary(row: {
   meVerdict?: string | null;
   mePoints?: number | null;
   meMaxPoints?: number | null;
-}): ProblemSummaryDto {
+}, hint: ProblemHint): ProblemSummaryDto {
   return {
     id: row.id,
     code: row.code,
@@ -1100,6 +1342,13 @@ function toSummary(row: {
     // revision-derived field must read null rather than a stale value.
     testCount: row.revisionId === null ? null : row.testCount,
     me: toBestMe(row),
+    // Not revision-derived, so unlike the three fields above these are never
+    // nulled out on a draft-only problem — a problem is tagged and rated
+    // before it has anything published, and that is exactly when a curator
+    // needs to see it. `hint` is where D35's masking has already been
+    // applied (or not); this function never decides visibility itself.
+    tags: hint.tags,
+    difficulty: hint.difficulty,
   };
 }
 
