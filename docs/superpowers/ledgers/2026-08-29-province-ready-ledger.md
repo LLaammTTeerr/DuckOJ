@@ -56,3 +56,6 @@
 - Session limit (7pm reset) killed F1/F2/F3 mid-flight; all three resumed from transcripts.
 - F3 DONE_WITH_CONCERNS on `worktree-agent-af048a93012b8300f` (a935753): restore.sh M4–M7, backup modes M8, runbook boot section M10, 43-case sh test. Its D26 → renumber D29 at merge (F1 owns D26/D27, F2 D28). Merge after F1 frees main.
 - F2 DONE on `worktree-agent-a8d8dbf776183caa8` (25eb937): targeted cancel, one submission per connection, slot back-pressure, JUDGED_CONCURRENCY default 1, D28; 1142 tests. Merge after F1.
+- F1 DONE_WITH_CONCERNS (cef600f..8af34e1): B1 diff-based contest edit (D28), M1 users aggregates freeze-aware, M2 register meter + taken-email-as-success (D26), M3 contest source withheld (D27), M9 admin TOTP reset, M11 admin busy flags.
+- Merged F2 (D29) and F3 (D30); decision renumbering done. Follow-ups: register meter 5→30/IP/hour (school NAT); contest_submissions FK cascade→restrict, migration 0016.
+- Full ritual green (all packages, regen no diff, web build, restore sh tests). Redeployed: migrate 0016 applied (FK confdeltype=r), judged pool=1, api healthy. e2e rerun started.
