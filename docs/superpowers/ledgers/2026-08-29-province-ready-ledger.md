@@ -31,3 +31,5 @@
 - Pushed main for CI. Dispatched P1-C freeze (main, opus, D22) and live seeding agent (sonnet: duckadmin, five problems, hocsinh1 AC/WA, contest thu-nghiem-1).
 - Seeding DONE (a856822): live has duckadmin (via register+SQL fallback — migrate image predates bootstrap-admin; rebuild migrate at next deploy), five public problems (12 tests each), hocsinh1 with 5×AC + 1×WA (ids 31–36), contest thu-nghiem-1 (icpc, 30 days). Secrets in .secrets/ (gitignored).
 - CI on ef4c6fd (merged main): success.
+- P1-C DONE_WITH_CONCERNS (cb06591..c355fdb): freeze window (D22), D21 web hint; 1046 tests, 29/29 mutants. Concern carried: freeze applies only at the scoreboard (`/contests/{key}/me`, `/submissions` still show late verdicts) — noted as a follow-up.
+- Redeployed api/migrate/judged + web from c355fdb; scoreboard live. Pushed; CI polling. Dispatched P5 (opus) Playwright journeys against the live stack.
