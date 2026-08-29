@@ -9,7 +9,7 @@ import { SubmissionEvents } from './submission-events.js';
 import { HttpAgentClient } from './drivers/dmoj/agent-client.js';
 import { BridgeServer } from './drivers/dmoj/bridge-server.js';
 import { DmojDriver } from './drivers/dmoj/dmoj-driver.js';
-import { Worker } from './worker.js';
+import { startWorkerPool } from './worker.js';
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
@@ -48,7 +48,8 @@ async function main(): Promise<void> {
   startHealthServer(config.healthPort);
   console.log(JSON.stringify({ msg: 'bridge listening', port }));
 
-  await new Worker(jobs, writer, driver, config.workerId).start();
+  console.log(JSON.stringify({ msg: 'starting worker pool', concurrency: config.concurrency }));
+  await startWorkerPool(jobs, writer, driver, config.workerId, config.concurrency).finished;
 }
 
 main().catch((error: unknown) => {

@@ -1,0 +1,22 @@
+# systemd USER timer — fires deploy/duckoj-backup.service nightly at 03:00
+# Asia/Ho_Chi_Minh. Install instructions are in the .service file's header.
+[Unit]
+Description=Nightly DuckOJ backup at 03:00 Asia/Ho_Chi_Minh
+
+[Timer]
+# The timezone is written into the expression rather than left to the host's
+# clock: this host's TZ is not guaranteed, and "03:00" that silently means
+# 03:00 UTC is 10:00 local — the middle of a contest morning, which is the
+# one hour a pg_dump must not start.
+OnCalendar=*-*-* 03:00:00 Asia/Ho_Chi_Minh
+# The machine has already been off for four days once (see the incident note
+# in deploy/duckoj.service). Without this, every backup missed while powered
+# off is simply lost; with it, the first boot afterwards takes one.
+Persistent=true
+# Nothing else on this host is scheduled at 03:00, but a backup does not need
+# to start on the exact second, and jitter keeps it from lining up with
+# whatever gets added later.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
