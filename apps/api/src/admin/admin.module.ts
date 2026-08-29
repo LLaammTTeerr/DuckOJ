@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthzModule } from '../authz/authz.module.js';
+import { AuthnModule } from '../authn/authn.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { AdminUsersController } from './admin-users.controller.js';
 import { AdminUsersService } from './admin-users.service.js';
@@ -9,8 +10,12 @@ import { AdminSubmissionsController } from './admin-submissions.controller.js';
 
 // `AuthzModule` for `RatingService` and `RejudgeService`, which live there
 // because they read guarded tables — the same reason `UserAccessService` does.
+// `AuthnModule` for `TotpService`: the admin TOTP reset (M9) disables the
+// credential through the same service the self-service route uses, rather
+// than deleting the row itself — the encryption, the table and the
+// "confirmed" semantics all live there.
 @Module({
-  imports: [AuthzModule, NotificationsModule],
+  imports: [AuthzModule, AuthnModule, NotificationsModule],
   providers: [AdminUsersService],
   controllers: [
     AdminUsersController,

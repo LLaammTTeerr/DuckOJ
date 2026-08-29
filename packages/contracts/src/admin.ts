@@ -63,6 +63,45 @@ registry.registerPath({
 });
 
 /**
+ * M9 — an admin's TOTP reset.
+ *
+ * TOTP was a one-way door: `DELETE /auth/totp` sits behind the very factor
+ * that was lost, password reset does not clear it, and there are no recovery
+ * codes. A contestant who enrolled the night before a contest and wiped their
+ * phone had no self-service path, no admin path and no documented DBA path.
+ * This is the admin path.
+ *
+ * `204` and idempotent — "disabled, or was already off", exactly as
+ * `DELETE /auth/totp` answers. An admin clicking twice, or resetting an
+ * account that never enrolled, is not an error; and a distinguishable answer
+ * would tell an admin who has TOTP enabled, which is not information this
+ * route exists to serve.
+ *
+ * Session-only via the controller class, like every other credential surface.
+ * A machine credential must not be able to remove the second factor
+ * protecting the credentials that govern it.
+ */
+registry.registerPath({
+  method: 'delete',
+  path: '/admin/users/{username}/totp',
+  tags: ['Admin'],
+  summary: "Disable a user's two-factor authentication — admin only, session only",
+  description:
+    'For the lost-authenticator case. The user is notified in-app that their second factor was removed. ' +
+    'Idempotent: an account with no TOTP answers 204 as well.',
+  request: { params: UsernameParam },
+  responses: {
+    204: { description: 'Two-factor authentication is off for that user (or already was)' },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: {
+      description: 'No such user',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+/**
  * Rejudging.
  *
  * `202`, not `200`: the routes below queue grading and return, exactly as

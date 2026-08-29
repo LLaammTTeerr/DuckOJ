@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { eq } from 'drizzle-orm';
-import { schema } from '@duckoj/db';
+import { authenticator } from '@otplib/preset-default';
+import { schema, type Db } from '@duckoj/db';
+import { DB } from '../src/config/config.module.js';
+import { TotpService } from '../src/authn/totp.service.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import { registerAndLogin } from './submissions.fixtures.js';
@@ -220,6 +223,122 @@ describe('PATCH /admin/users/:username over HTTP', () => {
 
         const demoteOther = await adminAgent.patch('/admin/users/other-admin-target').send({ globalRole: 'setter' });
         expect(demoteOther.status).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});
+
+/**
+ * M9 — `DELETE /admin/users/{username}/totp`.
+ *
+ * TOTP was a one-way door: `DELETE /auth/totp` sits behind the very factor
+ * that was lost, password reset does not clear it, and there were no recovery
+ * codes and no admin surface anywhere. A contestant who enrolled the night
+ * before and wiped their phone was locked out permanently, with nothing an
+ * organiser could do on contest morning.
+ */
+describe('DELETE /admin/users/:username/totp over HTTP', () => {
+  /** Enrols and confirms TOTP for `username`, the way the routes would. */
+  async function enrolTotp(app: Awaited<ReturnType<typeof buildApp>>, username: string) {
+    const totp = app.get(TotpService);
+    const userId = (
+      await (app.get(DB) as Db)
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.username, username))
+    )[0]!.id;
+    const { secret } = await totp.beginEnrolment(userId);
+    await totp.confirmEnrolment(userId, authenticator.generate(secret));
+    expect(await totp.isEnabled(userId)).toBe(true);
+    return userId;
+  }
+
+  it('disables the lost authenticator, answers 204, and tells the user', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await registerAndLogin(request.agent(app.getHttpServer()), 'totp-lost');
+        const userId = await enrolTotp(app, 'totp-lost');
+
+        const adminAgent = request.agent(app.getHttpServer());
+        await registerAndLogin(adminAgent, 'totp-admin');
+        await db
+          .update(schema.users)
+          .set({ globalRole: 'admin' })
+          .where(eq(schema.users.username, 'totp-admin'));
+
+        const res = await adminAgent.delete('/admin/users/totp-lost/totp');
+        expect(res.status).toBe(204);
+        expect(await app.get(TotpService).isEnabled(userId)).toBe(false);
+
+        // The account's second factor was removed by somebody else. That is
+        // exactly the kind of thing its holder must not discover by accident.
+        const notes = await db
+          .select({ kind: schema.notifications.kind, userId: schema.notifications.userId })
+          .from(schema.notifications)
+          .where(eq(schema.notifications.userId, userId));
+        expect(notes).toEqual([{ kind: 'totp_reset', userId }]);
+
+        // Idempotent: an admin who clicks twice, or who resets an account
+        // that never had TOTP, gets the same 204 — "disabled, or was already
+        // off", the same shape `DELETE /auth/totp` documents.
+        expect((await adminAgent.delete('/admin/users/totp-lost/totp')).status).toBe(204);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('is 404 for an unknown user and 403 for a non-admin', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await registerAndLogin(request.agent(app.getHttpServer()), 'totp-victim');
+
+        const plainAgent = request.agent(app.getHttpServer());
+        await registerAndLogin(plainAgent, 'totp-plain');
+        const forbidden = await plainAgent.delete('/admin/users/totp-victim/totp');
+        expect(forbidden.status).toBe(403);
+        expect(forbidden.body.code).toBe('admin_forbidden');
+
+        const adminAgent = request.agent(app.getHttpServer());
+        await registerAndLogin(adminAgent, 'totp-admin2');
+        await db
+          .update(schema.users)
+          .set({ globalRole: 'admin' })
+          .where(eq(schema.users.username, 'totp-admin2'));
+        const missing = await adminAgent.delete('/admin/users/nobody-here/totp');
+        expect(missing.status).toBe(404);
+        expect(missing.body.code).toBe('user_not_found');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('refuses an access token — credential surfaces are session-only', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await registerAndLogin(request.agent(app.getHttpServer()), 'totp-target3');
+        const adminAgent = request.agent(app.getHttpServer());
+        await registerAndLogin(adminAgent, 'totp-admin3');
+        await db
+          .update(schema.users)
+          .set({ globalRole: 'admin' })
+          .where(eq(schema.users.username, 'totp-admin3'));
+
+        const minted = await adminAgent
+          .post('/auth/tokens')
+          .send({ name: 'ci', scopes: ['users:read'] });
+        expect(minted.status).toBe(201);
+
+        const res = await request(app.getHttpServer())
+          .delete('/admin/users/totp-target3/totp')
+          .set('Authorization', `Bearer ${String(minted.body.token)}`);
+        expect(res.status).toBe(403);
       } finally {
         await app.close();
       }

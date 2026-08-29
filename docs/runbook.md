@@ -800,6 +800,49 @@ pid, exit code, signal and uptime.
 
 Before/after numbers for the 2000-VU profile are in `load/RESULTS.md`.
 
+### A student lost their authenticator
+
+Two-factor authentication on DuckOJ has **no recovery codes**. `DELETE
+/auth/totp` — the self-service switch on `/security` — requires an
+interactive session, which requires the code the student no longer has, and a
+password reset does not clear TOTP. Without an admin there is no way back into
+the account at all, and "contest morning" is exactly when this gets reported.
+
+**The fix, from the admin panel:** sign in as an admin, open `/admin`, type the
+student's username under "Reset two-factor authentication", press the button
+and confirm. Their second factor is off immediately, they sign in with username
+and password alone, and they can re-enrol from `/security` afterwards. They get
+an in-app notification saying it happened.
+
+**Verify who you are talking to first.** This route hands an account to whoever
+asks for it, and the API cannot tell a student from someone claiming to be one.
+For a provincial contest that means checking the person against the seating
+list or the school's own contact, not accepting an email. The reset is logged
+only as the student's notification, so an admin who resets the wrong account
+leaves little trail.
+
+**From the command line**, if the web is unavailable:
+
+```sh
+curl -sS -X DELETE https://<host>/api/v1/admin/users/<username>/totp \
+  -b "duckoj_session=<an admin's session cookie>" -i
+```
+
+`204` means done — including for an account that had no TOTP, which is
+deliberate: a different answer would make the route a "does this person use
+2FA?" probe. `403 admin_forbidden` means the caller is not an admin; `403
+session_required` means an access token was used, which this route never
+accepts.
+
+**The last-resort SQL fallback**, for a database the API cannot reach:
+
+```sh
+podman exec -i duckoj_postgres_1 psql -U duckoj -d duckoj \
+  -c "delete from totp_credentials where user_id = (select id from users where lower(username) = lower('<username>'))"
+```
+
+That leaves no notification behind — prefer the route.
+
 ## Judging throughput
 
 Two separate ceilings, and they are commonly confused.

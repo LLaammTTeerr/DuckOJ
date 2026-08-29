@@ -6,6 +6,7 @@ import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from '../authz/actor.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { TotpService } from '../authn/totp.service.js';
 
 /**
  * Mirrors `identity.ts`'s `globalRole` pgEnum. Duplicated here (rather than
@@ -40,6 +41,7 @@ export class AdminUsersService {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(NotificationsService) private readonly notifications: NotificationsService,
+    @Inject(TotpService) private readonly totp: TotpService,
   ) {}
 
   async grantRole(
@@ -108,5 +110,47 @@ export class AdminUsersService {
     }
 
     return row!;
+  }
+
+  /**
+   * M9 — remove a user's second factor, for the authenticator they lost.
+   *
+   * Admin-only, checked here rather than trusted to the route decorator, the
+   * same way `grantRole` above does it.
+   *
+   * **404 before 403 is deliberately NOT the ordering here**, matching
+   * `grantRole`: this is a write on a named account by an admin, and the
+   * 404-over-403 rule protects *existence* from someone who may not know it.
+   * A caller who is not an admin learns nothing from `admin_forbidden`
+   * because they never reach the lookup at all.
+   *
+   * Idempotent. `TotpService.disable` deletes the credential row if there is
+   * one and is a no-op otherwise, so an account that never enrolled — and a
+   * second click on the same account — both answer 204. A distinguishable
+   * answer would turn this route into a "does this person use 2FA?" probe.
+   *
+   * The notification is not optional politeness: somebody else just removed
+   * the factor protecting this account, and the holder finding out by
+   * accident (or not at all) is the failure mode that makes an admin reset
+   * dangerous. Written after the delete, outside a transaction, for the same
+   * reason `grantRole`'s is: the reset is the operation, and a notification
+   * that failed to write must not undo it.
+   */
+  async resetTotp(actor: Actor, username: string): Promise<void> {
+    if (!isAdmin(actor)) {
+      throw new AppError(403, 'admin_forbidden', 'Only an admin may reset two-factor authentication.');
+    }
+
+    const [target] = await this.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(sql`lower(${schema.users.username}) = lower(${username})`)
+      .limit(1);
+    if (!target) {
+      throw new AppError(404, 'user_not_found', `No such user: ${username}.`);
+    }
+
+    await this.totp.disable(target.id);
+    await this.notifications.notify(this.db, target.id, 'totp_reset', {});
   }
 }

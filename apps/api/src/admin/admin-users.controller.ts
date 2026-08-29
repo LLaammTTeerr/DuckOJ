@@ -1,4 +1,4 @@
-import { Body, Controller, Inject, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Delete, HttpCode, Inject, Param, Patch } from '@nestjs/common';
 import { AdminGrantRoleRequest, type AdminGrantRoleRequestDto, type AdminUserSummaryDto } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { CurrentActor } from '../authn/auth.guard.js';
@@ -35,5 +35,19 @@ export class AdminUsersController {
     @Body(new ZodValidationPipe(AdminGrantRoleRequest)) body: AdminGrantRoleRequestDto,
   ): Promise<AdminUserSummaryDto> {
     return this.adminUsers.grantRole(actor, username, body);
+  }
+
+  /**
+   * M9 — the lost-authenticator path. `@SessionOnly()` comes from the class,
+   * which is the point: a bearer token must never be able to strip the second
+   * factor off an account.
+   */
+  @Delete(':username/totp')
+  @HttpCode(204)
+  resetTotp(
+    @CurrentActor() actor: Actor,
+    @Param('username') username: string,
+  ): Promise<void> {
+    return this.adminUsers.resetTotp(actor, username);
   }
 }
