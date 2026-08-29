@@ -45,3 +45,4 @@
 - P7 DONE_WITH_CONCERNS (54186e9..d369236): API_WORKERS cluster (default 4; 8 needs max_connections), per-route k6 tags, load/RESULTS.md. 2000 VU: 969→1715 req/s, p95 3.46→2.28 s, 0% errors. Next ceiling: scoreboard fold in JS per request → P8. Pushed d369236067830cafd28e228f5159a64bd8657866.
 - Dispatched P8 (worktree, opus, D25): Redis scoreboard cache TTL 2 s + coalescing + invalidation. Dispatched P9 (main, opus): final e2e — register walk, contest link, freeze masking journeys.
 - CI on d369236: success.
+- P9 DONE_WITH_CONCERNS (77c9ef9): 8/8 journeys, 17/17 with smoke; no product bugs. Concern: source_access has no UI → dispatched P10 (main, sonnet, web-only).
