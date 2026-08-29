@@ -596,6 +596,160 @@ podman-compose was available here); behavior under a fresh Podman socket after
 a host reboot; and the exact internal mechanism podman-compose uses when
 checking `service_completed_successfully` (see the hedge above — the symptom
 is confirmed, the internal cause is inferred, not traced).
+## Backups
+
+Two things on this host are irreplaceable: the Postgres database, and the
+`package_store` volume holding the content-addressed problem-package bytes.
+Everything else — images, `caddydata`, `/problems` inside the judge — is
+rebuilt or re-fetched on demand. `scripts/backup.sh` captures exactly those
+two; `scripts/restore.sh` puts them back.
+
+`pgdata` is deliberately NOT copied as a volume: `pg_dump -Fc` is consistent
+and version-portable, where tarring a live data directory is neither.
+
+### Taking a backup
+
+    scripts/backup.sh                # -> ~/duckoj-backups
+    scripts/backup.sh /mnt/usb/duckoj
+
+Each run writes `duckoj-<stamp>.dump` (custom-format `pg_dump`) and
+`duckoj-<stamp>.package_store.tar`, prints their sizes, then prunes to the
+newest `KEEP` (default 14 — see D17 in `docs/DECISIONS.md`). Both artefacts
+are written to `.partial` and renamed only after the producing command exits
+0, so the directory never holds a truncated file under a name that looks
+restorable.
+
+Env: `KEEP`, `COMPOSE_PROJECT`, `PG_CONTAINER`, `STORE_VOLUME`, `PG_USER`,
+`PG_DB`, `SKIP_STORE=1`.
+
+**From a git worktree, pass `COMPOSE_PROJECT=duckoj`.** The compose project
+name is the repo *directory* name — exactly as `scripts/compose-up.sh`
+computes it — so run from a worktree the container lookup finds nothing and
+the script exits non-zero telling you this.
+
+### Restoring
+
+    CONFIRM=yes scripts/restore.sh ~/duckoj-backups/duckoj-20260829-030000
+
+It refuses to run without `CONFIRM=yes` — there is no interactive prompt, so
+that it fails rather than hangs when run from an unattended shell. It stops
+`api` and `judged` (both hold connections; `judged` actively writes
+`grading_jobs`), leaves `postgres` up, reloads the database with `pg_restore
+--clean --if-exists --no-owner`, imports the volume tar, and starts the two
+services again. `SERVICES=""` skips the stop/start entirely — that is how the
+restore path is exercised against a throwaway container without touching a
+live stack.
+
+It is idempotent. The database half is a full `--clean` reload. The volume
+half is *additive*: `podman volume import` untars over what is already there
+without clearing it. That is correct here and only here — `package_store` is
+content-addressed, so a filename IS its hash and re-importing writes
+identical bytes. It also means a restore does not delete packages uploaded
+since the backup, which is deliberate: an orphaned blob costs disk, a deleted
+one costs a problem.
+
+`pg_restore` is run without `--exit-on-error`, because a `--clean` reload
+into a fresh database emits harmless "does not exist" noise for every object.
+The script prints a warning when `pg_restore` exits non-zero — **read the
+output before trusting that restore**; it is not a hard failure only because
+the benign case is the common one.
+
+### Nightly, unattended
+
+`deploy/duckoj-backup.service` + `deploy/duckoj-backup.timer` are systemd
+*user* units, same shape and same `__REPO__` substitution as
+`deploy/duckoj.service`:
+
+    loginctl enable-linger "$USER"
+    mkdir -p ~/.config/systemd/user
+    sed "s|__REPO__|$PWD|" deploy/duckoj-backup.service > ~/.config/systemd/user/duckoj-backup.service
+    sed "s|__REPO__|$PWD|" deploy/duckoj-backup.timer   > ~/.config/systemd/user/duckoj-backup.timer
+    systemctl --user daemon-reload
+    systemctl --user enable --now duckoj-backup.timer
+
+The timer fires at `03:00:00 Asia/Ho_Chi_Minh` — the timezone is in the
+expression on purpose, because a bare "03:00" that silently means UTC is
+10:00 local, the middle of a contest morning. `Persistent=true` makes the
+first boot after a powered-off night take the backup it missed; this host has
+already sat powered off for four days once (see the incident note in
+`deploy/duckoj.service`).
+
+Check it: `systemctl --user list-timers duckoj-backup.timer`, and
+`journalctl --user -u duckoj-backup -n 50` for the last run.
+
+**Off-host copies are not automated and are not this repo's job** (D17).
+Fourteen nightly backups on the same disk as the database protect against
+`DROP TABLE`, a bad migration, and a botched restore. They protect against
+nothing that destroys the disk or the machine. Someone has to copy
+`~/duckoj-backups` off this host on a schedule.
+
+## Judging throughput
+
+Two separate ceilings, and they are commonly confused.
+
+**`judged` — how many jobs are claimed at once.** `JUDGED_CONCURRENCY`
+(default 2, max 16) runs that many independent claim loops in the one
+`judged` process (`apps/judged/src/worker.ts`, `startWorkerPool`). This was
+safe to add without touching the claim path: `JobStore.claim` already takes
+its row under `FOR UPDATE SKIP LOCKED`, so two loops racing get two different
+jobs, and `heartbeat`/`complete`/`isCurrentAttempt` fence on `(job id,
+attempt)` rather than on the claimant, so no loop can renew or finish
+another's attempt. Each loop's `worker_id` is suffixed `#1`, `#2`, … so a
+stuck job in `grading_jobs` still names exactly one loop.
+
+Set it in `.env` (`JUDGED_CONCURRENCY=`), which `docker-compose.yml` passes
+through.
+
+**The judge — how many grades actually run at once. This is the real
+ceiling.** There is one `judge` container, and `DmojDriver.capabilities()`
+still reports `concurrency: 1`. Nothing in `judged` consults that number:
+raising `JUDGED_CONCURRENCY` past the number of judge containers buys a
+deeper queue *at the judge*, not throughput. Default 2 is chosen so that one
+slow grade does not block every submission behind it, not because two grades
+run in parallel today.
+
+### Adding a second judge container
+
+Not built — these are the exact steps, not a tested procedure. `judged`
+already accepts multiple bridge connections and `verifyJudge` is per-`(id,
+key)`, so the work is registration and a service copy.
+
+1. **A second token.** `judge_nodes` has a UNIQUE index on `token_hash`
+   (`judge_nodes_token_idx`, `packages/db/src/schema/judging.ts`), so
+   `judge-2` **cannot** reuse `JUDGE_TOKEN`. Generate one:
+   `openssl rand -hex 32`, and put it in `.env` as `JUDGE_TOKEN_2`.
+
+2. **Register the node.** `scripts/seed-problem.ts` only ever seeds
+   `judge-1` (its `JUDGE_NODE_NAME` is a constant). Insert the second row by
+   hand — `token_hash` is plain sha256-hex of the token
+   (`hashJudgeToken`, `packages/db/src/judge-auth.ts`), and `driver` must be
+   `dmoj`:
+
+       podman exec -i duckoj_postgres_1 psql -U duckoj -d duckoj -c \
+         "insert into judge_nodes (name, token_hash, driver)
+          values ('judge-2', encode(sha256('<the token>'::bytea), 'hex'), 'dmoj');"
+
+3. **Copy the service** in `docker-compose.yml`: duplicate `judge` as
+   `judge-2`, changing only `JUDGE_NAME: judge-2` and
+   `JUDGE_TOKEN: ${JUDGE_TOKEN_2:?set JUDGE_TOKEN_2}`. Everything else stays
+   — same image, same `judge/judge.yml` template mount (it is rendered per
+   container from that container's own env), same absent port publishing.
+   `/problems` is a per-container runtime directory that judge-agent
+   materialises into on demand, so the second judge needs no shared volume
+   and no seeding; it re-fetches what it needs from the API.
+
+4. **Bring it up** and add it to `scripts/compose-up.sh`'s final
+   `wait_healthy` step alongside `judge`, so a second judge that never comes
+   online fails the bring-up loudly instead of silently halving capacity.
+
+5. **Then, and only then, raise `JUDGED_CONCURRENCY` to 2 per judge.**
+
+What is genuinely untested about this: two judges grading the same problem
+concurrently, and the `live`-map hazard `DmojDriver`'s class comment already
+calls out (it keys live jobs by job id alone, not `(job, attempt)`, which
+that comment says stops being a corner case exactly when several judges run
+concurrently). Read that comment before running two judges in a rated
+contest.
 
 ## End-to-end acceptance against the real judge — `scripts/e2e-submit.ts`
 
