@@ -417,22 +417,52 @@ locked `system` account is not usable for this either: it gets no explicit
 (it exists to attribute seeded problems, not to hold privilege, and its
 `passwordHash: '!'` makes it unloggable by construction regardless).
 
-Grant the first admin by hand, directly against the database, after that
-person has registered a normal account through `POST /auth/register`:
+Use `scripts/bootstrap-admin.ts`, against `DATABASE_URL`:
 
-    UPDATE users SET global_role = 'admin' WHERE lower(username) = lower('yourname');
+    DATABASE_URL=postgres://duckoj:...@localhost:5432/duckoj \
+      corepack pnpm bootstrap:admin yourname --email you@example.com
+
+    # created yourname <you@example.com> as global_role=admin, email verified
+    # generated password: 3Qk1r_9xW2vJ8pLc0aTnZbYs
+    # This is printed once. Store it now — nothing can recover it later.
+
+It creates the account if it does not exist — hashing the password through
+`apps/api/src/authn/password.hash.ts`, the same argon2id parameters
+`POST /auth/register` uses, and marking the address verified so a fresh
+install with no SMTP server configured is not locked out — and **only
+promotes** if it does, leaving that account's password and address alone.
+Pass `--password` to choose one (at least 10 characters, matching the
+`Password` contract); omit it and one is generated and printed once, as
+above. `--email` defaults to `<username>@bootstrap.local`, which the admin
+can change from their own profile afterwards.
+
+`postgres` publishes no host port under compose (see "Local development"), so
+against a running stack this runs as a one-off container the same way the
+seed script does:
+
+    podman run --rm --network <project>_default --env-file .env \
+      localhost/<project>_migrate:latest \
+      sh -c 'DATABASE_URL="postgres://duckoj:$POSTGRES_PASSWORD@postgres:5432/duckoj" \
+             packages/db/node_modules/.bin/tsx scripts/bootstrap-admin.ts yourname'
 
 From then on, that admin can grant `setter` (or further `admin`) to anyone
-else through `PATCH /admin/users/:username` — this one manual step only has
-to happen once per database.
+else through `PATCH /admin/users/:username` — this one bootstrap step only
+has to happen once per database.
+
+**Recovery fallback.** If the script cannot be run at all — no worktree on
+the host, no image to run it from, only a `psql` prompt — the single
+statement it replaces still works, and remains the documented last resort
+for an account that already exists:
+
+    UPDATE users SET global_role = 'admin' WHERE lower(username) = lower('yourname');
 
 This is also the recovery path if every admin is ever demoted out of the
 role. `AdminUsersService` refuses to let an admin demote *themselves*
 (`admin_self_demotion`), which blocks the realistic accident, but it does not
 close the exotic case of two admins demoting each other in a race — see the
 comment in `admin-users.service.ts` for why that race is left unclosed. If a
-database is ever somehow left with zero admins, the same `UPDATE` above is
-the only way back in.
+database is ever somehow left with zero admins, either `bootstrap:admin` on
+the existing username or the `UPDATE` above is the way back in.
 
 ### Bringing the stack up under podman-compose — use `scripts/compose-up.sh`
 
@@ -1023,6 +1053,11 @@ development"), so this runs as a `podman exec` into the container:
     podman exec "${PROJECT}_postgres_1" psql -U duckoj -d duckoj -v ON_ERROR_STOP=1 \
       -c "UPDATE users SET global_role = 'admin' WHERE lower(username) = lower('admin1')"
     # UPDATE 1
+
+*(Transcribed as it was actually run, before `scripts/bootstrap-admin.ts`
+existed. Today the two steps above are one `corepack pnpm bootstrap:admin
+admin1` — see "Bootstrapping the first admin"; the SQL is kept here because
+this section is a record of a real run, and it remains the fallback.)*
 
     curl -sk -c admin.cookies -X POST "$BASE/auth/login" \
       -H 'content-type: application/json' \
