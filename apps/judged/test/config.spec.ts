@@ -22,4 +22,20 @@ describe('loadConfig', () => {
     const { REDIS_URL: _omitted, ...rest } = valid;
     expect(() => loadConfig(rest)).toThrow(/REDIS_URL/);
   });
+
+  it('runs two claim loops by default', () => {
+    expect(loadConfig(valid).concurrency).toBe(2);
+  });
+
+  it('takes JUDGED_CONCURRENCY from the environment as a number', () => {
+    expect(loadConfig({ ...valid, JUDGED_CONCURRENCY: '4' }).concurrency).toBe(4);
+  });
+
+  it('rejects a concurrency that is not a positive whole number, by name', () => {
+    expect(() => loadConfig({ ...valid, JUDGED_CONCURRENCY: '0' })).toThrow(/JUDGED_CONCURRENCY/);
+    expect(() => loadConfig({ ...valid, JUDGED_CONCURRENCY: '1.5' })).toThrow(/JUDGED_CONCURRENCY/);
+    // The judge, not judged, is the ceiling — an absurd value here would only
+    // deepen the queue at the judge while looking like a tuning win.
+    expect(() => loadConfig({ ...valid, JUDGED_CONCURRENCY: '99' })).toThrow(/JUDGED_CONCURRENCY/);
+  });
 });

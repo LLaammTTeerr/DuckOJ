@@ -226,3 +226,51 @@ export class Worker {
     this.running = false;
   }
 }
+
+/**
+ * A fixed set of independent claim loops over one JobStore — the whole of
+ * `JUDGED_CONCURRENCY`.
+ *
+ * Nothing in `Worker` changes. Concurrency is safe here because it was
+ * already designed for: `JobStore.claim` takes its row under
+ * `FOR UPDATE SKIP LOCKED`, so two loops racing get two different jobs (or
+ * one gets null) rather than the same row twice — proved against a real
+ * Postgres over two connections in `job-store.concurrency.spec.ts` — and
+ * `heartbeat`/`complete`/`isCurrentAttempt` all fence on `(job id, attempt)`
+ * rather than on the claimant, so no loop can renew or finish another's
+ * attempt. `worker_id` itself is written but never read back for control
+ * flow; it is diagnostic, which is why suffixing it below is free.
+ *
+ * Each loop gets `#1`, `#2`, … appended so `grading_jobs.worker_id` still
+ * names exactly one loop when a stuck job has to be traced to its logs.
+ *
+ * IMPORTANT: this raises how many grades `judged` will *ask* for at once, not
+ * how many the judge can actually run. The DMOJ judge behind
+ * `DmojDriver`/`BridgeServer` is the real ceiling — `capabilities()` still
+ * declares `concurrency: 1`, and nothing here consults it. Raising this knob
+ * past the number of judge containers buys queueing at the judge, not
+ * throughput. See docs/runbook.md, "Judging throughput".
+ */
+export function startWorkerPool(
+  jobs: JobStore,
+  writer: EventWriter,
+  driver: JudgeDriver,
+  workerId: string,
+  concurrency: number,
+): { workers: Worker[]; finished: Promise<void>; stop: () => void } {
+  const workers = Array.from(
+    { length: concurrency },
+    (_unused, index) => new Worker(jobs, writer, driver, `${workerId}#${index + 1}`),
+  );
+  // `Promise.all`, not `race`: `finished` must not settle while any loop is
+  // still grading, or a caller awaiting it would let the process exit with a
+  // job in flight and its lease still held.
+  const finished = Promise.all(workers.map((worker) => worker.start())).then(() => undefined);
+  return {
+    workers,
+    finished,
+    stop: () => {
+      for (const worker of workers) worker.stop();
+    },
+  };
+}
