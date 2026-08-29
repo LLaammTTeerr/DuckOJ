@@ -981,3 +981,122 @@ thing.
   costs nothing and turns a rejected request into a fixed one.
 
 Rulings taken during loop task F2 with nobody to ask. Migration 0018.
+
+## D36 — A scoreboard row is a participation, not a person
+
+`mapContest` refused, with `409 contest_duplicate_participant`, any contest in
+which one user held more than one participation. The comment explaining that
+refusal named its own expiry date: *"nothing in this phase can create it:
+participations are seeded, and joining is out of scope … the phase that adds
+joining will have to widen the input shape's key."* Phase 4d added joining and
+never widened it.
+
+So the state is now routine and the refusal is a denial of service anybody can
+perform. `join` mints a fresh virtual attempt on every call **by design** ("a
+client that retries a virtual join blindly gets a second attempt, and that is
+the correct reading of the request it made twice"), and a live entrant may
+replay a finished contest virtually. Either one makes
+`GET /contests/{key}/scoreboard` answer 409 for **every** viewer, permanently,
+with no way back short of deleting a row by hand — and it poisons
+`scoreboardForSystem`, so one such contest flagged rated wedges
+`POST /admin/contests/{key}/rate` for every contest in the system.
+
+**The ruling: the identity a submission is attached to is the participation,
+and the name is only what the row prints.** `ParticipantSpec` and
+`SubmissionSpec` gain an optional `participation_id`; `lower()` matches on it
+where it is present and on `name` where it is not. The API sets it from
+`contest_participations.id` on every row, so one person legitimately appears
+twice on a board, once per attempt, exactly as `virtual` on the ranking row
+already implied and as the web's `key={participant-virtual}` already assumed.
+
+- **Optional, not required.** Every fixture under `fixtures/contest-goldens/`
+  omits it and therefore lowers by name exactly as before; all 27 goldens stay
+  byte-identical and the 23 replays with them. A required field would have
+  rewritten 46 files to record a fact DMOJ's own export does not carry.
+- **Two participations under one key is now an error in `lower()`**, not a
+  silent overwrite. The old `new Map(...)` kept the last row and merged the
+  first one's submissions into it — a wrong board reported as a right one,
+  which is what the 409 was really protecting against. The API cannot reach
+  the throw: it keys every participation by its primary key.
+- **`first_solve` is unaffected.** It already counts only `virtual === 0`, and
+  a person holds at most one live participation.
+
+Not done here: widening `ContestParticipationDto` or the ranking row with the
+participation id. Nothing client-side needs it — `(participant, virtual)` is
+already unique — and adding it would change the goldens' output shape.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B2 contests
+brief), no human available to consult.*
+
+## D37 — A disqualification binds the person, so a later join inherits it
+
+`setDisqualified` states the rule in its own doc comment — *"every
+participation that user holds in this contest moves together … disqualification
+is a judgement about the person in this contest, not about one attempt"* — and
+implements it for the rows that exist at the moment it runs. Nothing carried it
+to a row created afterwards, and `join` mints one on demand: a virtual join is
+deliberately not idempotent, so an expelled competitor answered a
+disqualification with one more `POST /contests/{key}/join` and reappeared on
+the board un-struck, free to submit again (`resolveContestTarget` refuses the
+disqualified participation and takes the clean one, highest `virtual` first).
+
+**The ruling: `join` inherits the flag from any participation the caller
+already holds in that contest.** Reinstatement is unchanged and still clears
+every row, the new one included, so a wrongly-disqualified competitor is
+restored by the same single PATCH.
+
+- **Inherit, not refuse.** A 403 on `join` would have been simpler and is the
+  wrong shape: the board renders disqualified rows struck through with `[DQ]`
+  (D-era brief), so the record of what happened lives in a row, and refusing
+  the join leaves the contest with no row to render for an attempt somebody
+  did make. It would also mean a reinstated competitor's history differed from
+  one who was never expelled.
+- **`some`, not "the highest `virtual`".** Any live disqualification taints a
+  new attempt; a mixed state cannot arise through the API (`setDisqualified`
+  writes every row) and, if one ever did, the safe reading is the strict one.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B2 contests
+brief), no human available to consult.*
+
+## D38 — A started contest's start time is frozen; its end time is not
+
+`update`'s started guard covered `format` (and, since D28, a problem removal)
+and nothing else. `startTime` and `endTime` were editable on a running contest
+with no check at all, and moving either is destructive: `participationStartMs`
+and `participationEndMs` are computed from them for every live participation
+with no time limit, `lower()` drops any submission outside that window
+(DIV-1), and `icpc` counts its penalty minutes from the participation's start.
+Probed live: a contest running with one submission on the board, one
+`PATCH {startTime}` two hours forward, `200 OK`, and the board's
+`submission_count` goes `1 → 0` with nothing said.
+
+**The ruling: once a contest has started, `startTime` may no longer change
+(409 `contest_started`); `endTime` still may, in either direction.**
+
+- **`startTime` serves no operational need after the start.** It is the origin
+  of every clock the contest has. Moving it forward voids what was submitted
+  before the new origin; moving it back rewrites every `cumtime` on the board.
+  Neither is something an organiser mid-contest is trying to do.
+- **`endTime` is the lever they *are* trying to pull** — "we start fifteen
+  minutes late, everyone gets fifteen more" is the single most common
+  contest-day edit, and ending early (a fire alarm, a power cut) is a real one
+  too. Refusing it would repeat D28's mistake: a guard that never fires on the
+  edit that destroys data and always fires on the edit the organiser needs.
+- The accidental version of that damage was the actual hazard, and it is fixed
+  on the web instead: `contest-edit.tsx` rendered a stored `10:00:37Z` into a
+  minute-resolution `datetime-local` and saved `10:00:00Z` back, so an
+  untouched save moved `endTime` up to 59 s EARLIER and could void a genuinely
+  last-minute submission. A field the reader did not touch now sends the exact
+  instant it was seeded with.
+- Compared by instant, not by presence, so a form that PATCHes the whole body
+  back is a no-op — the same rule D28 states for the problem list.
+
+Residual, stated rather than fixed: shrinking `endTime` on a running contest
+still voids submissions made after the new end, deliberately (that is what
+"the contest ended at 15:30" means), and the edit screen does not warn about
+it. Refusing only an `endTime` that would void an existing submission needs a
+per-participation window query on the write path; it is worth doing when the
+edit screen grows a confirmation step.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B2 contests
+brief), no human available to consult.*

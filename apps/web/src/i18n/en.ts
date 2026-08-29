@@ -213,6 +213,8 @@ export const en = {
   'revState.archived': 'archived',
 
   // ── submitting ────────────────────────────────────────────────────────
+  'submit.intoContest': 'Submitting into contest',
+  'submit.practice': 'Practice submission — this does not count toward any contest.',
   'submit.title': 'Submit a solution — {code}',
   'submit.language': 'Language',
   'submit.sourceCode': 'Source code',

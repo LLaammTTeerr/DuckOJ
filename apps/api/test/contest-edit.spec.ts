@@ -251,6 +251,71 @@ describe('once a contest has started', () => {
     });
   }, 120_000);
 
+  it("refuses a start-time change, which would void the submissions already made (D38)", async () => {
+    await withTestDb(async (db) => {
+      const { owner, problem } = await baseline(db, 'ce5b');
+      const contestId = await seedContest(db, {
+        key: 'ce5b',
+        ownerId: owner.id,
+        problemId: problem.id,
+        startsInMs: -60 * MINUTE,
+        endsInMs: 60 * MINUTE,
+      });
+      const competitor = await insertUser(db, 'ce5b-competitor');
+      await db.insert(contestParticipations).values({
+        contestId,
+        userId: competitor.id,
+        virtual: 0,
+        startTime: new Date(Date.now() - 60 * MINUTE),
+      });
+      const service = new ContestAccessService(db, uncachedScoreboards());
+
+      // Forward or back, both rewrite `participationStartMs` for every live
+      // row: forward voids what was submitted before the new start, back
+      // rewrites every `icpc` penalty minute.
+      await expect(
+        service.update(actorFor(owner.id), 'ce5b', {
+          startTime: new Date(Date.now() + 5 * MINUTE).toISOString(),
+        }),
+      ).rejects.toMatchObject({ status: 409, code: 'contest_started' });
+      await expect(
+        service.update(actorFor(owner.id), 'ce5b', {
+          startTime: new Date(Date.now() - 90 * MINUTE).toISOString(),
+        }),
+      ).rejects.toMatchObject({ status: 409, code: 'contest_started' });
+
+      // Re-sending the stored instant is the no-op it looks like, and the end
+      // time — the one lever an organiser genuinely needs mid-contest — still
+      // moves.
+      const [stored] = await db
+        .select({ startTime: contests.startTime })
+        .from(contests)
+        .where(eq(contests.id, contestId));
+      const after = await service.update(actorFor(owner.id), 'ce5b', {
+        startTime: stored!.startTime.toISOString(),
+        endTime: new Date(Date.now() + 75 * MINUTE).toISOString(),
+      });
+      expect(new Date(after.endTime).getTime()).toBeGreaterThan(Date.now() + 70 * MINUTE);
+    });
+  }, 120_000);
+
+  it('still allows a start-time change before the contest starts', async () => {
+    await withTestDb(async (db) => {
+      const { owner, problem } = await baseline(db, 'ce5c');
+      await seedContest(db, {
+        key: 'ce5c',
+        ownerId: owner.id,
+        problemId: problem.id,
+        startsInMs: 60 * MINUTE,
+        endsInMs: 120 * MINUTE,
+      });
+      const service = new ContestAccessService(db, uncachedScoreboards());
+      const moved = new Date(Date.now() + 90 * MINUTE).toISOString();
+      const after = await service.update(actorFor(owner.id), 'ce5c', { startTime: moved });
+      expect(new Date(after.startTime).toISOString()).toBe(new Date(moved).toISOString());
+    });
+  }, 120_000);
+
   it('still allows renaming, and takes the values it already has as a no-op', async () => {
     await withTestDb(async (db) => {
       const { owner, problem } = await baseline(db, 'ce6');

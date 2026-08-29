@@ -63,6 +63,27 @@ function toLocalInput(iso: string): string {
   );
 }
 
+/**
+ * The instant to send for a `datetime-local` field, given what the form was
+ * seeded with (m5).
+ *
+ * The field shows minutes, so a contest stored at `10:00:37Z` renders as
+ * `10:00` and `new Date(value)` sends `10:00:00Z` back — an `endTime` up to
+ * 59 seconds EARLIER than the one nobody touched. The participation window is
+ * what `lower()` filters submissions on, so that silently voids a genuinely
+ * last-minute submission, and it is a change to `startTime` the API now
+ * refuses outright on a started contest (D38).
+ *
+ * So: a value the reader left exactly as it was seeded sends the ORIGINAL
+ * instant back verbatim; anything else is a real edit and is parsed. This is
+ * the whole rule, and it needs no `step` on the input — a field the browser
+ * renders to the minute cannot express the seconds it is preserving.
+ */
+function instantFor(value: string, seed: { local: string; iso: string } | null): string {
+  if (seed && value === seed.local) return seed.iso;
+  return new Date(value).toISOString();
+}
+
 export function ContestEditPage({ contestKey }: { contestKey: string }) {
   const t = useT();
   const navigate = useNavigate();
@@ -93,12 +114,19 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
   // `problem-edit.tsx` documents): a form whose state survives a change of
   // key carries contest A's values into a save against contest B.
   const [seededFrom, setSeededFrom] = useState<string | null>(null);
+  // What the two time fields were seeded WITH — the exact instants, beside the
+  // minute-resolution strings the inputs show. `instantFor` sends the instant
+  // back untouched when the string still matches (m5).
+  const [startSeed, setStartSeed] = useState<{ local: string; iso: string } | null>(null);
+  const [endSeed, setEndSeed] = useState<{ local: string; iso: string } | null>(null);
   useEffect(() => {
     const contest = query.data;
     if (!contest || seededFrom === contest.key) return;
     setName(contest.name);
     setStart(toLocalInput(contest.startTime));
     setEnd(toLocalInput(contest.endTime));
+    setStartSeed({ local: toLocalInput(contest.startTime), iso: contest.startTime });
+    setEndSeed({ local: toLocalInput(contest.endTime), iso: contest.endTime });
     setFormat(contest.format);
     setVisibility(contest.visibility);
     // Prefilled and sent back on every save, like every other field here:
@@ -132,8 +160,12 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
       setError(t('contestNew.datesRequired'));
       return;
     }
+    // `.trim() === ''` FIRST (m6): `Number('')` is 0 and `Number.isInteger(0)`
+    // is true, so an emptied box used to sail through this check and PATCH
+    // `frozenLastMinutes: 0` — the contest's freeze, switched off, with
+    // nothing on screen saying so.
     const frozenLastMinutes = Number(freeze);
-    if (!Number.isInteger(frozenLastMinutes) || frozenLastMinutes < 0) {
+    if (freeze.trim() === '' || !Number.isInteger(frozenLastMinutes) || frozenLastMinutes < 0) {
       setError(t('contestNew.badFreeze'));
       return;
     }
@@ -144,8 +176,8 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
         params: { path: { key: contestKey } },
         body: {
           name,
-          startTime: new Date(start).toISOString(),
-          endTime: new Date(end).toISOString(),
+          startTime: instantFor(start, startSeed),
+          endTime: instantFor(end, endSeed),
           format,
           visibility,
           frozenLastMinutes,
@@ -231,6 +263,9 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
         <label>
           {t('contestNew.freeze')}{' '}
           <input
+            type="number"
+            min={0}
+            step={1}
             aria-label={t('contestNew.freeze')}
             value={freeze}
             onChange={(e) => setFreeze(e.target.value)}

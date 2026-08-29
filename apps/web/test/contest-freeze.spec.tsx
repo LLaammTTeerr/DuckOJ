@@ -44,6 +44,9 @@ const FROZEN_TIME = new Date(FROZEN_AT).toLocaleTimeString('vi-VN', {
   minute: '2-digit',
 });
 
+/** The same day, likewise re-derived rather than imported. */
+const FROZEN_DAY = new Date(FROZEN_AT).toLocaleDateString('vi-VN');
+
 function board(opts: { frozen: boolean; pending?: Record<string, number> }) {
   return {
     label_by_problem: { aplusb: 'A', sum: 'B' },
@@ -107,12 +110,27 @@ afterEach(() => {
 });
 
 describe('a frozen scoreboard', () => {
-  it('says so, in Vietnamese, naming the instant it froze', async () => {
+  it('says so, in Vietnamese, naming the DAY it froze when that is not today (m17)', async () => {
     routeGet(board({ frozen: true, pending: { sum: 1 } }));
     wrap(<ScoreboardPage contestKey="spring" />);
 
+    // `frozenAt` is the CONTEST's freeze instant while `frozen` is
+    // per-participation (D22), so a virtual entrant weeks later sees a time
+    // that is not today's. `HH:MM` alone reads as this afternoon.
     const banner = await screen.findByRole('status');
-    expect(banner).toHaveTextContent(`Bảng điểm đang đóng băng từ ${FROZEN_TIME}`);
+    expect(banner).toHaveTextContent(`Bảng điểm đang đóng băng từ ${FROZEN_DAY} ${FROZEN_TIME}`);
+  });
+
+  it('drops the date when the board froze today', async () => {
+    const todayAt = new Date();
+    todayAt.setHours(13, 0, 0, 0);
+    routeGet({ ...board({ frozen: true }), frozenAt: todayAt.toISOString() });
+    wrap(<ScoreboardPage contestKey="spring" />);
+
+    const time = todayAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    const banner = await screen.findByRole('status');
+    expect(banner).toHaveTextContent(`Bảng điểm đang đóng băng từ ${time}`);
+    expect(banner).not.toHaveTextContent(todayAt.toLocaleDateString('vi-VN'));
   });
 
   it('marks the hidden attempts on the cells that hold them', async () => {
@@ -161,7 +179,10 @@ describe('the freeze field on the contest forms', () => {
     patch.mockResolvedValue({ data: CONTEST });
     wrap(<ContestEditPage contestKey="spring" />);
 
-    expect(await screen.findByLabelText('Đóng băng (phút)')).toHaveValue('20');
+    // A number, not a string: the edit form's freeze box is `type="number"`
+    // so a browser refuses non-integers before the handler ever sees them
+    // (m6's other half).
+    expect(await screen.findByLabelText('Đóng băng (phút)')).toHaveValue(20);
     await userEvent.click(screen.getByRole('button', { name: 'Lưu kỳ thi' }));
 
     expect(patch.mock.calls[0]![1].body.frozenLastMinutes).toBe(20);

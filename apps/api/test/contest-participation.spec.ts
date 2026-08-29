@@ -276,6 +276,39 @@ describe('routing a submission into a contest', () => {
     });
   }, 120_000);
 
+  it('does not let the refusal tell a not-yet-started contest\'s problems apart', async () => {
+    await withTestDb(async (db) => {
+      const problem = await baseline(db, 'cp-owner');
+      const outsider = await seedProblemWithSourceAccess(db, { code: 'cp-outsider' });
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'prober');
+        await seedContestWith(db, {
+          key: 'tomorrow-c',
+          problemId: problem.id,
+          startsInMs: 24 * 60 * MINUTE,
+          endsInMs: 27 * 60 * MINUTE,
+        });
+        expect(outsider.id).toBeGreaterThan(0);
+
+        // `GET /contests/tomorrow-c` serves `problems: []` until the start, so
+        // which public problems this contest uses is concealed. Nobody can
+        // join yet either, so BOTH of these must be the same refusal — a 400
+        // for one and a 403 for the other reads the concealed list back one
+        // problem code at a time.
+        const inside = await submit(agent, 'cp-owner', 'tomorrow-c');
+        const outside = await submit(agent, 'cp-outsider', 'tomorrow-c');
+        expect(inside.status).toBe(403);
+        expect(inside.body.code).toBe('contest_not_joined');
+        expect(outside.status).toBe(403);
+        expect(outside.body.code).toBe('contest_not_joined');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('accepts a submission at exactly the deadline and refuses one a millisecond later', async () => {
     await withTestDb(async (db) => {
       const problem = await baseline(db, 'cp-owner');

@@ -157,26 +157,6 @@ export function mapContest(rows: ContestRows): ContestInput {
   const { contest } = rows;
 
   const byParticipation = new Map(rows.participations.map((p) => [p.id, p]));
-  const seenNames = new Set<string>();
-  for (const participation of rows.participations) {
-    if (seenNames.has(participation.username)) {
-      // 4b's input shape keys participants by name, so one user holding both a
-      // live and a virtual participation in the same contest would silently
-      // merge their submissions into whichever row came last — a wrong
-      // scoreboard, reported as a right one. The schema permits that state
-      // (`UNIQUE(contest_id, user_id, virtual)`), but nothing in this phase
-      // can create it: participations are seeded, and joining is out of scope.
-      // Refusing loudly here is what keeps the gap visible for the phase that
-      // adds joining, which will have to widen the input shape's key.
-      throw new AppError(
-        409,
-        'contest_duplicate_participant',
-        `${participation.username} holds more than one participation in this contest; ` +
-          'the scoreboard input shape keys participants by name and cannot represent that yet.',
-      );
-    }
-    seenNames.add(participation.username);
-  }
 
   const problems: ProblemSpec[] = rows.problems.map((problem) => {
     const dataset = datasetOf(problem);
@@ -210,6 +190,11 @@ export function mapContest(rows: ContestRows): ContestInput {
     }
     return {
       participant: participation.username,
+      // The identity, alongside the name (D36). One person may hold a live
+      // participation and any number of virtual attempts in one contest —
+      // `join` is built to produce exactly that — and the name alone would
+      // merge their submissions into whichever row lowered last.
+      participation_id: participation.id,
       problem: row.problemCode,
       date: row.date.toISOString(),
       result: row.verdict,
@@ -233,6 +218,7 @@ export function mapContest(rows: ContestRows): ContestInput {
     },
     participants: rows.participations.map((participation) => ({
       name: participation.username,
+      participation_id: participation.id,
       real_start: participation.startTime.toISOString(),
       virtual: participation.virtual,
       is_disqualified: participation.isDisqualified,

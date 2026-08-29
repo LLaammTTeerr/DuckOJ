@@ -84,14 +84,45 @@ describe('ContestEditPage', () => {
     await waitFor(() => expect(patch).toHaveBeenCalled());
     const body = patch.mock.calls[0]![1].body as { startTime: string; endTime: string; name: string };
     expect(body.name).toBe('Renamed');
-    // `datetime-local` has minute resolution, so the round trip is exact only
-    // to the minute — which is what the field can express, and what the
-    // create screen already sends.
-    expect(new Date(body.startTime).getTime()).toBe(
-      Math.floor(START.getTime() / 60_000) * 60_000,
-    );
-    expect(new Date(body.endTime).getTime()).toBe(Math.floor(END.getTime() / 60_000) * 60_000);
+    // EXACT, to the millisecond (m5). `datetime-local` shows minutes, so a
+    // field the organiser never touched used to save back up to 59 s EARLY —
+    // and an `endTime` that moves earlier voids a genuinely last-minute
+    // submission, since the participation window is what `lower()` filters on.
+    expect(body.startTime).toBe(START.toISOString());
+    expect(body.endTime).toBe(END.toISOString());
     await waitFor(() => expect(navigate).toHaveBeenCalled());
+  });
+
+  it('sends the edited instant when a time IS touched', async () => {
+    get.mockResolvedValue({ data: CONTEST });
+    patch.mockResolvedValue({ data: CONTEST });
+    wrap(<ContestEditPage contestKey="spring" />);
+
+    const ends = await screen.findByLabelText('Kết thúc');
+    await userEvent.clear(ends);
+    await userEvent.type(ends, '2027-01-02T03:04');
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu kỳ thi' }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    const body = patch.mock.calls[0]![1].body as { startTime: string; endTime: string };
+    expect(body.endTime).toBe(new Date('2027-01-02T03:04').toISOString());
+    // The untouched one still round-trips exactly.
+    expect(body.startTime).toBe(START.toISOString());
+  });
+
+  it('refuses an emptied freeze field rather than silently turning the freeze off', async () => {
+    get.mockResolvedValue({ data: { ...CONTEST, frozenLastMinutes: 60 } });
+    patch.mockResolvedValue({ data: CONTEST });
+    wrap(<ContestEditPage contestKey="spring" />);
+
+    // `Number('')` is 0 and `Number.isInteger(0)` is true (m6), so an empty
+    // box used to PATCH `frozenLastMinutes: 0` — the freeze, off, with no
+    // sign that anything happened.
+    await userEvent.clear(await screen.findByLabelText('Đóng băng (phút)'));
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu kỳ thi' }));
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(patch).not.toHaveBeenCalled();
   });
 
   it("carries each problem's label back unchanged, and omits it for a row added here", async () => {
