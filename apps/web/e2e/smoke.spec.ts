@@ -1,4 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+// The watchdog moved to its own module when `journey.spec.ts` needed it too
+// — see `watch.ts`.
+import { watchForBrokenRequests } from './watch.js';
 
 /**
  * What these cover that the jsdom suites cannot.
@@ -16,34 +19,6 @@ import { expect, test, type Page } from '@playwright/test';
  */
 
 const SEED_PROBLEM = 'aplusb';
-
-/** Fails the test if the page logged an error or failed to fetch a subresource. */
-function watchForBrokenRequests(page: Page): { errors: string[] } {
-  const errors: string[] = [];
-  page.on('console', (msg) => {
-    // Chromium emits "Failed to load resource: ..." for every non-2xx
-    // response, with no URL attached. That is a duplicate of the `response`
-    // handler below, which DOES carry the URL and can therefore be filtered
-    // precisely. Keeping both meant an expected 401 was unfilterable and all
-    // three page tests failed on it while every real assertion passed.
-    if (msg.type() !== 'error') return;
-    if (msg.text().startsWith('Failed to load resource')) return;
-    errors.push(`console: ${msg.text()}`);
-  });
-  page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
-  page.on('response', (res) => {
-    // A 4xx/5xx on a subresource is the exact shape of the Caddy bugs this
-    // project has shipped three times: the document loads, an asset does not.
-    if (res.status() < 400) return;
-    // `GET /auth/me` answering 401 to a signed-out visitor is the app working
-    // as designed — every page issues it to decide whether to show a session.
-    // It is the one expected failure, and it is scoped to that exact route and
-    // status so a 500 there would still fail the test.
-    if (res.status() === 401 && res.url().includes('/auth/me')) return;
-    errors.push(`${res.status()} ${res.url()}`);
-  });
-  return { errors };
-}
 
 test('the problem list renders real rows, with styles applied', async ({ page }) => {
   const watch = watchForBrokenRequests(page);

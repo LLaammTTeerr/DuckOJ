@@ -38,6 +38,16 @@ export default defineConfig({
     // The stack serves plain HTTP on :8080 and Caddy's TLS on :8443 is
     // self-signed, so accept it if someone points E2E_BASE_URL there.
     ignoreHTTPSErrors: true,
+    // A Vietnamese visitor, which is who this judge is for.
+    //
+    // Chromium reports `navigator.language === 'en-US'` by default, and D18's
+    // first-visit rule is "Vietnamese unless the browser says English" — so
+    // every spec here was driving the ENGLISH app while asserting Vietnamese
+    // strings, which is how `smoke.spec.ts` came to fail on its own
+    // assertions. Naming the locale makes the default UI the one the
+    // decision describes, and leaves the EN toggle to be exercised
+    // deliberately (journey 1) rather than by accident.
+    locale: 'vi-VN',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },

@@ -21,3 +21,6 @@ __pycache__/
 
 # Generated operator secrets — never committed
 .secrets/
+
+# Playwright journey screenshots — evidence, regenerated every run
+apps/web/e2e/screenshots/
