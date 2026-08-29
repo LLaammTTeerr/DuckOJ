@@ -86,7 +86,7 @@ export class AuthService {
       throw conflict;
     }
 
-    return { created: true, user: toMe(user!, false) };
+    return { created: true, user: toMe(user!, false, 0) };
   }
 
   async login(usernameOrEmail: string, password: string): Promise<typeof schema.users.$inferSelect> {
@@ -162,6 +162,10 @@ function syntheticMe(input: RegisterRequestDto): MeResponseDto {
     locale: 'vi',
     timezone: 'Asia/Ho_Chi_Minh',
     totpEnabled: false,
+    // A fresh account has none, and this body must look exactly like the one
+    // a genuine registration returns (D26) — so it is the same 0, not an
+    // omission.
+    recoveryCodesRemaining: 0,
     emailVerified: false,
     createdAt: new Date().toISOString(),
   };
@@ -170,6 +174,12 @@ function syntheticMe(input: RegisterRequestDto): MeResponseDto {
 export function toMe(
   user: typeof schema.users.$inferSelect,
   totpEnabled: boolean,
+  /**
+   * D39. Required rather than defaulted: a caller that forgets it would
+   * quietly report "no recovery codes left" to someone who has eight, and the
+   * security page would tell them to regenerate for no reason.
+   */
+  recoveryCodesRemaining: number,
 ): MeResponseDto {
   return {
     id: user.id,
@@ -180,6 +190,7 @@ export function toMe(
     locale: user.locale,
     timezone: user.timezone,
     totpEnabled,
+    recoveryCodesRemaining,
     emailVerified: user.emailVerifiedAt !== null,
     createdAt: user.createdAt.toISOString(),
   };

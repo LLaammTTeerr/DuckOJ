@@ -156,7 +156,7 @@ describe('a two-factor refusal', () => {
         const confirm = await agent
           .post('/auth/totp/confirm')
           .send({ code: authenticator.generate(secret) });
-        expect(confirm.status).toBe(204);
+        expect(confirm.status).toBe(200);
         // The enrolment above signed in successfully, which consumes nothing.
         expect(await loginEvents(db, 'login')).toHaveLength(0);
 

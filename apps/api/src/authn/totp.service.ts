@@ -7,6 +7,7 @@ import { APP_CONFIG, DB } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import { RateLimiter } from '../common/rate-limiter.js';
+import { TotpRecoveryService } from './totp-recovery.service.js';
 
 const ISSUER = 'DuckOJ';
 
@@ -60,6 +61,7 @@ export class TotpService {
     @Inject(DB) private readonly db: Db,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(RateLimiter) private readonly limiter: RateLimiter,
+    @Inject(TotpRecoveryService) private readonly recovery: TotpRecoveryService,
   ) {}
 
   /**
@@ -107,7 +109,16 @@ export class TotpService {
     return { secret, otpauthUrl: totp.keyuri(String(userId), ISSUER, secret) };
   }
 
-  async confirmEnrolment(userId: number, code: string): Promise<void> {
+  /**
+   * Answers with the account's eight recovery codes (D39), in plaintext, for
+   * the only time they will ever exist outside the user's hands.
+   *
+   * Confirming and issuing are one transaction. A confirm that turned 2FA on
+   * and then failed to write the codes would leave the account in the exact
+   * state this feature exists to prevent — a second factor with no way past
+   * it — and the user would have no reason to suspect it.
+   */
+  async confirmEnrolment(userId: number, code: string): Promise<string[]> {
     const secret = await this.secretFor(userId);
     if (!secret || !totp.verify({ token: code, secret })) {
       // Distinct from the login-time `invalid_totp_code` (401): this one means
@@ -115,14 +126,56 @@ export class TotpService {
       // must be able to tell apart from "your second factor was wrong".
       throw new AppError(422, 'invalid_totp_enrolment_code', 'That code is not valid.');
     }
-    await this.db
-      .update(schema.totpCredentials)
-      .set({ confirmedAt: new Date() })
-      .where(eq(schema.totpCredentials.userId, userId));
+    return this.db.transaction(async (tx) => {
+      await tx
+        .update(schema.totpCredentials)
+        .set({ confirmedAt: new Date() })
+        .where(eq(schema.totpCredentials.userId, userId));
+      return this.recovery.issue(userId, tx);
+    });
   }
 
+  /**
+   * D39 — replaces the set, and demands a live TOTP code to do it.
+   *
+   * **`isEnabled` first, and not as a formality:** `verify` returns `true`
+   * for an account with no confirmed credential (it documents that it fails
+   * open and that callers must gate it), so without this check any session
+   * could mint eight standing sign-in credentials by posting six arbitrary
+   * digits — for an account that has no second factor at all, which is the
+   * whole population.
+   *
+   * The code is spent by `verify` (D34), exactly as a sign-in would spend it.
+   * That is the right cost: this route is a credential issue, and a code
+   * relayed out of it is worth as much as one relayed out of a login.
+   */
+  async regenerateRecoveryCodes(userId: number, code: string): Promise<string[]> {
+    if (!(await this.isEnabled(userId))) {
+      throw new AppError(
+        409,
+        'totp_not_enabled',
+        'Two-factor authentication is not on for this account.',
+      );
+    }
+    if (!(await this.verify(userId, code))) {
+      throw new AppError(422, 'invalid_totp_enrolment_code', 'That code is not valid.');
+    }
+    return this.recovery.issue(userId);
+  }
+
+  /**
+   * The recovery codes go with the credential, in one transaction. They ARE
+   * the second factor in another shape: leaving eight of them behind after a
+   * disable would mean re-enrolling later silently inherited a set of codes
+   * printed for a secret that no longer exists, and a stolen printout would
+   * outlive the reset made to defeat it. This is also the path
+   * `AdminUsersService.resetTotp` takes, so an admin reset clears them too.
+   */
   async disable(userId: number): Promise<void> {
-    await this.db.delete(schema.totpCredentials).where(eq(schema.totpCredentials.userId, userId));
+    await this.db.transaction(async (tx) => {
+      await tx.delete(schema.totpCredentials).where(eq(schema.totpCredentials.userId, userId));
+      await this.recovery.clear(userId, tx);
+    });
   }
 
   async isEnabled(userId: number): Promise<boolean> {

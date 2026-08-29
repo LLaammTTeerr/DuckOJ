@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '../config/config.module.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { AccountRecoveryService } from './account-recovery.service.js';
@@ -12,6 +13,7 @@ import { TokenService } from './token.service.js';
 import { TokensController } from './tokens.controller.js';
 import { TotpController } from './totp.controller.js';
 import { TotpService } from './totp.service.js';
+import { TotpRecoveryService } from './totp-recovery.service.js';
 import { AuthGuard } from './auth.guard.js';
 import { SessionOnlyGuard } from './session-only.guard.js';
 import { ScopeGuard } from './scope.guard.js';
@@ -43,7 +45,13 @@ import { JudgeService } from './judge.service.js';
  * judged.
  */
 @Module({
-  imports: [ConfigModule],
+  // `forwardRef` because `NotificationsModule` imports this one back (its
+  // controller is `@SessionOnly()`, which needs `SessionOnlyGuard` resolvable
+  // from its own module graph). D39's exhaustion notice is written by
+  // `TotpRecoveryService` inside the transaction that spends the last code,
+  // so the edge has to exist in this direction as well — one shared
+  // `NotificationsService`, rather than a second copy provided here.
+  imports: [ConfigModule, forwardRef(() => NotificationsModule)],
   controllers: [AuthController, TotpController, TokensController],
   providers: [
     AuthService,
@@ -58,6 +66,7 @@ import { JudgeService } from './judge.service.js';
     SessionService,
     TokenService,
     TotpService,
+    TotpRecoveryService,
     JudgeService,
     JudgeGuard,
     AuthGuard,
@@ -72,6 +81,7 @@ import { JudgeService } from './judge.service.js';
     SessionService,
     TokenService,
     TotpService,
+    TotpRecoveryService,
     JudgeService,
     JudgeGuard,
     AuthGuard,

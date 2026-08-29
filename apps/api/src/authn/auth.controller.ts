@@ -23,6 +23,7 @@ import { AuthService, toMe } from './auth.service.js';
 import { AccountRecoveryService } from './account-recovery.service.js';
 import { SessionService } from './session.service.js';
 import { TotpService } from './totp.service.js';
+import { TotpRecoveryService } from './totp-recovery.service.js';
 import { CurrentActor, Public } from './auth.guard.js';
 import { NoScopeRequired } from './require-scope.decorator.js';
 
@@ -117,6 +118,7 @@ export class AuthController {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(AccountRecoveryService) private readonly recovery: AccountRecoveryService,
     @Inject(RateLimiter) private readonly limiter: RateLimiter,
+    @Inject(TotpRecoveryService) private readonly recoveryCodes: TotpRecoveryService,
   ) {}
 
   // Neither this route nor `login`/`logout` below carries `@RequireScope` or
@@ -208,11 +210,24 @@ export class AuthController {
       user = await this.auth.login(body.usernameOrEmail, body.password);
       totpEnabled = await this.totp.isEnabled(user.id);
       if (totpEnabled) {
-        if (!body.totpCode) {
+        // D39 — a recovery code is the second factor in another shape, so it
+        // is checked in the same place, refused with the same code, and
+        // counted by the same window as a TOTP code. `totpCode` wins when
+        // both arrive: a caller who has their authenticator should not burn a
+        // recovery code because a stale form field came along for the ride.
+        if (body.totpCode) {
+          if (!(await this.totp.verify(user.id, body.totpCode))) {
+            throw new AppError(401, 'invalid_totp_code', 'That code is not valid.');
+          }
+        } else if (body.recoveryCode) {
+          // Unknown, malformed and already-spent are one answer. Telling them
+          // apart would let a caller who lifted an old printout learn which
+          // of the eight are still live without ever completing a sign-in.
+          if (!(await this.recoveryCodes.consume(user.id, body.recoveryCode))) {
+            throw new AppError(401, 'invalid_totp_code', 'That code is not valid.');
+          }
+        } else {
           throw new AppError(401, 'totp_required', 'A two-factor code is required.');
-        }
-        if (!(await this.totp.verify(user.id, body.totpCode))) {
-          throw new AppError(401, 'invalid_totp_code', 'That code is not valid.');
         }
       }
     } catch (error) {
@@ -244,7 +259,7 @@ export class AuthController {
       path: '/',
       expires: expiresAt,
     });
-    return { user: toMe(user, totpEnabled) };
+    return { user: toMe(user, totpEnabled, await this.recoveryCodes.remaining(user.id)) };
   }
 
   /**
@@ -300,7 +315,11 @@ export class AuthController {
   @NoScopeRequired()
   async me(@CurrentActor() actor: Actor): Promise<MeResponseDto> {
     const user = await this.auth.loadUser(actor.userId);
-    return toMe(user, await this.totp.isEnabled(user.id));
+    const [enabled, remaining] = await Promise.all([
+      this.totp.isEnabled(user.id),
+      this.recoveryCodes.remaining(user.id),
+    ]);
+    return toMe(user, enabled, remaining);
   }
 
   /**

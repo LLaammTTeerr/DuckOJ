@@ -27,7 +27,7 @@ describe('login gate: totp', () => {
         const confirm = await setupAgent
           .post('/auth/totp/confirm')
           .send({ code: authenticator.generate(secret) });
-        expect(confirm.status).toBe(204);
+        expect(confirm.status).toBe(200);
 
         const noCode = await request(app.getHttpServer())
           .post('/auth/login')
