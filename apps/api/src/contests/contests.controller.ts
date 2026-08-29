@@ -1,13 +1,15 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ContestListQuery,
   CreateContestRequest,
+  SetDisqualifiedRequest,
   type ContestDetailDto,
   type ContestParticipationDto,
   type ContestListQueryDto,
   type ContestPageDto,
   type CreateContestRequestDto,
   type ScoreboardDto,
+  type SetDisqualifiedRequestDto,
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { CurrentActor, MaybeActor, Public } from '../authn/auth.guard.js';
@@ -86,6 +88,25 @@ export class ContestsController {
     @Param('key') key: string,
   ): Promise<ContestParticipationDto> {
     return this.contests.myParticipation(actor, key);
+  }
+
+  /**
+   * Disqualify, or reinstate, a participant.
+   *
+   * `contests:write`, matching `create` and `join` rather than a scope of its
+   * own: running a contest you created is the same authority as creating it.
+   * Who may actually do it is decided in `ContestAccessService`, as
+   * everywhere else in this controller.
+   */
+  @Patch(':key/participants/:username')
+  @RequireScope('contests:write')
+  setDisqualified(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Param('username') username: string,
+    @Body(new ZodValidationPipe(SetDisqualifiedRequest)) body: SetDisqualifiedRequestDto,
+  ): Promise<ContestParticipationDto> {
+    return this.contests.setDisqualified(actor, key, username, body.disqualified);
   }
 
   // Deliberately no @Public(): every write requires authentication at the

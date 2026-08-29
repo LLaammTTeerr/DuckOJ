@@ -111,6 +111,7 @@ export class ContestAccessService {
       return {
         ...toSummary(contest),
         formatConfig: contest.formatConfig as Record<string, unknown> | null,
+        canEdit: canRunContest(actor, contest),
         problems: [],
       };
     }
@@ -118,6 +119,7 @@ export class ContestAccessService {
     return {
       ...toSummary(contest),
       formatConfig: contest.formatConfig as Record<string, unknown> | null,
+      canEdit: canRunContest(actor, contest),
       problems: problemRows.map((row) => ({
         code: row.code,
         name: row.name,
@@ -375,6 +377,71 @@ export class ContestAccessService {
     return this.participationDto(contest, raced);
   }
 
+  /**
+   * Disqualify, or reinstate, one participant. The contest's creator or a
+   * global admin — nobody else.
+   *
+   * **Every participation that user holds in this contest moves together.**
+   * The route is keyed by username, and a user can hold a live participation
+   * plus any number of virtual attempts; flipping only one of them would
+   * leave "is this person disqualified from this contest?" with no answer,
+   * and the scoreboard showing them both struck out and not. Disqualification
+   * is a judgement about the person in this contest, not about one attempt.
+   *
+   * 403, not 404, for a caller who can see the contest but does not run it:
+   * the contest's existence is already theirs to know (they can read it, and
+   * its scoreboard), so there is nothing left to conceal — the 404-over-403
+   * rule applies to *existence*, and this is not that. A contest they cannot
+   * see 404s from `loadVisible` before this check is ever reached.
+   */
+  async setDisqualified(
+    actor: Actor,
+    key: string,
+    username: string,
+    disqualified: boolean,
+  ): Promise<ContestParticipationDto> {
+    const contest = await this.loadVisible(actor, key);
+    if (!canRunContest(actor, contest)) {
+      throw new AppError(403, 'contest_forbidden', 'You do not run this contest.');
+    }
+
+    // `lower() = lower()`, like every other username resolution in this repo
+    // — an exact-match `eq()` against the case-folded unique index is a bug
+    // this codebase has already paid for once.
+    const [user] = await this.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(sql`lower(${schema.users.username}) = lower(${username})`)
+      .limit(1);
+    if (!user) throw new AppError(404, 'user_not_found', 'No such user.');
+
+    const existing = await listParticipations(this.db, contest.id, user.id);
+    if (existing.length === 0) {
+      throw new AppError(
+        404,
+        'participation_not_found',
+        'That user has not joined this contest.',
+      );
+    }
+
+    await this.db
+      .update(contestParticipations)
+      .set({ isDisqualified: disqualified })
+      .where(
+        and(
+          eq(contestParticipations.contestId, contest.id),
+          eq(contestParticipations.userId, user.id),
+        ),
+      );
+
+    // Re-read rather than patching the row in memory: the summary must
+    // describe what is now stored, and `listParticipations`' own ordering
+    // (highest `virtual` first) decides which one that is — the same one
+    // `GET /contests/:key/me` would answer for that user.
+    const [updated] = await listParticipations(this.db, contest.id, user.id);
+    return this.participationDto(contest, updated!);
+  }
+
   /** The caller's own participation, highest `virtual` first. */
   async myParticipation(actor: Actor, key: string): Promise<ContestParticipationDto> {
     const contest = await this.loadVisible(actor, key);
@@ -601,6 +668,24 @@ export class ContestAccessService {
     }
     return ids;
   }
+}
+
+/**
+ * Who may run a contest: its creator, or a global admin.
+ *
+ * Deliberately NOT `canCreateContest` (a setter may create contests, but a
+ * setter is not thereby an organiser of everyone else's), and deliberately
+ * one function rather than the same two-clause expression written out at
+ * each call site — `canEdit` on the detail response and the refusals on the
+ * write paths must be the same predicate, or the UI offers a button the
+ * server then refuses.
+ */
+export function canRunContest(
+  actor: Actor | null,
+  contest: { createdBy: number | null },
+): boolean {
+  if (!actor) return false;
+  return isAdmin(actor) || contest.createdBy === actor.userId;
 }
 
 function toSummary(row: {

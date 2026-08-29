@@ -250,6 +250,13 @@ function cell(data: Cell | undefined): string {
 }
 
 export function ScoreboardPage({ contestKey }: { contestKey: string }) {
+  const client = useQueryClient();
+  const [dqError, setDqError] = useState<string | null>(null);
+  // One busy flag keyed by username, not a single boolean: several rows each
+  // have their own link, and disabling the whole board because one row is in
+  // flight would be a worse lie than disabling none.
+  const [dqBusy, setDqBusy] = useState<string | null>(null);
+
   const query = useQuery({
     queryKey: ['scoreboard', contestKey],
     queryFn: async (): Promise<Scoreboard> => {
@@ -261,9 +268,44 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
     },
   });
 
+  // Only for `canEdit`: the server decides who runs this contest, and the
+  // board asks it rather than guessing from `me`. A failure here is not an
+  // error state for the page — the board still renders, just without the
+  // organiser's controls.
+  const contest = useQuery({
+    queryKey: ['contest', contestKey],
+    queryFn: async (): Promise<ContestDetail | null> => {
+      const { data } = await api.GET('/contests/{key}', { params: { path: { key: contestKey } } });
+      return data ?? null;
+    },
+  });
+
+  async function setDisqualified(username: string, disqualified: boolean): Promise<void> {
+    setDqBusy(username);
+    setDqError(null);
+    try {
+      const { error } = await api.PATCH('/contests/{key}/participants/{username}', {
+        params: { path: { key: contestKey, username } },
+        body: { disqualified },
+      });
+      if (error) {
+        setDqError(error.detail ?? error.code);
+        return;
+      }
+      await client.invalidateQueries({ queryKey: ['scoreboard', contestKey] });
+    } catch {
+      // openapi-fetch rethrows network-level failures rather than resolving
+      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+      setDqError('Could not reach the server. Check your connection and try again.');
+    } finally {
+      setDqBusy(null);
+    }
+  }
+
   if (query.isPending) return <p className="muted">Loading…</p>;
   if (query.error) return <p role="alert">{query.error.message}</p>;
   if (!query.data) return null;
+  const canEdit = contest.data?.canEdit === true;
 
   // snake_case throughout: the scoreboard is served in the goldens' own shape,
   // field for field, and renaming it here would put a translation layer
@@ -292,18 +334,22 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
                 </Link>
               </th>
             ))}
+            {canEdit ? <th /> : null}
           </tr>
         </thead>
         <tbody>
           {ranking.map((row) => (
-            <tr key={`${row.participant}-${String(row.virtual)}`}>
+            <tr
+              key={`${row.participant}-${String(row.virtual)}`}
+              className={row.is_disqualified ? 'dq' : undefined}
+            >
               <td className="num">{row.rank}</td>
               <td>
                 <Link to="/users/$username" params={{ username: row.participant }}>
                   {row.participant}
                 </Link>
                 {row.virtual !== 0 ? <span className="muted"> (virtual)</span> : null}
-                {row.is_disqualified ? <span className="muted"> (disqualified)</span> : null}
+                {row.is_disqualified ? <span className="muted"> [DQ]</span> : null}
               </td>
               <td className="num">{row.score}</td>
               <td className="num">{row.cumtime}</td>
@@ -312,10 +358,22 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
                   {cell(row.format_data[problem.code])}
                 </td>
               ))}
+              {canEdit ? (
+                <td>
+                  <button
+                    type="button"
+                    disabled={dqBusy === row.participant}
+                    onClick={() => void setDisqualified(row.participant, !row.is_disqualified)}
+                  >
+                    {row.is_disqualified ? `un-DQ ${row.participant}` : `DQ ${row.participant}`}
+                  </button>
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>
       </table>
+      {dqError ? <p role="alert">{dqError}</p> : null}
       {ranking.length === 0 ? <p className="muted">Nobody has competed yet.</p> : null}
     </section>
   );

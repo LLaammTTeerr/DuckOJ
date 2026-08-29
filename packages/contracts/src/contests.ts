@@ -103,6 +103,19 @@ export type ContestPageDto = z.infer<typeof ContestPage>;
 export const ContestDetail = ContestSummary.extend({
   formatConfig: z.record(z.string(), z.unknown()).nullable(),
   /**
+   * Whether THIS caller may edit the contest — and, by the same rule,
+   * disqualify its participants: the creator, or a global admin.
+   *
+   * Served rather than derived client-side. The browser has no reliable way
+   * to work it out: `createdBy` is not on this response (and putting it here
+   * to let a client compare ids would be a worse answer), and "am I an
+   * admin?" is a second request the page would have to make anyway. One
+   * boolean the server already knows beats two facts the client has to
+   * assemble — and it cannot drift from the server's own check, which is
+   * still the thing that actually refuses the write.
+   */
+  canEdit: z.boolean(),
+  /**
    * EMPTY until the contest starts, for everyone but a global admin — a
    * private problem attached to a future contest must not leak its code and
    * name through this route (its own route 404s the same caller).
@@ -383,6 +396,49 @@ registry.registerPath({
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: CONTEST_NOT_FOUND,
+  },
+});
+
+/**
+ * Disqualification, by an organiser rather than the participant.
+ *
+ * A body of one boolean rather than two verbs (`.../disqualify`,
+ * `.../reinstate`): the operation is idempotent and its inverse is the same
+ * request with the other value, which is exactly what a PATCH of one field
+ * means. Every participation that user holds in this contest — live and
+ * virtual alike — moves together; see `ContestAccessService.setDisqualified`.
+ */
+export const SetDisqualifiedRequest = z.object({ disqualified: z.boolean() }).strict();
+export type SetDisqualifiedRequestDto = z.infer<typeof SetDisqualifiedRequest>;
+
+registry.registerPath({
+  method: 'patch',
+  path: '/contests/{key}/participants/{username}',
+  tags: ['Contests'],
+  summary: 'Disqualify (or reinstate) a participant — the contest creator or an admin',
+  request: {
+    params: z.object({ key: z.string(), username: z.string() }),
+    body: { content: { 'application/json': { schema: SetDisqualifiedRequest } } },
+  },
+  responses: {
+    200: {
+      description: "The participant's participation, after the change",
+      content: { 'application/json': { schema: ContestParticipation } },
+    },
+    401: NOT_SIGNED_IN,
+    403: {
+      description:
+        'The caller can see this contest but does not run it (`contest_forbidden`) — 403, not 404, ' +
+        'because the contest\'s existence is already theirs to know',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    404: {
+      description:
+        'No such contest, or one the caller may not see (`contest_not_found`); no such user ' +
+        '(`user_not_found`); or a user who never joined (`participation_not_found`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
   },
 });
 

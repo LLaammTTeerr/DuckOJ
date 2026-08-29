@@ -386,6 +386,18 @@ tr:hover td {
   font-variant-numeric: tabular-nums;
 }
 
+/* A disqualified scoreboard row. Struck through rather than hidden or
+   greyed out: the row must still be readable — a disqualification is a
+   public act, and the standing it replaced is what makes it legible — but
+   it must not be mistakable for a live placing. The `[DQ]` marker beside
+   the name carries the same information without relying on colour or on
+   the line-through rendering at all, so the state survives a screen reader
+   and a monochrome print. */
+.dq td {
+  text-decoration: line-through;
+  color: var(--muted, inherit);
+}
+
 /* --- forms ------------------------------------------------------------- */
 
 label {
