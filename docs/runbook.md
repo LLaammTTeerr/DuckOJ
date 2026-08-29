@@ -958,8 +958,8 @@ several:
 
 ### Putting a second proxy in front of Caddy changes who the rate limiter sees
 
-The per-IP windows — login's 30 per fifteen minutes (D16) and registration's 5
-per hour (D30) — key on `clientIp()` in
+The per-IP windows — login's 30 per fifteen minutes (D16) and registration's 30
+per hour (D26) — key on `clientIp()` in
 `apps/api/src/authn/auth.controller.ts`, which reads the **first** entry of
 `X-Forwarded-For`.
 

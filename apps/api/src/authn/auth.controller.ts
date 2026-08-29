@@ -48,7 +48,7 @@ const LOGIN_LIMIT_PER_IP = 30;
 /**
  * D26 — registration rate limiting.
  *
- * One window, per client IP: five accounts an hour. `register` is anonymous,
+ * One window, per client IP: thirty accounts an hour (a school lab behind one NAT address seating a class — D26). `register` is anonymous,
  * was unmetered, and costs 19 MiB of argon2id per call — two hundred
  * concurrent POSTs put every `API_WORKERS` thread in front of a native hash
  * and take the site down with no sophistication at all. It is also the
@@ -70,7 +70,7 @@ const LOGIN_LIMIT_PER_IP = 30;
  */
 const REGISTER_PURPOSE = 'register';
 const REGISTER_WINDOW_MS = 60 * 60_000;
-const REGISTER_LIMIT_PER_IP = 5;
+const REGISTER_LIMIT_PER_IP = 30;
 
 /**
  * The client's address: the FIRST hop of `X-Forwarded-For`, else the socket.
@@ -91,7 +91,7 @@ const REGISTER_LIMIT_PER_IP = 5;
  * than forwarded — which is NOT true of an appending proxy in front of an
  * untrusted client. The day province IT fronts Caddy with a second proxy
  * layer, `[0]` becomes attacker-controlled and D16's 30/IP window (and D26's
- * 5/IP one) is bypassable with one header. `docs/runbook.md` records that a
+ * 30/IP one) is bypassable with one header. `docs/runbook.md` records that a
  * second proxy layer requires revisiting this function.
  *
  * Express' own `req.ip` is not used because it returns the socket address

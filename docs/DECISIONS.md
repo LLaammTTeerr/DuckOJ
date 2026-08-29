@@ -561,12 +561,12 @@ oracle survives under a condition an attacker can simply create.
   address is confirmed by mail), which is a larger change to the signup flow
   than this brief allows and would make the "registering signs you in straight
   away" property go away.
-- **5/IP/hour is harsh behind NAT.** A whole school or a province office
-  behind one public address gets five accounts an hour between them. That is
-  the number the brief specified and it ships as specified; if a seating-day
-  signup queue hits it, raise `REGISTER_LIMIT_PER_IP` in
-  `auth.controller.ts` — it is one constant, and the cost of a higher number
-  is only that the enumeration sweep gets cheaper.
+- **The number is 30/IP/hour, not 5.** The first cut shipped 5, which a
+  single school lab behind one NAT address exhausts in one seating; 30 lets
+  a class register in an hour while still capping an enumeration sweep at
+  720 probes a day per address. It is one constant,
+  `REGISTER_LIMIT_PER_IP` in `auth.controller.ts`; raise it further for a
+  province-wide signup day and lower it back afterwards.
 
 *Ruled by the implementer during the province-ready final-review fixes
 (2026-08-29, F1 brief), no human available to consult.*

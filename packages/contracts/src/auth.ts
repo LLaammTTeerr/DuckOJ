@@ -70,7 +70,7 @@ registry.registerPath({
     },
     429: {
       description:
-        'Too many registrations from this client IP (`register_rate_limited`) — five per hour (D26). ' +
+        'Too many registrations from this client IP (`register_rate_limited`) — thirty per hour (D26). ' +
         'Unlike login, EVERY attempt counts: what is metered is the cost of an argon2id hash, which a ' +
         'successful registration pays in full. The refusal itself records nothing, so the window drains. ' +
         '`Retry-After` carries the whole seconds until another attempt will be accepted.',

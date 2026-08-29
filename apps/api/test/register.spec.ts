@@ -232,11 +232,11 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
     });
   }, 120_000);
 
-  it('refuses the sixth registration from one IP with 429 and a Retry-After', async () => {
+  it('refuses the thirty-first registration from one IP with 429 and a Retry-After', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 30; i++) {
           const res = await request(app.getHttpServer())
             .post('/auth/register')
             .set('X-Forwarded-For', '203.0.113.7')
@@ -247,13 +247,13 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
         const refused = await request(app.getHttpServer())
           .post('/auth/register')
           .set('X-Forwarded-For', '203.0.113.7')
-          .send({ ...BODY, username: 'member5', email: 'member5@x.test' });
+          .send({ ...BODY, username: 'member30', email: 'member30@x.test' });
         expect(refused.status).toBe(429);
         expect(refused.body.code).toBe('register_rate_limited');
         expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
         // Refused BEFORE the argon2 hash, so nothing was written.
         const [users] = await db.select({ n: count() }).from(schema.users);
-        expect(users?.n).toBe(5);
+        expect(users?.n).toBe(30);
 
         // A different IP has its own window, and the refusal recorded
         // nothing — the same shape D16 gives login.
@@ -266,7 +266,7 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
           .select({ key: schema.rateEvents.key })
           .from(schema.rateEvents)
           .where(eq(schema.rateEvents.purpose, 'register'));
-        expect(events.filter((row) => row.key === 'ip:203.0.113.7')).toHaveLength(5);
+        expect(events.filter((row) => row.key === 'ip:203.0.113.7')).toHaveLength(30);
       } finally {
         await app.close();
       }
@@ -281,10 +281,10 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
           .post('/auth/register')
           .set('X-Forwarded-For', '203.0.113.9')
           .send({ ...BODY, username: 'incumbent' });
-        // Four more attempts, all on the SAME (now taken) address: each one
-        // is a fake 201 and each one still counts, or the meter would not
-        // cover the enumeration it exists to make expensive.
-        for (let i = 0; i < 4; i++) {
+        // Twenty-nine more attempts, all on the SAME (now taken) address:
+        // each one is a fake 201 and each one still counts, or the meter
+        // would not cover the enumeration it exists to make expensive.
+        for (let i = 0; i < 29; i++) {
           await request(app.getHttpServer())
             .post('/auth/register')
             .set('X-Forwarded-For', '203.0.113.9')
@@ -293,7 +293,7 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
         const refused = await request(app.getHttpServer())
           .post('/auth/register')
           .set('X-Forwarded-For', '203.0.113.9')
-          .send({ ...BODY, username: 'probe9' });
+          .send({ ...BODY, username: 'probe99' });
         expect(refused.status).toBe(429);
       } finally {
         await app.close();

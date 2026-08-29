@@ -396,7 +396,7 @@ export const contestSubmissions = pgTable(
       .references(() => contestParticipations.id, { onDelete: 'cascade' }),
     contestProblemId: bigint('contest_problem_id', { mode: 'number' })
       .notNull()
-      .references(() => contestProblems.id, { onDelete: 'cascade' }),
+      .references(() => contestProblems.id, { onDelete: 'restrict' }),
     submissionId: bigint('submission_id', { mode: 'number' })
       .notNull()
       .references(() => submissions.id, { onDelete: 'cascade' }),
