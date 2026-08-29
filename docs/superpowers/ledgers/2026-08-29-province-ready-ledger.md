@@ -27,3 +27,5 @@
 - Merged P2(+P1-B), P3, P4 onto main; conflicts in contests.tsx/submission.tsx (keyed P1-A strings), DECISIONS renumbered D16 login, D17 backups, D18 i18n, D19 bootstrap, D20 demo content.
 - Ruling D21: rejudge does NOT replayAll (would fold zeroed scores); returns `ratedContestKeys`. Web hint for it still owed (todo for P1-C/P5).
 - Dispatched sonnet localizer for contest-edit.tsx / problem-edit rejudge block + 10 failing web tests (apps/web only).
+- Localizer DONE (8c3d388): 170 web tests. Redeployed: web built, judged rebuilt (pool=2), api image build failed (test tree imports apps/judged) → Dockerfile typechecks src only; api rebuilt, rejudge route live.
+- Pushed main for CI. Dispatched P1-C freeze (main, opus, D22) and live seeding agent (sonnet: duckadmin, five problems, hocsinh1 AC/WA, contest thu-nghiem-1).
