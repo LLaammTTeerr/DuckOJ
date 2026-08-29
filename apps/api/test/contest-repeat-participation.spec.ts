@@ -11,8 +11,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { contestParticipations, contestProblems, contests } from '@duckoj/db/guarded';
-import type { Db } from '@duckoj/db';
+import { eq } from 'drizzle-orm';
+import { contestParticipations, contestProblems, contests, ratingEvents } from '@duckoj/db/guarded';
+import { schema, type Db } from '@duckoj/db';
+import type { ContestInput } from '@duckoj/contest-formats';
+import { ContestAccessService } from '../src/authz/contest.access.js';
+import { RatingService } from '../src/authz/rating.service.js';
+import { uncachedScoreboards } from './scoreboard.fixtures.js';
+import { seedGoldenContest } from './contest-golden.fixtures.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import {
@@ -147,6 +153,75 @@ describe('a competitor holding more than one participation', () => {
       } finally {
         await app.close();
       }
+    });
+  }, 120_000);
+});
+
+/**
+ * D36's blast radius on the one caller that folds a board with no viewer:
+ * `RatingService`. Before D36 a rated contest holding a duplicate
+ * participation threw from `mapContest`, and because `replayInto` folds EVERY
+ * rated contest in one transaction, that one contest wedged
+ * `POST /admin/contests/{key}/rate` for all of them.
+ */
+describe('the rating replay over a contest with a repeat participant', () => {
+  const RATED_START = '2026-03-01T09:00:00Z';
+
+  /** `scores[i]` fixes participant `i`'s rank — the rating suite's own shape. */
+  function contestOf(key: string, scores: number[]): ContestInput {
+    const names = scores.map((_, i) => `${key}-p${String(i)}`);
+    return {
+      format: 'default',
+      format_config: null,
+      contest: {
+        key,
+        start_time: RATED_START,
+        end_time: '2026-03-01T14:00:00Z',
+        time_limit_seconds: null,
+        points_precision: 3,
+        frozen_last_minutes: 0,
+      },
+      problems: [{ code: `${key}-a`, points: 100, partial: true, problem_partial: true }],
+      participants: names.map((name) => ({ name, real_start: RATED_START, virtual: 0 })),
+      submissions: names.map((name, i) => ({
+        participant: name,
+        problem: `${key}-a`,
+        date: '2026-03-01T10:00:00Z',
+        result: scores[i]! > 0 ? 'AC' : 'WA',
+        status: 'D',
+        cases: [{ batch: null, case: 1, points: scores[i]!, total: 100, status: 'AC' }],
+      })),
+    };
+  }
+
+  it('rates the live attempt once, and the virtual one not at all', async () => {
+    await withTestDb(async (db) => {
+      const scores = [100, 90, 80, 70, 60, 50, 40, 30, 20];
+      const { contestId } = await seedGoldenContest(db, contestOf('rr', scores));
+      await db.update(contests).set({ isRated: true }).where(eq(contests.id, contestId));
+
+      // The winner replays their own contest virtually, months later. This is
+      // what `join` produces, and it used to make the whole replay throw.
+      const [winner] = await db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.username, 'rr-p0'));
+      await db.insert(contestParticipations).values({
+        contestId,
+        userId: winner!.id,
+        virtual: 1,
+        startTime: new Date('2026-06-01T09:00:00Z'),
+      });
+
+      const rating = new RatingService(db, new ContestAccessService(db, uncachedScoreboards()));
+      expect(await rating.replayAll()).toBe(1);
+
+      const events = await db.select({ userId: ratingEvents.userId }).from(ratingEvents);
+      expect(events).toHaveLength(scores.length);
+      // Exactly one event for the person holding two participations:
+      // `rankedFieldFor` keeps only `virtual === 0`, so a virtual replay can
+      // neither earn a rating nor enter the field twice.
+      expect(events.filter((row) => row.userId === winner!.id)).toHaveLength(1);
     });
   }, 120_000);
 });
