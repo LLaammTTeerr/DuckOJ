@@ -753,3 +753,56 @@ Two smaller rulings ride along:
 Not decided here: alerting. Nothing tells anyone a nightly backup or a restore
 failed except `journalctl`; D17 already accepts that for backups and this does
 not change it.
+
+## D31 — A clarification and an announcement are one row, and notifications fire on transitions
+
+Contest day needs a channel between the room and the organisers, and the
+province has none (`PROVINCE-READINESS.md` gap 4). `contest_clarifications`
+is it: `contest_id`, nullable `problem_id`, `asked_by`, nullable `question`,
+nullable `answer`, `answered_by`/`answered_at`, `visibility private|public`.
+
+- **One table, two things.** A question has `question` set and is `private`
+  until an organiser publishes it. An **announcement** is the same row with
+  no question at all — the text is in `answer`, it is `public` on creation,
+  and `asked_by` is the organiser, because that column means "who wrote this
+  row", not "who is waiting for a reply". Two tables would have duplicated
+  the visibility rule, the notification fan-out and the feed query to keep
+  one nullable column out of one of them. A CHECK refuses a row with neither
+  question nor answer, so "an announcement with no text" is not representable.
+- **Notifications fire on transitions, never on every PATCH.** The asker is
+  told the first time an answer lands; every participant is told the first
+  time an *answered* row becomes public. An organiser fixing a typo in an
+  answer two thousand students have already read notifies nobody. The
+  alternative — notify on each write — is how a feed becomes something people
+  stop opening, and it is unrecoverable once it has happened once.
+  `answered_by`/`answered_at` are stamped on the first answer and never
+  rewritten, so they name the reply the asker was actually told about.
+- **The fan-out is one INSERT, over `selectDistinct`, inside the
+  transaction.** A person holding a live participation plus two virtual
+  attempts is one recipient. Capped at 10000 — four times the largest room
+  this is being built for, a bound on the statement rather than a product
+  rule anyone will meet.
+- **Asking requires a participation; 403 `contest_not_joined`.** This is
+  contest-day Q&A, not a public forum. 403 rather than 404 on
+  `setDisqualified`'s reasoning: the caller already reached the contest, so
+  its existence is theirs to know. A contest they may *not* see still 404s.
+- **Reading is `@Public()`, like every other contest GET.** An anonymous
+  viewer of a public contest sees the public rows: an announcement is for the
+  people watching as much as for the people competing. A signed-in
+  non-organiser sees the public rows plus their own; the creator and a global
+  admin see everything.
+- **Rate limit: 20 asks per user per contest per hour**, D13's DB-backed
+  limiter, refused **loudly** with 429 `clarification_rate_limited`. D13's
+  silent drop is for outbound mail, where the refusal must not confirm an
+  address exists; an interactive form that silently swallowed a question
+  would be a worse bug than the flooding it prevents. Per contest, not per
+  user: a student sitting two rooms in one afternoon is two conversations.
+- **A `problemCode` not attached to this contest is `problem_not_found`**,
+  identically to a code that names nothing — a clarification form must not
+  become a way to enumerate which problems exist.
+- **The web polls every 30 s while the contest runs, and not at all once it
+  has finished.** No WebSocket: the realtime channel carries submissions, and
+  widening it for a feed that tolerates half a minute of staleness would add
+  a failure mode no reader could perceive the absence of.
+
+Rulings taken during loop task F1 with nobody to ask. Migration 0017.
