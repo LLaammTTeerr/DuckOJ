@@ -713,6 +713,72 @@ Fourteen nightly backups on the same disk as the database protect against
 nothing that destroys the disk or the machine. Someone has to copy
 `~/duckoj-backups` off this host on a schedule.
 
+## API workers — `API_WORKERS`
+
+`api` is a Node process, and Node runs JavaScript on one thread. Before this
+existed the whole API was therefore capped at one core of this sixteen-core
+host, and the cap was measured, not assumed: at 500 VUs of `load/k6-contest-day.js`
+the `api` container burned ~120% of a single core (the JS thread pegged, plus
+libuv and GC on the side) while `postgres` used ~110%, `caddy` ~30%, and
+thirteen cores sat idle. No query was slow. There was one of the thing doing
+the work.
+
+`API_WORKERS` (`apps/api/src/cluster.ts`) forks that many worker processes;
+the primary binds the port once and the kernel round-robins accepted
+connections across them. Compose pins `API_WORKERS: ${API_WORKERS:-4}`.
+
+- **`1` disables clustering entirely** — one process, `bootstrap()` called
+  directly, byte-for-byte the old behaviour. Use it when bisecting whether a
+  fault is clustering-related.
+- **Unset** (i.e. running the image outside Compose) defaults to
+  `os.availableParallelism()` capped at 8.
+- **An explicit value is honoured as written, not clamped**, and an
+  unparseable one throws at boot rather than silently falling back to one
+  worker.
+
+### Why the default is 4 and not 16
+
+Each worker opens its **own** Postgres pool of 10 connections
+(`packages/db/src/client.ts`, `max: 10`). The `postgres` service is stock
+`postgres:16`, whose `max_connections` is 100. Four workers is 40 connections,
+which leaves room for `judged`, a `migrate` run and a `psql` session. Eight is
+80 and is close. **Raising `API_WORKERS` past 8 requires raising
+`max_connections` first** — otherwise the symptom is `api` failing its
+healthcheck at boot with `too many clients already`, which reads like a
+database outage and is not one.
+
+### What clustering does *not* break
+
+Everything the API keeps across requests is already outside the process,
+because the code was written for multiple instances before it ever ran as
+several:
+
+- **Sessions and access tokens** are rows (`SessionService.resolve` is a
+  hashed-token lookup); nothing is cached in memory.
+- **Rate limits** are counted in the database (`apps/api/src/common/rate-limiter.ts`,
+  D13) precisely so they are "correct across several API instances".
+- **The realtime WebSocket** fans out through Redis. A browser's `/ws`
+  upgrade lands on exactly one worker, but `judged` (and the API's own
+  rejudge path) publishes to `SUBMISSION_CHANNEL`, every worker's
+  `RedisSubscriber` receives it, and each notifies its own sockets.
+  `RedisSubmissionPublisher`'s header documents this as the reason it
+  publishes rather than calling `SubmissionsGateway.notify` directly — a
+  direct call "would work in a single-process deployment and silently drop
+  half the notifications in any other". Verified with eight concurrent
+  subscribers across four workers during a real grade.
+
+### If a worker crashes
+
+The primary re-forks it with exponential backoff (1s, doubling to 30s), and
+resets to 1s once a worker has stayed up 30 seconds — so a boot-crash loop
+does not become a fork bomb and an unrelated crash tomorrow does not inherit
+today's 30-second delay. `SIGTERM`/`SIGINT` in the primary stops re-forking
+and kills the workers, so `--force-recreate` does not have to wait out
+podman's SIGKILL timeout. Worker exits are logged to stderr as JSON with the
+pid, exit code, signal and uptime.
+
+Before/after numbers for the 2000-VU profile are in `load/RESULTS.md`.
+
 ## Judging throughput
 
 Two separate ceilings, and they are commonly confused.

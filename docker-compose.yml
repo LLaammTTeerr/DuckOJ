@@ -58,6 +58,17 @@ services:
       TOTP_ENC_KEY: ${TOTP_ENC_KEY:?set TOTP_ENC_KEY}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost}
       LOG_LEVEL: info
+      # How many worker processes the API forks (apps/api/src/cluster.ts).
+      # A Node process is single-threaded, so before this the whole API was
+      # capped at one core of the host's sixteen — measured, see
+      # load/RESULTS.md. `1` restores the old single-process behaviour.
+      #
+      # 4, not `os.availableParallelism()`, because each worker opens its own
+      # Postgres pool of 10 (`createDb`) and the `postgres` service above runs
+      # stock `postgres:16` with `max_connections=100`: 4 workers is 40
+      # connections, which leaves room for `judged`, `migrate` and a psql
+      # session. Raise this only together with `max_connections`.
+      API_WORKERS: ${API_WORKERS:-4}
       # Task 13: content-addressed package bytes live here, behind a named
       # volume — without one, an uploaded/seeded package vanishes on the
       # next `podman-compose up` (a fresh container gets a fresh overlay
