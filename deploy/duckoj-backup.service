@@ -1,0 +1,36 @@
+# systemd USER unit — one run of scripts/backup.sh. Driven by
+# deploy/duckoj-backup.timer; there is no [Install] section because this unit
+# is meant to be started by the timer, never enabled on its own.
+#
+# Install (alongside deploy/duckoj.service — the same __REPO__ substitution):
+#   loginctl enable-linger "$USER"
+#   mkdir -p ~/.config/systemd/user
+#   sed "s|__REPO__|$PWD|" deploy/duckoj-backup.service > ~/.config/systemd/user/duckoj-backup.service
+#   sed "s|__REPO__|$PWD|" deploy/duckoj-backup.timer   > ~/.config/systemd/user/duckoj-backup.timer
+#   systemctl --user daemon-reload && systemctl --user enable --now duckoj-backup.timer
+#
+# Check it: `systemctl --user list-timers duckoj-backup.timer`, and
+# `journalctl --user -u duckoj-backup -n 50` for the last run's output.
+# Force one now: `systemctl --user start duckoj-backup.service`.
+[Unit]
+Description=DuckOJ nightly backup (database + package_store volume)
+# The stack must be up: backup.sh runs pg_dump inside the postgres container.
+# `After` only orders them within one boot — the timer's own OnCalendar is
+# what actually decides when this runs, and a stack that is down makes
+# backup.sh exit non-zero and loudly, which is the intended behaviour.
+After=duckoj.service
+Wants=duckoj.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=__REPO__
+# Retention is D17: 14 nightly backups kept on this host. Change it here and
+# in docs/DECISIONS.md together, not in one of the two.
+Environment=KEEP=14
+# The compose project name is the repo DIRECTORY name (scripts/compose-up.sh
+# computes it that way). Pinning it here rather than letting backup.sh derive
+# it means a repo moved or renamed on disk fails loudly on the next run
+# instead of silently finding no postgres container.
+Environment=COMPOSE_PROJECT=duckoj
+ExecStart=__REPO__/scripts/backup.sh %h/duckoj-backups
+TimeoutStartSec=1800
