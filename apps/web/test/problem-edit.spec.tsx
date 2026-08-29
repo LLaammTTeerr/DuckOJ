@@ -17,6 +17,7 @@ vi.mock('../src/api.js', () => ({
 
 const mockedGet = vi.mocked(api.GET);
 const mockedPost = vi.mocked(api.POST);
+const mockedPatch = vi.mocked(api.PATCH);
 
 function renderWithClient(ui: ReactElement) {
   // A fresh, no-retry client per render: without `retry: false` a mocked
@@ -30,6 +31,7 @@ function renderWithClient(ui: ReactElement) {
 afterEach(() => {
   mockedGet.mockReset();
   mockedPost.mockReset();
+  mockedPatch.mockReset();
 });
 
 const PROBLEM_DETAIL = {
@@ -41,6 +43,7 @@ const PROBLEM_DETAIL = {
   timeMs: 1000,
   memoryKb: 65536,
   statement: 'Add two numbers.',
+  sourceAccess: 'private' as const,
   testCount: 3,
   totalPoints: 100,
   checkerKind: 'wcmp',
@@ -95,6 +98,38 @@ describe('ProblemEditPage', () => {
       // statement cannot inject a second page-level heading.
       expect(preview.querySelector('h2')).toHaveTextContent('Hello');
     });
+  });
+
+  // design 2026-08-21-submission-source-visibility-design.md §2.3/§5: the
+  // API has carried `sourceAccess` since that design landed but the
+  // authoring screen never rendered it — this is that screen catching up.
+  it('prefills the source-access select from GET, and PATCH carries a change to it', async () => {
+    mockedGet.mockResolvedValueOnce({
+      data: { ...PROBLEM_DETAIL, sourceAccess: 'solved' as const },
+      error: undefined,
+      response: new Response(),
+    } as never);
+    mockedPatch.mockResolvedValueOnce({
+      data: { ...PROBLEM_DETAIL, sourceAccess: 'private' as const },
+      error: undefined,
+      response: new Response(),
+    } as never);
+
+    renderWithClient(<ProblemEditPage code="aplusb" />);
+
+    // Prefilled from the fetched problem, not the field's own default.
+    const select = await screen.findByLabelText(/Quyền xem mã nguồn/);
+    await waitFor(() => expect(select).toHaveValue('solved'));
+
+    await userEvent.selectOptions(select, 'private');
+    await userEvent.click(screen.getByRole('button', { name: /^Lưu$/ }));
+
+    await waitFor(() => expect(mockedPatch).toHaveBeenCalledTimes(1));
+    const [, options] = mockedPatch.mock.calls[0] as unknown as [
+      string,
+      { body: { sourceAccess?: string } },
+    ];
+    expect(options.body.sourceAccess).toBe('private');
   });
 });
 

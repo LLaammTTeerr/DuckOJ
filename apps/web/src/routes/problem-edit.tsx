@@ -8,8 +8,15 @@ import { useT } from '../i18n/index.js';
 
 type ProblemDetail = paths['/problems/{code}']['get']['responses'][200]['content']['application/json'];
 type Visibility = ProblemDetail['visibility'];
+type SourceAccess = ProblemDetail['sourceAccess'];
 
 const VISIBILITIES: Visibility[] = ['private', 'org', 'public'];
+// No `public` value — design 2026-08-21-submission-source-visibility-design.md
+// §2.3 deliberately stops at "anyone who has solved it"; the submitter,
+// admins, and the problem's authors/curators always see a submission's
+// source regardless of this setting, so it is not offered as a third option
+// here either.
+const SOURCE_ACCESSES: SourceAccess[] = ['private', 'solved'];
 
 /**
  * Splits a comma-separated org-slugs input into a clean array: trims each
@@ -71,6 +78,11 @@ export function ProblemEditPage(props: { code?: string }) {
   const [name, setName] = useState('');
   const [statement, setStatement] = useState('');
   const [visibility, setVisibility] = useState<Visibility>('private');
+  // Edit-only (see the `<select>` below): `CreateProblemRequest` has no
+  // `sourceAccess` field at all (design §5 — "a problem is created closed
+  // and opened deliberately, never as a default nobody chose"), so this
+  // initial value is never read on the create route.
+  const [sourceAccess, setSourceAccess] = useState<SourceAccess>('private');
   const [orgSlugsRaw, setOrgSlugsRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -132,6 +144,7 @@ export function ProblemEditPage(props: { code?: string }) {
     setName(query.data.name);
     setStatement(query.data.statement);
     setVisibility(query.data.visibility);
+    setSourceAccess(query.data.sourceAccess);
     setOrgSlugsRaw(query.data.orgSlugs.join(', '));
     setSeededFrom(query.data.code);
   }, [seededFrom, query.data]);
@@ -151,7 +164,13 @@ export function ProblemEditPage(props: { code?: string }) {
       const { error } = isEdit
         ? await api.PATCH('/problems/{code}', {
             params: { path: { code: props.code! } },
-            body: { name, statement, visibility, orgSlugs: parseOrgSlugs(orgSlugsRaw) },
+            body: {
+              name,
+              statement,
+              visibility,
+              sourceAccess,
+              orgSlugs: parseOrgSlugs(orgSlugsRaw),
+            },
           })
         : await api.POST('/problems', {
             body: { code, name, statement, visibility, orgSlugs: parseOrgSlugs(orgSlugsRaw) },
@@ -213,6 +232,29 @@ export function ProblemEditPage(props: { code?: string }) {
             </option>
           ))}
         </select>
+
+        {/* Edit-only: `CreateProblemRequest` carries no `sourceAccess` field
+            at all (design §5), so there is nothing to render or submit here
+            on the create route. */}
+        {isEdit ? (
+          <>
+            <label htmlFor="problem-source-access">{t('problemEdit.sourceAccess')}</label>
+            <select
+              id="problem-source-access"
+              value={sourceAccess}
+              onChange={(e) => setSourceAccess(e.target.value as SourceAccess)}
+            >
+              {/* Unlike `visibility.*`, these are full human-meaning
+                  sentences, not one-word labels — the enum value alone
+                  ("solved") does not say who it lets in. */}
+              {SOURCE_ACCESSES.map((s) => (
+                <option key={s} value={s}>
+                  {t(`sourceAccess.${s}`)}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : null}
 
         <label htmlFor="problem-org-slugs">{t('problemEdit.orgSlugs')}</label>
         <input id="problem-org-slugs" value={orgSlugsRaw} onChange={(e) => setOrgSlugsRaw(e.target.value)} />

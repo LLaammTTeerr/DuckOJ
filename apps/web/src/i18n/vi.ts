@@ -157,6 +157,7 @@ export const vi = {
   'problemEdit.code': 'Mã',
   'problemEdit.statement': 'Đề bài',
   'problemEdit.orgSlugs': 'Tổ chức (cách nhau bởi dấu phẩy)',
+  'problemEdit.sourceAccess': 'Quyền xem mã nguồn',
   'problemEdit.members': 'Thành viên',
   'problemEdit.rejudgeConfirm':
     'Chấm lại toàn bộ bài nộp của {code}? Kết quả hiện tại sẽ bị hủy.',
@@ -304,6 +305,8 @@ export const vi = {
   'visibility.private': 'riêng tư',
   'visibility.org': 'theo tổ chức',
   'visibility.public': 'công khai',
+  'sourceAccess.private': 'Riêng tư: chỉ người nộp, quản trị viên và tác giả/người phụ trách bài',
+  'sourceAccess.solved': 'Đã giải: thêm cả người đã có AC trên bài này',
 
   // ── organizations ─────────────────────────────────────────────────────
   'orgs.title': 'Tổ chức',

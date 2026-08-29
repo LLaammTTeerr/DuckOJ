@@ -165,6 +165,7 @@ export const en = {
   'problemEdit.code': 'Code',
   'problemEdit.statement': 'Statement',
   'problemEdit.orgSlugs': 'Organizations (comma-separated)',
+  'problemEdit.sourceAccess': 'Source access',
   'problemEdit.members': 'Members',
   'problemEdit.rejudgeConfirm':
     'Rejudge every submission of {code}? Their current verdicts are discarded.',
@@ -320,6 +321,13 @@ export const en = {
   'visibility.private': 'private',
   'visibility.org': 'org',
   'visibility.public': 'public',
+  // Who, beyond the submitter/admin/authors-curators, may read submissions
+  // to a problem (design 2026-08-21-submission-source-visibility-design.md
+  // §2.3) — those three always see it regardless of this setting, so the
+  // wording below spells out the full access list for `private` (nothing is
+  // added) and names only the addition for `solved`.
+  'sourceAccess.private': 'Private: submitter, admins, and problem authors/curators only',
+  'sourceAccess.solved': 'Solved: also open to anyone with an AC on this problem',
 
   // ── organizations ─────────────────────────────────────────────────────
   'orgs.title': 'Organizations',
