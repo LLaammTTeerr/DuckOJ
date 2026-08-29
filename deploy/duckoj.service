@@ -1,0 +1,33 @@
+# systemd USER unit — brings the DuckOJ compose stack up after a reboot.
+#
+# podman has no daemon, so docker-compose.yml's `restart: unless-stopped`
+# does nothing across a power cycle: on 2026-08-25 the host rebooted and
+# every container sat in Exited for four days while the tailscale URL
+# served nothing. This unit is the fix; `loginctl enable-linger` makes user
+# units start at boot without a login.
+#
+# Install:
+#   loginctl enable-linger "$USER"
+#   mkdir -p ~/.config/systemd/user
+#   sed "s|__REPO__|$PWD|" deploy/duckoj.service > ~/.config/systemd/user/duckoj.service
+#   systemctl --user daemon-reload && systemctl --user enable --now duckoj
+[Unit]
+Description=DuckOJ compose stack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=__REPO__
+Environment=SKIP_BUILD=1
+Environment=API_TIMEOUT=180
+Environment=JUDGED_TIMEOUT=180
+Environment=JUDGE_TIMEOUT=180
+Environment=POSTGRES_TIMEOUT=120
+ExecStart=__REPO__/scripts/compose-up.sh
+ExecStop=/usr/bin/podman-compose stop
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

@@ -40,7 +40,8 @@
 # Usage: scripts/compose-up.sh
 # Env overrides: COMPOSE (compose binary, default podman-compose),
 #   POSTGRES_TIMEOUT, REDIS_TIMEOUT, API_TIMEOUT, JUDGED_TIMEOUT, JUDGE_TIMEOUT
-#   (seconds to wait for healthy, default 60), MIGRATE_TIMEOUT (seconds to
+#   (seconds to wait for healthy, default 60), SKIP_BUILD=1 (reuse existing
+#   images — boot-time unit), MIGRATE_TIMEOUT (seconds to
 #   bound `up migrate` itself, default 120 — see the comment above that call
 #   for why this exists)
 
@@ -93,8 +94,15 @@ wait_healthy() {
   done
 }
 
-echo "==> Building images"
-"$COMPOSE" build
+# SKIP_BUILD=1 skips the image build — for the boot-time systemd unit
+# (deploy/duckoj.service), where images already exist and a rebuild on every
+# power cycle would delay availability by minutes for nothing.
+if [ "${SKIP_BUILD:-0}" = "1" ]; then
+  echo "==> Skipping image build (SKIP_BUILD=1)"
+else
+  echo "==> Building images"
+  "$COMPOSE" build
+fi
 
 echo "==> Starting postgres and redis"
 "$COMPOSE" up -d postgres redis
