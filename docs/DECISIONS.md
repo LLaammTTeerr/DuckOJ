@@ -833,3 +833,51 @@ that should.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B1 auth
 brief), no human available to consult.*
+
+## D34 — A TOTP code is single-use
+
+`TotpService.verify` checked the code against the secret and stopped there,
+so the same six digits worked as many times as they were presented for the
+sixty seconds `window: [1, 0]` keeps them acceptable. Verified against the
+live stack: sign in with a code, present the identical code again, second
+sign-in also answers 200. RFC 6238 §5.2 is explicit that a verifier must not
+accept the same OTP twice, and the reason is the attack the second factor
+exists to stop: a code read over a shoulder, relayed through a phishing
+proxy, or lifted out of a proxied form is worth a whole extra sign-in.
+
+**The rule.** A correct code is spent on first use. A replay inside the
+retention window answers exactly like a wrong code — `401
+invalid_totp_code`, which also consumes one of D16's ten login attempts, so
+spraying replays is metered like any other failure.
+
+**Where the record lives.** `rate_events`, purpose `totp_used`, key
+`<userId>:<code>`, through a new `RateLimiter.consumeOnce`. In the database
+rather than in this process because the API runs `API_WORKERS` of them and
+an in-memory set lets the replay land on a different worker; in the existing
+table rather than a new one because this brief adds no migration (the
+migration number is shared state with the other agents working tonight) and
+the shape — a purpose, a key, a timestamp, an age-based sweep — is exactly
+what that table already is.
+
+**`consumeOnce` takes a lock; `allow(…, 1, …)` would not have.** The class
+comment on `RateLimiter` accepts a count-then-act race because the limits it
+was written for guard nuisance volume. A single-use credential inverts that:
+two simultaneous presentations of one code is the *defining* case, since a
+relay forwards the victim's code at the instant the victim submits it. So
+`consumeOnce` takes a transaction-scoped advisory lock on `(purpose, key)`
+and serialises them. Its test needs three real connections —
+`withTestDb`'s rolled-back transaction makes nested `db.transaction()` calls
+savepoints of one xid, and an advisory lock is re-entrant within a session.
+
+**Keyed on the code, not the step**, so no second copy of `window`'s
+arithmetic can drift from otplib's. Cost: if two steps within the two-minute
+retention produce the same six digits (~1 in 10^6) one legitimate sign-in is
+refused and the next code works. Refusing is the safe direction.
+
+**Not applied to `POST /auth/totp/confirm`.** Confirming an enrolment is not
+an authentication — the caller already holds the session — and spending the
+code there would refuse a sign-in the enrolling user attempts thirty seconds
+later on their phone.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B1 auth
+brief), no human available to consult.*

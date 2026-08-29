@@ -10,7 +10,7 @@
  * invariant that must be exact.
  */
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, count, eq, gt, lte } from 'drizzle-orm';
+import { and, asc, count, eq, gt, lte, sql } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import { DB } from '../config/config.module.js';
 
@@ -90,6 +90,45 @@ export class RateLimiter {
     if (rows.length < limit) return null;
     const expiresAt = rows[0]!.createdAt.getTime() + windowMs;
     return Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000));
+  }
+
+  /**
+   * A limit of exactly one, made race-free: answers `true` for the first
+   * caller to present `key` within `windowMs` and `false` for every one
+   * after it.
+   *
+   * `allow(purpose, key, 1, windowMs)` looks like it does this and does not.
+   * Its count-then-insert has no lock, which the class comment above
+   * accepts *because* the limits it serves guard nuisance volume. A
+   * single-use guard is the opposite: two concurrent presentations of the
+   * same credential is precisely the case it exists to refuse — a
+   * phishing relay forwards the victim's code the same instant the victim
+   * submits it — so this variant takes a transaction-scoped advisory lock
+   * on `(purpose, key)` first and serialises them.
+   *
+   * The lock id is md5-derived rather than `hashtext()`: the latter is an
+   * internal function with no compatibility promise, and this needs one
+   * stable number per key, not a good hash.
+   */
+  async consumeOnce(purpose: string, key: string, windowMs: number): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock((('x' || substr(md5(${purpose + ':' + key}), 1, 16))::bit(64))::bigint)`,
+      );
+      const [row] = await tx
+        .select({ n: count() })
+        .from(schema.rateEvents)
+        .where(
+          and(
+            eq(schema.rateEvents.purpose, purpose),
+            eq(schema.rateEvents.key, key),
+            gt(schema.rateEvents.createdAt, new Date(Date.now() - windowMs)),
+          ),
+        );
+      if ((row?.n ?? 0) > 0) return false;
+      await tx.insert(schema.rateEvents).values({ purpose, key });
+      return true;
+    });
   }
 
   /**

@@ -6,6 +6,7 @@ import { schema, type Db } from '@duckoj/db';
 import { APP_CONFIG, DB } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
+import { RateLimiter } from '../common/rate-limiter.js';
 
 const ISSUER = 'DuckOJ';
 
@@ -38,11 +39,27 @@ const SECRET_BYTES = 20;
  */
 const totp = authenticator.clone({ window: [1, 0] });
 
+/**
+ * D34 — single use. Keyed on the CODE rather than on the step it came from:
+ * the code identifies its own step, and deriving the step here would be a
+ * second copy of `window`'s arithmetic that could disagree with `totp`'s.
+ *
+ * The window is two steps plus slack, which is longer than any code stays
+ * acceptable (`window: [1, 0]` — the current step and the one before it), so
+ * a row can never be swept while the code it guards is still usable. Its
+ * only cost is the ~1-in-10^6 case where two steps inside two minutes
+ * produce the same six digits and one legitimate sign-in is refused; the
+ * user's next code works, and refusing is the safe direction to be wrong in.
+ */
+const REPLAY_PURPOSE = 'totp_used';
+const REPLAY_WINDOW_MS = 120_000;
+
 @Injectable()
 export class TotpService {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
+    @Inject(RateLimiter) private readonly limiter: RateLimiter,
   ) {}
 
   /**
@@ -123,11 +140,20 @@ export class TotpService {
    * first (as `AuthController.login` does) before treating a `true` result
    * as "the code was correct"; called bare, an unenrolled user's request
    * would fail open.
+   *
+   * **A correct code is also spent here (D34).** RFC 6238 §5.2 requires a
+   * verifier to refuse a second use of the same OTP, and nothing did: a code
+   * read off a shoulder, a phishing relay or a proxied form bought a full
+   * extra sign-in for the rest of its step. The record is in the database,
+   * not in this process, because the API runs `API_WORKERS` of them and an
+   * in-memory set would let the replay land on any other worker.
    */
   async verify(userId: number, code: string): Promise<boolean> {
     if (!(await this.isEnabled(userId))) return true;
     const secret = await this.secretFor(userId);
-    return secret ? totp.verify({ token: code, secret }) : false;
+    if (!secret) return false;
+    if (!totp.verify({ token: code, secret })) return false;
+    return this.limiter.consumeOnce(REPLAY_PURPOSE, `${String(userId)}:${code}`, REPLAY_WINDOW_MS);
   }
 
   private async secretFor(userId: number): Promise<string | null> {
