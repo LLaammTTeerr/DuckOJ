@@ -39,3 +39,4 @@
 - P5 DONE_WITH_CONCERNS (34ab990..73e99c3): 6/6 journeys + 9 smoke green on live; fixed: no sign-out control, sign-out 401 stray request, visitor contest-page 401, phone table overflow, e2e locale. Concerns → P6.
 - Merged P1-D; full ritual green; api rebuilt/recreated; pushed 65e27a3; CI polling. k6 2000-VU run started against live (5 min).
 - Dispatched P6 (worktree, opus): registration page, submission→contest link, journey-1 via the page.
+- k6 2000 VU / 5m30s on live: 319,727 reqs, ~970 req/s, 0.00% errors, p95 3.46 s (threshold 800 ms crossed). Single Node process on 16 cores → dispatched P7 (main, opus): measure, API_WORKERS cluster mode (or index if PG-bound), redeploy, rerun, load/RESULTS.md.
