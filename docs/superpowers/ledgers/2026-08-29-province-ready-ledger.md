@@ -35,3 +35,4 @@
 - Redeployed api/migrate/judged + web from c355fdb; scoreboard live. Pushed; CI polling. Dispatched P5 (opus) Playwright journeys against the live stack.
 - Dispatched P1-D (worktree, opus, D23): freeze masking on /submissions, /contests/{key}/me, WebSocket — closes P1-C's concern.
 - CI on c355fdb: success.
+- P1-D DONE_WITH_CONCERNS on `worktree-agent-a134c0e2fe369bf19` (a5c86bd, 6a1f1e5): submission.freeze.ts one predicate two forms, masking not filtering, D23. Merge after P5. Carried: solved-count and source_access='solved' leaks during freeze (named in D23).
