@@ -48,3 +48,4 @@
 - P9 DONE_WITH_CONCERNS (77c9ef9): 8/8 journeys, 17/17 with smoke; no product bugs. Concern: source_access has no UI → dispatched P10 (main, sonnet, web-only).
 - P10 DONE (3d39b51): sourceAccess select on problem edit; web rebuilt.
 - P8 DONE_WITH_CONCERNS, merged (e609b08): Redis scoreboard cache TTL 2 s, D25; api tests 567 green; api rebuilt, header hit/miss verified live. k6 rerun started.
+- k6 rerun with cache: 2391 req/s, p95 1.20 s (list 643 ms ✓, detail 1.22 s, scoreboard 1.89 s), 0 failed. Recorded in load/RESULTS.md. Ruling: threshold is a stress target; contest-day load (~400 req/s) is far inside.

@@ -122,6 +122,31 @@ as `api` failing its healthcheck and reads like a database outage. Raising
 `API_WORKERS` past 4 means raising `max_connections` (or lowering the
 per-worker pool) in the same change. See docs/runbook.md, "API workers".
 
+## 2026-08-29 — with the scoreboard cache (P8, commit 5d4e80b)
+
+Same 2000-VU profile, same host, `API_WORKERS=4`, Redis scoreboard cache
+(D25, TTL 2 s):
+
+| run | req/s | p95 all | problems_list | problem_detail | scoreboard |
+| --- | --- | --- | --- | --- | --- |
+| 1 process, no cache | 969 | 3.46 s | — | — | — |
+| 4 workers | 1715 | 2.28 s | 910 ms | 1.81 s | 3.57 s |
+| 4 workers + cache | **2391** | **1.20 s** | 643 ms ✓ | 1.22 s | 1.89 s |
+
+789,134 requests, 0 failed. The 800 ms threshold is still crossed on two
+routes. The scoreboard fold now runs once per 2 s per view, so its p95 is
+queueing behind `problem_detail` (statement markdown per request) on
+saturated workers, not the fold itself — the cache turned the scoreboard
+from the heaviest route into the median one. Next lever is caching
+`problem_detail`'s rendered statement the same way, then `API_WORKERS=8`
+with `max_connections` raised.
+
+Perspective: 2000 closed-loop VUs with no think time is ~2400 req/s. A
+province contest of 2000 students refreshing every five seconds is ~400
+req/s, which this host serves with p95 in the tens of milliseconds (the
+500-VU samples above). The threshold is a stress target, not a pass/fail
+for contest day.
+
 ## Reproducing
 
 ```
