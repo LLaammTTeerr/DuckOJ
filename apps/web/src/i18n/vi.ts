@@ -250,6 +250,7 @@ export const vi = {
   'scoreboard.virtual': '(thi ảo)',
   'scoreboard.disqualified': '(hủy tư cách)',
   'scoreboard.empty': 'Chưa có ai dự thi.',
+  'scoreboard.frozen': 'Bảng điểm đang đóng băng từ {time}.',
   'scoreboard.dq': 'Hủy tư cách {name}',
   'scoreboard.undq': 'Khôi phục {name}',
   'contest.edit': 'Sửa kỳ thi',
@@ -261,6 +262,7 @@ export const vi = {
   'contestNew.starts': 'Bắt đầu',
   'contestNew.ends': 'Kết thúc',
   'contestNew.format': 'Thể thức',
+  'contestNew.freeze': 'Đóng băng (phút)',
   'contestNew.problems': 'Bài tập',
   'contestNew.colCode': 'Mã',
   'contestNew.colPoints': 'Điểm',
@@ -273,6 +275,7 @@ export const vi = {
   'contestNew.badPoints': 'Bài {code}: điểm phải là số không âm.',
   'contestNew.datesRequired': 'Phải nhập thời điểm bắt đầu và kết thúc.',
   'contestNew.createError': 'Không tạo được kỳ thi.',
+  'contestNew.badFreeze': 'Thời gian đóng băng phải là số phút nguyên và ngắn hơn kỳ thi.',
 
   'contestEdit.title': 'Sửa {key}',
   'contestEdit.save': 'Lưu kỳ thi',

@@ -5,7 +5,7 @@ import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { formatPoints } from '../format.js';
 import { meQueryOptions } from '../me.js';
-import { formatDateTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
+import { formatDateTime, formatTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
 
 type Contest = paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
@@ -286,21 +286,25 @@ type Cell = Scoreboard['ranking'][number]['format_data'][string];
  * — a Vietnamese `p` for "phút" here would make this board unreadable to
  * anyone who has seen one before, which is everyone it is for.
  */
-function cell(data: Cell | undefined): string {
-  if (!data) return '\u2014';
+function cell(data: Cell | undefined, pending = 0): string {
+  const marker = pending > 0 ? `?+${String(pending)}` : '';
+  // A cell with nothing but hidden attempts is `?+n` ALONE. Prefixing the
+  // em-dash would read as "nothing happened here, and also two things did".
+  if (!data) return marker === '' ? '\u2014' : marker;
+  const suffix = marker === '' ? '' : ` ${marker}`;
   const minutes = Math.floor(data.time / 60);
   if (data.tries === undefined) {
     // The three non-icpc formats: points, with the scoring time beside a
     // nonzero score.
     return data.points > 0
-      ? `${formatPoints(data.points)} \u00b7 ${String(minutes)}m`
-      : formatPoints(data.points);
+      ? `${formatPoints(data.points)} \u00b7 ${String(minutes)}m${suffix}`
+      : `${formatPoints(data.points)}${suffix}`;
   }
   if (data.points > 0) {
-    const marker = data.tries === 1 ? '+' : `+${String(data.tries - 1)}`;
-    return `${formatPoints(data.points)} (${marker}, ${String(minutes)}m)`;
+    const tries = data.tries === 1 ? '+' : `+${String(data.tries - 1)}`;
+    return `${formatPoints(data.points)} (${tries}, ${String(minutes)}m)${suffix}`;
   }
-  return data.tries > 0 ? `\u2212${String(data.tries)}` : '\u2014';
+  return data.tries > 0 ? `\u2212${String(data.tries)}${suffix}` : `\u2014${suffix}`;
 }
 
 export function ScoreboardPage({ contestKey }: { contestKey: string }) {
@@ -312,6 +316,7 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
   const [dqBusy, setDqBusy] = useState<string | null>(null);
 
   const t = useT();
+  const { locale } = useLocale();
   const query = useQuery({
     queryKey: ['scoreboard', contestKey],
     queryFn: async (): Promise<Scoreboard> => {
@@ -375,6 +380,13 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
           {t('scoreboard.back')}
         </Link>
       </p>
+      {/* `role="status"`, not `alert`: the board being frozen is the contest
+          working as configured, not something going wrong. */}
+      {query.data.frozen && query.data.frozenAt !== null ? (
+        <p role="status">
+          {t('scoreboard.frozen', { time: formatTime(query.data.frozenAt, locale) })}
+        </p>
+      ) : null}
       <table>
         <thead>
           <tr>
@@ -414,7 +426,7 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
               <td className="num">{row.cumtime}</td>
               {problems.map((problem) => (
                 <td key={problem.code} className="num">
-                  {cell(row.format_data[problem.code])}
+                  {cell(row.format_data[problem.code], row.pending?.[problem.code] ?? 0)}
                 </td>
               ))}
               {canEdit ? (

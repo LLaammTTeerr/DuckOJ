@@ -31,6 +31,10 @@ export function ContestNewPage() {
   const [end, setEnd] = useState('');
   const [format, setFormat] = useState<string>('icpc');
   const [visibility, setVisibility] = useState<'public' | 'org' | 'private'>('private');
+  // A string, like every other numeric field on this form: a number state
+  // would turn a cleared box into `NaN` (or silently into 0) while the setter
+  // is still typing.
+  const [freeze, setFreeze] = useState('0');
   const [rows, setRows] = useState<ProblemRow[]>([{ code: '', points: '100', partial: true }]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,6 +55,11 @@ export function ContestNewPage() {
       setError(t('contestNew.datesRequired'));
       return;
     }
+    const frozenLastMinutes = Number(freeze);
+    if (!Number.isInteger(frozenLastMinutes) || frozenLastMinutes < 0) {
+      setError(t('contestNew.badFreeze'));
+      return;
+    }
     setBusy(true);
     try {
       const { data, error: err } = await api.POST('/contests', {
@@ -63,6 +72,7 @@ export function ContestNewPage() {
           endTime: new Date(end).toISOString(),
           format,
           visibility,
+          frozenLastMinutes,
           problems: problems.map((row) => ({
             code: row.code.trim(),
             points: Number(row.points),
@@ -120,6 +130,14 @@ export function ContestNewPage() {
               </option>
             ))}
           </select>
+        </label>{' '}
+        <label>
+          {t('contestNew.freeze')}{' '}
+          <input
+            aria-label={t('contestNew.freeze')}
+            value={freeze}
+            onChange={(e) => setFreeze(e.target.value)}
+          />
         </label>{' '}
         <label>
           {t('common.visibility')}{' '}

@@ -262,6 +262,7 @@ export const en = {
   'scoreboard.virtual': '(virtual)',
   'scoreboard.disqualified': '(disqualified)',
   'scoreboard.empty': 'Nobody has competed yet.',
+  'scoreboard.frozen': 'The scoreboard has been frozen since {time}.',
   'scoreboard.dq': 'DQ {name}',
   'scoreboard.undq': 'un-DQ {name}',
   'contest.edit': 'Edit contest',
@@ -273,6 +274,7 @@ export const en = {
   'contestNew.starts': 'Starts',
   'contestNew.ends': 'Ends',
   'contestNew.format': 'Format',
+  'contestNew.freeze': 'Freeze (minutes)',
   'contestNew.problems': 'Problems',
   'contestNew.colCode': 'Code',
   'contestNew.colPoints': 'Points',
@@ -285,6 +287,7 @@ export const en = {
   'contestNew.badPoints': 'Problem {code}: points must be a non-negative number.',
   'contestNew.datesRequired': 'Start and end are required.',
   'contestNew.createError': 'Could not create the contest.',
+  'contestNew.badFreeze': 'The freeze window must be a whole number of minutes, and shorter than the contest.',
 
   'contestEdit.title': 'Edit {key}',
   'contestEdit.save': 'Save contest',

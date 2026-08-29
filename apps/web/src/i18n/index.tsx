@@ -213,6 +213,18 @@ export function formatDateTime(iso: string, locale: Locale): string {
   return `${day} ${time}`;
 }
 
+/**
+ * Time only, `HH:MM`, in the active locale's own clock. The scoreboard's
+ * freeze banner names an instant inside a contest that is running right now,
+ * so the date is noise — the reader knows what day it is.
+ */
+export function formatTime(iso: string, locale: Locale): string {
+  return new Date(iso).toLocaleTimeString(INTL_LOCALES[locale], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 /** Date only, in the active locale's own order. */
 export function formatDate(iso: string, locale: Locale): string {
   return new Date(iso).toLocaleDateString(INTL_LOCALES[locale]);

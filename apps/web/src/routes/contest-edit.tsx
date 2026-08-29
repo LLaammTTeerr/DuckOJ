@@ -83,6 +83,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
   const [end, setEnd] = useState('');
   const [format, setFormat] = useState<string>('icpc');
   const [visibility, setVisibility] = useState<Visibility>('private');
+  const [freeze, setFreeze] = useState('0');
   const [rows, setRows] = useState<ProblemRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -100,6 +101,10 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
     setEnd(toLocalInput(contest.endTime));
     setFormat(contest.format);
     setVisibility(contest.visibility);
+    // Prefilled and sent back on every save, like every other field here:
+    // the PATCH reads an absent key as "keep", but a form that shows a value
+    // it then omits is a form that lies about what it will save.
+    setFreeze(String(contest.frozenLastMinutes));
     setRows(
       contest.problems.map((problem) => ({
         code: problem.code,
@@ -127,6 +132,11 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
       setError(t('contestNew.datesRequired'));
       return;
     }
+    const frozenLastMinutes = Number(freeze);
+    if (!Number.isInteger(frozenLastMinutes) || frozenLastMinutes < 0) {
+      setError(t('contestNew.badFreeze'));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -138,6 +148,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
           endTime: new Date(end).toISOString(),
           format,
           visibility,
+          frozenLastMinutes,
           problems: problems.map((row) => ({
             code: row.code.trim(),
             points: Number(row.points),
@@ -216,6 +227,14 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
               </option>
             ))}
           </select>
+        </label>{' '}
+        <label>
+          {t('contestNew.freeze')}{' '}
+          <input
+            aria-label={t('contestNew.freeze')}
+            value={freeze}
+            onChange={(e) => setFreeze(e.target.value)}
+          />
         </label>{' '}
         <label>
           {t('common.visibility')}{' '}
