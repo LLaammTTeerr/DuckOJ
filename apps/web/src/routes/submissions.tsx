@@ -166,11 +166,20 @@ export function SubmissionsPage({
                 </td>
                 <td>{s.languageKey}</td>
                 <td>
+                  {/* D23: a frozen row is a row whose verdict is being
+                      withheld, which is a different thing from one that has
+                      no verdict yet — `?` rather than the pending `—`, with
+                      the reason on hover. Same neutral `pend` token: there is
+                      no colour to give it without leaking the verdict. */}
                   <span
                     className={`badge ${verdictToken(s.verdict)}`}
-                    {...(s.verdict ? { title: verdictName(t, s.verdict) } : {})}
+                    {...(s.frozen
+                      ? { title: t('submission.frozen') }
+                      : s.verdict
+                        ? { title: verdictName(t, s.verdict) }
+                        : {})}
                   >
-                    {s.verdict ?? '—'}
+                    {s.frozen ? '?' : (s.verdict ?? '—')}
                   </span>
                 </td>
                 <td className="num">

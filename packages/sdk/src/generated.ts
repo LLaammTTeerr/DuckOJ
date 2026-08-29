@@ -3828,7 +3828,7 @@ export interface paths {
         };
         /**
          * Submissions visible to the caller, newest first
-         * @description Keyset-paginated on `id`, descending. Produces exactly the set `GET /submissions/{id}` would answer 200 for, one id at a time — never more. `user=` naming someone else's username returns an empty page for a non-admin rather than a 403, which would itself confirm the username exists.
+         * @description Keyset-paginated on `id`, descending. Produces exactly the set `GET /submissions/{id}` would answer 200 for, one id at a time — never more. `user=` naming someone else's username returns an empty page for a non-admin rather than a 403, which would itself confirm the username exists. A row inside a live freeze window (D23) is listed with `frozen: true` and a null `verdict`/`points`; because `verdict=` is a question about the verdict, a frozen row matches NO value of that filter.
          */
         get: {
             parameters: {
@@ -3866,6 +3866,7 @@ export interface paths {
                                 maxPoints: number | null;
                                 /** Format: date-time */
                                 createdAt: string;
+                                frozen: boolean;
                             }[];
                             nextCursor: string | null;
                         };
@@ -4039,7 +4040,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A submission visible to the caller */
+        /**
+         * A submission visible to the caller
+         * @description During a contest freeze window (D23) a submission that is not the caller's own answers 200 with `frozen: true` and `verdict`, `points`, `timeMs`, `memoryKb`, `compileOutput` null and `cases` empty. The contest's creator and global admins are never masked, and everything is revealed once the submission's own participation has ended.
+         */
         get: {
             parameters: {
                 query?: never;
@@ -4087,6 +4091,7 @@ export interface paths {
                             createdAt: string;
                             /** Format: date-time */
                             judgedAt: string | null;
+                            frozen: boolean;
                         };
                     };
                 };

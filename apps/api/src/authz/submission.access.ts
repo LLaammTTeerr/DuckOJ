@@ -23,6 +23,13 @@ import { canViewProblem, loadProblemContext } from './problem.visibility.js';
 import { resolveContestTarget } from './participation.js';
 import { canViewContest, loadContestContext } from './contest.visibility.js';
 import { canViewSubmission, loadSubmissionContext, visibleSubmissionsWhere } from './submission.visibility.js';
+import {
+  frozenSubmissionsWhere,
+  isSubmissionFrozen,
+  loadSubmissionFreezeContext,
+  maskFrozenDetail,
+  maskFrozenSummary,
+} from './submission.freeze.js';
 
 /**
  * The ONLY module permitted to import `@duckoj/db/guarded` for submissions,
@@ -212,6 +219,10 @@ export class SubmissionAccessService {
    * "that user exists but isn't you" would itself be an existence oracle.
    */
   async listVisible(actor: Actor, filters: SubmissionListQueryDto): Promise<SubmissionPageDto> {
+    // One clock for the whole page: two rows of the same contest must not land
+    // on opposite sides of a freeze instant that ticked past between them.
+    const now = new Date();
+    const frozen = frozenSubmissionsWhere(actor, now);
     const conditions = [visibleSubmissionsWhere(this.db, actor)];
     if (filters.problem) {
       conditions.push(sql`lower(${problems.code}) = lower(${filters.problem})`);
@@ -221,6 +232,13 @@ export class SubmissionAccessService {
     }
     if (filters.verdict) {
       conditions.push(eq(submissions.verdict, filters.verdict));
+      // The one place the freeze *filters* rather than masks (D23). A verdict
+      // filter is a question about the verdict, and a masked row that still
+      // answered it would hand the whole hidden verdict back in nine probes —
+      // the mask below would be decorative. Excluded here, in SQL, rather than
+      // dropped from `items` afterwards: `nextCursor` is `items.at(-1).id`,
+      // so a page thinned after the fact skips rows on the next one.
+      conditions.push(sql`not ${frozen}`);
     }
     if (filters.contest) {
       // Submissions made INTO the contest — rows in `contest_submissions` —
@@ -255,6 +273,10 @@ export class SubmissionAccessService {
         points: submissions.points,
         maxPoints: submissions.maxPoints,
         createdAt: submissions.createdAt,
+        // The SQL form of the freeze predicate, as a computed column. The
+        // list cannot use the row form: it would need this submission's
+        // participation, one query per row.
+        frozen,
       })
       .from(submissions)
       .innerJoin(problems, eq(problems.id, submissions.problemId))
@@ -264,17 +286,21 @@ export class SubmissionAccessService {
       .orderBy(desc(submissions.id))
       .limit(filters.limit + 1);
 
-    const items = rows.slice(0, filters.limit).map((row) => ({
-      id: row.id,
-      problemCode: row.problemCode,
-      username: row.username,
-      languageKey: row.languageKey,
-      state: row.state,
-      verdict: row.verdict,
-      points: row.points,
-      maxPoints: row.maxPoints,
-      createdAt: row.createdAt.toISOString(),
-    }));
+    const items = rows.slice(0, filters.limit).map((row) => {
+      const item = {
+        id: row.id,
+        problemCode: row.problemCode,
+        username: row.username,
+        languageKey: row.languageKey,
+        state: row.state,
+        verdict: row.verdict,
+        points: row.points,
+        maxPoints: row.maxPoints,
+        createdAt: row.createdAt.toISOString(),
+        frozen: false,
+      };
+      return row.frozen ? maskFrozenSummary(item) : item;
+    });
     const nextCursor = rows.length > filters.limit ? String(items.at(-1)!.id) : null;
     return { items, nextCursor };
   }
@@ -381,7 +407,11 @@ export class SubmissionAccessService {
               asc(submissionCases.attempt),
             );
 
-    return {
+    // The freeze (D23), applied last, over a fully-built response. Building
+    // the masked shape by NOT fetching would put half of "what a freeze
+    // hides" in this method's control flow; masking a finished DTO keeps the
+    // whole answer in one place, beside the SQL form the list uses.
+    const detail: SubmissionDetailDto = {
       id: row.id,
       problemCode: row.problemCode,
       languageKey: row.languageKey,
@@ -406,7 +436,13 @@ export class SubmissionAccessService {
       })),
       createdAt: row.createdAt.toISOString(),
       judgedAt: row.judgedAt ? row.judgedAt.toISOString() : null,
+      frozen: false,
     };
+
+    const freezeCtx = await loadSubmissionFreezeContext(this.db, id);
+    return isSubmissionFrozen(actor, row, freezeCtx, new Date())
+      ? maskFrozenDetail(detail)
+      : detail;
   }
 }
 

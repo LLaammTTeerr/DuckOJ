@@ -136,7 +136,17 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
   return (
     <section>
       <p>{t('submit.status', { state: stateLabel })}</p>
-      {isCompileError ? (
+      {submission.frozen ? (
+        // D23. Checked BEFORE the verdict branches, not after: a frozen
+        // submission arrives with `verdict: null`, so without this it would
+        // render as nothing at all and read as "not graded yet".
+        <p>
+          {t('submit.verdict')}{' '}
+          <strong className="badge pend" title={t('submission.frozen')}>
+            ?
+          </strong>
+        </p>
+      ) : isCompileError ? (
         <p>
           {t('submit.verdict')}{' '}
           {/* The one verdict rendered by its long name rather than its code:

@@ -211,6 +211,7 @@ export const vi = {
   'submission.title': 'Bài nộp #{id}',
   'submission.notFound': 'Không có bài nộp này.',
   'submission.source': 'Mã nguồn',
+  'submission.frozen': 'Được ẩn cho tới khi bảng điểm hết đóng băng.',
 
   // ── contests ──────────────────────────────────────────────────────────
   'contests.title': 'Kỳ thi',
