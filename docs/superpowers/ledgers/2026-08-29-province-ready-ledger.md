@@ -40,3 +40,5 @@
 - Merged P1-D; full ritual green; api rebuilt/recreated; pushed 65e27a3; CI polling. k6 2000-VU run started against live (5 min).
 - Dispatched P6 (worktree, opus): registration page, submission→contest link, journey-1 via the page.
 - k6 2000 VU / 5m30s on live: 319,727 reqs, ~970 req/s, 0.00% errors, p95 3.46 s (threshold 800 ms crossed). Single Node process on 16 cores → dispatched P7 (main, opus): measure, API_WORKERS cluster mode (or index if PG-bound), redeploy, rerun, load/RESULTS.md.
+- CI on 65e27a3: success.
+- P6 DONE_WITH_CONCERNS, merged (77b777b): /register page, contestKey/contestLabel on submissions (D24, renumbered). journey.spec kept P5's version — register-page walk for journey 1 owed to the final e2e pass. Web rebuilt (register page live); api redeploy waits for P7.
