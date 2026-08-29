@@ -54,3 +54,4 @@
 - B3 fixed now: timer installed, first backup ran (dump 127 KB + store 386 KB), modes tightened to 700/600.
 - Dispatched F1 (main, opus): B1, M1, M2 (D26), M3 (D27), M9, M11. F2 (worktree, opus): B2 targeted cancel + back-pressure (D28). F3 (worktree, opus): M4–M8, M10.
 - Session limit (7pm reset) killed F1/F2/F3 mid-flight; all three resumed from transcripts.
+- F3 DONE_WITH_CONCERNS on `worktree-agent-af048a93012b8300f` (a935753): restore.sh M4–M7, backup modes M8, runbook boot section M10, 43-case sh test. Its D26 → renumber D29 at merge (F1 owns D26/D27, F2 D28). Merge after F1 frees main.
