@@ -102,7 +102,7 @@ export const vi = {
   'auth.confirmPassword': 'Nhập lại mật khẩu',
   'auth.registerFailed': 'Không tạo được tài khoản.',
   'auth.verificationSent':
-    'Một liên kết xác nhận đang được gửi tới địa chỉ của bạn. Không có gì ở đây phải chờ nó — bạn đã đăng nhập rồi.',
+    'Một liên kết xác nhận sẽ được gửi tới địa chỉ này. Không có gì ở đây phải chờ nó — đăng ký xong là bạn đã đăng nhập.',
   'auth.errUsernameLength': 'Từ 3 đến 32 ký tự.',
   'auth.errUsernameChars': 'Chỉ gồm chữ cái, chữ số, dấu chấm, gạch dưới và gạch nối.',
   'auth.errEmail': 'Đây không giống một địa chỉ email.',

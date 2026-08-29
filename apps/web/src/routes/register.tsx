@@ -136,7 +136,6 @@ export function RegisterPage() {
   const [values, setValues] = useState<Values>(EMPTY);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
 
   function set(field: Field): (value: string) => void {
@@ -174,7 +173,6 @@ export function RegisterPage() {
 
       // The account exists from here on. Everything below can fail without
       // un-creating it, which is why none of it navigates away on failure.
-      setSent(true);
       const signedIn = await api.POST('/auth/login', {
         body: { usernameOrEmail: values.username, password: values.password },
       });
@@ -197,6 +195,15 @@ export function RegisterPage() {
     <section className="panel">
       <h1>{t('auth.registerTitle')}</h1>
       <p className="muted">{t('auth.registerIntro')}</p>
+      {/* Standing copy, NOT a `role="status"` raised after a successful
+          signup: this page navigates to `/` the moment the chained sign-in
+          returns, so a note rendered on success would unmount before anyone
+          could read it — and on the one path where it survived (the sign-in
+          after registration failing) it would sit beside the failure saying
+          the opposite. Told up front, in the future tense, it is true at the
+          moment it is read. The mail itself is best-effort in the controller,
+          so nothing here waits on it. */}
+      <p className="muted">{t('auth.verificationSent')}</p>
       {/* `noValidate`: the email field keeps `type="email"` for the mobile
           keyboard it summons, but the browser's own constraint validation
           would otherwise swallow the submit and answer with a bubble in the
@@ -243,7 +250,6 @@ export function RegisterPage() {
           onChange={set('confirm')}
         />
         {error ? <p role="alert">{error}</p> : null}
-        {sent ? <p role="status">{t('auth.verificationSent')}</p> : null}
         <button type="submit" disabled={busy}>
           {busy ? t('common.working') : t('auth.registerSubmit')}
         </button>

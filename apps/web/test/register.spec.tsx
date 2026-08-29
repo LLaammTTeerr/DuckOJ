@@ -149,14 +149,14 @@ describe('RegisterPage on success', () => {
     expect(navigate).toHaveBeenCalledWith({ to: '/' });
   });
 
-  it('says a confirmation mail is on its way', async () => {
-    post.mockResolvedValue({ error: undefined, data: {} });
+  it('says a confirmation mail will be sent, BEFORE the form is submitted', async () => {
     wrap();
-    await fillValid();
-    await submit();
-    // Best-effort in the controller (a mailer outage does not fail the
-    // signup), so the wording promises nothing about arrival.
-    expect(await screen.findByRole('status')).toHaveTextContent(/liên kết xác nhận/);
+    // Standing copy, not a note raised on success: a successful signup
+    // navigates to `/` and unmounts this page, so anything rendered only at
+    // that moment is never read. Asserted with nothing submitted at all,
+    // which is the state a note raised on success cannot satisfy.
+    expect(screen.getByText(/liên kết xác nhận/)).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
   });
 });
 
@@ -219,5 +219,9 @@ describe('RegisterPage on a server refusal', () => {
     // The account exists; sending them to `/` signed out would hide that.
     expect(navigate).not.toHaveBeenCalled();
     expect(await screen.findByRole('alert')).toHaveTextContent('Nope.');
+    // …and nothing on screen claims they are signed in, which is what a
+    // success-time "you are signed in already" note would have said right
+    // beside this alert.
+    expect(screen.queryByRole('status')).toBeNull();
   });
 });

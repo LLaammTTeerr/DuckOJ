@@ -110,7 +110,7 @@ export const en = {
   'auth.confirmPassword': 'Confirm password',
   'auth.registerFailed': 'Could not create the account.',
   'auth.verificationSent':
-    'A confirmation link is on its way to your address. Nothing here waits on it — you are signed in already.',
+    'A confirmation link will be sent to this address. Nothing here waits on it — registering signs you in straight away.',
   'auth.errUsernameLength': 'Between 3 and 32 characters.',
   'auth.errUsernameChars': 'Letters, digits, dot, underscore and hyphen only.',
   'auth.errEmail': 'That does not look like an email address.',
