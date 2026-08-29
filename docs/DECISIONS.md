@@ -753,3 +753,38 @@ Two smaller rulings ride along:
 Not decided here: alerting. Nothing tells anyone a nightly backup or a restore
 failed except `journalctl`; D17 already accepts that for backups and this does
 not change it.
+
+## D32 — A password reset revokes access tokens too, not only sessions
+
+`resetPassword` ended every session for the account and left every personal
+access token alive. The two are not comparable in danger: a session dies on
+its own in `SESSION_TTL_HOURS`, whereas `POST /auth/tokens` accepts
+`expiresAt: null` and mints a credential that never expires — and that route
+is `@SessionOnly()`, which means the caller who can mint one is exactly the
+caller holding the session an intruder stole. Mint a token, wait for the
+victim to notice and reset, keep the account: the rescue the reset exists to
+perform was reachable around.
+
+**The rule.** Redeeming a `password_reset` token deletes every
+`access_tokens` row for that user in the same transaction as the password
+change and the session purge, so there is no instant at which the new
+password is live and an old credential still is.
+
+**Not the same as a routine password change**, which does not exist here —
+there is no "change my password" endpoint, only the mailed reset, and every
+reset is by construction a "someone may be in my account" event. If a
+self-service change is ever added, it is a separate decision: revoking a
+CI token because a person rotated their own password on a Tuesday is a
+different trade from revoking it because they are being locked out of their
+own account.
+
+**What this costs.** A person who resets their password re-issues their `oj`
+CLI token and any CI credential. That is the correct direction — the
+alternative is a reset that quietly leaves the compromise in place — and it
+is the same behaviour GitLab, Google and Atlassian all have for OAuth/app
+credentials after a credential-reset event. The one refinement worth having
+later is telling the user, on the reset-complete screen, that their tokens
+are gone; the web reset page is out of this brief's surface.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B1 auth
+brief), no human available to consult.*
