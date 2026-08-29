@@ -511,3 +511,53 @@ Rulings taken during task P8 with nobody to ask.
 Left open: a fold already in flight when a write commits can still store the
 pre-write board, for one TTL. Closing it needs a cross-worker epoch read on
 every request, which costs more than the two seconds it buys.
+
+## D26 — A failed restore leaves the writers stopped when the database is unverified, and restarts them when it is not
+
+`scripts/restore.sh` stops `api` and `judged`, reloads the database, runs
+`migrate`, imports the package volume, and starts them again. Every step in
+that list can fail, and the review found the script had no answer for any of
+them: a failed `pg_restore` printed a WARNING and carried on to start the
+writers on top of a half-restored schema (M6), while a failed
+`podman volume import` killed the script under `set -eu` and left the site
+fully down with the database already fine (M5).
+
+Both are now handled, and **they are handled differently on purpose**:
+
+- **`pg_restore` or `migrate` failed → `api` and `judged` stay STOPPED.** The
+  database is in a state nobody has verified — half the tables restored, or
+  the right tables at a schema version older than the running images. The
+  script prints the whole `pg_restore` log, says in capitals that the writers
+  were left down deliberately, names the command to bring them back, and exits
+  non-zero. A stack that is honestly down is recoverable in one command by
+  whoever is reading the message. A stack serving and *grading* against a
+  half-restored schema writes wrong verdicts into tables that then have to be
+  untangled by hand, and it does it while looking healthy.
+- **Anything after that → the writers are RESTARTED, loudly, by a trap.** By
+  then the database is reloaded and migrated; only package bytes are missing.
+  Keeping the site down for that trades a real outage against an incomplete
+  problem-package store, which is the wrong trade — and the failure is still
+  loud, and the exit code is still non-zero.
+
+The line between the two is "can the running code be trusted against this
+database". That is also why `migrate` is on the stopped-side: a restore of an
+old backup onto today's images is precisely the schema drift
+`scripts/compose-up.sh` was written to catch, and letting the writers start
+anyway would reintroduce it through the restore path (M7).
+
+Two smaller rulings ride along:
+
+- **One project variable, exported.** `restore.sh` resolves
+  `COMPOSE_PROJECT_NAME` (podman-compose's own variable; the old
+  `COMPOSE_PROJECT` remains a read-only alias) and exports it, so the container
+  lookup and the `podman-compose` calls cannot address different stacks. They
+  could before, and the documented worktree invocation did exactly that: it
+  dropped the live database while stopping nothing (M4).
+- **`SERVICES=""` means data path only** — no `podman-compose` command at all,
+  not even `migrate`. It exists so the restore path can be exercised against a
+  throwaway container (`scripts/test/restore.test.sh`) without going near a
+  live stack, and it is not an operating mode.
+
+Not decided here: alerting. Nothing tells anyone a nightly backup or a restore
+failed except `journalctl`; D17 already accepts that for backups and this does
+not change it.

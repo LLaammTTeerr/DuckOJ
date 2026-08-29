@@ -18,8 +18,14 @@ Description=DuckOJ nightly backup (database + package_store volume)
 # `After` only orders them within one boot — the timer's own OnCalendar is
 # what actually decides when this runs, and a stack that is down makes
 # backup.sh exit non-zero and loudly, which is the intended behaviour.
+#
+# `Wants=duckoj.service` was here and is deliberately GONE (review finding
+# m9): it pulled the stack UP whenever the timer fired, so a stack an operator
+# had stopped on purpose — mid-incident, mid-maintenance — would come back at
+# 03:00 on its own. That contradicts the paragraph immediately above: a down
+# stack is meant to make this unit fail loudly, not to be quietly started.
+# `After=` alone keeps the boot-time ordering without the side effect.
 After=duckoj.service
-Wants=duckoj.service
 
 [Service]
 Type=oneshot
@@ -31,6 +37,17 @@ Environment=KEEP=14
 # computes it that way). Pinning it here rather than letting backup.sh derive
 # it means a repo moved or renamed on disk fails loudly on the next run
 # instead of silently finding no postgres container.
-Environment=COMPOSE_PROJECT=duckoj
+#
+# COMPOSE_PROJECT_NAME, not COMPOSE_PROJECT: that is podman-compose's own
+# variable, and restore.sh now exports it so its container lookup and its
+# `podman-compose stop/start` can no longer disagree about which project they
+# mean (review finding M4). backup.sh reads the same name. The old
+# COMPOSE_PROJECT is still honoured by both scripts as a deprecated alias.
+Environment=COMPOSE_PROJECT_NAME=duckoj
 ExecStart=__REPO__/scripts/backup.sh %h/duckoj-backups
+# A run killed by this timeout dies mid-pg_dump, so its `.partial` file is
+# never cleaned up by the script's own `rm -f` and never matched by the prune
+# glob. backup.sh therefore sweeps abandoned `duckoj-*.partial` files at the
+# start of every run (review finding m11) — the timeout can stay generous
+# without leaking disk.
 TimeoutStartSec=1800
