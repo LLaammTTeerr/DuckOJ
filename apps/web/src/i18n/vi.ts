@@ -140,6 +140,10 @@ export const vi = {
   'problemEdit.statement': 'Đề bài',
   'problemEdit.orgSlugs': 'Tổ chức (cách nhau bởi dấu phẩy)',
   'problemEdit.members': 'Thành viên',
+  'problemEdit.rejudgeConfirm':
+    'Chấm lại toàn bộ bài nộp của {code}? Kết quả hiện tại sẽ bị hủy.',
+  'problemEdit.rejudgeAll': 'Chấm lại toàn bộ bài nộp',
+  'problemEdit.rejudgeQueued': 'Đã xếp hàng {n} bài nộp.',
   'problemRole.author': 'tác giả',
   'problemRole.curator': 'người phụ trách',
   'problemRole.tester': 'người thử nghiệm',
@@ -269,6 +273,9 @@ export const vi = {
   'contestNew.badPoints': 'Bài {code}: điểm phải là số không âm.',
   'contestNew.datesRequired': 'Phải nhập thời điểm bắt đầu và kết thúc.',
   'contestNew.createError': 'Không tạo được kỳ thi.',
+
+  'contestEdit.title': 'Sửa {key}',
+  'contestEdit.save': 'Lưu kỳ thi',
   'visibility.private': 'riêng tư',
   'visibility.org': 'theo tổ chức',
   'visibility.public': 'công khai',

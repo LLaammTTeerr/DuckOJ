@@ -78,7 +78,7 @@ describe('rejudging one submission', () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
 
     wrap(<SubmissionPage id={42} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Rejudge' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Chấm lại' }));
 
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith('/admin/submissions/{id}/rejudge', {
@@ -92,15 +92,15 @@ describe('rejudging one submission', () => {
     vi.stubGlobal('confirm', vi.fn(() => false));
 
     wrap(<SubmissionPage id={42} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Rejudge' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Chấm lại' }));
     expect(post).not.toHaveBeenCalled();
   });
 
   it('is not offered to a non-admin', async () => {
     routeGet('user', DETAIL);
     wrap(<SubmissionPage id={42} />);
-    expect(await screen.findByRole('heading', { name: /submission #42/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Rejudge' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /bài nộp #42/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Chấm lại' })).not.toBeInTheDocument();
   });
 
   it('reports a refusal instead of silently doing nothing', async () => {
@@ -109,7 +109,7 @@ describe('rejudging one submission', () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
 
     wrap(<SubmissionPage id={42} />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Rejudge' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Chấm lại' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Only an admin may rejudge.');
   });
 
@@ -119,9 +119,9 @@ describe('rejudging one submission', () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
 
     wrap(<SubmissionPage id={42} />);
-    const button = await screen.findByRole('button', { name: 'Rejudge' });
+    const button = await screen.findByRole('button', { name: 'Chấm lại' });
     await userEvent.click(button);
-    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/không kết nối được máy chủ/i);
     await waitFor(() => expect(button).not.toBeDisabled());
   });
 });
@@ -133,26 +133,26 @@ describe("rejudging a problem's whole history", () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
 
     wrap(<ProblemEditPage code="aplusb" />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Rejudge all submissions' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Chấm lại toàn bộ bài nộp' }));
 
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith('/admin/problems/{code}/rejudge', {
         params: { path: { code: 'aplusb' } },
       }),
     );
-    expect(await screen.findByRole('status')).toHaveTextContent('Queued 12 submissions.');
+    expect(await screen.findByRole('status')).toHaveTextContent('Đã xếp hàng 12 bài nộp.');
   });
 
   it('is not offered to a non-admin, nor when creating a new problem', async () => {
     routeGet('user', PROBLEM);
     const view = wrap(<ProblemEditPage code="aplusb" />);
-    expect(await screen.findByRole('heading', { name: /edit aplusb/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Rejudge all submissions' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /sửa aplusb/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Chấm lại toàn bộ bài nộp' })).not.toBeInTheDocument();
     view.unmount();
 
     routeGet('admin', PROBLEM);
     wrap(<ProblemEditPage />);
-    expect(await screen.findByRole('heading', { name: /new problem/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Rejudge all submissions' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /bài tập mới/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Chấm lại toàn bộ bài nộp' })).not.toBeInTheDocument();
   });
 });

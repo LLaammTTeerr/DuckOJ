@@ -64,12 +64,12 @@ describe('ContestEditPage', () => {
     get.mockResolvedValue({ data: CONTEST });
     wrap(<ContestEditPage contestKey="spring" />);
 
-    expect(await screen.findByRole('heading', { name: /edit spring/i })).toBeInTheDocument();
-    expect(screen.getByLabelText('Name')).toHaveValue('Spring Open');
-    expect(screen.getByLabelText('Format')).toHaveValue('icpc');
-    expect(screen.getByLabelText('Visibility')).toHaveValue('public');
-    expect(screen.getByLabelText('Problem 1 code')).toHaveValue('aplusb');
-    expect(screen.getByLabelText('Problem 1 points')).toHaveValue('100');
+    expect(await screen.findByRole('heading', { name: /sửa spring/i })).toBeInTheDocument();
+    expect(screen.getByLabelText('Tên')).toHaveValue('Spring Open');
+    expect(screen.getByLabelText('Thể thức')).toHaveValue('icpc');
+    expect(screen.getByLabelText('Phạm vi')).toHaveValue('public');
+    expect(screen.getByLabelText('Mã bài 1')).toHaveValue('aplusb');
+    expect(screen.getByLabelText('Điểm bài 1')).toHaveValue('100');
   });
 
   it('sends the instants it was given back unchanged when the times are untouched', async () => {
@@ -77,9 +77,9 @@ describe('ContestEditPage', () => {
     patch.mockResolvedValue({ data: CONTEST });
     wrap(<ContestEditPage contestKey="spring" />);
 
-    await userEvent.clear(await screen.findByLabelText('Name'));
-    await userEvent.type(screen.getByLabelText('Name'), 'Renamed');
-    await userEvent.click(screen.getByRole('button', { name: 'Save contest' }));
+    await userEvent.clear(await screen.findByLabelText('Tên'));
+    await userEvent.type(screen.getByLabelText('Tên'), 'Renamed');
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu kỳ thi' }));
 
     await waitFor(() => expect(patch).toHaveBeenCalled());
     const body = patch.mock.calls[0]![1].body as { startTime: string; endTime: string; name: string };
@@ -103,9 +103,9 @@ describe('ContestEditPage', () => {
     patch.mockResolvedValue({ data: CONTEST });
     wrap(<ContestEditPage contestKey="spring" />);
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Add problem' }));
-    await userEvent.type(screen.getByLabelText('Problem 2 code'), 'newone');
-    await userEvent.click(screen.getByRole('button', { name: 'Save contest' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Thêm bài' }));
+    await userEvent.type(screen.getByLabelText('Mã bài 2'), 'newone');
+    await userEvent.click(screen.getByRole('button', { name: 'Lưu kỳ thi' }));
 
     await waitFor(() => expect(patch).toHaveBeenCalled());
     const body = patch.mock.calls[0]![1].body as { problems: Record<string, unknown>[] };
@@ -120,7 +120,7 @@ describe('ContestEditPage', () => {
     patch.mockResolvedValue({ error: { code: 'contest_started', detail: 'This contest has started.' } });
     wrap(<ContestEditPage contestKey="spring" />);
 
-    const save = await screen.findByRole('button', { name: 'Save contest' });
+    const save = await screen.findByRole('button', { name: 'Lưu kỳ thi' });
     await userEvent.click(save);
     expect(await screen.findByRole('alert')).toHaveTextContent('This contest has started.');
     await waitFor(() => expect(save).not.toBeDisabled());
@@ -128,7 +128,7 @@ describe('ContestEditPage', () => {
 
     patch.mockRejectedValue(new TypeError('Failed to fetch'));
     await userEvent.click(save);
-    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/không kết nối được máy chủ/i);
     await waitFor(() => expect(save).not.toBeDisabled());
   });
 });
@@ -141,7 +141,7 @@ describe('the link into it', () => {
         : Promise.resolve({ data: undefined }),
     );
     const view = wrap(<ContestPage contestKey="spring" />);
-    expect(await screen.findByRole('link', { name: /edit contest/i })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /sửa kỳ thi/i })).toBeInTheDocument();
     view.unmount();
 
     get.mockImplementation((path: string) =>
@@ -151,6 +151,6 @@ describe('the link into it', () => {
     );
     wrap(<ContestPage contestKey="spring" />);
     expect(await screen.findByRole('heading', { name: /spring open/i })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /edit contest/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /sửa kỳ thi/i })).toBeNull();
   });
 });

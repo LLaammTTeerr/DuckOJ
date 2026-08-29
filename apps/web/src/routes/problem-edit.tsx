@@ -86,11 +86,7 @@ export function ProblemEditPage(props: { code?: string }) {
 
   async function handleRejudge(): Promise<void> {
     // No undo: every verdict on this problem is discarded and re-earned.
-    if (
-      !window.confirm(
-        `Rejudge every submission of ${props.code ?? ''}? Their current verdicts are discarded.`,
-      )
-    ) {
+    if (!window.confirm(t('problemEdit.rejudgeConfirm', { code: props.code ?? '' }))) {
       return;
     }
     setRejudgeBusy(true);
@@ -104,11 +100,11 @@ export function ProblemEditPage(props: { code?: string }) {
         setRejudgeError(error.code);
         return;
       }
-      setRejudgeMessage(`Queued ${String(data.submissionsQueued)} submissions.`);
+      setRejudgeMessage(t('problemEdit.rejudgeQueued', { n: data.submissionsQueued }));
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
-      setRejudgeError('Could not reach the server. Check your connection and try again.');
+      setRejudgeError(t('common.networkError'));
     } finally {
       setRejudgeBusy(false);
     }
@@ -223,10 +219,10 @@ export function ProblemEditPage(props: { code?: string }) {
 
       {isEdit && me.data?.globalRole === 'admin' ? (
         <section>
-          <h2>Rejudge</h2>
+          <h2>{t('submission.rejudge')}</h2>
           <p>
             <button type="button" disabled={rejudgeBusy} onClick={() => void handleRejudge()}>
-              Rejudge all submissions
+              {t('problemEdit.rejudgeAll')}
             </button>
           </p>
           {rejudgeMessage ? <p role="status">{rejudgeMessage}</p> : null}

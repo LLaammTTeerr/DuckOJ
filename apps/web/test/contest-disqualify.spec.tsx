@@ -73,11 +73,11 @@ describe('a disqualified row', () => {
     wrap(<ScoreboardPage contestKey="spring" />);
 
     const cheat = (await screen.findByText('cheat')).closest('tr')!;
-    expect(within(cheat).getByText('[DQ]')).toBeInTheDocument();
+    expect(within(cheat).getByText('(hủy tư cách)')).toBeInTheDocument();
     expect(cheat).toHaveClass('dq');
 
     const clean = screen.getByText('clean').closest('tr')!;
-    expect(within(clean).queryByText('[DQ]')).toBeNull();
+    expect(within(clean).queryByText('(hủy tư cách)')).toBeNull();
     expect(clean).not.toHaveClass('dq');
   });
 });
@@ -87,8 +87,8 @@ describe('the DQ controls', () => {
     routeGet(false);
     wrap(<ScoreboardPage contestKey="spring" />);
     expect(await screen.findByText('cheat')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /DQ clean/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /un-DQ cheat/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Hủy tư cách clean/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Khôi phục cheat/ })).toBeNull();
   });
 
   it('offer DQ for a qualified row and un-DQ for a disqualified one', async () => {
@@ -96,7 +96,7 @@ describe('the DQ controls', () => {
     patch.mockResolvedValue({ data: { id: 1, isDisqualified: true } });
     wrap(<ScoreboardPage contestKey="spring" />);
 
-    await userEvent.click(await screen.findByRole('button', { name: 'DQ clean' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Hủy tư cách clean' }));
     await waitFor(() =>
       expect(patch).toHaveBeenCalledWith('/contests/{key}/participants/{username}', {
         params: { path: { key: 'spring', username: 'clean' } },
@@ -105,7 +105,7 @@ describe('the DQ controls', () => {
     );
 
     patch.mockClear();
-    await userEvent.click(screen.getByRole('button', { name: 'un-DQ cheat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Khôi phục cheat' }));
     await waitFor(() =>
       expect(patch).toHaveBeenCalledWith('/contests/{key}/participants/{username}', {
         params: { path: { key: 'spring', username: 'cheat' } },
@@ -118,13 +118,13 @@ describe('the DQ controls', () => {
     routeGet(true);
     patch.mockResolvedValue({ error: { code: 'contest_forbidden', detail: 'You do not run this contest.' } });
     wrap(<ScoreboardPage contestKey="spring" />);
-    await userEvent.click(await screen.findByRole('button', { name: 'DQ clean' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Hủy tư cách clean' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('You do not run this contest.');
 
     patch.mockRejectedValue(new TypeError('Failed to fetch'));
-    const button = screen.getByRole('button', { name: 'un-DQ cheat' });
+    const button = screen.getByRole('button', { name: 'Khôi phục cheat' });
     await userEvent.click(button);
-    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/không kết nối được máy chủ/i);
     await waitFor(() => expect(button).not.toBeDisabled());
   });
 });

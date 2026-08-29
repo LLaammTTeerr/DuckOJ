@@ -148,6 +148,10 @@ export const en = {
   'problemEdit.statement': 'Statement',
   'problemEdit.orgSlugs': 'Organizations (comma-separated)',
   'problemEdit.members': 'Members',
+  'problemEdit.rejudgeConfirm':
+    'Rejudge every submission of {code}? Their current verdicts are discarded.',
+  'problemEdit.rejudgeAll': 'Rejudge all submissions',
+  'problemEdit.rejudgeQueued': 'Queued {n} submissions.',
   // A PROBLEM's member roles — a different enum from an ORGANIZATION's
   // (`role.*`, below), which is exactly what `tsc` caught when this file
   // first tried to share one set of keys between the two.
@@ -281,6 +285,9 @@ export const en = {
   'contestNew.badPoints': 'Problem {code}: points must be a non-negative number.',
   'contestNew.datesRequired': 'Start and end are required.',
   'contestNew.createError': 'Could not create the contest.',
+
+  'contestEdit.title': 'Edit {key}',
+  'contestEdit.save': 'Save contest',
   'visibility.private': 'private',
   'visibility.org': 'org',
   'visibility.public': 'public',

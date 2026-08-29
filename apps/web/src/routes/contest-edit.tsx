@@ -18,6 +18,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { useT } from '../i18n/index.js';
 
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
 type Visibility = ContestDetail['visibility'];
@@ -63,6 +64,7 @@ function toLocalInput(iso: string): string {
 }
 
 export function ContestEditPage({ contestKey }: { contestKey: string }) {
+  const t = useT();
   const navigate = useNavigate();
   const query = useQuery({
     queryKey: ['contest', contestKey],
@@ -70,7 +72,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
       const { data, error } = await api.GET('/contests/{key}', {
         params: { path: { key: contestKey } },
       });
-      if (error) throw new Error(error.detail ?? 'No such contest.');
+      if (error) throw new Error(error.detail ?? t('contest.notFound'));
       return data;
     },
     retry: false,
@@ -117,12 +119,12 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
     const problems = rows.filter((row) => row.code.trim() !== '');
     for (const row of problems) {
       if (Number.isNaN(Number(row.points)) || Number(row.points) < 0) {
-        setError(`Problem ${row.code}: points must be a non-negative number.`);
+        setError(t('contestNew.badPoints', { code: row.code }));
         return;
       }
     }
     if (start === '' || end === '') {
-      setError('Start and end are required.');
+      setError(t('contestNew.datesRequired'));
       return;
     }
     setBusy(true);
@@ -155,39 +157,44 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(t('common.networkError'));
     } finally {
       setBusy(false);
     }
   }
 
-  if (query.isPending) return <p className="muted">Loading…</p>;
+  if (query.isPending) return <p className="muted">{t('common.loading')}</p>;
   if (query.error) return <p role="alert">{query.error.message}</p>;
   if (!query.data) return null;
 
   return (
     <section className="panel">
-      <h1>Edit {query.data.key}</h1>
+      <h1>{t('contestEdit.title', { key: query.data.key })}</h1>
       <p>
         <label>
-          Name <input aria-label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          {t('common.name')}{' '}
+          <input
+            aria-label={t('common.name')}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </label>
       </p>
       <p>
         <label>
-          Starts{' '}
+          {t('contestNew.starts')}{' '}
           <input
             type="datetime-local"
-            aria-label="Starts"
+            aria-label={t('contestNew.starts')}
             value={start}
             onChange={(e) => setStart(e.target.value)}
           />
         </label>{' '}
         <label>
-          Ends{' '}
+          {t('contestNew.ends')}{' '}
           <input
             type="datetime-local"
-            aria-label="Ends"
+            aria-label={t('contestNew.ends')}
             value={end}
             onChange={(e) => setEnd(e.target.value)}
           />
@@ -195,8 +202,14 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
       </p>
       <p>
         <label>
-          Format{' '}
-          <select aria-label="Format" value={format} onChange={(e) => setFormat(e.target.value)}>
+          {t('contestNew.format')}{' '}
+          {/* The four format KEYS are the registry's own vocabulary and go
+              on the wire verbatim — an identifier, not a label. */}
+          <select
+            aria-label={t('contestNew.format')}
+            value={format}
+            onChange={(e) => setFormat(e.target.value)}
+          >
             {FORMATS.map((f) => (
               <option key={f} value={f}>
                 {f}
@@ -205,26 +218,28 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
           </select>
         </label>{' '}
         <label>
-          Visibility{' '}
+          {t('common.visibility')}{' '}
+          {/* Here the VALUE is the API's enum and the LABEL is prose, so
+              only the label is translated. */}
           <select
-            aria-label="Visibility"
+            aria-label={t('common.visibility')}
             value={visibility}
             onChange={(e) => setVisibility(e.target.value as Visibility)}
           >
-            <option value="private">private</option>
-            <option value="org">org</option>
-            <option value="public">public</option>
+            <option value="private">{t('visibility.private')}</option>
+            <option value="org">{t('visibility.org')}</option>
+            <option value="public">{t('visibility.public')}</option>
           </select>
         </label>
       </p>
 
-      <h2>Problems</h2>
+      <h2>{t('contestNew.problems')}</h2>
       <table>
         <thead>
           <tr>
-            <th>Code</th>
-            <th className="num">Points</th>
-            <th>Partial</th>
+            <th>{t('contestNew.colCode')}</th>
+            <th className="num">{t('contestNew.colPoints')}</th>
+            <th>{t('contestNew.colPartial')}</th>
           </tr>
         </thead>
         <tbody>
@@ -232,14 +247,14 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
             <tr key={index}>
               <td>
                 <input
-                  aria-label={`Problem ${String(index + 1)} code`}
+                  aria-label={t('contestNew.rowCode', { n: index + 1 })}
                   value={row.code}
                   onChange={(e) => setRow(index, { code: e.target.value })}
                 />
               </td>
               <td className="num">
                 <input
-                  aria-label={`Problem ${String(index + 1)} points`}
+                  aria-label={t('contestNew.rowPoints', { n: index + 1 })}
                   value={row.points}
                   onChange={(e) => setRow(index, { points: e.target.value })}
                 />
@@ -247,7 +262,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
               <td>
                 <input
                   type="checkbox"
-                  aria-label={`Problem ${String(index + 1)} partial credit`}
+                  aria-label={t('contestNew.rowPartial', { n: index + 1 })}
                   checked={row.partial}
                   onChange={(e) => setRow(index, { partial: e.target.checked })}
                 />
@@ -261,17 +276,17 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
           type="button"
           onClick={() => setRows((prev) => [...prev, { code: '', points: '100', partial: true }])}
         >
-          Add problem
+          {t('contestNew.addProblem')}
         </button>
       </p>
 
       {error ? <p role="alert">{error}</p> : null}
       <p>
         <button type="button" disabled={busy || name === ''} onClick={() => void save()}>
-          Save contest
+          {t('contestEdit.save')}
         </button>{' '}
         <Link to="/contests/$key" params={{ key: contestKey }}>
-          Cancel
+          {t('common.cancel')}
         </Link>
       </p>
     </section>
