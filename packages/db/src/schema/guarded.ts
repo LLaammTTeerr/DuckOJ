@@ -11,6 +11,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -18,6 +19,7 @@ import {
 import { users } from './identity.js';
 import { languages } from './judging.js';
 import { packages } from './packages.js';
+import { tags } from './tags.js';
 
 export const orgVisibility = pgEnum('org_visibility', ['public', 'private']);
 export const orgJoinPolicy = pgEnum('org_join_policy', ['open', 'request', 'invite']);
@@ -123,13 +125,33 @@ export const problems = pgTable(
      * authors/curators until someone opts this problem into `solved`.
      */
     sourceAccess: problemSourceAccess('source_access').notNull().default('private'),
+    /**
+     * The setter's own 1–10 estimate; `null` — the default, and what every
+     * pre-existing problem migrates into — means "nobody has said". NOT
+     * derived from solve rates: a problem with three attempts has no
+     * statistics, and the number a teacher wants when building a practice
+     * set is the one a human put there.
+     *
+     * `smallint`, with a CHECK rather than an enum: the range is arithmetic
+     * (a `min`/`max` filter orders it), and an enum of ten members would
+     * make widening the scale a migration of the type, not of one
+     * constraint.
+     */
+    difficulty: smallint('difficulty'),
     currentRevisionId: bigint('current_revision_id', { mode: 'number' }),
     createdBy: bigint('created_by', { mode: 'number' })
       .notNull()
       .references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('problems_code_lower_idx').on(sql`lower(${t.code})`)],
+  (t) => [
+    uniqueIndex('problems_code_lower_idx').on(sql`lower(${t.code})`),
+    // The range is the contract, not a convention held up by the zod schema
+    // in front of it: a seed script, an importer or a psql session reaches
+    // this table without passing `UpdateProblemRequest`, and a difficulty of
+    // 0 or 47 would sort into a `min`/`max` filter as if it meant something.
+    check('problems_difficulty_ck', sql`${t.difficulty} IS NULL OR (${t.difficulty} BETWEEN 1 AND 10)`),
+  ],
 );
 
 export const problemRevisions = pgTable(
@@ -203,6 +225,37 @@ export const problemOrgs = pgTable(
       .references(() => organizations.id, { onDelete: 'cascade' }),
   },
   (t) => [primaryKey({ columns: [t.problemId, t.orgId] })],
+);
+
+/**
+ * Which topics a problem carries. Guarded, unlike `tags` itself: a tag on a
+ * problem is a hint, and D35 hides both these rows and `difficulty` from a
+ * viewer sitting a running contest that uses the problem. That makes "which
+ * tags does this problem have" an actor-dependent question — exactly what
+ * `authz/` exists to be the only answerer of.
+ *
+ * `ON DELETE cascade` from `problems` (a deleted problem takes its
+ * associations with it) but **`restrict` from `tags`**: dropping a tag row
+ * that problems still carry would silently untag them, and a vocabulary
+ * this small is edited by a migration, deliberately, not by a DELETE that
+ * quietly rewrites content.
+ */
+export const problemTags = pgTable(
+  'problem_tags',
+  {
+    problemId: bigint('problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => problems.id, { onDelete: 'cascade' }),
+    tagId: bigint('tag_id', { mode: 'number' })
+      .notNull()
+      .references(() => tags.id, { onDelete: 'restrict' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.problemId, t.tagId] }),
+    // The primary key already serves "this problem's tags"; this one serves
+    // the other direction — `?tag=do-thi` over every problem carrying it.
+    index('problem_tags_tag_idx').on(t.tagId, t.problemId),
+  ],
 );
 
 export const submissions = pgTable(

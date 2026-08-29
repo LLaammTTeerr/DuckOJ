@@ -127,6 +127,13 @@
       "when": 1788016166814,
       "tag": "0017_contest_clarifications",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788018333313,
+      "tag": "0018_tags",
+      "breakpoints": true
     }
   ]
 }
