@@ -148,6 +148,12 @@ export const en = {
   'problemEdit.statement': 'Statement',
   'problemEdit.orgSlugs': 'Organizations (comma-separated)',
   'problemEdit.members': 'Members',
+  // A PROBLEM's member roles — a different enum from an ORGANIZATION's
+  // (`role.*`, below), which is exactly what `tsc` caught when this file
+  // first tried to share one set of keys between the two.
+  'problemRole.author': 'author',
+  'problemRole.curator': 'curator',
+  'problemRole.tester': 'tester',
 
   'revisions.title': 'Revisions — {code}',
   'revisions.uploadPackage': 'Upload package',
@@ -163,6 +169,11 @@ export const en = {
   'revisions.colState': 'State',
   'revisions.colPackage': 'Package',
   'revisions.colNotes': 'Notes',
+  // The revision lifecycle, as words. The API's enum values (`draft`,
+  // `published`, `archived`) stay on the wire; these name them on screen.
+  'revState.draft': 'draft',
+  'revState.published': 'published',
+  'revState.archived': 'archived',
 
   // ── submitting ────────────────────────────────────────────────────────
   'submit.title': 'Submit a solution — {code}',

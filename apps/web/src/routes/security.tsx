@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { meQueryOptions } from '../me.js';
 import { QrCode } from '../qr.js';
+import { useT } from '../i18n/index.js';
 
 /** Exactly what `POST /auth/totp/begin` answers with. */
 interface Enrolment {
@@ -32,6 +33,7 @@ interface Enrolment {
 const CODE_PATTERN = /^\d{6}$/;
 
 export function SecurityPage() {
+  const t = useT();
   const client = useQueryClient();
   // The same `['me']` entry the nav and every other screen read: `totpEnabled`
   // rides on `GET /auth/me`, so enrolling has to invalidate it rather than
@@ -52,7 +54,7 @@ export function SecurityPage() {
     try {
       const { data, error: err } = await api.POST('/auth/totp/begin');
       if (err) {
-        setError(err.detail ?? 'Could not start enrolment.');
+        setError(err.detail ?? t('security.beginError'));
         return;
       }
       setError(null);
@@ -61,7 +63,7 @@ export function SecurityPage() {
     } catch {
       // openapi-fetch resolves HTTP errors to `{ error }` but RETHROWS
       // network-level failures — see submit.tsx's handleSubmit.
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(t('common.networkError'));
     } finally {
       setBusy(false);
     }
@@ -77,7 +79,7 @@ export function SecurityPage() {
         // make the viewer re-scan a QR that is still perfectly valid — and
         // a wrong code is usually a clock drift or a fat finger, retried in
         // thirty seconds.
-        setError(err.detail ?? 'That code is not valid.');
+        setError(err.detail ?? t('security.badCode'));
         return;
       }
       setError(null);
@@ -85,7 +87,7 @@ export function SecurityPage() {
       setCode('');
       await client.invalidateQueries({ queryKey: ['me'] });
     } catch {
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(t('common.networkError'));
     } finally {
       setBusy(false);
     }
@@ -95,65 +97,57 @@ export function SecurityPage() {
     // Turning off the second factor is not undoable without re-enrolling every
     // authenticator, so it asks — the same `confirm()` gate the admin screens
     // use for their destructive actions.
-    if (!window.confirm('Turn off two-factor authentication for this account?')) return;
+    if (!window.confirm(t('security.confirmDisable'))) return;
     setBusy(true);
     try {
       const { error: err } = await api.DELETE('/auth/totp');
       if (err) {
-        setError(err.detail ?? 'Could not disable two-factor authentication.');
+        setError(err.detail ?? t('security.disableError'));
         return;
       }
       setError(null);
       setEnrolment(null);
       await client.invalidateQueries({ queryKey: ['me'] });
     } catch {
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(t('common.networkError'));
     } finally {
       setBusy(false);
     }
   }
 
-  if (me.isPending) return <p className="muted">Loading…</p>;
+  if (me.isPending) return <p className="muted">{t('common.loading')}</p>;
   // `GET /auth/me` answers 401 signed-out, which `fetchMe` maps to null. A
   // token-authed viewer gets a user back but cannot use any button here, so
   // the message names the session requirement either way.
   if (me.data == null) {
-    return <p>Sign in (with a session, not a token) to manage two-factor authentication.</p>;
+    return <p>{t('security.gate')}</p>;
   }
   const enabled = me.data.totpEnabled;
 
   return (
     <section className="panel">
-      <h1>Security</h1>
-      <p className="muted">
-        A second factor: a six-digit code from an authenticator app, on top of your password.
-      </p>
+      <h1>{t('security.title')}</h1>
+      <p className="muted">{t('security.intro')}</p>
 
-      <p role="status">
-        {enabled
-          ? 'Two-factor authentication is on for this account.'
-          : 'Two-factor authentication is not enabled.'}
-      </p>
+      <p role="status">{enabled ? t('security.on') : t('security.off')}</p>
       {error ? <p role="alert">{error}</p> : null}
 
       {enabled ? (
         <p>
           <button type="button" disabled={busy} onClick={() => void disable()}>
-            Disable two-factor authentication
+            {t('security.disable')}
           </button>
         </p>
       ) : enrolment === null ? (
         <p>
           <button type="button" disabled={busy} onClick={() => void begin()}>
-            Enable
+            {t('security.enable')}
           </button>
         </p>
       ) : (
         <>
-          <h2>Scan this</h2>
-          <p className="muted">
-            Add it to your authenticator app — scan the code, or type the secret in by hand.
-          </p>
+          <h2>{t('security.scanThis')}</h2>
+          <p className="muted">{t('security.scanNote')}</p>
           {/* The QR renders entirely client-side. The secret is IN this URL,
               so handing it to an external chart service to draw would leak
               the one thing the second factor exists to protect. */}
@@ -161,16 +155,14 @@ export function SecurityPage() {
             <QrCode value={enrolment.otpauthUrl} />
           </p>
           <p>
-            Secret: <code>{enrolment.secret}</code>
+            {t('security.secret')}
+            <code>{enrolment.secret}</code>
           </p>
 
-          <h2>Confirm</h2>
-          <p className="muted">
-            Enrolment is not finished until a code from the app is accepted — until then this
-            account still signs in with a password alone.
-          </p>
+          <h2>{t('security.confirm')}</h2>
+          <p className="muted">{t('security.confirmNote')}</p>
           <p>
-            <label htmlFor="totp-code">Six-digit code </label>
+            <label htmlFor="totp-code">{t('security.codeLabel')}</label>
             <input
               id="totp-code"
               inputMode="numeric"
@@ -186,7 +178,7 @@ export function SecurityPage() {
               disabled={busy || !CODE_PATTERN.test(code)}
               onClick={() => void confirm()}
             >
-              Confirm
+              {t('security.confirm')}
             </button>{' '}
             <button
               type="button"
@@ -197,7 +189,7 @@ export function SecurityPage() {
                 setError(null);
               }}
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </p>
         </>

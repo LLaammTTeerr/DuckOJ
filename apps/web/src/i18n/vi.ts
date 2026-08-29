@@ -140,6 +140,9 @@ export const vi = {
   'problemEdit.statement': 'Đề bài',
   'problemEdit.orgSlugs': 'Tổ chức (cách nhau bởi dấu phẩy)',
   'problemEdit.members': 'Thành viên',
+  'problemRole.author': 'tác giả',
+  'problemRole.curator': 'người phụ trách',
+  'problemRole.tester': 'người thử nghiệm',
 
   'revisions.title': 'Phiên bản — {code}',
   'revisions.uploadPackage': 'Tải gói lên',
@@ -155,6 +158,9 @@ export const vi = {
   'revisions.colState': 'Trạng thái',
   'revisions.colPackage': 'Gói',
   'revisions.colNotes': 'Ghi chú',
+  'revState.draft': 'bản nháp',
+  'revState.published': 'đã công bố',
+  'revState.archived': 'đã lưu trữ',
 
   // ── submitting ────────────────────────────────────────────────────────
   'submit.title': 'Nộp bài giải — {code}',

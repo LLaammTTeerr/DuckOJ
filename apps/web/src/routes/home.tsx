@@ -13,6 +13,7 @@
  * features the backend cannot serve is worse than a plain one.
  */
 import { Link } from '@tanstack/react-router';
+import { useT } from '../i18n/index.js';
 
 /**
  * Structural, not imported from `@duckoj/contracts`. `apps/web` deliberately
@@ -27,44 +28,50 @@ interface Viewer {
 }
 
 export function HomePage({ me }: { me: Viewer | null }) {
+  const t = useT();
   const canAuthor = me?.globalRole === 'setter' || me?.globalRole === 'admin';
 
   return (
     <section>
+      {/* The product name, not a translatable string. */}
       <h1>DuckOJ</h1>
-      <p>
-        An online judge: read a problem, submit a solution, get it graded against the problem
-        setter&rsquo;s tests in a sandbox.
-      </p>
+      <p>{t('home.intro')}</p>
 
-      <h2>Start here</h2>
+      <h2>{t('home.startHere')}</h2>
       <ul>
         <li>
-          <Link to="/problems">Browse problems</Link> — public problems are readable without an account.
+          <Link to="/problems">{t('home.browseProblems')}</Link>
+          {t('home.browseProblemsNote')}
         </li>
         <li>
-          <a href="/api/v1/docs">API reference</a> — every route, with a request builder.
+          <a href="/api/v1/docs">{t('home.apiReference')}</a>
+          {t('home.apiReferenceNote')}
         </li>
         {canAuthor ? (
           <li>
-            <Link to="/problems/new">Create a problem</Link> — you have the{' '}
-            <code>{me?.globalRole}</code> role.
+            {/* Three pieces rather than one string with markup in it: the
+                role name is a `<code>` in the middle of a sentence whose two
+                halves reorder between locales. */}
+            <Link to="/problems/new">{t('home.createProblem')}</Link>
+            {t('home.createProblemPrefix')}
+            <code>{me?.globalRole}</code>
+            {t('home.createProblemSuffix')}
           </li>
         ) : null}
       </ul>
 
       {me ? (
         <p>
-          Signed in as <strong>{me.displayName}</strong>. Pick a problem and use its{' '}
-          <em>Submit a solution</em> link — submissions are graded against the revision that was
-          published when you sent them.
+          {t('home.signedInPrefix')}
+          <strong>{me.displayName}</strong>
+          {t('home.signedInMiddle')}
+          <em>{t('common.submitSolution')}</em>
+          {t('home.signedInSuffix')}
         </p>
       ) : (
         <>
-          <h2>Sign in</h2>
-          <p>
-            An account is needed to submit. Browsing public problems is not gated.
-          </p>
+          <h2>{t('home.signInHeading')}</h2>
+          <p>{t('home.signInNote')}</p>
         </>
       )}
     </section>

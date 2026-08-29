@@ -43,11 +43,11 @@ describe('ContestPage', () => {
     );
     wrap(<ContestPage contestKey="spring" />);
 
-    expect(await screen.findByRole('button', { name: /^join$/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Tham gia$/ })).toBeInTheDocument();
     // Until you join, submitting to a contest problem would be practice — so
     // the page does not offer a link that silently means something else.
-    expect(screen.getByText(/join to submit/i)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /submit/i })).toBeNull();
+    expect(screen.getByText(/Tham gia để nộp bài/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /^Nộp bài$/ })).toBeNull();
   });
 
   it('shows the window and attempt once joined', async () => {
@@ -59,8 +59,8 @@ describe('ContestPage', () => {
     );
     wrap(<ContestPage contestKey="spring" />);
 
-    expect(await screen.findByRole('status')).toHaveTextContent(/competing live/i);
-    expect(screen.getByRole('link', { name: /submit/i })).toBeInTheDocument();
+    expect(await screen.findByRole('status')).toHaveTextContent(/Đang thi chính thức/);
+    expect(screen.getByRole('link', { name: /^Nộp bài$/ })).toBeInTheDocument();
   });
 
   it('refuses to offer a join before the contest starts', async () => {
@@ -73,7 +73,7 @@ describe('ContestPage', () => {
       path === '/contests/{key}' ? Promise.resolve({ data: upcoming }) : Promise.resolve({ data: undefined }),
     );
     wrap(<ContestPage contestKey="spring" />);
-    expect(await screen.findByRole('button', { name: /join/i })).toBeDisabled();
+    expect(await screen.findByRole('button', { name: /^Tham gia$/ })).toBeDisabled();
   });
 
   it('surfaces the server message when joining is refused', async () => {
@@ -82,7 +82,7 @@ describe('ContestPage', () => {
     );
     post.mockResolvedValue({ error: { detail: 'This organization admits members by invitation only.' } });
     wrap(<ContestPage contestKey="spring" />);
-    await userEvent.click(await screen.findByRole('button', { name: /^join$/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Tham gia$/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/invitation only/i);
   });
 });
@@ -168,7 +168,7 @@ describe('ScoreboardPage', () => {
   it('says so when nobody has competed', async () => {
     get.mockResolvedValue({ data: { label_by_problem: {}, problems: [], ranking: [] } });
     wrap(<ScoreboardPage contestKey="spring" />);
-    expect(await screen.findByText(/nobody has competed/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Chưa có ai dự thi/)).toBeInTheDocument();
   });
 });
 
@@ -181,15 +181,15 @@ describe('contest submissions links', () => {
       return Promise.resolve({ data: undefined });
     });
     wrap(<ContestPage contestKey="spring" />);
-    expect(await screen.findByRole('link', { name: 'All submissions' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'My submissions' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Tất cả bài nộp' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Bài nộp của tôi' })).toBeInTheDocument();
 
     get.mockImplementation((path: string) =>
       path === '/contests/{key}' ? Promise.resolve({ data: RUNNING }) : Promise.resolve({ data: undefined }),
     );
     wrap(<ContestPage contestKey="spring" />);
-    expect((await screen.findAllByRole('link', { name: 'All submissions' })).length).toBeGreaterThan(0);
-    expect(screen.queryAllByRole('link', { name: 'My submissions' })).toHaveLength(1);
+    expect((await screen.findAllByRole('link', { name: 'Tất cả bài nộp' })).length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole('link', { name: 'Bài nộp của tôi' })).toHaveLength(1);
   });
 });
 
@@ -201,11 +201,11 @@ describe('ContestPage join transport safety', () => {
     let resolve!: (value: unknown) => void;
     post.mockImplementation(() => new Promise((r) => { resolve = r; }));
     wrap(<ContestPage contestKey="spring" />);
-    const button = await screen.findByRole('button', { name: /^join$/i });
+    const button = await screen.findByRole('button', { name: /^Tham gia$/ });
     await userEvent.click(button);
     expect(button).toBeDisabled();
     resolve({ error: undefined });
-    expect(await screen.findByRole('button', { name: /^join$/i })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: /^Tham gia$/ })).toBeEnabled();
   });
 
   it('surfaces a connection message when the join request cannot reach the server', async () => {
@@ -214,9 +214,9 @@ describe('ContestPage join transport safety', () => {
     );
     post.mockRejectedValue(new TypeError('fetch failed'));
     wrap(<ContestPage contestKey="spring" />);
-    await userEvent.click(await screen.findByRole('button', { name: /^join$/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
-    expect(screen.getByRole('button', { name: /^join$/i })).toBeEnabled();
+    await userEvent.click(await screen.findByRole('button', { name: /^Tham gia$/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không kết nối được máy chủ/);
+    expect(screen.getByRole('button', { name: /^Tham gia$/ })).toBeEnabled();
   });
 });
 

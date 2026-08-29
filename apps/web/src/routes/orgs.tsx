@@ -13,14 +13,43 @@ import { useState } from 'react';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { meQueryOptions } from '../me.js';
+import { useT, type MsgKey, type TFunction } from '../i18n/index.js';
 
 type Org = paths['/orgs']['get']['responses'][200]['content']['application/json']['items'][number];
 type Member = paths['/orgs/{slug}/members']['get']['responses'][200]['content']['application/json'][number];
 type JoinRequest =
   paths['/orgs/{slug}/requests']['get']['responses'][200]['content']['application/json'][number];
 
+/**
+ * The join policy, twice: a short label for a table cell and a full sentence
+ * for the org's own header. The POLICY ITSELF stays the API's enum value —
+ * these only name it.
+ */
+type JoinPolicy = Org['joinPolicy'];
+const POLICY_SHORT: Record<JoinPolicy, MsgKey> = {
+  open: 'joinPolicy.open',
+  request: 'joinPolicy.request',
+  invite: 'joinPolicy.invite',
+};
+const POLICY_LONG: Record<JoinPolicy, MsgKey> = {
+  open: 'joinPolicy.openLong',
+  request: 'joinPolicy.requestLong',
+  invite: 'joinPolicy.inviteLong',
+};
+
+/** Member roles, likewise: the `<option value>` is the enum, this is the word. */
+const ROLE_KEYS: Record<Member['role'], MsgKey> = {
+  owner: 'role.owner',
+  admin: 'role.admin',
+  member: 'role.member',
+};
+function roleLabel(t: TFunction, role: Member['role']): string {
+  return t(ROLE_KEYS[role]);
+}
+
 /** Admin-only (the API refuses everyone else); shown to admins on the list. */
 function CreateOrgForm({ onCreated }: { onCreated: () => Promise<void> }) {
+  const t = useT();
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
   const [joinPolicy, setJoinPolicy] = useState<'open' | 'request' | 'invite'>('request');
@@ -32,7 +61,7 @@ function CreateOrgForm({ onCreated }: { onCreated: () => Promise<void> }) {
       body: { slug, name, joinPolicy, visibility },
     });
     if (err) {
-      setError(err.detail ?? 'Could not create the organization.');
+      setError(err.detail ?? t('orgs.createError'));
       return;
     }
     setError(null);
@@ -43,31 +72,32 @@ function CreateOrgForm({ onCreated }: { onCreated: () => Promise<void> }) {
 
   return (
     <>
-      <h2>New organization</h2>
+      <h2>{t('orgs.new')}</h2>
       <p>
         <label>
-          Slug <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="hanoi-cs" />
+          {t('orgs.slug')}{' '}
+          <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="hanoi-cs" />
         </label>{' '}
         <label>
-          Name <input value={name} onChange={(e) => setName(e.target.value)} />
+          {t('common.name')} <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>{' '}
         <label>
-          Joining{' '}
+          {t('orgs.joining')}{' '}
           <select value={joinPolicy} onChange={(e) => setJoinPolicy(e.target.value as typeof joinPolicy)}>
-            <option value="open">open</option>
-            <option value="request">on request</option>
-            <option value="invite">invite only</option>
+            <option value="open">{t('joinPolicy.open')}</option>
+            <option value="request">{t('joinPolicy.request')}</option>
+            <option value="invite">{t('joinPolicy.invite')}</option>
           </select>
         </label>{' '}
         <label>
-          Visibility{' '}
+          {t('common.visibility')}{' '}
           <select value={visibility} onChange={(e) => setVisibility(e.target.value as typeof visibility)}>
-            <option value="public">public</option>
-            <option value="private">private</option>
+            <option value="public">{t('visibility.public')}</option>
+            <option value="private">{t('visibility.private')}</option>
           </select>
         </label>{' '}
         <button type="button" disabled={slug === '' || name === ''} onClick={() => void create()}>
-          Create
+          {t('common.create')}
         </button>
       </p>
       {error ? <p role="alert">{error}</p> : null}
@@ -76,31 +106,32 @@ function CreateOrgForm({ onCreated }: { onCreated: () => Promise<void> }) {
 }
 
 export function OrgsPage() {
+  const t = useT();
   const client = useQueryClient();
   const me = useQuery(meQueryOptions);
   const query = useQuery({
     queryKey: ['orgs'],
     queryFn: async () => {
       const { data, error } = await api.GET('/orgs', {});
-      if (error) throw new Error('Could not load organizations.');
+      if (error) throw new Error(t('orgs.loadError'));
       return data;
     },
   });
 
   return (
     <section className="panel">
-      <h1>Organizations</h1>
-      {query.isPending ? <p className="muted">Loading…</p> : null}
+      <h1>{t('orgs.title')}</h1>
+      {query.isPending ? <p className="muted">{t('common.loading')}</p> : null}
       {query.error ? <p role="alert">{query.error.message}</p> : null}
       {query.data && query.data.items.length === 0 ? (
-        <p className="muted">No organizations yet.</p>
+        <p className="muted">{t('orgs.empty')}</p>
       ) : null}
       {query.data && query.data.items.length > 0 ? (
         <table>
           <thead>
             <tr>
-              <th>Organization</th>
-              <th>Joining</th>
+              <th>{t('orgs.colOrg')}</th>
+              <th>{t('orgs.colJoining')}</th>
             </tr>
           </thead>
           <tbody>
@@ -111,7 +142,7 @@ export function OrgsPage() {
                     {org.name}
                   </Link>
                 </td>
-                <td>{org.joinPolicy === 'open' ? 'open' : org.joinPolicy === 'request' ? 'on request' : 'invite only'}</td>
+                <td>{t(POLICY_SHORT[org.joinPolicy])}</td>
               </tr>
             ))}
           </tbody>
@@ -126,6 +157,7 @@ export function OrgsPage() {
 
 /** The deciders' queue — rendered only for an owner or admin. */
 function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Promise<void> }) {
+  const t = useT();
   const client = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const requests = useQuery({
@@ -140,7 +172,7 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
     const path = approve ? '/orgs/{slug}/requests/{id}/approve' : '/orgs/{slug}/requests/{id}/reject';
     const { error: err } = await api.POST(path, { params: { path: { slug, id } } });
     if (err) {
-      setError(err.detail ?? 'Could not decide the request.');
+      setError(err.detail ?? t('org.decideError'));
       return;
     }
     setError(null);
@@ -151,7 +183,7 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
   if (!requests.data || requests.data.length === 0) return null;
   return (
     <>
-      <h2>Join requests</h2>
+      <h2>{t('org.requests')}</h2>
       {error ? <p role="alert">{error}</p> : null}
       <table>
         <tbody>
@@ -164,10 +196,10 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
               </td>
               <td>
                 <button type="button" onClick={() => void decide(req.id, true)}>
-                  Approve
+                  {t('org.approve')}
                 </button>{' '}
                 <button type="button" onClick={() => void decide(req.id, false)}>
-                  Reject
+                  {t('org.reject')}
                 </button>
               </td>
             </tr>
@@ -179,6 +211,7 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
 }
 
 export function OrgPage({ slug }: { slug: string }) {
+  const t = useT();
   const client = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
   const [requested, setRequested] = useState(false);
@@ -188,7 +221,7 @@ export function OrgPage({ slug }: { slug: string }) {
     queryKey: ['org', slug],
     queryFn: async () => {
       const { data, error } = await api.GET('/orgs/{slug}', { params: { path: { slug } } });
-      if (error) throw new Error(error.detail ?? 'No such organization.');
+      if (error) throw new Error(error.detail ?? t('org.notFound'));
       return data;
     },
   });
@@ -207,7 +240,7 @@ export function OrgPage({ slug }: { slug: string }) {
   async function join(): Promise<void> {
     const { data, error } = await api.POST('/orgs/{slug}/join', { params: { path: { slug } } });
     if (error) {
-      setActionError(error.detail ?? 'Could not join.');
+      setActionError(error.detail ?? t('org.joinError'));
       return;
     }
     setActionError(null);
@@ -220,7 +253,7 @@ export function OrgPage({ slug }: { slug: string }) {
       params: { path: { slug, username } },
     });
     if (error) {
-      setActionError(error.detail ?? 'Could not remove the member.');
+      setActionError(error.detail ?? t('org.removeError'));
       return;
     }
     setActionError(null);
@@ -233,14 +266,14 @@ export function OrgPage({ slug }: { slug: string }) {
       body: { role },
     });
     if (error) {
-      setActionError(error.detail ?? 'Could not change the role.');
+      setActionError(error.detail ?? t('org.roleError'));
       return;
     }
     setActionError(null);
     await refresh();
   }
 
-  if (org.isPending) return <p className="muted">Loading…</p>;
+  if (org.isPending) return <p className="muted">{t('common.loading')}</p>;
   if (org.error) return <p role="alert">{org.error.message}</p>;
   if (!org.data) return null;
 
@@ -252,12 +285,7 @@ export function OrgPage({ slug }: { slug: string }) {
     <section className="panel">
       <h1>{org.data.name}</h1>
       <p className="muted">
-        {org.data.slug} ·{' '}
-        {org.data.joinPolicy === 'open'
-          ? 'anyone may join'
-          : org.data.joinPolicy === 'request'
-            ? 'joining needs approval'
-            : 'invite only'}
+        {org.data.slug} · {t(POLICY_LONG[org.data.joinPolicy])}
       </p>
       {org.data.about ? <p>{org.data.about}</p> : null}
       {actionError ? <p role="alert">{actionError}</p> : null}
@@ -265,21 +293,21 @@ export function OrgPage({ slug }: { slug: string }) {
       {myName !== null && mine === undefined && !requested && org.data.joinPolicy !== 'invite' ? (
         <p>
           <button type="button" onClick={() => void join()}>
-            {org.data.joinPolicy === 'open' ? 'Join' : 'Request to join'}
+            {org.data.joinPolicy === 'open' ? t('org.join') : t('org.requestToJoin')}
           </button>
         </p>
       ) : null}
-      {requested ? <p>Request sent — an owner or admin decides.</p> : null}
+      {requested ? <p>{t('org.requestSent')}</p> : null}
 
       {decider ? <RequestsQueue slug={slug} onDecided={refresh} /> : null}
 
-      <h2>Members</h2>
+      <h2>{t('org.members')}</h2>
       {members.data && members.data.length > 0 ? (
         <table>
           <thead>
             <tr>
-              <th>Member</th>
-              <th>Role</th>
+              <th>{t('org.colMember')}</th>
+              <th>{t('common.role')}</th>
               {decider || mine !== undefined ? <th /> : null}
             </tr>
           </thead>
@@ -294,27 +322,27 @@ export function OrgPage({ slug }: { slug: string }) {
                 <td>
                   {decider && member.username !== myName ? (
                     <select
-                      aria-label={`Role of ${member.username}`}
+                      aria-label={t('org.roleOf', { name: member.username })}
                       value={member.role}
                       onChange={(e) => void setRole(member.username, e.target.value as Member['role'])}
                     >
-                      <option value="owner">owner</option>
-                      <option value="admin">admin</option>
-                      <option value="member">member</option>
+                      <option value="owner">{t('role.owner')}</option>
+                      <option value="admin">{t('role.admin')}</option>
+                      <option value="member">{t('role.member')}</option>
                     </select>
                   ) : (
-                    member.role
+                    roleLabel(t, member.role)
                   )}
                 </td>
                 {decider || mine !== undefined ? (
                   <td>
                     {member.username === myName ? (
                       <button type="button" onClick={() => void leave(member.username)}>
-                        Leave
+                        {t('org.leave')}
                       </button>
                     ) : decider ? (
                       <button type="button" onClick={() => void leave(member.username)}>
-                        Remove
+                        {t('org.remove')}
                       </button>
                     ) : null}
                   </td>
@@ -324,7 +352,7 @@ export function OrgPage({ slug }: { slug: string }) {
           </tbody>
         </table>
       ) : (
-        <p className="muted">No visible members.</p>
+        <p className="muted">{t('org.noMembers')}</p>
       )}
     </section>
   );

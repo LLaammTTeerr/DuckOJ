@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { renderStatement } from '../markdown.js';
+import { useT } from '../i18n/index.js';
 
 type ProblemDetail = paths['/problems/{code}']['get']['responses'][200]['content']['application/json'];
 type Visibility = ProblemDetail['visibility'];
@@ -49,6 +50,7 @@ function parseOrgSlugs(raw: string): string[] {
  * what the API returned and resubmits it unchanged on PATCH.
  */
 export function ProblemEditPage(props: { code?: string }) {
+  const t = useT();
   const isEdit = props.code !== undefined;
 
   const query = useQuery({
@@ -123,27 +125,32 @@ export function ProblemEditPage(props: { code?: string }) {
       }
       setSaved(true);
     } catch {
-      setSubmitError('Could not reach the server. Check your connection and try again.');
+      setSubmitError(t('common.networkError'));
     } finally {
       setBusy(false);
     }
   }
 
-  if (isEdit && query.isLoading) return <p>Loading…</p>;
+  if (isEdit && query.isLoading) return <p>{t('common.loading')}</p>;
 
   return (
     <section>
-      <h1>{isEdit ? `Edit ${props.code}` : 'New problem'}</h1>
+      <h1>
+        {isEdit ? t('problemEdit.editTitle', { code: props.code! }) : t('problemEdit.newTitle')}
+      </h1>
+      {/* `submitError` is the server's own error CODE (`problem_code_taken`)
+          — deliberately verbatim, never paraphrased or translated: this is a
+          tool for people who read codes (task-12 brief). */}
       {submitError ? <p role="alert">{submitError}</p> : null}
-      {saved ? <p>Saved.</p> : null}
+      {saved ? <p>{t('problemEdit.saved')}</p> : null}
       <form onSubmit={(e) => void handleSubmit(e)}>
-        <label htmlFor="problem-code">Code</label>
+        <label htmlFor="problem-code">{t('problemEdit.code')}</label>
         <input id="problem-code" value={code} onChange={(e) => setCode(e.target.value)} disabled={isEdit} />
 
-        <label htmlFor="problem-name">Name</label>
+        <label htmlFor="problem-name">{t('common.name')}</label>
         <input id="problem-name" value={name} onChange={(e) => setName(e.target.value)} />
 
-        <label htmlFor="problem-statement">Statement</label>
+        <label htmlFor="problem-statement">{t('problemEdit.statement')}</label>
         <textarea id="problem-statement" value={statement} onChange={(e) => setStatement(e.target.value)} />
 
         {/* Live preview via `renderStatement` (markdown.ts) — a security
@@ -153,34 +160,35 @@ export function ProblemEditPage(props: { code?: string }) {
             a published statement. */}
         <div data-testid="statement-preview" dangerouslySetInnerHTML={{ __html: renderStatement(statement) }} />
 
-        <label htmlFor="problem-visibility">Visibility</label>
+        <label htmlFor="problem-visibility">{t('common.visibility')}</label>
         <select
           id="problem-visibility"
           value={visibility}
           onChange={(e) => setVisibility(e.target.value as Visibility)}
         >
+          {/* The `value` is the API's enum; the label is the word for it. */}
           {VISIBILITIES.map((v) => (
             <option key={v} value={v}>
-              {v}
+              {t(`visibility.${v}`)}
             </option>
           ))}
         </select>
 
-        <label htmlFor="problem-org-slugs">Organizations (comma-separated)</label>
+        <label htmlFor="problem-org-slugs">{t('problemEdit.orgSlugs')}</label>
         <input id="problem-org-slugs" value={orgSlugsRaw} onChange={(e) => setOrgSlugsRaw(e.target.value)} />
 
         <button type="submit" disabled={busy}>
-          {isEdit ? 'Save' : 'Create'}
+          {isEdit ? t('common.save') : t('common.create')}
         </button>
       </form>
 
       {isEdit && query.data ? (
         <section>
-          <h2>Members</h2>
+          <h2>{t('problemEdit.members')}</h2>
           <ul>
             {query.data.members.map((m) => (
               <li key={m.username}>
-                {m.username} — {m.role}
+                {m.username} — {t(`problemRole.${m.role}`)}
               </li>
             ))}
           </ul>

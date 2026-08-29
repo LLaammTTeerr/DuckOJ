@@ -65,12 +65,12 @@ describe('ProblemEditPage', () => {
     // avoids the two trees colliding on the same static `id`s, which
     // otherwise breaks `<label for>` association for both.
     const edit = renderWithClient(<ProblemEditPage code="aplusb" />);
-    const editCodeInput = await screen.findByLabelText(/code/i);
+    const editCodeInput = await screen.findByLabelText(/^Mã$/);
     expect(editCodeInput).toBeDisabled();
     edit.unmount();
 
     renderWithClient(<ProblemEditPage />);
-    const createCodeInput = screen.getByLabelText(/code/i);
+    const createCodeInput = screen.getByLabelText(/^Mã$/);
     expect(createCodeInput).not.toBeDisabled();
   });
 
@@ -82,7 +82,7 @@ describe('ProblemEditPage', () => {
     // setter actually gets a statement into this field (write it elsewhere,
     // paste it in), matching submit.spec.tsx's rationale for its own
     // textarea.
-    await userEvent.click(screen.getByLabelText(/statement/i));
+    await userEvent.click(screen.getByLabelText(/Đề bài/));
     await userEvent.paste('# Hello');
 
     const preview = screen.getByTestId('statement-preview');
@@ -118,10 +118,10 @@ describe('ProblemRevisionsPage', () => {
     } as never);
 
     renderWithClient(<ProblemRevisionsPage code="aplusb" />);
-    await screen.findByText(/no revisions yet/i);
+    await screen.findByText(/Chưa có phiên bản nào/);
 
-    await userEvent.type(screen.getByLabelText(/package hash/i), 'deadbeef');
-    await userEvent.click(screen.getByRole('button', { name: /attach/i }));
+    await userEvent.type(screen.getByLabelText(/^Mã băm gói$/), 'deadbeef');
+    await userEvent.click(screen.getByRole('button', { name: /^Gắn$/ }));
 
     // Verbatim, not a paraphrase like "Something went wrong" — a setter
     // pasting a bad hash needs to see exactly `package_not_found` (task-12
@@ -166,14 +166,14 @@ describe('ProblemRevisionsPage', () => {
     } as never);
 
     renderWithClient(<ProblemRevisionsPage code="aplusb" />);
-    await screen.findByText('published');
-    expect(screen.getByText('draft')).toBeInTheDocument();
+    await screen.findByText('đã công bố');
+    expect(screen.getByText('bản nháp')).toBeInTheDocument();
 
     // Exactly one Publish button — for the draft, not the already-published
     // revision. Publishing the current revision again is a legal no-op
     // server-side, but offering the button here would invite a confusing
     // click for no effect (task-12 brief).
-    const publishButtons = screen.getAllByRole('button', { name: /publish/i });
+    const publishButtons = screen.getAllByRole('button', { name: /^Công bố$/ });
     expect(publishButtons).toHaveLength(1);
   });
 });

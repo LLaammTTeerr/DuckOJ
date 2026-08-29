@@ -40,17 +40,17 @@ describe('SecurityPage status', () => {
   it('reads whether 2FA is on from GET /auth/me', async () => {
     get.mockResolvedValue(meIs(false));
     wrap(<SecurityPage />);
-    expect(await screen.findByRole('status')).toHaveTextContent(/not enabled/i);
-    expect(screen.getByRole('button', { name: /enable/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /disable/i })).toBeNull();
+    expect(await screen.findByRole('status')).toHaveTextContent(/chưa bật xác thực hai lớp/);
+    expect(screen.getByRole('button', { name: /^Bật$/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Tắt xác thực hai lớp$/ })).toBeNull();
   });
 
   it('offers Disable, and only Disable, once 2FA is on', async () => {
     get.mockResolvedValue(meIs(true));
     wrap(<SecurityPage />);
-    expect(await screen.findByRole('status')).toHaveTextContent(/is on for this account/i);
-    expect(screen.getByRole('button', { name: /disable/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^enable$/i })).toBeNull();
+    expect(await screen.findByRole('status')).toHaveTextContent(/đang bật xác thực hai lớp/);
+    expect(screen.getByRole('button', { name: /^Tắt xác thực hai lớp$/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Bật$/ })).toBeNull();
   });
 
   // `fetchMe` maps the signed-out 401 to null. A TOKEN-authed viewer is a
@@ -60,7 +60,7 @@ describe('SecurityPage status', () => {
   it('tells a viewer with no session to sign in with one', async () => {
     get.mockResolvedValue({ data: undefined });
     wrap(<SecurityPage />);
-    expect(await screen.findByText(/sign in .*session, not a token/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Đăng nhập bằng phiên .*không phải bằng mã truy cập/)).toBeInTheDocument();
   });
 });
 
@@ -70,14 +70,14 @@ describe('SecurityPage enrolment', () => {
     post.mockResolvedValue({ data: { secret: SECRET, otpauthUrl: OTPAUTH } });
     wrap(<SecurityPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /enable/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Bật$/ }));
     expect(post).toHaveBeenCalledWith('/auth/totp/begin');
 
     // The secret in a <code> block: the QR is a convenience, and a viewer
     // whose camera or renderer fails must still be able to enrol by typing.
     const code = await screen.findByText(SECRET);
     expect(code.tagName).toBe('CODE');
-    expect(screen.getByRole('img', { name: /qr code/i })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Mã QR/ })).toBeInTheDocument();
   });
 
   it('confirms with the six-digit code and refreshes the session status', async () => {
@@ -94,12 +94,12 @@ describe('SecurityPage enrolment', () => {
     });
     wrap(<SecurityPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /enable/i }));
-    await userEvent.type(await screen.findByLabelText(/six-digit code/i), '123456');
-    await userEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Bật$/ }));
+    await userEvent.type(await screen.findByLabelText(/Mã sáu chữ số/), '123456');
+    await userEvent.click(screen.getByRole('button', { name: /^Xác nhận$/ }));
 
     expect(post).toHaveBeenLastCalledWith('/auth/totp/confirm', { body: { code: '123456' } });
-    expect(await screen.findByRole('status')).toHaveTextContent(/is on for this account/i);
+    expect(await screen.findByRole('status')).toHaveTextContent(/đang bật xác thực hai lớp/);
     expect(screen.queryByText(SECRET)).toBeNull();
   });
 
@@ -111,11 +111,13 @@ describe('SecurityPage enrolment', () => {
     });
     wrap(<SecurityPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /enable/i }));
-    await userEvent.type(await screen.findByLabelText(/six-digit code/i), '000000');
-    await userEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Bật$/ }));
+    await userEvent.type(await screen.findByLabelText(/Mã sáu chữ số/), '000000');
+    await userEvent.click(screen.getByRole('button', { name: /^Xác nhận$/ }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/not valid/i);
+    // English: the SERVER's `detail` is what reaches the screen here, shown
+    // verbatim and never translated (see i18n/en.ts's header).
+    expect(await screen.findByRole('alert')).toHaveTextContent(/That code is not valid/i);
     // Still enrolling — the pending secret is unchanged server-side, so
     // sending the viewer back to the start would make them re-scan for nothing.
     expect(screen.getByText(SECRET)).toBeInTheDocument();
@@ -126,9 +128,9 @@ describe('SecurityPage enrolment', () => {
     post.mockResolvedValueOnce({ data: { secret: SECRET, otpauthUrl: OTPAUTH } });
     wrap(<SecurityPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /enable/i }));
-    await userEvent.type(await screen.findByLabelText(/six-digit code/i), '123');
-    expect(screen.getByRole('button', { name: /confirm/i })).toBeDisabled();
+    await userEvent.click(await screen.findByRole('button', { name: /^Bật$/ }));
+    await userEvent.type(await screen.findByLabelText(/Mã sáu chữ số/), '123');
+    expect(screen.getByRole('button', { name: /^Xác nhận$/ })).toBeDisabled();
     expect(post).toHaveBeenCalledTimes(1);
   });
 });
@@ -139,7 +141,7 @@ describe('SecurityPage disable', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false);
     wrap(<SecurityPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /disable/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Tắt xác thực hai lớp$/ }));
     expect(del).not.toHaveBeenCalled();
   });
 
@@ -149,7 +151,7 @@ describe('SecurityPage disable', () => {
     del.mockResolvedValue({ error: undefined });
     wrap(<SecurityPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /disable/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Tắt xác thực hai lớp$/ }));
     expect(del).toHaveBeenCalledWith('/auth/totp');
   });
 });
@@ -161,7 +163,7 @@ describe('SecurityPage transport safety', () => {
     post.mockImplementation(() => new Promise((r) => { resolve = r; }));
     wrap(<SecurityPage />);
 
-    const button = await screen.findByRole('button', { name: /enable/i });
+    const button = await screen.findByRole('button', { name: /^Bật$/ });
     await userEvent.click(button);
     expect(button).toBeDisabled();
     resolve({ data: { secret: SECRET, otpauthUrl: OTPAUTH } });
@@ -173,8 +175,8 @@ describe('SecurityPage transport safety', () => {
     post.mockRejectedValue(new TypeError('fetch failed'));
     wrap(<SecurityPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /enable/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
-    expect(screen.getByRole('button', { name: /enable/i })).toBeEnabled();
+    await userEvent.click(await screen.findByRole('button', { name: /^Bật$/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không kết nối được máy chủ/);
+    expect(screen.getByRole('button', { name: /^Bật$/ })).toBeEnabled();
   });
 });

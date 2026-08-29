@@ -38,13 +38,14 @@ describe('UserPage', () => {
     wrap(<UserPage username="kim" />);
 
     expect(await screen.findByRole('heading', { name: 'Kim' })).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: /problems solved/i })).toHaveTextContent('3');
-    expect(screen.getByRole('row', { name: /points/i })).toHaveTextContent('250');
+    expect(screen.getByRole('row', { name: /Số bài đã giải/ })).toHaveTextContent('3');
+    expect(screen.getByRole('row', { name: /^Điểm/ })).toHaveTextContent('250');
     // The peak only appears when it differs from the current rating —
-    // "1520 (peak 1520)" is noise.
+    // "1520 (cao nhất 1520)" is noise. The band TITLE is data from
+    // `packages/glicko2` (D6), not a UI string: "Specialist" in either locale.
     // The D6 placeholder band table: 1520 sits in the 1400-1599 band.
-    expect(screen.getByRole('row', { name: /rating/i })).toHaveTextContent(
-      'Specialist \u00b7 1520 (peak 1580)',
+    expect(screen.getByRole('row', { name: /^Rating/ })).toHaveTextContent(
+      'Specialist \u00b7 1520 (cao nhất 1580)',
     );
   });
 
@@ -55,8 +56,8 @@ describe('UserPage', () => {
         : Promise.resolve({ data: [] }),
     );
     wrap(<UserPage username="kim" />);
-    expect(await screen.findByRole('row', { name: /rating/i })).toHaveTextContent('unrated');
-    expect(screen.getByText(/not rated yet/i)).toBeInTheDocument();
+    expect(await screen.findByRole('row', { name: /^Rating/ })).toHaveTextContent('chưa xếp hạng');
+    expect(screen.getByText(/Chưa được xếp hạng/)).toBeInTheDocument();
   });
 
   it('signs the rating change so a column of them scans', async () => {
@@ -79,6 +80,8 @@ describe('UserPage', () => {
   it('reports an unknown user rather than rendering an empty profile', async () => {
     get.mockResolvedValue({ error: { detail: 'No such user.' } });
     wrap(<UserPage username="ghost" />);
-    expect(await screen.findByRole('alert')).toHaveTextContent(/no such user/i);
+    // The server's own `detail` wins over the local fallback and is shown
+    // verbatim — never translated (see i18n/en.ts's header).
+    expect(await screen.findByRole('alert')).toHaveTextContent(/No such user/i);
   });
 });

@@ -2,18 +2,23 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { formatPoints } from '../format.js';
+import { useT, verdictName, type MsgKey, type TFunction } from '../i18n/index.js';
 
 export type SubmissionDetail =
   paths['/submissions/{id}']['get']['responses'][200]['content']['application/json'];
 type SubmissionCase = SubmissionDetail['cases'][number];
 type SubmissionState = SubmissionDetail['state'];
 
-const STATE_LABELS: Record<SubmissionState, string> = {
-  queued: 'Queued',
-  compiling: 'Compiling',
-  grading: 'Grading',
-  done: 'Done',
-  errored: 'Errored',
+// A state's message KEY is a constant; the message itself is not, so this
+// maps to keys and the lookup happens per render inside `VerdictPanel`. The
+// old module-level `Record<SubmissionState, string>` held five English
+// sentences that no locale switch could ever reach.
+const STATE_KEYS: Record<SubmissionState, MsgKey> = {
+  queued: 'state.queued',
+  compiling: 'state.compiling',
+  grading: 'state.grading',
+  done: 'state.done',
+  errored: 'state.errored',
 };
 
 const TERMINAL_STATES: ReadonlySet<SubmissionState> = new Set(['done', 'errored']);
@@ -32,6 +37,7 @@ export function SubmitForm(props: {
   languages: string[];
   busy: boolean;
 }) {
+  const t = useT();
   const [languageKey, setLanguageKey] = useState(() => props.languages[0] ?? '');
   const [source, setSource] = useState('');
 
@@ -42,25 +48,27 @@ export function SubmitForm(props: {
 
   return (
     <form onSubmit={handleSubmit}>
-      <label htmlFor="language">Language</label>
+      <label htmlFor="language">{t('submit.language')}</label>
       <select id="language" value={languageKey} onChange={(e) => setLanguageKey(e.target.value)}>
+        {/* The option text is the API's own language key (`cpp17`), which is
+            an identifier, not a word — untranslated on purpose. */}
         {props.languages.map((lang) => (
           <option key={lang} value={lang}>
             {lang}
           </option>
         ))}
       </select>
-      <label htmlFor="source">Source code</label>
+      <label htmlFor="source">{t('submit.sourceCode')}</label>
       <textarea id="source" value={source} onChange={(e) => setSource(e.target.value)} />
       <button type="submit" disabled={props.busy}>
-        Submit
+        {t('submit.submit')}
       </button>
     </form>
   );
 }
 
-function caseLabel(c: SubmissionCase): string {
-  return c.skipped ? 'skipped' : String(c.verdict);
+function caseLabel(t: TFunction, c: SubmissionCase): string {
+  return c.skipped ? t('submit.skipped') : String(c.verdict);
 }
 
 /**
@@ -83,10 +91,14 @@ export function verdictToken(verdict: SubmissionDetail['verdict']): string {
 /** Hover text for a case-grid cell — the on-screen glyph is just a number
  * and a colour; this is where the actual verdict, timing and memory live
  * for anyone who points at a box instead of reading the `.sr-only` text. */
-function caseTitle(c: SubmissionCase): string {
-  const label = `Case ${c.groupIndex}.${c.caseIndex}`;
-  if (c.skipped) return `${label}: skipped`;
-  return `${label}: ${c.verdict ?? 'pending'} · ${c.timeMs} ms · ${c.memoryKb} KB`;
+function caseTitle(t: TFunction, c: SubmissionCase): string {
+  const label = t('submit.case', { group: c.groupIndex, index: c.caseIndex });
+  if (c.skipped) return `${label}: ${t('submit.skipped')}`;
+  // This is the one place the verdict's localized LONG NAME appears beside
+  // its code — the brief's "codes stay codes, names get translated in
+  // tooltips" rule, and this is the tooltip.
+  const verdict = c.verdict ? `${c.verdict} — ${verdictName(t, c.verdict)}` : t('submit.pending');
+  return `${label}: ${verdict} · ${c.timeMs} ms · ${c.memoryKb} KB`;
 }
 
 /**
@@ -95,6 +107,7 @@ function caseTitle(c: SubmissionCase): string {
  * component only renders a snapshot.
  */
 export function VerdictPanel(props: { submission: SubmissionDetail }) {
+  const t = useT();
   const { submission } = props;
   // `compileOutput` is NOT a compile-failure flag — it's a free-text channel
   // written by three different events (see apps/judged/src/event-writer.ts):
@@ -118,19 +131,28 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
   // any more: `CE` means the compile failed whether or not the compiler
   // managed to say why.
   const isCompileError = submission.verdict === 'CE';
-  const stateLabel = STATE_LABELS[submission.state];
+  const stateLabel = t(STATE_KEYS[submission.state]);
 
   return (
     <section>
-      <p>Status: {stateLabel}</p>
+      <p>{t('submit.status', { state: stateLabel })}</p>
       {isCompileError ? (
         <p>
-          Verdict: <strong className="badge ce">Compile error</strong>
+          {t('submit.verdict')}{' '}
+          {/* The one verdict rendered by its long name rather than its code:
+              a compile error never has a per-case grid to explain it, so the
+              name is all the reader gets. */}
+          <strong className="badge ce">{t('verdict.CE')}</strong>
         </p>
       ) : submission.verdict ? (
         <p>
-          Verdict:{' '}
-          <strong className={`badge ${verdictToken(submission.verdict)}`}>{submission.verdict}</strong>
+          {t('submit.verdict')}{' '}
+          <strong
+            className={`badge ${verdictToken(submission.verdict)}`}
+            title={verdictName(t, submission.verdict)}
+          >
+            {submission.verdict}
+          </strong>
           {typeof submission.points === 'number' && typeof submission.maxPoints === 'number' ? (
             <small>
               {' '}
@@ -144,7 +166,7 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
         // a warning on an otherwise-passing submission, where it must sit
         // *alongside* the real verdict above, never replace it.
         <div>
-          <p>Compiler output:</p>
+          <p>{t('submit.compilerOutput')}</p>
           <pre>{submission.compileOutput}</pre>
         </div>
       ) : null}
@@ -162,11 +184,12 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
             <li
               key={`${c.groupIndex}-${c.caseIndex}`}
               className={`case ${c.skipped ? 'skip' : verdictToken(c.verdict)}`}
-              title={caseTitle(c)}
+              title={caseTitle(t, c)}
             >
               <span aria-hidden="true">{i + 1}</span>
               <span className="sr-only">
-                Case {c.groupIndex}.{c.caseIndex}: {caseLabel(c)}
+                {t('submit.case', { group: c.groupIndex, index: c.caseIndex })}:{' '}
+                {caseLabel(t, c)}
               </span>
             </li>
           ))}
@@ -381,6 +404,7 @@ export function useSubmissionSocket(
  * surfaced here rather than hidden.
  */
 export function SubmitPage(props: { problemCode: string; contestKey?: string }) {
+  const t = useT();
   const { problemCode } = props;
   const [submissionId, setSubmissionId] = useState<number | null>(null);
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null);
@@ -407,9 +431,12 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
     }
   }, []);
 
-  const handleSubscriptionError = useCallback((code: string) => {
-    setSubmitError(`Live updates unavailable (${code}). Refresh to see the latest state.`);
-  }, []);
+  const handleSubscriptionError = useCallback(
+    (code: string) => {
+      setSubmitError(t('submit.liveUnavailable', { code }));
+    },
+    [t],
+  );
 
   useSubmissionSocket(submissionId, fetchSubmission, terminalRef, handleSubscriptionError);
 
@@ -426,7 +453,7 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
         },
       });
       if (error || !data) {
-        setSubmitError(error?.detail ?? 'Submission failed.');
+        setSubmitError(error?.detail ?? t('submit.failed'));
         return;
       }
       setSubmission(null);
@@ -438,7 +465,7 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
       // mid-request all land here instead of the `error` branch above.
       // Without this, busy still resets via `finally`, but the click
       // otherwise does nothing visible.
-      setSubmitError('Could not reach the server. Check your connection and try again.');
+      setSubmitError(t('common.networkError'));
     } finally {
       setBusy(false);
     }
@@ -446,7 +473,7 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
 
   return (
     <section>
-      <h1>Submit a solution — {problemCode}</h1>
+      <h1>{t('submit.title', { code: problemCode })}</h1>
       <SubmitForm onSubmit={handleSubmit} languages={LANGUAGES} busy={busy} />
       {submitError ? <p role="alert">{submitError}</p> : null}
       {submission ? <VerdictPanel submission={submission} /> : null}

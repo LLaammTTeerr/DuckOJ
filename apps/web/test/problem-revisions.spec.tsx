@@ -59,9 +59,9 @@ it('renders time and memory as separate, right-aligned numeric columns, memory i
 
   const rows = screen.getAllByRole('row');
   // rows[0] is the header row.
-  expect(within(rows[0]!).getByRole('columnheader', { name: 'Time' })).toHaveClass('num');
-  expect(within(rows[0]!).getByRole('columnheader', { name: 'Mem' })).toHaveClass('num');
-  expect(within(rows[0]!).getByRole('columnheader', { name: 'Tests' })).toHaveClass('num');
+  expect(within(rows[0]!).getByRole('columnheader', { name: 'Thời gian' })).toHaveClass('num');
+  expect(within(rows[0]!).getByRole('columnheader', { name: 'Bộ nhớ' })).toHaveClass('num');
+  expect(within(rows[0]!).getByRole('columnheader', { name: 'Test' })).toHaveClass('num');
 
   expect(within(rows[1]!).getByText('1000 ms')).toBeInTheDocument();
   expect(within(rows[1]!).getByText('64 MB')).toBeInTheDocument();
@@ -80,7 +80,7 @@ describe('ProblemRevisionsPage', () => {
     await screen.findAllByText('1000 ms');
 
     expect(screen.getAllByRole('row')).toHaveLength(3); // header + 2 revisions
-    expect(screen.getAllByRole('button', { name: /publish/i })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^Công bố$/ })).toHaveLength(1);
   });
 });
 
@@ -91,12 +91,12 @@ describe('package upload (Phase 5f)', () => {
     mockedPost.mockResolvedValueOnce(apiResponse({ hash: 'abc123' }) as never);
 
     renderWithClient(<ProblemRevisionsPage code="aplusb" />);
-    await screen.findByLabelText(/upload package/i);
+    await screen.findByLabelText(/Tải gói lên/);
 
     const file = new File([new Uint8Array([1, 2, 3])], 'p.tar.zst');
-    await userEvent.upload(screen.getByLabelText(/upload package/i), file);
-    await userEvent.type(screen.getByLabelText(/its hash/i), 'abc123');
-    await userEvent.click(screen.getByRole('button', { name: /^upload$/i }));
+    await userEvent.upload(screen.getByLabelText(/Tải gói lên/), file);
+    await userEvent.type(screen.getByLabelText(/mã băm của gói/), 'abc123');
+    await userEvent.click(screen.getByRole('button', { name: /^Tải lên$/ }));
 
     const [path, options] = mockedPost.mock.calls[0] as unknown as [
       string,
@@ -106,7 +106,7 @@ describe('package upload (Phase 5f)', () => {
     expect(options.params.query.hash).toBe('abc123');
     // The attach field now carries the uploaded hash — upload → attach is
     // two clicks, not a copy-paste round trip.
-    expect(screen.getByLabelText(/^package hash$/i)).toHaveValue('abc123');
+    expect(screen.getByLabelText(/^Mã băm gói$/)).toHaveValue('abc123');
   });
 
   it('a hash the server rejects surfaces its code and prefills nothing', async () => {
@@ -119,13 +119,13 @@ describe('package upload (Phase 5f)', () => {
     } as never);
 
     renderWithClient(<ProblemRevisionsPage code="aplusb" />);
-    await screen.findByLabelText(/upload package/i);
+    await screen.findByLabelText(/Tải gói lên/);
     const file = new File([new Uint8Array([1])], 'p.tar.zst');
-    await userEvent.upload(screen.getByLabelText(/upload package/i), file);
-    await userEvent.type(screen.getByLabelText(/its hash/i), 'wrong');
-    await userEvent.click(screen.getByRole('button', { name: /^upload$/i }));
+    await userEvent.upload(screen.getByLabelText(/Tải gói lên/), file);
+    await userEvent.type(screen.getByLabelText(/mã băm của gói/), 'wrong');
+    await userEvent.click(screen.getByRole('button', { name: /^Tải lên$/ }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('package_hash_mismatch');
-    expect(screen.getByLabelText(/^package hash$/i)).toHaveValue('');
+    expect(screen.getByLabelText(/^Mã băm gói$/)).toHaveValue('');
   });
 });

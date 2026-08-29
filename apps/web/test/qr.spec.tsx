@@ -52,7 +52,7 @@ describe('qrModules', () => {
 describe('QrCode', () => {
   it('renders one labelled SVG whose viewBox covers the matrix plus a quiet zone', () => {
     render(<QrCode value={OTPAUTH} />);
-    const svg = screen.getByRole('img', { name: /qr code/i });
+    const svg = screen.getByRole('img', { name: /Mã QR/ });
     const side = qrModules(OTPAUTH).length + 2 * 4; // 4-module quiet zone per spec
     expect(svg.getAttribute('viewBox')).toBe(`0 0 ${String(side)} ${String(side)}`);
     // One path for all dark modules — not one <rect> per module, which for a

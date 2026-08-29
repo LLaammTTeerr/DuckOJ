@@ -17,12 +17,14 @@ import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { meQueryOptions } from '../me.js';
+import { globalRoleLabel, useT } from '../i18n/index.js';
 
 type Contest = paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
 type GrantResult =
   paths['/admin/users/{username}']['patch']['responses'][200]['content']['application/json'];
 
 function GrantRole() {
+  const t = useT();
   const [username, setUsername] = useState('');
   const [role, setRole] = useState<'user' | 'setter' | 'admin'>('setter');
   const [result, setResult] = useState<string | null>(null);
@@ -34,33 +36,39 @@ function GrantRole() {
       body: { globalRole: role },
     });
     if (err) {
-      setError(err.detail ?? 'Could not grant the role.');
+      setError(err.detail ?? t('admin.grantError'));
       setResult(null);
       return;
     }
     setError(null);
     const granted: GrantResult = data;
-    setResult(`${granted.username} is now ${granted.globalRole}.`);
+    setResult(
+      t('admin.granted', {
+        username: granted.username,
+        role: globalRoleLabel(t, granted.globalRole),
+      }),
+    );
   }
 
   return (
     <>
-      <h2>Grant a global role</h2>
+      <h2>{t('admin.grantHeading')}</h2>
       <p>
         <label>
-          Username{' '}
+          {t('common.username')}{' '}
           <input value={username} onChange={(e) => setUsername(e.target.value)} />
         </label>{' '}
         <label>
-          Role{' '}
+          {t('common.role')}{' '}
+          {/* The `value`s are the API's own enum; only the labels are words. */}
           <select value={role} onChange={(e) => setRole(e.target.value as typeof role)}>
-            <option value="user">user</option>
-            <option value="setter">setter</option>
-            <option value="admin">admin</option>
+            <option value="user">{t('globalRole.user')}</option>
+            <option value="setter">{t('globalRole.setter')}</option>
+            <option value="admin">{t('globalRole.admin')}</option>
           </select>
         </label>{' '}
         <button type="button" disabled={username === ''} onClick={() => void grant()}>
-          Grant
+          {t('admin.grant')}
         </button>
       </p>
       {result ? <p role="status">{result}</p> : null}
@@ -70,6 +78,7 @@ function GrantRole() {
 }
 
 function RateContests() {
+  const t = useT();
   const client = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +86,7 @@ function RateContests() {
     queryKey: ['contests'],
     queryFn: async () => {
       const { data, error: err } = await api.GET('/contests', {});
-      if (err) throw new Error('Could not load contests.');
+      if (err) throw new Error(t('contests.loadError'));
       return data;
     },
   });
@@ -86,32 +95,34 @@ function RateContests() {
     const path = rated ? '/admin/contests/{key}/rate' : '/admin/contests/{key}/unrate';
     const { data, error: err } = await api.POST(path, { params: { path: { key } } });
     if (err) {
-      setError(err.detail ?? 'Could not change the contest.');
+      setError(err.detail ?? t('admin.rateError'));
       setNotice(null);
       return;
     }
     setError(null);
+    // Two keys, not a plural rule: Vietnamese has no plural inflection, and
+    // the one English message that needs the distinction is cheaper as a
+    // branch than as a category engine (see i18n/index.tsx).
     setNotice(
-      `Replayed the whole history: ${String(data.contestsRated)} contest${data.contestsRated === 1 ? '' : 's'} now feed ratings.`,
+      data.contestsRated === 1
+        ? t('admin.replayedOne')
+        : t('admin.replayedMany', { count: data.contestsRated }),
     );
     await client.invalidateQueries({ queryKey: ['contests'] });
   }
 
   return (
     <>
-      <h2>Rated contests</h2>
-      <p className="muted">
-        Rating or unrating replays every rating from the beginning — profiles change beyond
-        this one contest.
-      </p>
+      <h2>{t('admin.ratedHeading')}</h2>
+      <p className="muted">{t('admin.ratedNote')}</p>
       {notice ? <p role="status">{notice}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {contests.data && contests.data.items.length > 0 ? (
         <table>
           <thead>
             <tr>
-              <th>Contest</th>
-              <th>Rated</th>
+              <th>{t('contests.colContest')}</th>
+              <th>{t('admin.colRated')}</th>
               <th />
             </tr>
           </thead>
@@ -123,10 +134,10 @@ function RateContests() {
                     {contest.name}
                   </Link>
                 </td>
-                <td>{contest.isRated ? 'rated' : '—'}</td>
+                <td>{contest.isRated ? t('admin.rated') : '—'}</td>
                 <td>
                   <button type="button" onClick={() => void setRated(contest.key, !contest.isRated)}>
-                    {contest.isRated ? 'Unrate' : 'Rate'}
+                    {contest.isRated ? t('admin.unrate') : t('admin.rate')}
                   </button>
                 </td>
               </tr>
@@ -134,21 +145,22 @@ function RateContests() {
           </tbody>
         </table>
       ) : (
-        <p className="muted">No contests.</p>
+        <p className="muted">{t('admin.noContests')}</p>
       )}
     </>
   );
 }
 
 export function AdminPage() {
+  const t = useT();
   const me = useQuery(meQueryOptions);
-  if (me.isPending) return <p className="muted">Loading…</p>;
+  if (me.isPending) return <p className="muted">{t('common.loading')}</p>;
   if (!me.data || me.data.globalRole !== 'admin') {
-    return <p role="alert">Admins only.</p>;
+    return <p role="alert">{t('admin.only')}</p>;
   }
   return (
     <section className="panel">
-      <h1>Administration</h1>
+      <h1>{t('admin.title')}</h1>
       <GrantRole />
       <RateContests />
     </section>

@@ -49,7 +49,7 @@ test('the problem list renders real rows, with styles applied', async ({ page })
   const watch = watchForBrokenRequests(page);
   await page.goto('/problems');
 
-  await expect(page.getByRole('heading', { name: 'Problems' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bài tập' })).toBeVisible();
   await expect(page.getByRole('link', { name: SEED_PROBLEM })).toBeVisible();
 
   // Proves the stylesheet actually loaded and applied. jsdom would pass this
@@ -97,7 +97,7 @@ test('a problem page renders its statement, and KaTeX renders each formula once'
   // because a statement opening with `# Title` injected a second page-level
   // heading. jsdom could not see the conflict; the accessibility tree can.
   await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
-  await expect(page.getByRole('link', { name: /submit a solution/i })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Nộp bài giải/ })).toBeVisible();
 
   // Maths must actually have rendered, not merely "not rendered wrongly".
   const katexNodes = page.locator('.katex');
@@ -136,13 +136,13 @@ test('the site root offers a sign-in form, reachable from the problems pages', a
   // Scoped to the shell nav, which now owns this link on every route. The
   // per-page copies were removed once the shell existed — two links to the
   // same place, one of which the next page forgets, is how the gap reopens.
-  const signIn = page.locator('nav.shell-nav').getByRole('link', { name: /sign in/i });
+  const signIn = page.locator('nav.shell-nav').getByRole('link', { name: /Đăng nhập/ });
   await expect(signIn).toBeVisible();
   await signIn.click();
 
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByLabel(/username or email/i)).toBeVisible();
-  await expect(page.getByLabel(/^password$/i)).toBeVisible();
+  await expect(page.getByLabel(/Tên đăng nhập hoặc email/)).toBeVisible();
+  await expect(page.getByLabel(/^Mật khẩu$/)).toBeVisible();
 
   expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
 });
@@ -169,7 +169,7 @@ test('every route carries the shell: one nav, links that work, styles applied', 
 
     const nav = page.locator('nav.shell-nav');
     await expect(nav, `no shell nav on ${path}`).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Problems' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Bài tập' })).toBeVisible();
 
     // The stylesheet actually applied, not merely linked. jsdom would pass
     // this page with no CSS at all; only a real browser computes the value.
@@ -194,7 +194,7 @@ test('the home page introduces the site instead of the submit form', async ({ pa
   await page.goto('/');
 
   await expect(page.getByRole('heading', { level: 1, name: 'DuckOJ' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /browse problems/i })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Xem danh sách bài tập/ })).toBeVisible();
 
   // The submit form must NOT be here. Its language selector is the part unique
   // to it — the sign-in form below shares this page, so asserting on "no form"
@@ -203,7 +203,7 @@ test('the home page introduces the site instead of the submit form', async ({ pa
 
   // …and it must still exist on its own route.
   await page.goto('/submit');
-  await expect(page.getByLabel(/username or email/i)).toBeVisible();
+  await expect(page.getByLabel(/Tên đăng nhập hoặc email/)).toBeVisible();
 
   expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
 });
@@ -219,12 +219,12 @@ test('the problem list splits time and memory into separate right-aligned column
   const watch = watchForBrokenRequests(page);
   await page.goto('/problems');
 
-  await expect(page.getByRole('columnheader', { name: 'Time' })).toBeVisible();
-  await expect(page.getByRole('columnheader', { name: 'Mem' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Thời gian' })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Bộ nhớ' })).toBeVisible();
   // `testCount` (added on `ProblemSummaryDto` after this test was written)
   // renders as its own right-aligned numeric column, matching the mockup —
   // see problems.tsx's module doc comment for why it was left out before.
-  const testsHeader = page.getByRole('columnheader', { name: 'Tests' });
+  const testsHeader = page.getByRole('columnheader', { name: 'Test' });
   await expect(testsHeader).toBeVisible();
   await expect(testsHeader).toHaveClass(/num/);
 
@@ -241,7 +241,7 @@ test('the problem list splits time and memory into separate right-aligned column
 
   // The Time/Mem headers are right-aligned tabular numerals — the whole
   // reason to split the column in the first place.
-  const timeHeader = page.getByRole('columnheader', { name: 'Time' });
+  const timeHeader = page.getByRole('columnheader', { name: 'Thời gian' });
   await expect(timeHeader).toHaveClass(/num/);
 
   expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
@@ -256,11 +256,11 @@ test('the submissions list is gated behind sign-in, like submit', async ({ page 
   const watch = watchForBrokenRequests(page);
   await page.goto('/submissions');
 
-  await expect(page.getByText(/sign in to see submissions/i)).toBeVisible();
-  await expect(page.getByLabel(/username or email/i)).toBeVisible();
+  await expect(page.getByText(/Đăng nhập để xem bài nộp/)).toBeVisible();
+  await expect(page.getByLabel(/Tên đăng nhập hoặc email/)).toBeVisible();
   // The shell nav still renders — signed-out gating is per-route content,
   // not a whole-app redirect.
-  await expect(page.locator('nav.shell-nav').getByRole('link', { name: 'Submissions' })).toBeVisible();
+  await expect(page.locator('nav.shell-nav').getByRole('link', { name: 'Bài nộp' })).toBeVisible();
 
   expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
 });
@@ -286,11 +286,13 @@ test('signed in, the submissions list shows my own submissions with a verdict ba
   await page.goto('/');
   await page.locator('#identifier').fill(username);
   await page.locator('#password').fill(password);
-  await page.getByRole('button', { name: /sign in/i }).click();
-  // Scoped to the shell nav — the home page's own body copy repeats
-  // "Signed in as <name>" in a full sentence, which also matches this
-  // pattern and turns an unscoped locator ambiguous (strict-mode violation).
-  await expect(page.locator('nav.shell-nav').getByText(`Signed in as ${username}`)).toBeVisible();
+  await page.getByRole('button', { name: /^Đăng nhập$/ }).click();
+  // Scoped to the shell nav, which shows the display name ALONE — the home
+  // page's own body copy wraps the same name in a full sentence, which an
+  // unscoped locator would also match (strict-mode violation). This asserted
+  // `Signed in as <name>` inside the nav until P2, where the nav's markup was
+  // read closely enough to notice that string has never been in it.
+  await expect(page.locator('nav.shell-nav').getByText(username)).toBeVisible();
 
   // `page.request` shares the browser context's cookies with `page` itself,
   // so this submission is made as the just-signed-in user — no separate
@@ -308,7 +310,7 @@ test('signed in, the submissions list shows my own submissions with a verdict ba
   const watch = watchForBrokenRequests(page);
   await page.goto('/submissions');
 
-  await expect(page.getByRole('heading', { name: 'Submissions' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bài nộp' })).toBeVisible();
   const row = page.getByRole('row').filter({ hasText: String(submissionId) });
   await expect(row).toBeVisible();
   await expect(row.getByRole('link', { name: SEED_PROBLEM })).toBeVisible();

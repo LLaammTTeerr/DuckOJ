@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { SCOPES } from '@duckoj/contracts';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { formatDate, useLocale, useT } from '../i18n/index.js';
 
 type TokenRow = paths['/auth/tokens']['get']['responses'][200]['content']['application/json'][number];
 
@@ -16,6 +17,8 @@ type TokenRow = paths['/auth/tokens']['get']['responses'][200]['content']['appli
 const SCOPE_CHOICES = SCOPES;
 
 export function TokensPage() {
+  const t = useT();
+  const { locale } = useLocale();
   const client = useQueryClient();
   const [name, setName] = useState('');
   const [scopes, setScopes] = useState<string[]>(['problems:read', 'submissions:write']);
@@ -45,7 +48,7 @@ export function TokensPage() {
         body: { name, scopes: scopes as never },
       });
       if (err) {
-        setError(err.detail ?? 'Could not create the token.');
+        setError(err.detail ?? t('tokens.createError'));
         return;
       }
       setError(null);
@@ -55,7 +58,7 @@ export function TokensPage() {
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(t('common.networkError'));
     } finally {
       setBusy(false);
     }
@@ -66,41 +69,45 @@ export function TokensPage() {
     try {
       const { error: err } = await api.DELETE('/auth/tokens/{id}', { params: { path: { id } } });
       if (err) {
-        setError(err.detail ?? 'Could not revoke the token.');
+        setError(err.detail ?? t('tokens.revokeError'));
         return;
       }
       setError(null);
       await client.invalidateQueries({ queryKey: ['tokens'] });
     } catch {
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(t('common.networkError'));
     } finally {
       setBusy(false);
     }
   }
 
-  if (tokens.isPending) return <p className="muted">Loading…</p>;
-  if (tokens.data == null) return <p>Sign in (with a session, not a token) to manage tokens.</p>;
+  if (tokens.isPending) return <p className="muted">{t('common.loading')}</p>;
+  if (tokens.data == null) return <p>{t('tokens.gate')}</p>;
   const rows = tokens.data;
 
   return (
     <section className="panel">
-      <h1>API tokens</h1>
+      <h1>{t('tokens.title')}</h1>
       <p className="muted">
-        For the <code>oj</code> CLI: <code>oj login --url &lt;origin&gt;/api/v1 --token &lt;token&gt;</code>
+        {t('tokens.cliHintPrefix')}
+        <code>oj</code>
+        {t('tokens.cliHintSuffix')}
+        <code>oj login --url &lt;origin&gt;/api/v1 --token &lt;token&gt;</code>
       </p>
 
       {minted !== null ? (
         <p role="status">
           {/* Once. The server stores a hash; there is no second showing. */}
-          New token (copy it now — it will not be shown again): <code>{minted}</code>
+          {t('tokens.minted')}
+          <code>{minted}</code>
         </p>
       ) : null}
       {error ? <p role="alert">{error}</p> : null}
 
-      <h2>Create</h2>
+      <h2>{t('tokens.create')}</h2>
       <p>
         <label>
-          Name <input value={name} onChange={(e) => setName(e.target.value)} placeholder="laptop-cli" />
+          {t('common.name')} <input value={name} onChange={(e) => setName(e.target.value)} placeholder="laptop-cli" />
         </label>
       </p>
       <p>
@@ -117,20 +124,20 @@ export function TokensPage() {
       </p>
       <p>
         <button type="button" disabled={busy || name === ''} onClick={() => void create()}>
-          Create token
+          {t('tokens.createButton')}
         </button>
       </p>
 
-      <h2>Existing</h2>
+      <h2>{t('tokens.existing')}</h2>
       {rows.length === 0 ? (
-        <p className="muted">No tokens.</p>
+        <p className="muted">{t('tokens.empty')}</p>
       ) : (
         <table>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Scopes</th>
-              <th>Last used</th>
+              <th>{t('common.name')}</th>
+              <th>{t('tokens.colScopes')}</th>
+              <th>{t('tokens.colLastUsed')}</th>
               <th />
             </tr>
           </thead>
@@ -138,11 +145,18 @@ export function TokensPage() {
             {rows.map((token) => (
               <tr key={token.id}>
                 <td>{token.name}</td>
-                <td>{token.scopes.join(' ') || 'none'}</td>
-                <td>{token.lastUsedAt === null ? 'never' : new Date(token.lastUsedAt).toLocaleDateString()}</td>
+                {/* The scope strings themselves are the contract's own
+                    vocabulary (`problems:read`) — identifiers on the wire,
+                    never translated. */}
+                <td>{token.scopes.join(' ') || t('common.none')}</td>
+                <td>
+                  {token.lastUsedAt === null
+                    ? t('common.never')
+                    : formatDate(token.lastUsedAt, locale)}
+                </td>
                 <td>
                   <button type="button" disabled={busy} onClick={() => void revoke(token.id)}>
-                    Revoke
+                    {t('tokens.revoke')}
                   </button>
                 </td>
               </tr>

@@ -150,3 +150,43 @@ today via Markdown+KaTeX.
 **Resolved the same day:** the user approved installing typst, and the
 port shipped as designed — `TYPST_BIN` config, `TypstStatementRenderer`
 with mitex for math, 501 when unconfigured. Phase 7b ledger.
+
+## D18 — The UI is Vietnamese by default, English by toggle, with no i18n library
+
+DuckOJ is a Vietnamese olympiad judge, so `vi` is the default and `en` is
+the alternative — not the other way round. First visit resolves to `vi`
+unless `navigator.language` starts with `en`; an explicit choice is
+remembered in `localStorage['duckoj.locale']` and drives `<html lang>`.
+
+**No i18n library.** Two flat catalogues under `apps/web/src/i18n/`
+(`en.ts`, `vi.ts`) keyed by stable ids (`nav.problems`), a typed `t(key,
+vars?)` with `{name}` interpolation, a `LocaleProvider`, and a `VI | EN`
+toggle in the shell nav. `react-i18next` would bring a plugin system, a
+backend loader, a suspense integration and an ICU parser for a few hundred
+strings and two locales. The one thing given up is plural categories:
+Vietnamese has no plural inflection, and the single English message that
+needed one is two keys instead of a rule engine.
+
+`en.ts` is the **type authority** — `MsgKey = keyof typeof en`, and `vi.ts`
+is `satisfies Record<MsgKey, string>` — so a forgotten translation fails
+`tsc`. `test/i18n.spec.tsx` asserts key parity in both directions (an
+orphaned key survives `satisfies`), NFC diacritics, and matching
+placeholder sets.
+
+**What is never translated**, and why: verdict CODES (`AC`, `WA`, `TLE` —
+identifiers a competitor reads the same in any language; their long names
+are localized, in tooltips), the API's own enum values (`icpc`, `cpp17`,
+`owner`) where they go on the wire, the ICPC scoreboard's `+`/`−`/`m`
+notation, server-supplied `error.detail` and error `code`s (problem-edit
+and problem-revisions show those verbatim on purpose — D-less but
+long-standing: this is a tool for people who read `problem_code_taken`),
+`formatPoints`' bare numbers (a thousands separator would be wrong beside
+the rest of a monospace column), and CONTENT — problem statements, contest
+names, org names, usernames, and the `packages/glicko2` rank-band titles
+(D6).
+
+Dates, times and relative times DO follow the locale, via `Intl` with
+`vi-VN`/`en-US`. Fonts needed no change: the vendored IBM Plex Mono already
+ships a `vietnamese` unicode-range subset (Phase 7b), which is stronger
+than a system-font fallback and keeps app.css's "IBM Plex Mono only" rule
+intact.

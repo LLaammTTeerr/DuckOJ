@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useT } from '../i18n/index.js';
 
 export interface LoginValues {
   usernameOrEmail: string;
@@ -11,6 +12,7 @@ export function LoginForm(props: {
   error: string | null;
   needsTotp?: boolean;
 }) {
+  const t = useT();
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
@@ -27,13 +29,13 @@ export function LoginForm(props: {
   return (
     <form onSubmit={handleSubmit}>
       {props.error ? <p role="alert">{props.error}</p> : null}
-      <label htmlFor="identifier">Username or email</label>
+      <label htmlFor="identifier">{t('auth.usernameOrEmail')}</label>
       <input
         id="identifier"
         value={usernameOrEmail}
         onChange={(e) => setUsernameOrEmail(e.target.value)}
       />
-      <label htmlFor="password">Password</label>
+      <label htmlFor="password">{t('auth.password')}</label>
       <input
         id="password"
         type="password"
@@ -42,11 +44,11 @@ export function LoginForm(props: {
       />
       {props.needsTotp ? (
         <>
-          <label htmlFor="totp">Two-factor code</label>
+          <label htmlFor="totp">{t('auth.totpCode')}</label>
           <input id="totp" inputMode="numeric" value={totpCode} onChange={(e) => setTotpCode(e.target.value)} />
         </>
       ) : null}
-      <button type="submit">Sign in</button>
+      <button type="submit">{t('auth.signIn')}</button>
     </form>
   );
 }

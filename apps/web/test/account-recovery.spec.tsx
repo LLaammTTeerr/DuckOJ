@@ -25,11 +25,11 @@ describe('ForgotPasswordPage', () => {
     post.mockResolvedValue({ error: undefined });
     render(<ForgotPasswordPage />);
     await userEvent.type(screen.getByLabelText(/email/i), 'someone@example.com');
-    await userEvent.click(screen.getByRole('button', { name: /send reset link/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Gửi liên kết đặt lại/ }));
 
     // "If that address has an account" — the server refuses to say, and the
     // screen must not undo that by only confirming for real addresses.
-    expect(await screen.findByRole('status')).toHaveTextContent(/if that address has an account/i);
+    expect(await screen.findByRole('status')).toHaveTextContent(/Nếu địa chỉ đó có tài khoản/);
     expect(post).toHaveBeenCalledWith('/auth/password/forgot', {
       body: { email: 'someone@example.com' },
     });
@@ -39,8 +39,8 @@ describe('ForgotPasswordPage', () => {
 describe('ResetPasswordPage', () => {
   it('refuses to render a form without a token', () => {
     render(<ResetPasswordPage />);
-    expect(screen.getByRole('alert')).toHaveTextContent(/missing its token/i);
-    expect(screen.queryByLabelText(/new password/i)).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent(/thiếu mã/);
+    expect(screen.queryByLabelText(/Mật khẩu mới/)).toBeNull();
   });
 
   it('submits the token from the query string with the new password', async () => {
@@ -48,22 +48,24 @@ describe('ResetPasswordPage', () => {
     post.mockResolvedValue({ error: undefined });
     render(<ResetPasswordPage />);
 
-    await userEvent.type(screen.getByLabelText(/new password/i), 'an-even-longer-password');
-    await userEvent.click(screen.getByRole('button', { name: /change password/i }));
+    await userEvent.type(screen.getByLabelText(/Mật khẩu mới/), 'an-even-longer-password');
+    await userEvent.click(screen.getByRole('button', { name: /Đổi mật khẩu/ }));
 
     expect(post).toHaveBeenCalledWith('/auth/password/reset', {
       body: { token: 'tok-123', password: 'an-even-longer-password' },
     });
     // The user is told their other sessions ended, because they did.
-    expect(await screen.findByRole('status')).toHaveTextContent(/signed out/i);
+    expect(await screen.findByRole('status')).toHaveTextContent(/đã bị đăng xuất/);
   });
 
   it('shows the server message when the link is spent', async () => {
     search.mockReturnValue({ token: 'tok-used' });
     post.mockResolvedValue({ error: { detail: 'That link is invalid or has expired.' } });
     render(<ResetPasswordPage />);
-    await userEvent.type(screen.getByLabelText(/new password/i), 'an-even-longer-password');
-    await userEvent.click(screen.getByRole('button', { name: /change password/i }));
+    await userEvent.type(screen.getByLabelText(/Mật khẩu mới/), 'an-even-longer-password');
+    await userEvent.click(screen.getByRole('button', { name: /Đổi mật khẩu/ }));
+    // English on purpose: this asserts the SERVER's `detail` reaching the
+    // screen verbatim, which is never translated (see i18n/en.ts's header).
     expect(await screen.findByRole('alert')).toHaveTextContent(/invalid or has expired/i);
   });
 });
@@ -78,14 +80,14 @@ describe('VerifyEmailPage', () => {
     // is a token the user never gets to use, so nothing has been called yet.
     expect(post).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole('button', { name: /confirm address/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Xác nhận địa chỉ/ }));
     expect(post).toHaveBeenCalledWith('/auth/email/verify', { body: { token: 'tok-verify' } });
-    expect(await screen.findByRole('status')).toHaveTextContent(/confirmed/i);
+    expect(await screen.findByRole('status')).toHaveTextContent(/Đã xác nhận địa chỉ/);
   });
 
   it('disables the button when the link carried no token', () => {
     render(<VerifyEmailPage />);
-    expect(screen.getByRole('button', { name: /confirm address/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Xác nhận địa chỉ/ })).toBeDisabled();
   });
 });
 
@@ -94,9 +96,9 @@ describe('ForgotPasswordPage transport failures', () => {
     post.mockRejectedValue(new TypeError('fetch failed'));
     render(<ForgotPasswordPage />);
     await userEvent.type(screen.getByLabelText(/email/i), 'someone@example.com');
-    await userEvent.click(screen.getByRole('button', { name: /send reset link/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
+    await userEvent.click(screen.getByRole('button', { name: /Gửi liên kết đặt lại/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không kết nối được máy chủ/);
     // The button reads "Send reset link" again — not a stuck "Working…".
-    expect(screen.getByRole('button', { name: /send reset link/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Gửi liên kết đặt lại/ })).toBeEnabled();
   });
 });

@@ -5,6 +5,7 @@ import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { formatPoints } from '../format.js';
 import { verdictToken } from './submit.js';
+import { formatTimestamp, useLocale, useT, verdictName } from '../i18n/index.js';
 
 type Submission = paths['/submissions']['get']['responses'][200]['content']['application/json']['items'][number];
 // `NonNullable` twice: once to strip `?`'s implicit `undefined` off the
@@ -44,6 +45,8 @@ export function SubmissionsPage({
   // Deep-linkable: `/submissions?problem=x&user=y` seeds the filters (the
   // problem page and profiles link here), after which they are ordinary
   // local state.
+  const t = useT();
+  const { locale } = useLocale();
   const [problem, setProblem] = useState(initialProblem);
   const [user, setUser] = useState(initialUser);
   const [contest, setContest] = useState(initialContest);
@@ -69,7 +72,7 @@ export function SubmissionsPage({
       if (pageParam !== undefined) queryParams.cursor = pageParam;
       const { data, error } = await api.GET('/submissions', { params: { query: queryParams } });
       if (error || !data) {
-        throw new Error('Could not load submissions.');
+        throw new Error(t('submissions.loadError'));
       }
       return data;
     },
@@ -81,13 +84,13 @@ export function SubmissionsPage({
 
   return (
     <section>
-      <h1>Submissions</h1>
+      <h1>{t('submissions.title')}</h1>
 
       <div className="field">
         <span>#</span>
         <input
-          aria-label="Filter by problem code"
-          placeholder="problem code"
+          aria-label={t('submissions.filterProblem')}
+          placeholder={t('submissions.placeholderProblem')}
           value={problem}
           onChange={(e) => setProblem(e.target.value)}
         />
@@ -95,8 +98,8 @@ export function SubmissionsPage({
       <div className="field">
         <span>@</span>
         <input
-          aria-label="Filter by username"
-          placeholder="username"
+          aria-label={t('submissions.filterUser')}
+          placeholder={t('submissions.placeholderUser')}
           value={user}
           onChange={(e) => setUser(e.target.value)}
         />
@@ -104,40 +107,43 @@ export function SubmissionsPage({
       <div className="field">
         <span>%</span>
         <input
-          aria-label="Filter by contest key"
-          placeholder="contest key"
+          aria-label={t('submissions.filterContest')}
+          placeholder={t('submissions.placeholderContest')}
           value={contest}
           onChange={(e) => setContest(e.target.value)}
         />
       </div>
-      <label htmlFor="submissions-verdict">Verdict</label>
+      <label htmlFor="submissions-verdict">{t('submissions.verdict')}</label>
       <select
         id="submissions-verdict"
         value={verdict ?? ''}
         onChange={(e) => setVerdict(e.target.value === '' ? undefined : (e.target.value as VerdictCode))}
       >
-        <option value="">Any</option>
+        <option value="">{t('submissions.any')}</option>
+        {/* Each option is the CODE — that is what a competitor scans a
+            submissions list for, and it is the same token in both locales.
+            The localized long name is on the option's `title`. */}
         {VERDICTS.map((v) => (
-          <option key={v} value={v}>
+          <option key={v} value={v} title={verdictName(t, v)}>
             {v}
           </option>
         ))}
       </select>
 
-      {query.isLoading ? <p>Loading…</p> : null}
-      {query.isError ? <p role="alert">Could not load submissions.</p> : null}
+      {query.isLoading ? <p>{t('common.loading')}</p> : null}
+      {query.isError ? <p role="alert">{t('submissions.loadError')}</p> : null}
 
       {submissions.length > 0 ? (
         <table>
           <thead>
             <tr>
-              <th className="num">id</th>
-              <th>problem</th>
-              <th>user</th>
-              <th>language</th>
-              <th>verdict</th>
-              <th className="num">points</th>
-              <th>when</th>
+              <th className="num">{t('submissions.colId')}</th>
+              <th>{t('submissions.colProblem')}</th>
+              <th>{t('submissions.colUser')}</th>
+              <th>{t('submissions.colLanguage')}</th>
+              <th>{t('submissions.colVerdict')}</th>
+              <th className="num">{t('submissions.colPoints')}</th>
+              <th>{t('submissions.colWhen')}</th>
             </tr>
           </thead>
           <tbody>
@@ -160,20 +166,25 @@ export function SubmissionsPage({
                 </td>
                 <td>{s.languageKey}</td>
                 <td>
-                  <span className={`badge ${verdictToken(s.verdict)}`}>{s.verdict ?? '—'}</span>
+                  <span
+                    className={`badge ${verdictToken(s.verdict)}`}
+                    {...(s.verdict ? { title: verdictName(t, s.verdict) } : {})}
+                  >
+                    {s.verdict ?? '—'}
+                  </span>
                 </td>
                 <td className="num">
                   {typeof s.points === 'number' && typeof s.maxPoints === 'number'
                     ? `${formatPoints(s.points)}/${formatPoints(s.maxPoints)}`
                     : '—'}
                 </td>
-                <td>{new Date(s.createdAt).toLocaleString()}</td>
+                <td>{formatTimestamp(s.createdAt, locale)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : !query.isLoading && !query.isError ? (
-        <p>No submissions found.</p>
+        <p>{t('submissions.empty')}</p>
       ) : null}
 
       {query.hasNextPage ? (
@@ -182,7 +193,7 @@ export function SubmissionsPage({
           onClick={() => void query.fetchNextPage()}
           disabled={query.isFetchingNextPage}
         >
-          Load more
+          {t('common.loadMore')}
         </button>
       ) : null}
     </section>

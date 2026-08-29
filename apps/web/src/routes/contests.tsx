@@ -5,25 +5,49 @@ import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { formatPoints } from '../format.js';
 import { meQueryOptions } from '../me.js';
+import { formatDateTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
 
 type Contest = paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
 type Scoreboard = paths['/contests/{key}/scoreboard']['get']['responses'][200]['content']['application/json'];
 
-/** `2026-03-01T09:00:00Z` → `2026-03-01 09:00`, in the reader's own zone. */
-function when(iso: string): string {
-  const d = new Date(iso);
-  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+/**
+ * `2026-03-01T09:00:00Z` → `01/03/2026 16:00` (vi) or `3/1/2026 04:00` (en),
+ * in the reader's own zone AND the reader's own date order — the day/month
+ * order is not cosmetic, and a Vietnamese page printing `3/1/2026` for the
+ * first of March is a wrong date, not an odd-looking one.
+ */
+function when(iso: string, locale: Locale): string {
+  return formatDateTime(iso, locale);
 }
 
-/** `running`, `upcoming` or `finished`, from the window alone. */
-function phaseOf(contest: { startTime: string; endTime: string }): string {
+/**
+ * `running`, `upcoming` or `finished`, from the window alone.
+ *
+ * Stays an untranslated TOKEN: three call sites branch on it (`phase ===
+ * 'upcoming'` disables the join button, `'finished'` relabels it), and a
+ * localized string here would make that logic depend on the UI language.
+ * `phaseLabel` below is where it becomes words.
+ */
+type Phase = 'upcoming' | 'running' | 'finished';
+function phaseOf(contest: { startTime: string; endTime: string }): Phase {
   const now = Date.now();
   if (now < Date.parse(contest.startTime)) return 'upcoming';
   return now <= Date.parse(contest.endTime) ? 'running' : 'finished';
 }
 
+const PHASE_KEYS: Record<Phase, MsgKey> = {
+  upcoming: 'phase.upcoming',
+  running: 'phase.running',
+  finished: 'phase.finished',
+};
+function phaseLabel(t: TFunction, phase: Phase): string {
+  return t(PHASE_KEYS[phase]);
+}
+
 export function ContestsPage() {
+  const t = useT();
+  const { locale } = useLocale();
   const me = useQuery(meQueryOptions);
   const query = useQuery({
     queryKey: ['contests'],
@@ -32,33 +56,33 @@ export function ContestsPage() {
       // `GET /contests` declares no error response, so `error` is typed
       // `never` — there is nothing to read a message off, and a transport
       // failure still lands here.
-      if (error) throw new Error('Could not load contests.');
+      if (error) throw new Error(t('contests.loadError'));
       return data;
     },
   });
 
   return (
     <section className="panel">
-      <h1>Contests</h1>
+      <h1>{t('contests.title')}</h1>
       {me.data && me.data.globalRole !== 'user' ? (
         <p>
-          <Link to="/contests/new">New contest</Link>
+          <Link to="/contests/new">{t('contests.new')}</Link>
         </p>
       ) : null}
-      {query.isPending ? <p className="muted">Loading…</p> : null}
+      {query.isPending ? <p className="muted">{t('common.loading')}</p> : null}
       {query.error ? <p role="alert">{query.error.message}</p> : null}
       {query.data && query.data.items.length === 0 ? (
-        <p className="muted">No contests yet.</p>
+        <p className="muted">{t('contests.empty')}</p>
       ) : null}
       {query.data && query.data.items.length > 0 ? (
         <table>
           <thead>
             <tr>
-              <th>Contest</th>
-              <th>Format</th>
-              <th>Starts</th>
-              <th>Ends</th>
-              <th>Phase</th>
+              <th>{t('contests.colContest')}</th>
+              <th>{t('contests.colFormat')}</th>
+              <th>{t('contests.colStarts')}</th>
+              <th>{t('contests.colEnds')}</th>
+              <th>{t('contests.colPhase')}</th>
             </tr>
           </thead>
           <tbody>
@@ -69,10 +93,13 @@ export function ContestsPage() {
                     {contest.name}
                   </Link>
                 </td>
+                {/* `format` is the registry's own key (`icpc`, `ioi16`) —
+                    an identifier every setter types into the create form,
+                    not a word to translate. */}
                 <td>{contest.format}</td>
-                <td>{when(contest.startTime)}</td>
-                <td>{when(contest.endTime)}</td>
-                <td>{phaseOf(contest)}</td>
+                <td>{when(contest.startTime, locale)}</td>
+                <td>{when(contest.endTime, locale)}</td>
+                <td>{phaseLabel(t, phaseOf(contest))}</td>
               </tr>
             ))}
           </tbody>
@@ -83,6 +110,8 @@ export function ContestsPage() {
 }
 
 export function ContestPage({ contestKey }: { contestKey: string }) {
+  const t = useT();
+  const { locale } = useLocale();
   const client = useQueryClient();
   const me = useQuery(meQueryOptions);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -95,7 +124,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
     queryKey: ['contest', contestKey],
     queryFn: async (): Promise<ContestDetail> => {
       const { data, error } = await api.GET('/contests/{key}', { params: { path: { key: contestKey } } });
-      if (error) throw new Error(error.detail ?? 'No such contest.');
+      if (error) throw new Error(error.detail ?? t('contest.notFound'));
       return data;
     },
   });
@@ -117,7 +146,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         params: { path: { key: contestKey } },
       });
       if (error) {
-        setJoinError(error.detail ?? 'Could not join.');
+        setJoinError(error.detail ?? t('contest.joinError'));
         return;
       }
       setJoinError(null);
@@ -128,13 +157,13 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
-      setJoinError('Could not reach the server. Check your connection and try again.');
+      setJoinError(t('common.networkError'));
     } finally {
       setJoinBusy(false);
     }
   }
 
-  if (contest.isPending) return <p className="muted">Loading…</p>;
+  if (contest.isPending) return <p className="muted">{t('common.loading')}</p>;
   if (contest.error) return <p role="alert">{contest.error.message}</p>;
   if (!contest.data) return null;
 
@@ -145,34 +174,37 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
     <section className="panel">
       <h1>{contest.data.name}</h1>
       <p className="muted">
-        {contest.data.format} · {when(contest.data.startTime)} → {when(contest.data.endTime)} · {phase}
+        {contest.data.format} · {when(contest.data.startTime, locale)} →{' '}
+        {when(contest.data.endTime, locale)} · {phaseLabel(t, phase)}
       </p>
 
       {joined ? (
         <p role="status">
-          {participation.data!.virtual === 0 ? 'Competing live.' : `Virtual attempt ${String(participation.data!.virtual)}.`}{' '}
-          Your window closes {when(participation.data!.endTime)}.
+          {participation.data!.virtual === 0
+            ? t('contest.live')
+            : t('contest.virtual', { n: participation.data!.virtual })}{' '}
+          {t('contest.windowCloses', { when: when(participation.data!.endTime, locale) })}
         </p>
       ) : (
         <p>
           <button type="button" onClick={() => void join()} disabled={joinBusy || phase === 'upcoming'}>
-            {phase === 'finished' ? 'Join virtually' : 'Join'}
+            {phase === 'finished' ? t('contest.joinVirtually') : t('contest.join')}
           </button>
-          {phase === 'upcoming' ? <span className="muted"> Not started yet.</span> : null}
+          {phase === 'upcoming' ? <span className="muted"> {t('contest.notStarted')}</span> : null}
         </p>
       )}
       {joinError ? <p role="alert">{joinError}</p> : null}
 
-      <h2>Problems</h2>
+      <h2>{t('contest.problems')}</h2>
       {contest.data.problems.length === 0 ? (
-        <p className="muted">No problems.</p>
+        <p className="muted">{t('contest.noProblems')}</p>
       ) : (
         <table>
           <thead>
             <tr>
-              <th>#</th>
-              <th>Problem</th>
-              <th className="num">Points</th>
+              <th>{t('contest.colLabel')}</th>
+              <th>{t('contest.colProblem')}</th>
+              <th className="num">{t('contest.colPoints')}</th>
               <th />
             </tr>
           </thead>
@@ -197,10 +229,10 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
                       it does. Submitting from the problem page is practice. */}
                   {joined ? (
                     <Link to="/submit" search={{ problem: problem.code, contest: contestKey }}>
-                      Submit
+                      {t('contest.submit')}
                     </Link>
                   ) : (
-                    <span className="muted">Join to submit</span>
+                    <span className="muted">{t('contest.joinToSubmit')}</span>
                   )}
                 </td>
               </tr>
@@ -211,19 +243,19 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
 
       <p>
         <Link to="/contests/$key/scoreboard" params={{ key: contestKey }}>
-          Scoreboard
+          {t('contest.scoreboard')}
         </Link>{' '}
         {/* Submissions made INTO this contest (`?contest=`), not practice
             submissions to its problems — the same distinction the submit
             links above are explicit about. */}
         <Link to="/submissions" search={{ contest: contestKey }}>
-          All submissions
+          {t('common.allSubmissions')}
         </Link>
         {me.data ? (
           <>
             {' '}
             <Link to="/submissions" search={{ contest: contestKey, user: me.data.username }}>
-              My submissions
+              {t('common.mySubmissions')}
             </Link>
           </>
         ) : null}
@@ -239,6 +271,11 @@ type Cell = Scoreboard['ranking'][number]['format_data'][string];
  * convention is the attempt ledger: `+` a first-try solve, `+2` a solve on
  * the third try, `-3` three tries and no solve. `time` is seconds in every
  * format; minutes is how a wall board reads.
+ *
+ * Untranslated, on purpose: `+`, `−` and the `m` minute suffix are the ICPC
+ * scoreboard's own notation, read identically at every contest in the world
+ * — a Vietnamese `p` for "phút" here would make this board unreadable to
+ * anyone who has seen one before, which is everyone it is for.
  */
 function cell(data: Cell | undefined): string {
   if (!data) return '\u2014';
@@ -258,18 +295,19 @@ function cell(data: Cell | undefined): string {
 }
 
 export function ScoreboardPage({ contestKey }: { contestKey: string }) {
+  const t = useT();
   const query = useQuery({
     queryKey: ['scoreboard', contestKey],
     queryFn: async (): Promise<Scoreboard> => {
       const { data, error } = await api.GET('/contests/{key}/scoreboard', {
         params: { path: { key: contestKey } },
       });
-      if (error) throw new Error(error.detail ?? 'Could not load the scoreboard.');
+      if (error) throw new Error(error.detail ?? t('scoreboard.loadError'));
       return data;
     },
   });
 
-  if (query.isPending) return <p className="muted">Loading…</p>;
+  if (query.isPending) return <p className="muted">{t('common.loading')}</p>;
   if (query.error) return <p role="alert">{query.error.message}</p>;
   if (!query.data) return null;
 
@@ -280,19 +318,19 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
 
   return (
     <section className="panel">
-      <h1>Scoreboard</h1>
+      <h1>{t('scoreboard.title')}</h1>
       <p>
         <Link to="/contests/$key" params={{ key: contestKey }}>
-          Back to the contest
+          {t('scoreboard.back')}
         </Link>
       </p>
       <table>
         <thead>
           <tr>
-            <th className="num">#</th>
-            <th>Participant</th>
-            <th className="num">Score</th>
-            <th className="num">Time</th>
+            <th className="num">{t('scoreboard.colRank')}</th>
+            <th>{t('scoreboard.colParticipant')}</th>
+            <th className="num">{t('scoreboard.colScore')}</th>
+            <th className="num">{t('scoreboard.colTime')}</th>
             {problems.map((problem) => (
               <th key={problem.code} className="num">
                 <Link to="/problems/$code" params={{ code: problem.code }}>
@@ -310,8 +348,12 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
                 <Link to="/users/$username" params={{ username: row.participant }}>
                   {row.participant}
                 </Link>
-                {row.virtual !== 0 ? <span className="muted"> (virtual)</span> : null}
-                {row.is_disqualified ? <span className="muted"> (disqualified)</span> : null}
+                {row.virtual !== 0 ? (
+                  <span className="muted"> {t('scoreboard.virtual')}</span>
+                ) : null}
+                {row.is_disqualified ? (
+                  <span className="muted"> {t('scoreboard.disqualified')}</span>
+                ) : null}
               </td>
               <td className="num">{formatPoints(row.score)}</td>
               <td className="num">{row.cumtime}</td>
@@ -324,7 +366,7 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
           ))}
         </tbody>
       </table>
-      {ranking.length === 0 ? <p className="muted">Nobody has competed yet.</p> : null}
+      {ranking.length === 0 ? <p className="muted">{t('scoreboard.empty')}</p> : null}
     </section>
   );
 }

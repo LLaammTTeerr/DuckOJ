@@ -8,6 +8,7 @@
  * chart/QR service would hand a third party the very thing 2FA protects.
  */
 import { qrcodegen } from './vendor/qrcodegen.js';
+import { useT } from './i18n/index.js';
 
 /** The quiet zone the QR spec requires: four light modules on every side. */
 const QUIET_ZONE = 4;
@@ -58,6 +59,7 @@ function pathFor(modules: boolean[][]): string {
  * themes.
  */
 export function QrCode({ value, size = 200 }: { value: string; size?: number }) {
+  const t = useT();
   let modules: boolean[][];
   try {
     modules = qrModules(value);
@@ -68,7 +70,7 @@ export function QrCode({ value, size = 200 }: { value: string; size?: number }) 
   return (
     <svg
       role="img"
-      aria-label="QR code for the two-factor secret"
+      aria-label={t('security.qrLabel')}
       width={size}
       height={size}
       viewBox={`0 0 ${String(side)} ${String(side)}`}

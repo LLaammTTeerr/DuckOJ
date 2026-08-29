@@ -74,7 +74,7 @@ describe('OrgsPage', () => {
     get.mockResolvedValue({ data: { items: [ORG], nextCursor: null } });
     wrap(<OrgsPage />);
     expect(await screen.findByText('Hanoi CS')).toBeInTheDocument();
-    expect(screen.getByText('on request')).toBeInTheDocument();
+    expect(screen.getByText('cần duyệt')).toBeInTheDocument();
   });
 
   it('offers the create form to an admin and nobody else', async () => {
@@ -84,7 +84,7 @@ describe('OrgsPage', () => {
         : Promise.resolve({ data: { items: [], nextCursor: null } }),
     );
     wrap(<OrgsPage />);
-    expect(await screen.findByRole('heading', { name: /new organization/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^Tổ chức mới$/ })).toBeInTheDocument();
 
     get.mockImplementation((path: string) =>
       path === '/auth/me'
@@ -92,8 +92,8 @@ describe('OrgsPage', () => {
         : Promise.resolve({ data: { items: [], nextCursor: null } }),
     );
     wrap(<OrgsPage />);
-    await screen.findByText(/no organizations yet/i);
-    expect(screen.queryAllByRole('heading', { name: /new organization/i })).toHaveLength(1);
+    await screen.findByText(/Chưa có tổ chức nào/);
+    expect(screen.queryAllByRole('heading', { name: /^Tổ chức mới$/ })).toHaveLength(1);
   });
 
   it('creates through the API with the chosen policy', async () => {
@@ -104,10 +104,10 @@ describe('OrgsPage', () => {
     );
     post.mockResolvedValue({ data: ORG });
     wrap(<OrgsPage />);
-    await userEvent.type(await screen.findByLabelText(/slug/i), 'hanoi');
-    await userEvent.type(screen.getByLabelText(/^name/i), 'Hanoi CS');
-    await userEvent.selectOptions(screen.getByLabelText(/joining/i), 'open');
-    await userEvent.click(screen.getByRole('button', { name: /^create$/i }));
+    await userEvent.type(await screen.findByLabelText(/^Định danh$/), 'hanoi');
+    await userEvent.type(screen.getByLabelText(/^Tên$/), 'Hanoi CS');
+    await userEvent.selectOptions(screen.getByLabelText(/^Cách gia nhập$/), 'open');
+    await userEvent.click(screen.getByRole('button', { name: /^Tạo$/ }));
     expect(post).toHaveBeenCalledWith('/orgs', {
       body: { slug: 'hanoi', name: 'Hanoi CS', joinPolicy: 'open', visibility: 'public' },
     });
@@ -120,12 +120,12 @@ describe('OrgPage', () => {
     post.mockResolvedValue({ data: { outcome: 'requested', role: null } });
     wrap(<OrgPage slug="hanoi" />);
 
-    const button = await screen.findByRole('button', { name: /request to join/i });
+    const button = await screen.findByRole('button', { name: /^Xin gia nhập$/ });
     await userEvent.click(button);
     expect(post).toHaveBeenCalledWith('/orgs/{slug}/join', { params: { path: { slug: 'hanoi' } } });
-    expect(await screen.findByText(/request sent/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Đã gửi yêu cầu/)).toBeInTheDocument();
     // Nothing joined, so the button must not be replaced by member controls.
-    expect(screen.queryByRole('button', { name: /leave/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Rời khỏi$/ })).toBeNull();
   });
 
   it('offers a stranger nothing on an invite-only organization', async () => {
@@ -133,7 +133,7 @@ describe('OrgPage', () => {
     wrap(<OrgPage slug="hanoi" />);
     await screen.findByText('Hanoi CS');
     await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /join/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /gia nhập/i })).toBeNull();
     });
   });
 
@@ -141,14 +141,14 @@ describe('OrgPage', () => {
     serve(null);
     wrap(<OrgPage slug="hanoi" />);
     await screen.findByText('Hanoi CS');
-    expect(screen.queryByRole('button', { name: /join/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /gia nhập/i })).toBeNull();
   });
 
   it('a plain member may leave, and only leave', async () => {
     serve('plain-person');
     wrap(<OrgPage slug="hanoi" />);
-    expect(await screen.findByRole('button', { name: /leave/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /remove/i })).toBeNull();
+    expect(await screen.findByRole('button', { name: /^Rời khỏi$/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Xóa$/ })).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
   });
 
@@ -157,7 +157,7 @@ describe('OrgPage', () => {
     post.mockResolvedValue({ data: MEMBERS });
     wrap(<OrgPage slug="hanoi" />);
 
-    const approve = await screen.findByRole('button', { name: /approve/i });
+    const approve = await screen.findByRole('button', { name: /^Duyệt$/ });
     await userEvent.click(approve);
     expect(post).toHaveBeenCalledWith('/orgs/{slug}/requests/{id}/approve', {
       params: { path: { slug: 'hanoi', id: 7 } },
@@ -169,10 +169,10 @@ describe('OrgPage', () => {
     patch.mockResolvedValue({ data: MEMBERS });
     wrap(<OrgPage slug="hanoi" />);
 
-    const select = await screen.findByRole('combobox', { name: /role of plain-person/i });
+    const select = await screen.findByRole('combobox', { name: /Vai trò của plain-person/ });
     // Their own row has no select — demoting the last owner by mis-click is
     // the 409 the API answers, but the UI does not even offer it.
-    expect(screen.queryByRole('combobox', { name: /role of owner-person/i })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: /Vai trò của owner-person/ })).toBeNull();
     await userEvent.selectOptions(select, 'admin');
     expect(patch).toHaveBeenCalledWith('/orgs/{slug}/members/{username}', {
       params: { path: { slug: 'hanoi', username: 'plain-person' } },
@@ -184,7 +184,7 @@ describe('OrgPage', () => {
     serve('owner-person');
     del.mockResolvedValue({ error: { detail: 'That would leave the organization with no owner.' } });
     wrap(<OrgPage slug="hanoi" />);
-    const remove = await screen.findByRole('button', { name: /remove/i });
+    const remove = await screen.findByRole('button', { name: /^Xóa$/ });
     await userEvent.click(remove);
     expect(await screen.findByRole('alert')).toHaveTextContent(/no owner/i);
   });

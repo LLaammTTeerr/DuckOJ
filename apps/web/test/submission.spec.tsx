@@ -47,7 +47,7 @@ describe('SubmissionPage', () => {
     get.mockResolvedValue({ data: DETAIL });
     wrap(<SubmissionPage id={42} />);
 
-    expect(await screen.findByRole('heading', { name: /submission #42/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Bài nộp #42/ })).toBeInTheDocument();
     expect(screen.getByText('AC')).toHaveClass('badge', 'ac');
     expect(screen.getByText('int main() { return 0; }')).toBeInTheDocument();
     // The problem is a link out, not a label.
@@ -58,6 +58,7 @@ describe('SubmissionPage', () => {
   it('a submission the caller may not see stays an error, not a blank page', async () => {
     get.mockResolvedValue({ data: undefined, error: { detail: 'No such submission.' } });
     wrap(<SubmissionPage id={7} />);
-    expect(await screen.findByRole('alert')).toHaveTextContent(/no such submission/i);
+    // The server's own `detail`, verbatim — never translated.
+    expect(await screen.findByRole('alert')).toHaveTextContent(/No such submission/i);
   });
 });

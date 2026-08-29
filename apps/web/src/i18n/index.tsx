@@ -176,6 +176,20 @@ export function verdictName(t: TFunction, code: string): string {
   return key in en ? t(key) : code;
 }
 
+/**
+ * A global role (`user`/`setter`/`admin`) as a word.
+ *
+ * Takes a bare `string`, not the union: it is called with values that arrive
+ * from the server inside a notification payload, where the type is only
+ * `unknown` narrowed to `string`. An unrecognised role falls back to itself
+ * rather than to a wrong word — a role this build has never heard of should
+ * read as its raw name, not as "user".
+ */
+export function globalRoleLabel(t: TFunction, role: string): string {
+  const key = `globalRole.${role}` as MsgKey;
+  return key in en ? t(key) : role;
+}
+
 // ── dates and numbers ──────────────────────────────────────────────────────
 //
 // Every `toLocaleString()`/`toLocaleDateString()` in this app used to run
