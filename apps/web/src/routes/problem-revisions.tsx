@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { formatMemoryMb } from './problems.js';
+import { useT } from '../i18n/index.js';
 
 type Revision =
   paths['/problems/{code}/revisions']['get']['responses'][200]['content']['application/json'][number];
@@ -44,6 +45,7 @@ function stateToken(state: Revision['state']): string {
  * (task-12 brief).
  */
 export function ProblemRevisionsPage(props: { code: string }) {
+  const t = useT();
   const { code } = props;
   const client = useQueryClient();
 
@@ -52,7 +54,7 @@ export function ProblemRevisionsPage(props: { code: string }) {
     queryFn: async () => {
       const { data, error } = await api.GET('/problems/{code}/revisions', { params: { path: { code } } });
       if (error || !data) {
-        throw new Error('Could not load revisions.');
+        throw new Error(t('revisions.loadError'));
       }
       return data;
     },
@@ -93,14 +95,14 @@ export function ProblemRevisionsPage(props: { code: string }) {
         headers: { 'content-type': 'application/octet-stream' },
       } as never);
       if (error) {
-        setUploadError((error as { code?: string }).code ?? 'upload failed');
+        setUploadError((error as { code?: string }).code ?? t('revisions.uploadFailed'));
         return;
       }
       setPackageHash(uploadHash);
       setUploadHash('');
       setArchive(null);
     } catch {
-      setUploadError('Could not reach the server. Check your connection and try again.');
+      setUploadError(t('common.networkError'));
     } finally {
       setUploadBusy(false);
     }
@@ -124,7 +126,7 @@ export function ProblemRevisionsPage(props: { code: string }) {
       setPackageHash('');
       await client.invalidateQueries({ queryKey: ['problem-revisions', code] });
     } catch {
-      setAttachError('Could not reach the server. Check your connection and try again.');
+      setAttachError(t('common.networkError'));
     } finally {
       setAttachBusy(false);
     }
@@ -143,7 +145,7 @@ export function ProblemRevisionsPage(props: { code: string }) {
       }
       await client.invalidateQueries({ queryKey: ['problem-revisions', code] });
     } catch {
-      setPublishError('Could not reach the server. Check your connection and try again.');
+      setPublishError(t('common.networkError'));
     } finally {
       setPublishingVersion(null);
     }
@@ -153,53 +155,53 @@ export function ProblemRevisionsPage(props: { code: string }) {
 
   return (
     <section>
-      <h1>Revisions — {code}</h1>
+      <h1>{t('revisions.title', { code })}</h1>
 
       <div>
-        <label htmlFor="package-archive">Upload package</label>
+        <label htmlFor="package-archive">{t('revisions.uploadPackage')}</label>
         <input
           id="package-archive"
           type="file"
           accept=".zst,.tar.zst"
           onChange={(e) => setArchive(e.target.files?.[0] ?? null)}
         />
-        <label htmlFor="upload-hash">its hash (printed by package:build)</label>
+        <label htmlFor="upload-hash">{t('revisions.uploadHash')}</label>
         <input id="upload-hash" value={uploadHash} onChange={(e) => setUploadHash(e.target.value)} />
         <button
           type="button"
           onClick={() => void handleUpload()}
           disabled={uploadBusy || archive === null || uploadHash === ''}
         >
-          Upload
+          {t('revisions.upload')}
         </button>
         {uploadError ? <p role="alert">{uploadError}</p> : null}
       </div>
 
       <div>
-        <label htmlFor="package-hash">Package hash</label>
+        <label htmlFor="package-hash">{t('revisions.packageHash')}</label>
         <input id="package-hash" value={packageHash} onChange={(e) => setPackageHash(e.target.value)} />
         <button type="button" onClick={() => void handleAttach()} disabled={attachBusy || packageHash === ''}>
-          Attach
+          {t('revisions.attach')}
         </button>
         {attachError ? <p role="alert">{attachError}</p> : null}
       </div>
 
       {publishError ? <p role="alert">{publishError}</p> : null}
 
-      {query.isLoading ? <p>Loading…</p> : null}
-      {query.isError ? <p role="alert">Could not load revisions.</p> : null}
+      {query.isLoading ? <p>{t('common.loading')}</p> : null}
+      {query.isError ? <p role="alert">{t('revisions.loadError')}</p> : null}
 
       {revisions.length > 0 ? (
         <table>
           <thead>
             <tr>
-              <th>Version</th>
-              <th>State</th>
-              <th>Package</th>
-              <th className="num">Time</th>
-              <th className="num">Mem</th>
-              <th className="num">Tests</th>
-              <th>Notes</th>
+              <th>{t('revisions.colVersion')}</th>
+              <th>{t('revisions.colState')}</th>
+              <th>{t('revisions.colPackage')}</th>
+              <th className="num">{t('problems.colTime')}</th>
+              <th className="num">{t('problems.colMem')}</th>
+              <th className="num">{t('problems.colTests')}</th>
+              <th>{t('revisions.colNotes')}</th>
               <th />
             </tr>
           </thead>
@@ -208,7 +210,7 @@ export function ProblemRevisionsPage(props: { code: string }) {
               <tr key={r.id}>
                 <td>{r.version}</td>
                 <td>
-                  <span className={`badge ${stateToken(r.state)}`}>{r.state}</span>
+                  <span className={`badge ${stateToken(r.state)}`}>{t(`revState.${r.state}`)}</span>
                 </td>
                 {/* `title` carries the full 64-character hash — truncation
                     is a display choice, not a loss of the value someone
@@ -235,7 +237,7 @@ export function ProblemRevisionsPage(props: { code: string }) {
                       onClick={() => void handlePublish(r.version)}
                       disabled={publishingVersion === r.version}
                     >
-                      Publish
+                      {t('revisions.publish')}
                     </button>
                   ) : null}
                 </td>
@@ -244,7 +246,7 @@ export function ProblemRevisionsPage(props: { code: string }) {
           </tbody>
         </table>
       ) : !query.isLoading && !query.isError ? (
-        <p>No revisions yet.</p>
+        <p>{t('revisions.empty')}</p>
       ) : null}
     </section>
   );

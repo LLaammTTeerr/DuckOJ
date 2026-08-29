@@ -163,8 +163,8 @@ describe('ProblemsPage', () => {
 
     const rows = screen.getAllByRole('row');
     // rows[0] is the header row.
-    expect(within(rows[0]!).getByRole('columnheader', { name: 'Time' })).toHaveClass('num');
-    expect(within(rows[0]!).getByRole('columnheader', { name: 'Mem' })).toHaveClass('num');
+    expect(within(rows[0]!).getByRole('columnheader', { name: 'Thời gian' })).toHaveClass('num');
+    expect(within(rows[0]!).getByRole('columnheader', { name: 'Bộ nhớ' })).toHaveClass('num');
 
     // PROBLEM_A: 1000 ms / 65536 KB (64 MB, whole).
     expect(within(rows[1]!).getByText('1000 ms')).toBeInTheDocument();
@@ -187,7 +187,7 @@ describe('ProblemsPage', () => {
     await screen.findByText('aplusb');
 
     const rows = screen.getAllByRole('row');
-    expect(within(rows[0]!).getByRole('columnheader', { name: 'Tests' })).toHaveClass('num');
+    expect(within(rows[0]!).getByRole('columnheader', { name: 'Test' })).toHaveClass('num');
     // Tests is the third `.num` column (after Time, Mem) — cell index 4
     // (code, name, time, mem, tests, me).
     // PROBLEM_A: testCount 3.
@@ -245,7 +245,7 @@ describe('ProblemsPage', () => {
     renderWithClient(<ProblemsPage />);
     await screen.findByText('aplusb');
 
-    await userEvent.type(screen.getByLabelText(/search/i), 'plus');
+    await userEvent.type(screen.getByLabelText(/^Tìm kiếm$/), 'plus');
 
     await waitFor(() => {
       const problemsCalls = mockedGet.mock.calls.filter((c) => c[0] === '/problems');
@@ -265,7 +265,7 @@ describe('ProblemsPage', () => {
     await screen.findByText('aplusb');
     expect(screen.queryByText('bplusc')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /load more/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^Tải thêm$/ }));
 
     await screen.findByText('bplusc');
     // Both rows are still present — the second page appended, it did not
@@ -337,7 +337,7 @@ describe('ProblemPage', () => {
 
     renderWithClient(<ProblemPage code="does-not-exist" />);
 
-    expect(await screen.findByText('No such problem.')).toBeInTheDocument();
+    expect(await screen.findByText('Không có bài tập này.')).toBeInTheDocument();
   });
 });
 
@@ -358,10 +358,10 @@ describe('ProblemPage authoring links', () => {
       '/auth/me': apiResponse({ username: 'kim', displayName: 'Kim', globalRole: 'user' }),
     });
     renderWithClient(<ProblemPage code="aplusb" />);
-    expect(await screen.findByRole('link', { name: 'Edit' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Revisions' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'All submissions' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'My submissions' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Sửa' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Phiên bản' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Tất cả bài nộp' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Bài nộp của tôi' })).toBeInTheDocument();
   });
 
   it('a plain signed-in stranger gets no authoring links', async () => {
@@ -370,8 +370,8 @@ describe('ProblemPage authoring links', () => {
       '/auth/me': apiResponse({ username: 'stranger', displayName: 'S', globalRole: 'user' }),
     });
     renderWithClient(<ProblemPage code="aplusb" />);
-    await screen.findByRole('link', { name: 'All submissions' });
-    expect(screen.queryByRole('link', { name: 'Edit' })).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Revisions' })).toBeNull();
+    await screen.findByRole('link', { name: 'Tất cả bài nộp' });
+    expect(screen.queryByRole('link', { name: 'Sửa' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Phiên bản' })).toBeNull();
   });
 });

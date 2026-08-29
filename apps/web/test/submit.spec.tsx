@@ -13,23 +13,23 @@ describe('SubmitForm', () => {
     // through this field hits the same wall. Paste sidesteps the DSL
     // entirely (and is closer to what a user actually does with code), so
     // don't "simplify" this back to .type().
-    await userEvent.click(screen.getByLabelText(/source/i));
+    await userEvent.click(screen.getByLabelText(/Mã nguồn/));
     await userEvent.paste('int main(){}');
-    await userEvent.click(screen.getByRole('button', { name: /submit/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Nộp bài/ }));
 
     expect(onSubmit).toHaveBeenCalledWith({ languageKey: 'cpp17', source: 'int main(){}' });
   });
 
   it('disables the button while a submission is in flight', () => {
     render(<SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy />);
-    expect(screen.getByRole('button', { name: /submit/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Nộp bài/ })).toBeDisabled();
   });
 });
 
 describe('VerdictPanel', () => {
   it('shows the running state before a verdict exists', () => {
     render(<VerdictPanel submission={{ state: 'compiling', verdict: null, cases: [] } as never} />);
-    expect(screen.getByText(/compiling/i)).toBeInTheDocument();
+    expect(screen.getByText(/Đang biên dịch/)).toBeInTheDocument();
   });
 
   it('shows the verdict and each case once grading finishes', () => {
@@ -54,7 +54,7 @@ describe('VerdictPanel', () => {
     expect(screen.getByText('WA', { selector: 'strong' })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(3);
     // A skipped case never ran, so it must not display a verdict of its own.
-    expect(screen.getByText(/skipped/i)).toBeInTheDocument();
+    expect(screen.getByText(/bỏ qua/)).toBeInTheDocument();
   });
 });
 
@@ -86,7 +86,7 @@ describe('VerdictPanel compile errors', () => {
         }
       />,
     );
-    expect(screen.getByText(/compile error/i)).toBeInTheDocument();
+    expect(screen.getByText(/Lỗi biên dịch/)).toBeInTheDocument();
     expect(screen.getByText(/expected ;/)).toBeInTheDocument();
   });
 
@@ -97,6 +97,6 @@ describe('VerdictPanel compile errors', () => {
       />,
     );
     expect(screen.getByText('IE', { selector: 'strong' })).toBeInTheDocument();
-    expect(screen.queryByText(/compile error/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Lỗi biên dịch/)).not.toBeInTheDocument();
   });
 });

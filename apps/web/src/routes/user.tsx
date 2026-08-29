@@ -3,19 +3,23 @@ import { Link } from '@tanstack/react-router';
 import { rankBand } from '@duckoj/glicko2';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { formatPoints } from '../format.js';
+import { formatDate, useLocale, useT } from '../i18n/index.js';
 
 type Profile = paths['/users/{username}']['get']['responses'][200]['content']['application/json'];
 type RatingEvent =
   paths['/users/{username}/rating']['get']['responses'][200]['content']['application/json'][number];
 
 export function UserPage({ username }: { username: string }) {
+  const t = useT();
+  const { locale } = useLocale();
   const profile = useQuery({
     queryKey: ['user', username],
     queryFn: async (): Promise<Profile> => {
       const { data, error } = await api.GET('/users/{username}', {
         params: { path: { username } },
       });
-      if (error) throw new Error(error.detail ?? 'No such user.');
+      if (error) throw new Error(error.detail ?? t('user.notFound'));
       return data;
     },
   });
@@ -30,7 +34,7 @@ export function UserPage({ username }: { username: string }) {
     },
   });
 
-  if (profile.isPending) return <p className="muted">Loading…</p>;
+  if (profile.isPending) return <p className="muted">{t('common.loading')}</p>;
   if (profile.error) return <p role="alert">{profile.error.message}</p>;
   if (!profile.data) return null;
 
@@ -42,53 +46,57 @@ export function UserPage({ username }: { username: string }) {
       <p className="muted">
         {user.username}
         {user.globalRole !== 'user' ? ` · ${user.globalRole}` : ''}
-        {user.country ? ` · ${user.country}` : ''} · member since{' '}
-        {new Date(user.createdAt).toLocaleDateString()}
+        {user.country ? ` · ${user.country}` : ''} ·{' '}
+        {t('user.memberSince', { date: formatDate(user.createdAt, locale) })}
       </p>
       {user.about ? <p>{user.about}</p> : null}
 
-      <h2>Statistics</h2>
+      <h2>{t('user.statistics')}</h2>
       {/* Counted over public problems only, so these numbers mean the same
           thing to every reader — including the user themselves. */}
       <table>
         <tbody>
           <tr>
-            <th>Problems solved</th>
+            <th>{t('user.solved')}</th>
             <td className="num">{user.stats.solvedCount}</td>
           </tr>
           <tr>
-            <th>Points</th>
-            <td className="num">{user.stats.points}</td>
+            <th>{t('user.points')}</th>
+            <td className="num">{formatPoints(user.stats.points)}</td>
           </tr>
           <tr>
-            <th>Submissions</th>
+            <th>{t('user.submissions')}</th>
             <td className="num">{user.stats.submissionCount}</td>
           </tr>
           <tr>
-            <th>Rating</th>
+            <th>{t('user.rating')}</th>
             <td className="num">
               {/* Title as text, never colour: the design reserves colour
                   for verdicts (app.css rule 1). The band table is the D6
                   placeholder — renaming it is a data edit in
                   packages/glicko2/src/bands.ts. */}
-              {user.rating === null ? 'unrated' : `${rankBand(user.rating).title} \u00b7 ${String(user.rating)}`}
+              {/* The band TITLE comes from `packages/glicko2`'s data table
+                  (D6) — content, renamed by editing that table, not here. */}
+              {user.rating === null
+                ? t('user.unrated')
+                : `${rankBand(user.rating).title} \u00b7 ${String(user.rating)}`}
               {user.maxRating !== null && user.maxRating !== user.rating
-                ? ` (peak ${String(user.maxRating)})`
+                ? t('user.peak', { n: user.maxRating })
                 : ''}
             </td>
           </tr>
         </tbody>
       </table>
 
-      <h2>Rating history</h2>
+      <h2>{t('user.ratingHistory')}</h2>
       {rating.data && rating.data.length > 0 ? (
         <table>
           <thead>
             <tr>
-              <th>Contest</th>
-              <th className="num">Rank</th>
-              <th className="num">Rating</th>
-              <th className="num">Change</th>
+              <th>{t('user.colContest')}</th>
+              <th className="num">{t('user.colRank')}</th>
+              <th className="num">{t('user.colRating')}</th>
+              <th className="num">{t('user.colChange')}</th>
             </tr>
           </thead>
           <tbody>
@@ -109,12 +117,12 @@ export function UserPage({ username }: { username: string }) {
           </tbody>
         </table>
       ) : (
-        <p className="muted">Not rated yet.</p>
+        <p className="muted">{t('user.notRated')}</p>
       )}
 
       <p>
         <Link to="/submissions" search={{ user: username }}>
-          Their submissions
+          {t('user.theirSubmissions')}
         </Link>
       </p>
     </section>

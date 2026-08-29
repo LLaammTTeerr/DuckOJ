@@ -63,9 +63,9 @@ describe('NotificationsPage', () => {
     get.mockResolvedValue({ data: FEED });
     wrap(<NotificationsPage />);
 
-    expect(await screen.findByText(/was approved/i)).toBeInTheDocument();
-    expect(screen.getByText(/was declined/i)).toBeInTheDocument();
-    expect(screen.getByText(/you are now a setter/i)).toBeInTheDocument();
+    expect(await screen.findByText(/đã được duyệt/)).toBeInTheDocument();
+    expect(screen.getByText(/đã bị từ chối/)).toBeInTheDocument();
+    expect(screen.getByText(/Bạn hiện có quyền người ra đề/)).toBeInTheDocument();
     // The fallback: never a blank row for a kind this file has not learned.
     expect(screen.getByText('a_kind_from_the_future')).toBeInTheDocument();
   });
@@ -73,9 +73,9 @@ describe('NotificationsPage', () => {
   it('marks the unread row in strong weight, not the read one', async () => {
     get.mockResolvedValue({ data: FEED });
     wrap(<NotificationsPage />);
-    const unread = await screen.findByText(/was approved/i);
+    const unread = await screen.findByText(/đã được duyệt/);
     expect(unread.closest('strong')).not.toBeNull();
-    expect(screen.getByText(/you are now a setter/i).closest('strong')).toBeNull();
+    expect(screen.getByText(/Bạn hiện có quyền người ra đề/).closest('strong')).toBeNull();
   });
 
   it('mark-all-read posts, then trusts the response it got back', async () => {
@@ -85,7 +85,7 @@ describe('NotificationsPage', () => {
     });
     wrap(<NotificationsPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /mark all read \(1\)/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /Đánh dấu đã đọc tất cả \(1\)/ }));
     expect(post).toHaveBeenCalledWith('/notifications/read');
     // The button keys off unreadCount, which the response zeroed.
     expect(screen.queryByRole('button')).toBeNull();
@@ -94,6 +94,6 @@ describe('NotificationsPage', () => {
   it('tells a signed-out viewer to sign in rather than erroring', async () => {
     get.mockResolvedValue({ data: undefined, error: { detail: 'Not signed in.' } });
     wrap(<NotificationsPage />);
-    expect(await screen.findByText(/sign in to see notifications/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Đăng nhập để xem thông báo/)).toBeInTheDocument();
   });
 });

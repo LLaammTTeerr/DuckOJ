@@ -19,6 +19,7 @@ import { ContestPage, ContestsPage, ScoreboardPage } from './routes/contests.js'
 import { ContestNewPage } from './routes/contest-new.js';
 import { ContestEditPage } from './routes/contest-edit.js';
 import { TokensPage } from './routes/tokens.js';
+import { SecurityPage } from './routes/security.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
 import { AdminPage } from './routes/admin.js';
@@ -29,6 +30,7 @@ import { api } from './api.js';
 // verdict column, but is not itself part of the route tree — can share the
 // same `['me']` cache entry without importing this file.
 import { meQueryOptions } from './me.js';
+import { useLocale, useT } from './i18n/index.js';
 
 /**
  * Sign-in wiring shared by the two places that can show `LoginForm`: the
@@ -48,15 +50,38 @@ import { meQueryOptions } from './me.js';
  * inside it needs a router context they do not build.
  */
 function RecoveryLink() {
+  const t = useT();
   return (
     <p className="muted">
-      <Link to="/forgot-password">Forgotten your password?</Link>
+      <Link to="/forgot-password">{t('auth.forgotPassword')}</Link>
     </p>
+  );
+}
+
+/**
+ * The VI | EN switch. Two buttons rather than one that toggles: "the other
+ * language" is a riddle in a language you cannot read, while both names
+ * present at once is legible to either reader. The active one carries
+ * `aria-pressed`, and `setLocale` persists the choice (see i18n/index.tsx).
+ */
+function LocaleToggle() {
+  const t = useT();
+  const { locale, setLocale } = useLocale();
+  return (
+    <span aria-label={t('nav.language')}>
+      <button type="button" aria-pressed={locale === 'vi'} onClick={() => setLocale('vi')}>
+        VI
+      </button>
+      <button type="button" aria-pressed={locale === 'en'} onClick={() => setLocale('en')}>
+        EN
+      </button>
+    </span>
   );
 }
 
 function useAuthGate() {
   const client = useQueryClient();
+  const t = useT();
   const me = useQuery(meQueryOptions);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [needsTotp, setNeedsTotp] = useState(false);
@@ -75,12 +100,14 @@ function useAuthGate() {
         },
       });
     } catch {
-      setLoginError('Could not reach the server. Check your connection and try again.');
+      setLoginError(t('common.networkError'));
       return;
     }
     const { error } = response;
     if (error) {
-      setLoginError(error.detail ?? 'Sign in failed.');
+      // `error.detail` is the server's own wording and is shown verbatim —
+      // it is not in either catalogue, by design (see i18n/en.ts).
+      setLoginError(error.detail ?? t('auth.signInFailed'));
       setNeedsTotp(error.code === 'totp_required' || error.code === 'invalid_totp_code');
       return;
     }
@@ -104,6 +131,26 @@ function useAuthGate() {
  * through.
  */
 function RootComponent() {
+  return (
+    <>
+      <ShellNav />
+      <main>
+        <Outlet />
+      </main>
+    </>
+  );
+}
+
+/**
+ * The nav bar itself, split out of `RootComponent` so `test/i18n.spec.tsx`
+ * can render the REAL nav — every link label and the real language toggle —
+ * rather than a hand-built stand-in that could drift from it. `RootComponent`
+ * is untestable on its own: its `<Outlet />` needs a matched route, which
+ * `RouterContextProvider` (the pattern every other spec in this suite uses)
+ * deliberately does not supply.
+ */
+export function ShellNav() {
+  const t = useT();
   const me = useQuery(meQueryOptions);
   // The bell. Polled once a minute while signed in; `enabled` keeps a
   // signed-out shell from asking at all.
@@ -114,35 +161,35 @@ function RootComponent() {
   });
   const unread = feed.data?.unreadCount ?? 0;
   return (
-    <>
-      <nav className="shell-nav">
-        <div>
-          <strong>DuckOJ</strong>
-          <Link to="/problems">Problems</Link>
-          <Link to="/contests">Contests</Link>
-          <Link to="/orgs">Orgs</Link>
-          <Link to="/submissions">Submissions</Link>
-          <a href="/api/v1/docs">API</a>
-          {me.data?.globalRole === 'admin' ? <Link to="/admin">Admin</Link> : null}
-          {me.data ? <Link to="/account/tokens">Tokens</Link> : null}
-          {me.data ? (
-            <Link to="/notifications" aria-label={`Notifications, ${String(unread)} unread`}>
-              {unread > 0 ? `[${String(unread)}]` : '[ ]'}
-            </Link>
-          ) : null}
-          {me.data ? (
-            <Link to="/users/$username" params={{ username: me.data.username }}>
-              {me.data.displayName}
-            </Link>
-          ) : (
-            <Link to="/">Sign in</Link>
-          )}
-        </div>
-      </nav>
-      <main>
-        <Outlet />
-      </main>
-    </>
+    <nav className="shell-nav">
+      <div>
+        {/* The product name, not a translatable string. */}
+        <strong>DuckOJ</strong>
+        <Link to="/problems">{t('nav.problems')}</Link>
+        <Link to="/contests">{t('nav.contests')}</Link>
+        <Link to="/orgs">{t('nav.orgs')}</Link>
+        <Link to="/submissions">{t('nav.submissions')}</Link>
+        <a href="/api/v1/docs">{t('nav.api')}</a>
+        {me.data?.globalRole === 'admin' ? <Link to="/admin">{t('nav.admin')}</Link> : null}
+        {me.data ? <Link to="/account/tokens">{t('nav.tokens')}</Link> : null}
+        {/* Beside Tokens: both are `/account/*`, both are session-only, and
+            a 2FA screen nobody can find is a 2FA screen nobody turns on. */}
+        {me.data ? <Link to="/account/security">{t('nav.security')}</Link> : null}
+        {me.data ? (
+          <Link to="/notifications" aria-label={t('nav.notifications', { count: unread })}>
+            {unread > 0 ? `[${String(unread)}]` : '[ ]'}
+          </Link>
+        ) : null}
+        <LocaleToggle />
+        {me.data ? (
+          <Link to="/users/$username" params={{ username: me.data.username }}>
+            {me.data.displayName}
+          </Link>
+        ) : (
+          <Link to="/">{t('nav.signIn')}</Link>
+        )}
+      </div>
+    </nav>
   );
 }
 
@@ -155,8 +202,9 @@ function RootComponent() {
  * rather than replacing it with the router's own not-found page.
  */
 function IndexComponent() {
+  const t = useT();
   const { me, loginError, needsTotp, handleLogin } = useAuthGate();
-  if (me.isLoading) return <p>Loading…</p>;
+  if (me.isLoading) return <p>{t('common.loading')}</p>;
   return (
     <>
       <HomePage me={me.data ?? null} />
@@ -182,13 +230,14 @@ function IndexComponent() {
  * serializer's JSON-detection heuristic.
  */
 function SubmitRouteComponent() {
+  const t = useT();
   const { problem, contest } = useSearch({ from: '/submit' });
   const { me, loginError, needsTotp, handleLogin } = useAuthGate();
-  if (me.isLoading) return <p>Loading…</p>;
+  if (me.isLoading) return <p>{t('common.loading')}</p>;
   if (!me.data) {
     return (
       <>
-        <p>Sign in to submit a solution.</p>
+        <p>{t('submit.gate')}</p>
         <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />
         <RecoveryLink />
       </>
@@ -238,13 +287,14 @@ function ProblemNewRouteComponent() {
  * walks this route while signed out red.
  */
 function SubmissionsRouteComponent() {
+  const t = useT();
   const { me, loginError, needsTotp, handleLogin } = useAuthGate();
   const search = useSearch({ from: '/submissions' });
-  if (me.isLoading) return <p>Loading…</p>;
+  if (me.isLoading) return <p>{t('common.loading')}</p>;
   if (!me.data) {
     return (
       <>
-        <p>Sign in to see submissions.</p>
+        <p>{t('submissions.gate')}</p>
         <LoginForm onSubmit={handleLogin} error={loginError} needsTotp={needsTotp} />
         <RecoveryLink />
       </>
@@ -409,6 +459,11 @@ const tokensRoute = createRoute({
   path: '/account/tokens',
   component: TokensPage,
 });
+const securityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/account/security',
+  component: SecurityPage,
+});
 const notificationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/notifications',
@@ -464,6 +519,7 @@ const routeTree = rootRoute.addChildren([
   orgsRoute,
   orgRoute,
   tokensRoute,
+  securityRoute,
   notificationsRoute,
   adminRoute,
   userRoute,

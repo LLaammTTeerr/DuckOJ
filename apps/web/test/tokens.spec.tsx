@@ -33,19 +33,19 @@ describe('TokensPage', () => {
     post.mockResolvedValue({ data: { id: 1, token: 'duckoj_secret_abc' } });
     wrap(<TokensPage />);
 
-    await userEvent.type(await screen.findByLabelText(/name/i), 'laptop-cli');
-    await userEvent.click(screen.getByRole('button', { name: /create token/i }));
+    await userEvent.type(await screen.findByLabelText(/^Tên$/), 'laptop-cli');
+    await userEvent.click(screen.getByRole('button', { name: /^Tạo mã$/ }));
 
     const status = await screen.findByRole('status');
     expect(status).toHaveTextContent('duckoj_secret_abc');
-    expect(status).toHaveTextContent(/will not be shown again/i);
+    expect(status).toHaveTextContent(/sẽ không hiện lại lần nữa/);
   });
 
   it('every contract scope is offered — the list cannot silently drift', async () => {
     const { SCOPES } = await import('@duckoj/contracts');
     get.mockResolvedValue({ data: [] });
     wrap(<TokensPage />);
-    await screen.findByRole('heading', { name: /create/i });
+    await screen.findByRole('heading', { name: /^Tạo mới$/ });
     for (const scope of SCOPES) {
       expect(screen.getByLabelText(scope)).toBeInTheDocument();
     }
@@ -60,13 +60,13 @@ describe('TokensPage', () => {
     get.mockResolvedValue({ data: [] });
     del.mockResolvedValue({ data: {} });
     wrap(<TokensPage />);
-    await userEvent.click(await screen.findByRole('button', { name: /revoke/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Thu hồi$/ }));
     expect(del).toHaveBeenCalledWith('/auth/tokens/{id}', { params: { path: { id: 3 } } });
 
     get.mockReset();
     get.mockResolvedValue({ data: undefined });
     wrap(<TokensPage />);
-    expect(await screen.findByText(/with a session, not a token/i)).toBeInTheDocument();
+    expect(await screen.findByText(/không phải bằng mã truy cập/)).toBeInTheDocument();
   });
 });
 
@@ -76,9 +76,9 @@ describe('TokensPage transport safety', () => {
     let resolve!: (value: unknown) => void;
     post.mockImplementation(() => new Promise((r) => { resolve = r; }));
     wrap(<TokensPage />);
-    await userEvent.type(await screen.findByLabelText(/name/i), 'laptop-cli');
-    await userEvent.click(screen.getByRole('button', { name: /create token/i }));
-    expect(screen.getByRole('button', { name: /create token/i })).toBeDisabled();
+    await userEvent.type(await screen.findByLabelText(/^Tên$/), 'laptop-cli');
+    await userEvent.click(screen.getByRole('button', { name: /^Tạo mã$/ }));
+    expect(screen.getByRole('button', { name: /^Tạo mã$/ })).toBeDisabled();
     resolve({ data: { id: 1, token: 'duckoj_secret_abc' } });
     await screen.findByRole('status');
   });
@@ -87,9 +87,9 @@ describe('TokensPage transport safety', () => {
     get.mockResolvedValue({ data: [] });
     post.mockRejectedValue(new TypeError('fetch failed'));
     wrap(<TokensPage />);
-    await userEvent.type(await screen.findByLabelText(/name/i), 'laptop-cli');
-    await userEvent.click(screen.getByRole('button', { name: /create token/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
-    expect(screen.getByRole('button', { name: /create token/i })).toBeEnabled();
+    await userEvent.type(await screen.findByLabelText(/^Tên$/), 'laptop-cli');
+    await userEvent.click(screen.getByRole('button', { name: /^Tạo mã$/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không kết nối được máy chủ/);
+    expect(screen.getByRole('button', { name: /^Tạo mã$/ })).toBeEnabled();
   });
 });

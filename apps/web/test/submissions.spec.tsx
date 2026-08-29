@@ -121,7 +121,7 @@ describe('SubmissionsPage', () => {
     } as never);
 
     renderWithClient(<SubmissionsPage initialProblem="aplusb" initialUser="kim" initialContest="spring" />);
-    await screen.findByText(/no submissions/i);
+    await screen.findByText(/Không tìm thấy bài nộp nào/);
 
     const [, options] = mockedGet.mock.calls[0] as unknown as [
       string,
@@ -142,7 +142,7 @@ describe('SubmissionsPage', () => {
     renderWithClient(<SubmissionsPage />);
     await screen.findByText('42');
 
-    await userEvent.type(screen.getByLabelText(/filter by problem code/i), 'aplusb');
+    await userEvent.type(screen.getByLabelText(/Lọc theo mã bài/), 'aplusb');
 
     await waitFor(() => {
       const last = mockedGet.mock.calls.at(-1);
@@ -160,7 +160,7 @@ describe('SubmissionsPage', () => {
     renderWithClient(<SubmissionsPage />);
     await screen.findByText('42');
 
-    await userEvent.selectOptions(screen.getByLabelText(/verdict/i), 'WA');
+    await userEvent.selectOptions(screen.getByLabelText(/^Kết quả$/), 'WA');
 
     await waitFor(() => {
       const last = mockedGet.mock.calls.at(-1);
@@ -185,7 +185,7 @@ describe('SubmissionsPage', () => {
     await screen.findByText('42');
     expect(screen.queryByText('41')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /load more/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^Tải thêm$/ }));
 
     await screen.findByText('41');
     expect(screen.getByText('42')).toBeInTheDocument();
@@ -201,6 +201,6 @@ describe('SubmissionsPage', () => {
 
     renderWithClient(<SubmissionsPage />);
 
-    expect(await screen.findByText(/could not load submissions/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Không tải được danh sách bài nộp/)).toBeInTheDocument();
   });
 });

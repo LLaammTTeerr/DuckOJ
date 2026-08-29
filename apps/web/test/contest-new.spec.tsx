@@ -24,11 +24,11 @@ afterEach(() => {
 });
 
 async function fillBasics() {
-  await userEvent.type(screen.getByLabelText(/^key/i), 'spring');
-  await userEvent.type(screen.getByLabelText(/^name/i), 'Spring Open');
+  await userEvent.type(screen.getByLabelText(/^Mã kỳ thi/), 'spring');
+  await userEvent.type(screen.getByLabelText(/^Tên/), 'Spring Open');
   // datetime-local inputs: type a full local stamp.
-  await userEvent.type(screen.getByLabelText(/starts/i), '2026-09-01T09:00');
-  await userEvent.type(screen.getByLabelText(/ends/i), '2026-09-01T14:00');
+  await userEvent.type(screen.getByLabelText(/Bắt đầu/), '2026-09-01T09:00');
+  await userEvent.type(screen.getByLabelText(/Kết thúc/), '2026-09-01T14:00');
 }
 
 describe('ContestNewPage', () => {
@@ -36,8 +36,8 @@ describe('ContestNewPage', () => {
     post.mockResolvedValue({ data: { key: 'spring' } });
     wrap(<ContestNewPage />);
     await fillBasics();
-    await userEvent.type(screen.getByLabelText(/problem 1 code/i), 'aplusb');
-    await userEvent.click(screen.getByRole('button', { name: /create contest/i }));
+    await userEvent.type(screen.getByLabelText(/Mã bài 1/), 'aplusb');
+    await userEvent.click(screen.getByRole('button', { name: /Tạo kỳ thi/ }));
 
     const body = (post.mock.calls[0] as [string, { body: Record<string, unknown> }])[1].body;
     // The instant of 09:00 local, whatever zone the test runs in — an ISO
@@ -51,11 +51,11 @@ describe('ContestNewPage', () => {
   it('refuses non-numeric points before bothering the API', async () => {
     wrap(<ContestNewPage />);
     await fillBasics();
-    await userEvent.type(screen.getByLabelText(/problem 1 code/i), 'aplusb');
-    await userEvent.clear(screen.getByLabelText(/problem 1 points/i));
-    await userEvent.type(screen.getByLabelText(/problem 1 points/i), 'lots');
-    await userEvent.click(screen.getByRole('button', { name: /create contest/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/points/i);
+    await userEvent.type(screen.getByLabelText(/Mã bài 1/), 'aplusb');
+    await userEvent.clear(screen.getByLabelText(/Điểm bài 1/));
+    await userEvent.type(screen.getByLabelText(/Điểm bài 1/), 'lots');
+    await userEvent.click(screen.getByRole('button', { name: /Tạo kỳ thi/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/điểm phải là số không âm/);
     expect(post).not.toHaveBeenCalled();
   });
 
@@ -63,7 +63,7 @@ describe('ContestNewPage', () => {
     post.mockResolvedValue({ data: { key: 'spring' } });
     wrap(<ContestNewPage />);
     await fillBasics();
-    await userEvent.click(screen.getByRole('button', { name: /create contest/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Tạo kỳ thi/ }));
     const body = (post.mock.calls[0] as [string, { body: Record<string, unknown> }])[1].body;
     expect(body.problems).toEqual([]);
   });
@@ -72,7 +72,7 @@ describe('ContestNewPage', () => {
     post.mockResolvedValue({ error: { detail: 'That contest key is already taken.' } });
     wrap(<ContestNewPage />);
     await fillBasics();
-    await userEvent.click(screen.getByRole('button', { name: /create contest/i }));
+    await userEvent.click(screen.getByRole('button', { name: /Tạo kỳ thi/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/already taken/i);
     expect(navigate).not.toHaveBeenCalled();
   });
@@ -83,9 +83,9 @@ describe('ContestNewPage transport failures', () => {
     post.mockRejectedValue(new TypeError('fetch failed'));
     wrap(<ContestNewPage />);
     await fillBasics();
-    await userEvent.click(screen.getByRole('button', { name: /create contest/i }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
-    expect(screen.getByRole('button', { name: /create contest/i })).toBeEnabled();
+    await userEvent.click(screen.getByRole('button', { name: /Tạo kỳ thi/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không kết nối được máy chủ/);
+    expect(screen.getByRole('button', { name: /Tạo kỳ thi/ })).toBeEnabled();
     expect(navigate).not.toHaveBeenCalled();
   });
 });

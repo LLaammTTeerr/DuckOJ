@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api } from '../api.js';
+import { useT } from '../i18n/index.js';
 
 interface ProblemRow {
   code: string;
@@ -22,6 +23,7 @@ interface ProblemRow {
 const FORMATS = ['default', 'icpc', 'ioi16', 'legacy_ioi'] as const;
 
 export function ContestNewPage() {
+  const t = useT();
   const navigate = useNavigate();
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
@@ -41,12 +43,12 @@ export function ContestNewPage() {
     const problems = rows.filter((row) => row.code.trim() !== '');
     for (const row of problems) {
       if (Number.isNaN(Number(row.points)) || Number(row.points) < 0) {
-        setError(`Problem ${row.code}: points must be a non-negative number.`);
+        setError(t('contestNew.badPoints', { code: row.code }));
         return;
       }
     }
     if (start === '' || end === '') {
-      setError('Start and end are required.');
+      setError(t('contestNew.datesRequired'));
       return;
     }
     setBusy(true);
@@ -69,14 +71,14 @@ export function ContestNewPage() {
         },
       });
       if (err) {
-        setError(err.detail ?? 'Could not create the contest.');
+        setError(err.detail ?? t('contestNew.createError'));
         return;
       }
       await navigate({ to: '/contests/$key', params: { key: data.key } });
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
-      setError('Could not reach the server. Check your connection and try again.');
+      setError(t('common.networkError'));
     } finally {
       setBusy(false);
     }
@@ -84,29 +86,33 @@ export function ContestNewPage() {
 
   return (
     <section className="panel">
-      <h1>New contest</h1>
+      <h1>{t('contestNew.title')}</h1>
       <p>
         <label>
-          Key <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="spring-open" />
+          {t('contestNew.key')}{' '}
+          <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="spring-open" />
         </label>
       </p>
       <p>
         <label>
-          Name <input value={name} onChange={(e) => setName(e.target.value)} />
+          {t('common.name')} <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
       </p>
       <p>
         <label>
-          Starts{' '}
+          {t('contestNew.starts')}{' '}
           <input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
         </label>{' '}
         <label>
-          Ends <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
+          {t('contestNew.ends')}{' '}
+          <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
         </label>
       </p>
       <p>
         <label>
-          Format{' '}
+          {t('contestNew.format')}{' '}
+          {/* The four format KEYS are the registry's own vocabulary and go
+              on the wire verbatim — an identifier, not a label. */}
           <select value={format} onChange={(e) => setFormat(e.target.value)}>
             {FORMATS.map((f) => (
               <option key={f} value={f}>
@@ -116,25 +122,27 @@ export function ContestNewPage() {
           </select>
         </label>{' '}
         <label>
-          Visibility{' '}
+          {t('common.visibility')}{' '}
+          {/* Here the VALUE is the API's enum and the LABEL is prose, so
+              only the label is translated. */}
           <select
             value={visibility}
             onChange={(e) => setVisibility(e.target.value as typeof visibility)}
           >
-            <option value="private">private</option>
-            <option value="org">org</option>
-            <option value="public">public</option>
+            <option value="private">{t('visibility.private')}</option>
+            <option value="org">{t('visibility.org')}</option>
+            <option value="public">{t('visibility.public')}</option>
           </select>
         </label>
       </p>
 
-      <h2>Problems</h2>
+      <h2>{t('contestNew.problems')}</h2>
       <table>
         <thead>
           <tr>
-            <th>Code</th>
-            <th className="num">Points</th>
-            <th>Partial</th>
+            <th>{t('contestNew.colCode')}</th>
+            <th className="num">{t('contestNew.colPoints')}</th>
+            <th>{t('contestNew.colPartial')}</th>
           </tr>
         </thead>
         <tbody>
@@ -142,14 +150,14 @@ export function ContestNewPage() {
             <tr key={index}>
               <td>
                 <input
-                  aria-label={`Problem ${String(index + 1)} code`}
+                  aria-label={t('contestNew.rowCode', { n: index + 1 })}
                   value={row.code}
                   onChange={(e) => setRow(index, { code: e.target.value })}
                 />
               </td>
               <td className="num">
                 <input
-                  aria-label={`Problem ${String(index + 1)} points`}
+                  aria-label={t('contestNew.rowPoints', { n: index + 1 })}
                   value={row.points}
                   onChange={(e) => setRow(index, { points: e.target.value })}
                 />
@@ -157,7 +165,7 @@ export function ContestNewPage() {
               <td>
                 <input
                   type="checkbox"
-                  aria-label={`Problem ${String(index + 1)} partial credit`}
+                  aria-label={t('contestNew.rowPartial', { n: index + 1 })}
                   checked={row.partial}
                   onChange={(e) => setRow(index, { partial: e.target.checked })}
                 />
@@ -171,16 +179,16 @@ export function ContestNewPage() {
           type="button"
           onClick={() => setRows((prev) => [...prev, { code: '', points: '100', partial: true }])}
         >
-          Add problem
+          {t('contestNew.addProblem')}
         </button>
       </p>
 
       {error ? <p role="alert">{error}</p> : null}
       <p>
         <button type="button" disabled={busy || key === '' || name === ''} onClick={() => void create()}>
-          Create contest
+          {t('contestNew.create')}
         </button>{' '}
-        <Link to="/contests">Cancel</Link>
+        <Link to="/contests">{t('common.cancel')}</Link>
       </p>
     </section>
   );

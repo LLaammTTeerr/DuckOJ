@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useSearch } from '@tanstack/react-router';
 import { api } from '../api.js';
+import { useT } from '../i18n/index.js';
 
 /**
  * The three screens Phase 3f's emails point at.
@@ -33,6 +34,7 @@ function Panel(props: {
    */
   disabled?: boolean;
 }) {
+  const t = useT();
   return (
     <section className="panel">
       <h1>{props.title}</h1>
@@ -44,18 +46,19 @@ function Panel(props: {
           {props.children}
           {props.outcome.kind === 'error' ? <p role="alert">{props.outcome.message}</p> : null}
           <button type="submit" disabled={props.busy || (props.disabled ?? false)}>
-            {props.busy ? 'Working…' : props.submitLabel}
+            {props.busy ? t('common.working') : props.submitLabel}
           </button>
         </form>
       )}
       <p>
-        <Link to="/">Back to sign in</Link>
+        <Link to="/">{t('auth.backToSignIn')}</Link>
       </p>
     </section>
   );
 }
 
 export function ForgotPasswordPage() {
+  const t = useT();
   const [email, setEmail] = useState('');
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
   const [busy, setBusy] = useState(false);
@@ -70,18 +73,15 @@ export function ForgotPasswordPage() {
       // undo the whole point of that.
       setOutcome(
         error
-          ? { kind: 'error', message: error.detail ?? 'That does not look like an email address.' }
-          : {
-              kind: 'done',
-              message: 'If that address has an account, a reset link is on its way. It expires in an hour.',
-            },
+          ? { kind: 'error', message: error.detail ?? t('auth.badEmail') }
+          : { kind: 'done', message: t('auth.forgotSent') },
       );
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
       setOutcome({
         kind: 'error',
-        message: 'Could not reach the server. Check your connection and try again.',
+        message: t('common.networkError'),
       });
     } finally {
       setBusy(false);
@@ -90,15 +90,15 @@ export function ForgotPasswordPage() {
 
   return (
     <Panel
-      title="Reset your password"
-      intro="Enter the address you signed up with."
+      title={t('auth.forgotTitle')}
+      intro={t('auth.forgotIntro')}
       outcome={outcome}
       onSubmit={submit}
-      submitLabel="Send reset link"
+      submitLabel={t('auth.forgotSubmit')}
       busy={busy}
     >
       <label className="field">
-        <span>Email</span>
+        <span>{t('auth.emailLabel')}</span>
         <input
           type="email"
           required
@@ -111,6 +111,7 @@ export function ForgotPasswordPage() {
 }
 
 export function ResetPasswordPage() {
+  const t = useT();
   const search = useSearch({ strict: false }) as { token?: string };
   const [password, setPassword] = useState('');
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
@@ -124,16 +125,13 @@ export function ResetPasswordPage() {
       const { error } = await api.POST('/auth/password/reset', { body: { token, password } });
       setOutcome(
         error
-          ? { kind: 'error', message: error.detail ?? 'That link is invalid or has expired.' }
-          : {
-              kind: 'done',
-              message: 'Password changed. Every other session has been signed out — sign in again.',
-            },
+          ? { kind: 'error', message: error.detail ?? t('auth.linkInvalid') }
+          : { kind: 'done', message: t('auth.resetDone') },
       );
     } catch {
       setOutcome({
         kind: 'error',
-        message: 'Could not reach the server. Check your connection and try again.',
+        message: t('common.networkError'),
       });
     } finally {
       setBusy(false);
@@ -143,10 +141,10 @@ export function ResetPasswordPage() {
   if (!token) {
     return (
       <section className="panel">
-        <h1>Reset your password</h1>
-        <p role="alert">This link is missing its token. Request a new one.</p>
+        <h1>{t('auth.forgotTitle')}</h1>
+        <p role="alert">{t('auth.tokenMissing')}</p>
         <p>
-          <Link to="/forgot-password">Send another reset link</Link>
+          <Link to="/forgot-password">{t('auth.sendAnotherLink')}</Link>
         </p>
       </section>
     );
@@ -154,15 +152,15 @@ export function ResetPasswordPage() {
 
   return (
     <Panel
-      title="Choose a new password"
-      intro="This link works once. Signing in elsewhere will be ended."
+      title={t('auth.resetTitle')}
+      intro={t('auth.resetIntro')}
       outcome={outcome}
       onSubmit={submit}
-      submitLabel="Change password"
+      submitLabel={t('auth.resetSubmit')}
       busy={busy}
     >
       <label className="field">
-        <span>New password</span>
+        <span>{t('auth.newPassword')}</span>
         <input
           type="password"
           required
@@ -176,6 +174,7 @@ export function ResetPasswordPage() {
 }
 
 export function VerifyEmailPage() {
+  const t = useT();
   const search = useSearch({ strict: false }) as { token?: string };
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
   const [busy, setBusy] = useState(false);
@@ -188,13 +187,13 @@ export function VerifyEmailPage() {
       const { error } = await api.POST('/auth/email/verify', { body: { token } });
       setOutcome(
         error
-          ? { kind: 'error', message: error.detail ?? 'That link is invalid or has expired.' }
-          : { kind: 'done', message: 'Address confirmed.' },
+          ? { kind: 'error', message: error.detail ?? t('auth.linkInvalid') }
+          : { kind: 'done', message: t('auth.verifyDone') },
       );
     } catch {
       setOutcome({
         kind: 'error',
-        message: 'Could not reach the server. Check your connection and try again.',
+        message: t('common.networkError'),
       });
     } finally {
       setBusy(false);
@@ -206,11 +205,11 @@ export function VerifyEmailPage() {
   // scanner is a token the user never gets to use.
   return (
     <Panel
-      title="Confirm your email address"
-      intro={token ? 'One click and you are done.' : 'This link is missing its token.'}
+      title={t('auth.verifyTitle')}
+      intro={token ? t('auth.verifyIntro') : t('auth.verifyIntroNoToken')}
       outcome={outcome}
       onSubmit={submit}
-      submitLabel="Confirm address"
+      submitLabel={t('auth.verifySubmit')}
       busy={busy}
       disabled={!token}
     >

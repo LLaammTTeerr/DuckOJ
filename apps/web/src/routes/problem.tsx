@@ -4,6 +4,7 @@ import { meQueryOptions } from '../me.js';
 import { api } from '../api.js';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { renderStatement } from '../markdown.js';
+import { useT } from '../i18n/index.js';
 
 // The API deliberately returns the same 404 `problem_not_found` for a
 // problem that does not exist and one the caller may not see (spec §3,
@@ -11,14 +12,12 @@ import { renderStatement } from '../markdown.js';
 // actor probing for private problem codes learns nothing. This page must
 // not undo that by rendering a different message, a different page shape,
 // or a distinguishable loading state for the two cases: both paths through
-// this component render exactly the literal string below, and nothing here
-// echoes `error.detail` (server wording could drift; the parity guarantee
-// must not).
+// this component render exactly the same message (`problem.notFound`, one
+// key in both catalogues), and nothing here echoes `error.detail` (server
+// wording could drift; the parity guarantee must not).
 function statementPdfUrl(code: string): string {
   return `${import.meta.env.VITE_API_ORIGIN ?? ''}/${API_PREFIX}/problems/${code}/statement.pdf`;
 }
-
-const NOT_FOUND_MESSAGE = 'No such problem.';
 
 /**
  * `/problems/:code`. `code` is passed in as a prop rather than read from
@@ -27,6 +26,7 @@ const NOT_FOUND_MESSAGE = 'No such problem.';
  */
 export function ProblemPage(props: { code: string }) {
   const { code } = props;
+  const t = useT();
 
   const query = useQuery({
     queryKey: ['problem', code],
@@ -49,11 +49,11 @@ export function ProblemPage(props: { code: string }) {
 
   const me = useQuery(meQueryOptions);
 
-  if (query.isLoading) return <p>Loading…</p>;
+  if (query.isLoading) return <p>{t('common.loading')}</p>;
   if (query.isError) {
-    return <p role="alert">Could not load this problem. Check your connection and try again.</p>;
+    return <p role="alert">{t('problem.loadError')}</p>;
   }
-  if (!query.data) return <p>{NOT_FOUND_MESSAGE}</p>;
+  if (!query.data) return <p>{t('problem.notFound')}</p>;
 
   const problem = query.data;
   // Courtesy links only — both target pages re-decide authorization. A
@@ -69,8 +69,11 @@ export function ProblemPage(props: { code: string }) {
         {problem.name} <small>({problem.code})</small>
       </h1>
       <p>
-        Limits: {problem.timeMs !== null ? `${problem.timeMs} ms` : '—'} /{' '}
-        {problem.memoryKb !== null ? `${problem.memoryKb} KB` : '—'}
+        {/* `ms`/`KB` are unit symbols, not words — untranslated on purpose. */}
+        {t('problem.limits', {
+          time: problem.timeMs !== null ? `${problem.timeMs} ms` : '—',
+          memory: problem.memoryKb !== null ? `${problem.memoryKb} KB` : '—',
+        })}
       </p>
       {/* Statements are Markdown, sanitized client-side by renderStatement
           (see markdown.ts) — this is the one place in the app that hands
@@ -88,20 +91,20 @@ export function ProblemPage(props: { code: string }) {
             block), so that test now wraps its render in a router context
             for `<Link>` to resolve — see that file. */}
         <Link to="/submit" search={{ problem: problem.code }}>
-          Submit a solution
+          {t('common.submitSolution')}
         </Link>{' '}
         {/* A plain <a>, like the /api/v1/docs nav link: the PDF is the
             API's own response, outside this router's tree. On a server
             with no typst configured it answers an honest 501. */}
-        <a href={statementPdfUrl(problem.code)}>PDF</a>{' '}
+        <a href={statementPdfUrl(problem.code)}>{t('problem.pdf')}</a>{' '}
         <Link to="/submissions" search={{ problem: problem.code }}>
-          All submissions
+          {t('common.allSubmissions')}
         </Link>
         {me.data ? (
           <>
             {' '}
             <Link to="/submissions" search={{ problem: problem.code, user: me.data.username }}>
-              My submissions
+              {t('common.mySubmissions')}
             </Link>
           </>
         ) : null}
@@ -109,10 +112,10 @@ export function ProblemPage(props: { code: string }) {
           <>
             {' '}
             <Link to="/problems/$code/edit" params={{ code: problem.code }}>
-              Edit
+              {t('problem.edit')}
             </Link>{' '}
             <Link to="/problems/$code/revisions" params={{ code: problem.code }}>
-              Revisions
+              {t('problem.revisions')}
             </Link>
           </>
         ) : null}

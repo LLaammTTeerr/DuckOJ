@@ -63,7 +63,7 @@ describe('AdminPage', () => {
   it('shows a setter nothing but "Admins only"', async () => {
     serve('setter');
     wrap(<AdminPage />);
-    expect(await screen.findByRole('alert')).toHaveTextContent(/admins only/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Chỉ dành cho quản trị viên/);
     expect(screen.queryByRole('button')).toBeNull();
   });
 
@@ -72,19 +72,19 @@ describe('AdminPage', () => {
     patch.mockResolvedValue({ data: { id: 2, username: 'kim', globalRole: 'setter' } });
     wrap(<AdminPage />);
 
-    await userEvent.type(await screen.findByLabelText(/username/i), 'kim');
-    await userEvent.click(screen.getByRole('button', { name: /grant/i }));
+    await userEvent.type(await screen.findByLabelText(/^Tên đăng nhập$/), 'kim');
+    await userEvent.click(screen.getByRole('button', { name: /^Cấp$/ }));
     expect(patch).toHaveBeenCalledWith('/admin/users/{username}', {
       params: { path: { username: 'kim' } },
       body: { globalRole: 'setter' },
     });
-    expect(await screen.findByRole('status')).toHaveTextContent('kim is now setter.');
+    expect(await screen.findByRole('status')).toHaveTextContent('kim hiện có quyền người ra đề.');
   });
 
   it('refuses to grant with an empty username', async () => {
     serve('admin');
     wrap(<AdminPage />);
-    expect(await screen.findByRole('button', { name: /grant/i })).toBeDisabled();
+    expect(await screen.findByRole('button', { name: /^Cấp$/ })).toBeDisabled();
   });
 
   it('rates an unrated contest and shows how far the replay reached', async () => {
@@ -92,26 +92,26 @@ describe('AdminPage', () => {
     post.mockResolvedValue({ data: { contestsRated: 7 } });
     wrap(<AdminPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /^rate$/i }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Bật tính rating$/ }));
     expect(post).toHaveBeenCalledWith('/admin/contests/{key}/rate', {
       params: { path: { key: 'spring' } },
     });
-    expect(await screen.findByRole('status')).toHaveTextContent(/7 contests now feed ratings/i);
+    expect(await screen.findByRole('status')).toHaveTextContent(/7 kỳ thi đang tính vào rating/);
   });
 
   it('offers Unrate — not Rate — for a contest that is already rated', async () => {
     serve('admin', [{ ...CONTEST, isRated: true }]);
     wrap(<AdminPage />);
-    expect(await screen.findByRole('button', { name: /unrate/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^rate$/i })).toBeNull();
+    expect(await screen.findByRole('button', { name: /^Tắt tính rating$/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Bật tính rating$/ })).toBeNull();
   });
 
   it('surfaces the API detail when a grant is refused', async () => {
     serve('admin');
     patch.mockResolvedValue({ error: { detail: 'You cannot remove your own admin role.' } });
     wrap(<AdminPage />);
-    await userEvent.type(await screen.findByLabelText(/username/i), 'root');
-    await userEvent.click(screen.getByRole('button', { name: /grant/i }));
+    await userEvent.type(await screen.findByLabelText(/^Tên đăng nhập$/), 'root');
+    await userEvent.click(screen.getByRole('button', { name: /^Cấp$/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/your own admin role/i);
   });
 });

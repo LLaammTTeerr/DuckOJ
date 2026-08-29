@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { api } from '../api.js';
 import { verdictToken } from './submit.js';
 import { meQueryOptions } from '../me.js';
+import { useT, verdictName } from '../i18n/index.js';
 
 /**
  * `memoryKb` (what the API returns, and what a problem's manifest stores)
@@ -50,6 +51,7 @@ export function formatMemoryMb(memoryKb: number | null): string {
  * client-side "latest, within the last 100" version was wrong on both axes.
  */
 export function ProblemsPage() {
+  const t = useT();
   const me = useQuery(meQueryOptions);
   const [q, setQ] = useState('');
 
@@ -66,7 +68,7 @@ export function ProblemsPage() {
       if (pageParam !== undefined) queryParams.cursor = pageParam;
       const { data, error } = await api.GET('/problems', { params: { query: queryParams } });
       if (error || !data) {
-        throw new Error('Could not load problems.');
+        throw new Error(t('problems.loadError'));
       }
       return data;
     },
@@ -78,28 +80,28 @@ export function ProblemsPage() {
 
   return (
     <section>
-      <h1>Problems</h1>
+      <h1>{t('problems.title')}</h1>
       {me.data && me.data.globalRole !== 'user' ? (
         <p>
-          <Link to="/problems/new">New problem</Link>
+          <Link to="/problems/new">{t('problems.new')}</Link>
         </p>
       ) : null}
-      <label htmlFor="problem-search">Search</label>
+      <label htmlFor="problem-search">{t('common.search')}</label>
       <input id="problem-search" value={q} onChange={(e) => setQ(e.target.value)} />
 
-      {query.isLoading ? <p>Loading…</p> : null}
-      {query.isError ? <p role="alert">Could not load problems.</p> : null}
+      {query.isLoading ? <p>{t('common.loading')}</p> : null}
+      {query.isError ? <p role="alert">{t('problems.loadError')}</p> : null}
 
       {problems.length > 0 ? (
         <table>
           <thead>
             <tr>
-              <th>Code</th>
-              <th>Name</th>
-              <th className="num">Time</th>
-              <th className="num">Mem</th>
-              <th className="num">Tests</th>
-              <th>Me</th>
+              <th>{t('problems.colCode')}</th>
+              <th>{t('problems.colName')}</th>
+              <th className="num">{t('problems.colTime')}</th>
+              <th className="num">{t('problems.colMem')}</th>
+              <th className="num">{t('problems.colTests')}</th>
+              <th>{t('problems.colMe')}</th>
             </tr>
           </thead>
           <tbody>
@@ -133,7 +135,14 @@ export function ProblemsPage() {
                       means "still grading" on the submit screen, and a
                       problem never attempted is not pending anything. */}
                   {p.me?.verdict ? (
-                    <span className={`badge ${verdictToken(p.me.verdict)}`}>{p.me.verdict}</span>
+                    // The CODE stays a code; the localized long name rides
+                    // in `title` for anyone who does not know it by heart.
+                    <span
+                      className={`badge ${verdictToken(p.me.verdict)}`}
+                      title={verdictName(t, p.me.verdict)}
+                    >
+                      {p.me.verdict}
+                    </span>
                   ) : (
                     <span className="muted">—</span>
                   )}
@@ -143,7 +152,7 @@ export function ProblemsPage() {
           </tbody>
         </table>
       ) : !query.isLoading && !query.isError ? (
-        <p>No problems found.</p>
+        <p>{t('problems.empty')}</p>
       ) : null}
 
       {query.hasNextPage ? (
@@ -152,7 +161,7 @@ export function ProblemsPage() {
           onClick={() => void query.fetchNextPage()}
           disabled={query.isFetchingNextPage}
         >
-          Load more
+          {t('common.loadMore')}
         </button>
       ) : null}
     </section>

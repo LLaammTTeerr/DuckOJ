@@ -8,9 +8,9 @@ describe('LoginForm', () => {
     const onSubmit = vi.fn(async () => {});
     render(<LoginForm onSubmit={onSubmit} error={null} />);
 
-    await userEvent.type(screen.getByLabelText(/username or email/i), 'kim');
-    await userEvent.type(screen.getByLabelText(/^password/i), 'a-long-enough-password');
-    await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    await userEvent.type(screen.getByLabelText(/Tên đăng nhập hoặc email/), 'kim');
+    await userEvent.type(screen.getByLabelText(/^Mật khẩu$/), 'a-long-enough-password');
+    await userEvent.click(screen.getByRole('button', { name: /^Đăng nhập$/ }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       usernameOrEmail: 'kim',
@@ -26,9 +26,9 @@ describe('LoginForm', () => {
 
   it('reveals the TOTP field only when the server asks for it', async () => {
     const { rerender } = render(<LoginForm onSubmit={vi.fn()} error={null} />);
-    expect(screen.queryByLabelText(/two-factor code/i)).toBeNull();
+    expect(screen.queryByLabelText(/Mã xác thực hai lớp/)).toBeNull();
 
     rerender(<LoginForm onSubmit={vi.fn()} error="A two-factor code is required." needsTotp />);
-    expect(screen.getByLabelText(/two-factor code/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Mã xác thực hai lớp/)).toBeInTheDocument();
   });
 });
