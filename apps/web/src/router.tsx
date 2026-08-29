@@ -17,6 +17,7 @@ import {
 } from './routes/account-recovery.js';
 import { ContestPage, ContestsPage, ScoreboardPage } from './routes/contests.js';
 import { ContestNewPage } from './routes/contest-new.js';
+import { ContestEditPage } from './routes/contest-edit.js';
 import { TokensPage } from './routes/tokens.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
@@ -344,6 +345,13 @@ function ContestRouteComponent() {
   const { key } = useParams({ from: '/contests/$key' });
   return <ContestPage contestKey={key} />;
 }
+function ContestEditRouteComponent() {
+  const { key } = useParams({ from: '/contests/$key/edit' });
+  // Keyed, for the same reason `ProblemEditRouteComponent` is: the router
+  // reuses a mounted component across `$key` changes, and an edit form whose
+  // state survives that saves contest A's values over contest B.
+  return <ContestEditPage key={key} contestKey={key} />;
+}
 function ScoreboardRouteComponent() {
   const { key } = useParams({ from: '/contests/$key/scoreboard' });
   return <ScoreboardPage contestKey={key} />;
@@ -375,6 +383,11 @@ const contestRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/contests/$key',
   component: ContestRouteComponent,
+});
+const contestEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/contests/$key/edit',
+  component: ContestEditRouteComponent,
 });
 const scoreboardRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -446,6 +459,7 @@ const routeTree = rootRoute.addChildren([
   contestsRoute,
   contestNewRoute,
   contestRoute,
+  contestEditRoute,
   scoreboardRoute,
   orgsRoute,
   orgRoute,

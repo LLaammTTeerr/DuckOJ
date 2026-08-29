@@ -1,0 +1,135 @@
+/**
+ * `/contests/$key/edit`.
+ *
+ * The two things worth pinning: the form actually arrives prefilled (an edit
+ * screen that silently starts empty saves a blank contest over a real one),
+ * and the times survive the round trip through `datetime-local`, which speaks
+ * the browser's zone and no other.
+ */
+import type { ReactElement } from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const get = vi.fn();
+const patch = vi.fn();
+const navigate = vi.fn();
+vi.mock('../src/api.js', () => ({
+  api: { GET: (...a: unknown[]) => get(...a), POST: vi.fn(), PATCH: (...a: unknown[]) => patch(...a) },
+}));
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children }: { children: React.ReactNode }) => <a href="#">{children}</a>,
+  useNavigate: () => navigate,
+}));
+
+const { ContestEditPage } = await import('../src/routes/contest-edit.js');
+const { ContestPage } = await import('../src/routes/contests.js');
+
+function wrap(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
+/** A start and end expressed as instants, so the assertions are zone-free. */
+const START = new Date(Date.now() + 3_600_000);
+const END = new Date(Date.now() + 7_200_000);
+
+const CONTEST = {
+  id: 1,
+  key: 'spring',
+  name: 'Spring Open',
+  startTime: START.toISOString(),
+  endTime: END.toISOString(),
+  format: 'icpc',
+  visibility: 'public' as const,
+  pointsPrecision: 3,
+  frozenLastMinutes: 0,
+  timeLimitSeconds: null,
+  isRated: false,
+  createdAt: new Date().toISOString(),
+  formatConfig: null,
+  canEdit: true,
+  problems: [{ code: 'aplusb', name: 'A plus B', label: 'A', points: 100, partial: true, order: 0 }],
+};
+
+afterEach(() => {
+  get.mockReset();
+  patch.mockReset();
+  navigate.mockReset();
+});
+
+describe('ContestEditPage', () => {
+  it('prefills from the contest, including its problem rows', async () => {
+    get.mockResolvedValue({ data: CONTEST });
+    wrap(<ContestEditPage contestKey="spring" />);
+
+    expect(await screen.findByRole('heading', { name: /edit spring/i })).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveValue('Spring Open');
+    expect(screen.getByLabelText('Format')).toHaveValue('icpc');
+    expect(screen.getByLabelText('Visibility')).toHaveValue('public');
+    expect(screen.getByLabelText('Problem 1 code')).toHaveValue('aplusb');
+    expect(screen.getByLabelText('Problem 1 points')).toHaveValue('100');
+  });
+
+  it('sends the instants it was given back unchanged when the times are untouched', async () => {
+    get.mockResolvedValue({ data: CONTEST });
+    patch.mockResolvedValue({ data: CONTEST });
+    wrap(<ContestEditPage contestKey="spring" />);
+
+    await userEvent.clear(await screen.findByLabelText('Name'));
+    await userEvent.type(screen.getByLabelText('Name'), 'Renamed');
+    await userEvent.click(screen.getByRole('button', { name: 'Save contest' }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    const body = patch.mock.calls[0]![1].body as { startTime: string; endTime: string; name: string };
+    expect(body.name).toBe('Renamed');
+    // `datetime-local` has minute resolution, so the round trip is exact only
+    // to the minute — which is what the field can express, and what the
+    // create screen already sends.
+    expect(new Date(body.startTime).getTime()).toBe(
+      Math.floor(START.getTime() / 60_000) * 60_000,
+    );
+    expect(new Date(body.endTime).getTime()).toBe(Math.floor(END.getTime() / 60_000) * 60_000);
+    await waitFor(() => expect(navigate).toHaveBeenCalled());
+  });
+
+  it('shows the server refusal verbatim and never wedges the button', async () => {
+    get.mockResolvedValue({ data: CONTEST });
+    patch.mockResolvedValue({ error: { code: 'contest_started', detail: 'This contest has started.' } });
+    wrap(<ContestEditPage contestKey="spring" />);
+
+    const save = await screen.findByRole('button', { name: 'Save contest' });
+    await userEvent.click(save);
+    expect(await screen.findByRole('alert')).toHaveTextContent('This contest has started.');
+    await waitFor(() => expect(save).not.toBeDisabled());
+    expect(navigate).not.toHaveBeenCalled();
+
+    patch.mockRejectedValue(new TypeError('Failed to fetch'));
+    await userEvent.click(save);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not reach the server/i);
+    await waitFor(() => expect(save).not.toBeDisabled());
+  });
+});
+
+describe('the link into it', () => {
+  it('appears on the contest page only when the server says the caller may edit', async () => {
+    get.mockImplementation((path: string) =>
+      path === '/contests/{key}'
+        ? Promise.resolve({ data: CONTEST })
+        : Promise.resolve({ data: undefined }),
+    );
+    const view = wrap(<ContestPage contestKey="spring" />);
+    expect(await screen.findByRole('link', { name: /edit contest/i })).toBeInTheDocument();
+    view.unmount();
+
+    get.mockImplementation((path: string) =>
+      path === '/contests/{key}'
+        ? Promise.resolve({ data: { ...CONTEST, canEdit: false } })
+        : Promise.resolve({ data: undefined }),
+    );
+    wrap(<ContestPage contestKey="spring" />);
+    expect(await screen.findByRole('heading', { name: /spring open/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /edit contest/i })).toBeNull();
+  });
+});

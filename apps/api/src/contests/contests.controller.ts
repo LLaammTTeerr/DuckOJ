@@ -3,6 +3,7 @@ import {
   ContestListQuery,
   CreateContestRequest,
   SetDisqualifiedRequest,
+  UpdateContestRequest,
   type ContestDetailDto,
   type ContestParticipationDto,
   type ContestListQueryDto,
@@ -10,6 +11,7 @@ import {
   type CreateContestRequestDto,
   type ScoreboardDto,
   type SetDisqualifiedRequestDto,
+  type UpdateContestRequestDto,
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { CurrentActor, MaybeActor, Public } from '../authn/auth.guard.js';
@@ -88,6 +90,20 @@ export class ContestsController {
     @Param('key') key: string,
   ): Promise<ContestParticipationDto> {
     return this.contests.myParticipation(actor, key);
+  }
+
+  /**
+   * Edit a contest. `contests:write`, like every other write here; who may
+   * actually do it is `ContestAccessService`'s call, not this controller's.
+   */
+  @Patch(':key')
+  @RequireScope('contests:write')
+  update(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Body(new ZodValidationPipe(UpdateContestRequest)) body: UpdateContestRequestDto,
+  ): Promise<ContestDetailDto> {
+    return this.contests.update(actor, key, body);
   }
 
   /**

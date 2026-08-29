@@ -47,6 +47,24 @@ const UNIQUE_VIOLATION = '23505';
 const CONTEST_KEY_CONSTRAINT = 'contests_key_lower_idx';
 const NOT_FOUND = new AppError(404, 'contest_not_found', 'No such contest.');
 
+/**
+ * The PATCH body, as the service reads it. `Partial` is not enough on its
+ * own: `formatConfig` and `timeLimitSeconds` are nullable columns, so
+ * "absent" and "explicitly null" must stay distinguishable — see `hasKey`.
+ */
+export interface UpdateContestInput {
+  name?: string | undefined;
+  startTime?: string | undefined;
+  endTime?: string | undefined;
+  format?: string | undefined;
+  formatConfig?: Record<string, unknown> | null | undefined;
+  pointsPrecision?: number | undefined;
+  frozenLastMinutes?: number | undefined;
+  timeLimitSeconds?: number | null | undefined;
+  visibility?: ContestVisibilityDto | undefined;
+  problems?: ContestProblemInputDto[] | undefined;
+}
+
 export interface CreateContestInput {
   key: string;
   name: string;
@@ -100,14 +118,22 @@ export class ContestAccessService {
 
   async getVisible(actor: Actor | null, key: string): Promise<ContestDetailDto> {
     const contest = await this.loadVisible(actor, key);
-    // Before the start, the problem list is CONCEALED from everyone but a
-    // global admin: a private problem attached to a tomorrow-starting public
-    // contest must not leak its code and name today through this route while
-    // `GET /problems/{code}` 404s the same caller — the exact side channel
-    // `resolveProblemIds`' comment forbids. Post-start, every contest viewer
-    // sees the problems (participants need them, and the joined-contest
-    // grant opens the problems themselves anyway).
-    if (new Date() < contest.startTime && !isAdmin(actor)) {
+    // Before the start, the problem list is CONCEALED from everyone but the
+    // people who run the contest: a private problem attached to a
+    // tomorrow-starting public contest must not leak its code and name today
+    // through this route while `GET /problems/{code}` 404s the same caller —
+    // the exact side channel `resolveProblemIds`' comment forbids. Post-start,
+    // every contest viewer sees the problems (participants need them, and the
+    // joined-contest grant opens the problems themselves anyway).
+    //
+    // "Runs it", not "is an admin", as the sweep first wrote it. The creator
+    // chose these problems and passed `resolveProblemIds`' visibility check
+    // for every one of them, so there is nothing here they do not already
+    // know — and concealing them broke the edit screen concretely: the form
+    // prefills from this response, so a creator editing an unstarted contest
+    // was shown an empty problem list and would have saved it back over the
+    // real one.
+    if (new Date() < contest.startTime && !canRunContest(actor, contest)) {
       return {
         ...toSummary(contest),
         formatConfig: contest.formatConfig as Record<string, unknown> | null,
@@ -138,12 +164,13 @@ export class ContestAccessService {
    */
   async getScoreboard(actor: Actor | null, key: string): Promise<Scoreboard> {
     const contest = await this.loadVisible(actor, key);
-    // Same pre-start concealment as `getVisible`: a scoreboard's `problems`
-    // and `label_by_problem` carry codes and names, and before the start
-    // there is nothing ranked to show anyway. 409, mirroring `join`'s
-    // existing `contest_not_started`. `scoreboardForSystem` (the rating
-    // replay) deliberately bypasses this — it is not acting for a caller.
-    if (new Date() < contest.startTime && !isAdmin(actor)) {
+    // Same pre-start concealment as `getVisible`, and the same widening: a
+    // scoreboard's `problems` and `label_by_problem` carry codes and names,
+    // and before the start there is nothing ranked to show anyway. 409,
+    // mirroring `join`'s existing `contest_not_started`.
+    // `scoreboardForSystem` (the rating replay) deliberately bypasses this —
+    // it is not acting for a caller.
+    if (new Date() < contest.startTime && !canRunContest(actor, contest)) {
       throw new AppError(409, 'contest_not_started', 'This contest has not started yet.');
     }
     return this.computeScoreboard(contest);
@@ -316,6 +343,167 @@ export class ContestAccessService {
     }
 
     return this.getVisible(actor, body.key);
+  }
+
+  /**
+   * Edits a contest. Its creator, or an admin — **404 for everyone else**,
+   * including a signed-in caller who can see the contest perfectly well.
+   *
+   * That is deliberately NOT what `setDisqualified` above does (403
+   * `contest_forbidden` for exactly that caller). The two came from the same
+   * brief, spelled out differently for each route, and both are implemented
+   * as written rather than quietly harmonised; the P1-A report records the
+   * asymmetry as the one thing here worth revisiting.
+   *
+   * Every absent field is left alone. The validations run against the MERGED
+   * state, not against the patch: a request that moves only `endTime` must
+   * still be rejected if it lands before the stored `startTime`, and nothing
+   * in the patch alone can tell you that.
+   */
+  async update(actor: Actor, key: string, body: UpdateContestInput): Promise<ContestDetailDto> {
+    const contest = await this.loadVisible(actor, key);
+    if (!canRunContest(actor, contest)) throw NOT_FOUND;
+
+    const format = body.format ?? contest.format;
+    if (!Object.prototype.hasOwnProperty.call(CONTEST_FORMATS, format)) {
+      throw new AppError(
+        400,
+        'unknown_contest_format',
+        `Unknown contest format "${format}"; expected one of ` +
+          `${Object.keys(CONTEST_FORMATS).join(', ')}.`,
+      );
+    }
+
+    const frozenLastMinutes = body.frozenLastMinutes ?? contest.frozenLastMinutes;
+    if (frozenLastMinutes !== 0) {
+      throw new AppError(
+        400,
+        'contest_freeze_unsupported',
+        'A frozen scoreboard is not implemented yet; frozenLastMinutes must be 0.',
+      );
+    }
+
+    const startTime = body.startTime === undefined ? contest.startTime : new Date(body.startTime);
+    const endTime = body.endTime === undefined ? contest.endTime : new Date(body.endTime);
+    if (endTime.getTime() <= startTime.getTime()) {
+      throw new AppError(400, 'contest_window_invalid', 'A contest must end after it starts.');
+    }
+
+    const visibility = body.visibility ?? contest.visibility;
+    if (visibility === 'org') {
+      // `orgSlugs` is not editable here, so this can only be satisfied by a
+      // contest that was already shared with an organization. Refusing is the
+      // honest answer: the alternative is an org-visible contest attached to
+      // no org, which is visible to nobody at all — including its creator's
+      // own list.
+      const [share] = await this.db
+        .select({ orgId: contestOrgs.orgId })
+        .from(contestOrgs)
+        .where(eq(contestOrgs.contestId, contest.id))
+        .limit(1);
+      if (!share) {
+        throw new AppError(
+          400,
+          'contest_org_required',
+          'An org-visible contest needs at least one organization.',
+        );
+      }
+    }
+
+    // Started is `startTime <= now`, the same instant `join` and `getVisible`
+    // read it at. Only an ACTUAL change is refused: re-sending the format the
+    // contest already has, or the same problem list, is a no-op — a client
+    // that PATCHes the whole form back must not be told the contest started.
+    const started = new Date() >= contest.startTime;
+    const problemInputs = body.problems;
+    if (started) {
+      if (body.format !== undefined && body.format !== contest.format) {
+        throw new AppError(
+          409,
+          'contest_started',
+          'This contest has started; its format can no longer change.',
+        );
+      }
+      if (problemInputs !== undefined && (await this.problemsWouldChange(contest.id, problemInputs))) {
+        throw new AppError(
+          409,
+          'contest_started',
+          'This contest has started; its problems can no longer change.',
+        );
+      }
+    }
+
+    // Resolved before the transaction opens, exactly as `create` does it: a
+    // problem the actor may not see must refuse the whole edit without
+    // having written anything.
+    const problemIds = problemInputs ? await this.resolveProblemIds(actor, problemInputs) : [];
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(contests)
+        .set({
+          ...(body.name === undefined ? {} : { name: body.name }),
+          startTime,
+          endTime,
+          format,
+          // `null` is a real value for this column, so `?? contest.x` would
+          // be wrong here: `hasOwnProperty` is what separates "set it to
+          // null" from "leave it alone". Same for `timeLimitSeconds`.
+          ...(hasKey(body, 'formatConfig') ? { formatConfig: body.formatConfig ?? null } : {}),
+          ...(hasKey(body, 'timeLimitSeconds')
+            ? { timeLimitSeconds: body.timeLimitSeconds ?? null }
+            : {}),
+          ...(body.pointsPrecision === undefined ? {} : { pointsPrecision: body.pointsPrecision }),
+          frozenLastMinutes,
+          visibility,
+        })
+        .where(eq(contests.id, contest.id));
+
+      if (problemInputs !== undefined) {
+        // Replaced wholesale rather than diffed: the list is ordered, and
+        // `order` is positional. Safe to delete because this branch is only
+        // reachable before the start (or with an identical list), and a
+        // contest that has not started has no `contest_submissions` rows
+        // pointing at these ids.
+        await tx.delete(contestProblems).where(eq(contestProblems.contestId, contest.id));
+        if (problemInputs.length > 0) {
+          await tx.insert(contestProblems).values(
+            problemInputs.map((problem, index) => ({
+              contestId: contest.id,
+              problemId: problemIds[index]!,
+              label: problem.label ?? String(index + 1),
+              points: problem.points,
+              partial: problem.partial ?? true,
+              order: index,
+            })),
+          );
+        }
+      }
+    });
+
+    return this.getVisible(actor, contest.key);
+  }
+
+  /**
+   * Whether `inputs` describes a different problem set from the one stored —
+   * codes, order, points, partial and label all count, because every one of
+   * them changes what the scoreboard computes.
+   */
+  private async problemsWouldChange(
+    contestId: number,
+    inputs: ContestProblemInputDto[],
+  ): Promise<boolean> {
+    const current = await this.loadProblemRows(contestId);
+    if (current.length !== inputs.length) return true;
+    return inputs.some((input, index) => {
+      const row = current[index]!;
+      return (
+        row.code.toLowerCase() !== input.code.toLowerCase() ||
+        row.points !== input.points ||
+        row.partial !== (input.partial ?? true) ||
+        row.label !== (input.label ?? String(index + 1))
+      );
+    });
   }
 
   /** Loads a contest by key, or 404s — for absence and invisibility alike. */
@@ -686,6 +874,17 @@ export function canRunContest(
 ): boolean {
   if (!actor) return false;
   return isAdmin(actor) || contest.createdBy === actor.userId;
+}
+
+/**
+ * "Was this key sent at all?", as opposed to "is its value undefined?".
+ *
+ * The distinction is load-bearing for the two nullable columns a PATCH can
+ * touch: `{ timeLimitSeconds: null }` means "remove the limit" and `{}`
+ * means "leave it", and `body.timeLimitSeconds` is `undefined` for both.
+ */
+function hasKey<T extends object>(body: T, key: keyof T): boolean {
+  return Object.prototype.hasOwnProperty.call(body, key);
 }
 
 function toSummary(row: {

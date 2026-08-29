@@ -146,6 +146,15 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
       <p className="muted">
         {contest.data.format} · {when(contest.data.startTime)} → {when(contest.data.endTime)} · {phase}
       </p>
+      {/* `canEdit` is the server's own answer, not a guess from `me` — see
+          the field's note in the contract. */}
+      {contest.data.canEdit ? (
+        <p>
+          <Link to="/contests/$key/edit" params={{ key: contestKey }}>
+            Edit contest
+          </Link>
+        </p>
+      ) : null}
 
       {joined ? (
         <p role="status">

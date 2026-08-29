@@ -70,6 +70,41 @@ export const CreateContestRequest = z
   .strict();
 export type CreateContestRequestDto = z.infer<typeof CreateContestRequest>;
 
+/**
+ * `PATCH /contests/{key}` — every field optional, and **no `.default()`
+ * anywhere**.
+ *
+ * Deliberately hand-written rather than `CreateContestRequest.partial()`.
+ * That schema carries defaults (`visibility: 'private'`, `pointsPrecision: 3`,
+ * `formatConfig: null`, …), and `.partial()` keeps them: an omitted
+ * `visibility` would arrive at the service as the string `'private'`, so
+ * every edit that did not mention visibility would quietly make the contest
+ * private. Here, absent means absent, and the service reads it as "keep".
+ *
+ * `key` is not on this schema and the object is `.strict()`, so sending one
+ * is a 422 rather than a silently ignored field: a contest's key is its URL,
+ * every link to it, and the value `POST /submissions` takes — renaming it is
+ * not an edit, it is a different contest. `orgSlugs` is absent for the same
+ * reason it is absent from the brief's field list: re-sharing a contest is
+ * its own operation and this task does not build it.
+ */
+export const UpdateContestRequest = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    startTime: Timestamp.optional(),
+    endTime: Timestamp.optional(),
+    format: ContestFormatName.optional(),
+    formatConfig: z.record(z.string(), z.unknown()).nullable().optional(),
+    pointsPrecision: z.number().int().min(0).max(9).optional(),
+    /** Still only ever `0` — see `CreateContestRequest.frozenLastMinutes`. */
+    frozenLastMinutes: z.number().int().min(0).optional(),
+    timeLimitSeconds: z.number().int().positive().nullable().optional(),
+    visibility: ContestVisibility.optional(),
+    problems: z.array(ContestProblemInput).optional(),
+  })
+  .strict();
+export type UpdateContestRequestDto = z.infer<typeof UpdateContestRequest>;
+
 export const ContestProblemSummary = z.object({
   code: z.string(),
   name: z.string(),
@@ -271,6 +306,36 @@ registry.registerPath({
     403: FORBIDDEN,
     409: {
       description: 'That contest key is already taken',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/contests/{key}',
+  tags: ['Contests'],
+  summary: 'Edit a contest (its creator, or an admin)',
+  description:
+    'Every field is optional and an absent one is left alone. `format` and `problems` are frozen ' +
+    'once the contest has started — sending the value it already has is still a no-op, not a refusal.',
+  request: {
+    params: ContestKeyParam,
+    body: { content: { 'application/json': { schema: UpdateContestRequest } } },
+  },
+  responses: {
+    200: { description: 'The contest, after the edit', content: { 'application/json': { schema: ContestDetail } } },
+    400: BAD_REQUEST,
+    401: NOT_SIGNED_IN,
+    404: {
+      description:
+        'No such contest, one the caller may not see, or one they may see but do not run — all ' +
+        'answered identically (`contest_not_found`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    409: {
+      description: 'The contest has started; `format` and `problems` can no longer change (`contest_started`)',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     422: VALIDATION_FAILED,

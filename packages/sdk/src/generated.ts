@@ -330,7 +330,187 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Edit a contest (its creator, or an admin)
+         * @description Every field is optional and an absent one is left alone. `format` and `problems` are frozen once the contest has started — sending the value it already has is still a no-op, not a refusal.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        name?: string;
+                        /** Format: date-time */
+                        startTime?: string;
+                        /** Format: date-time */
+                        endTime?: string;
+                        format?: string;
+                        formatConfig?: {
+                            [key: string]: unknown;
+                        } | null;
+                        pointsPrecision?: number;
+                        frozenLastMinutes?: number;
+                        timeLimitSeconds?: number | null;
+                        /** @enum {string} */
+                        visibility?: "private" | "org" | "public";
+                        problems?: {
+                            code: string;
+                            points: number;
+                            /** @default true */
+                            partial?: boolean;
+                            label?: string;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The contest, after the edit */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            key: string;
+                            name: string;
+                            /** Format: date-time */
+                            startTime: string;
+                            /** Format: date-time */
+                            endTime: string;
+                            format: string;
+                            /** @enum {string} */
+                            visibility: "private" | "org" | "public";
+                            pointsPrecision: number;
+                            frozenLastMinutes: number;
+                            timeLimitSeconds: number | null;
+                            isRated: boolean;
+                            /** Format: date-time */
+                            createdAt: string;
+                            formatConfig: {
+                                [key: string]: unknown;
+                            } | null;
+                            canEdit: boolean;
+                            problems: {
+                                code: string;
+                                name: string;
+                                label: string;
+                                points: number;
+                                partial: boolean;
+                                order: number;
+                            }[];
+                        };
+                    };
+                };
+                /** @description An unknown format (`unknown_contest_format`), a non-zero freeze window (`contest_freeze_unsupported`), an end before the start, or an unknown problem */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, one the caller may not see, or one they may see but do not run — all answered identically (`contest_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The contest has started; `format` and `problems` can no longer change (`contest_started`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/contests/{key}/scoreboard": {
