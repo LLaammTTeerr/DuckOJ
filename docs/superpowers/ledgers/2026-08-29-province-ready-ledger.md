@@ -36,3 +36,6 @@
 - Dispatched P1-D (worktree, opus, D23): freeze masking on /submissions, /contests/{key}/me, WebSocket — closes P1-C's concern.
 - CI on c355fdb: success.
 - P1-D DONE_WITH_CONCERNS on `worktree-agent-a134c0e2fe369bf19` (a5c86bd, 6a1f1e5): submission.freeze.ts one predicate two forms, masking not filtering, D23. Merge after P5. Carried: solved-count and source_access='solved' leaks during freeze (named in D23).
+- P5 DONE_WITH_CONCERNS (34ab990..73e99c3): 6/6 journeys + 9 smoke green on live; fixed: no sign-out control, sign-out 401 stray request, visitor contest-page 401, phone table overflow, e2e locale. Concerns → P6.
+- Merged P1-D; full ritual green; api rebuilt/recreated; pushed 65e27a3; CI polling. k6 2000-VU run started against live (5 min).
+- Dispatched P6 (worktree, opus): registration page, submission→contest link, journey-1 via the page.
