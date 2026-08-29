@@ -9,3 +9,11 @@
   six containers healthy, tailscale URL 200. Cost if wrong: unit fails at
   boot → same outage as before, no worse.
 - Phase 0: complete.
+
+## Dispatch log
+- 14:40 P1-A (main, opus): rejudge, disqualify, contest edit, login limit.
+- 14:41 P1-B (worktree, opus): TOTP UI, formatPoints.
+- 14:52 P3 (worktree, opus): backup/restore, judged concurrency, k6 script. k6 v2.2.0 installed to ~/.local/bin (directive authorises tooling).
+- 14:53 P4 (worktree, opus): bootstrap-admin script, five Vietnamese demo problems.
+- Queued: P1-C freeze (main, after P1-A), P2 i18n (worktree, after P1-B merge), P5 e2e + review.
+- Ruling: parallel agents only in worktrees and only for DB-free work; DB-test tasks run on main one at a time (shared test Postgres would cross-contaminate).
