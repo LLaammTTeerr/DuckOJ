@@ -87,6 +87,10 @@ a parameter, so live vs frozen is two keys) or push the fold into SQL.
 - Recreating the *old* api container needed SIGKILL after a 10s SIGTERM
   timeout; the new primary handles SIGTERM, and later recreates were clean.
 - The image under load was built from `bbc5063`. P6 (`77b777b`, `3232846`)
-  landed on main from another worktree while these runs were in flight; it is
-  in the tree but not in the measured container, and the ritual above was
-  re-run green over the merged tree.
+  landed on main from another worktree while these runs were in flight, so it
+  is in the tree but not in the measured container. The ritual was re-run
+  green over the merged tree, and the live `api` was afterwards rebuilt and
+  recreated at merged main (5 processes, healthy, smoke profile green at
+  794 req/s with every per-route threshold passing, submission #51 AC 100/100
+  with 8/8 websocket clients notified) so the running stack matches the
+  freshly built web bundle Caddy serves.
