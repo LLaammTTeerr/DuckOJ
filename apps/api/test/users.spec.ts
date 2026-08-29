@@ -273,6 +273,45 @@ describe('PATCH /users/me', () => {
     });
   }, 120_000);
 
+  it('refuses a timezone or locale the platform cannot resolve', async () => {
+    await withTestDb(async (db) => {
+      await seedCorpus(db);
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'settler');
+
+        // Both columns are preferences the server will one day format times
+        // and messages with. Stored unchecked, the first thing that hands
+        // `timezone` to `Intl.DateTimeFormat` throws a RangeError on a row
+        // its owner typed months earlier — a 500 with no path back to the
+        // request that caused it. Refused at the boundary instead.
+        for (const junk of [
+          { timezone: 'Not/AZone' },
+          { timezone: 'definitely not a zone' },
+          { locale: 'not a locale' },
+          { locale: 'e n' },
+        ]) {
+          const res = await agent.patch('/users/me').send(junk);
+          expect(res.status, JSON.stringify(junk)).toBe(422);
+          expect(res.body.code).toBe('validation_failed');
+        }
+
+        // Real values still work, so this is not passing by refusing
+        // everything — including a zone that is not the Vietnamese default.
+        expect((await agent.patch('/users/me').send({ timezone: 'Europe/Paris' })).status).toBe(200);
+        expect((await agent.patch('/users/me').send({ locale: 'en' })).status).toBe(200);
+        const [row] = await db
+          .select({ tz: schema.users.timezone, locale: schema.users.locale })
+          .from(schema.users)
+          .where(eq(schema.users.username, 'settler'));
+        expect(row).toEqual({ tz: 'Europe/Paris', locale: 'en' });
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('requires a signed-in caller', async () => {
     await withTestDb(async (db) => {
       await seedCorpus(db);

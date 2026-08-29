@@ -64,6 +64,41 @@ export const UserListQuery = PaginationQuery.extend({
 export type UserListQueryDto = z.infer<typeof UserListQuery>;
 
 /**
+ * Whether the platform can actually resolve this as an IANA time zone.
+ *
+ * `timezone` and `locale` are stored so the server can one day format times
+ * and messages the way their owner asked. Accepted as free text, the first
+ * thing to hand either to `Intl` throws a `RangeError` on a value its owner
+ * typed months before — a 500 with no route back to the request that caused
+ * it. Checking here is the only place the bad value is still attached to
+ * someone who can be told.
+ *
+ * The check is *shape*, deliberately, not membership: any real zone is fine,
+ * not only `Asia/Ho_Chi_Minh`, and any well-formed BCP-47 tag is fine, not
+ * only the two locales the web ships today (D18). Narrowing either to a list
+ * would be a product ruling, and would break the moment the list grows.
+ */
+function isResolvableTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isWellFormedLocale(value: string): boolean {
+  try {
+    // Throws `RangeError` on a structurally invalid tag; canonicalisation of
+    // an unknown-but-well-formed one (`qq-XX`) succeeds, which is the right
+    // side to err on for a preference nothing authoritative enumerates.
+    return Intl.getCanonicalLocales(value).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * What a user may change about themselves.
  *
  * `.strict()` so `username`, `email`, `globalRole` and `rating` are *rejected*
@@ -75,8 +110,18 @@ export const UpdateMeRequest = z
     displayName: z.string().min(1).max(100).optional(),
     about: z.string().max(4000).nullable().optional(),
     country: z.string().min(2).max(64).nullable().optional(),
-    timezone: z.string().min(1).max(64).optional(),
-    locale: z.string().min(2).max(16).optional(),
+    timezone: z
+      .string()
+      .min(1)
+      .max(64)
+      .refine(isResolvableTimeZone, 'must be an IANA time zone name, such as Asia/Ho_Chi_Minh')
+      .optional(),
+    locale: z
+      .string()
+      .min(2)
+      .max(16)
+      .refine(isWellFormedLocale, 'must be a BCP-47 language tag, such as vi or en')
+      .optional(),
   })
   .strict();
 export type UpdateMeRequestDto = z.infer<typeof UpdateMeRequest>;
