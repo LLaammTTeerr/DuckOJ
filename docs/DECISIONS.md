@@ -980,3 +980,33 @@ already unique — and adding it would change the goldens' output shape.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B2 contests
 brief), no human available to consult.*
+
+## D37 — A disqualification binds the person, so a later join inherits it
+
+`setDisqualified` states the rule in its own doc comment — *"every
+participation that user holds in this contest moves together … disqualification
+is a judgement about the person in this contest, not about one attempt"* — and
+implements it for the rows that exist at the moment it runs. Nothing carried it
+to a row created afterwards, and `join` mints one on demand: a virtual join is
+deliberately not idempotent, so an expelled competitor answered a
+disqualification with one more `POST /contests/{key}/join` and reappeared on
+the board un-struck, free to submit again (`resolveContestTarget` refuses the
+disqualified participation and takes the clean one, highest `virtual` first).
+
+**The ruling: `join` inherits the flag from any participation the caller
+already holds in that contest.** Reinstatement is unchanged and still clears
+every row, the new one included, so a wrongly-disqualified competitor is
+restored by the same single PATCH.
+
+- **Inherit, not refuse.** A 403 on `join` would have been simpler and is the
+  wrong shape: the board renders disqualified rows struck through with `[DQ]`
+  (D-era brief), so the record of what happened lives in a row, and refusing
+  the join leaves the contest with no row to render for an attempt somebody
+  did make. It would also mean a reinstated competitor's history differed from
+  one who was never expelled.
+- **`some`, not "the highest `virtual`".** Any live disqualification taints a
+  new attempt; a mixed state cannot arise through the API (`setDisqualified`
+  writes every row) and, if one ever did, the safe reading is the strict one.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B2 contests
+brief), no human available to consult.*

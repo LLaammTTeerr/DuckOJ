@@ -626,9 +626,17 @@ export class ContestAccessService {
       ? LIVE_VIRTUAL
       : Math.max(LIVE_VIRTUAL, ...existing.map((participation) => participation.virtual)) + 1;
 
+    // A disqualification binds the PERSON in this contest, not one attempt
+    // (D37) — which is exactly what `setDisqualified` says, and it moves every
+    // row this user holds together for that reason. A new attempt started
+    // afterwards has to inherit it, or an expelled competitor walks back onto
+    // the board with one more POST, un-struck; and `setDisqualified(false)`
+    // still clears every row, this one included.
+    const isDisqualified = existing.some((participation) => participation.isDisqualified);
+
     const [inserted] = await this.db
       .insert(contestParticipations)
-      .values({ contestId: contest.id, userId: actor.userId, virtual, startTime: now })
+      .values({ contestId: contest.id, userId: actor.userId, virtual, startTime: now, isDisqualified })
       // Concurrent live joins race to the same `(contest, user, 0)` key. The
       // loser reads the winner's row rather than surfacing a 500, which is
       // what makes the idempotency claim above true under concurrency and not

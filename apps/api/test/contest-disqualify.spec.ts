@@ -139,6 +139,45 @@ describe('PATCH /contests/:key/participants/:username', () => {
     });
   }, 120_000);
 
+  it('binds the person, so a fresh join after it is disqualified too (D37)', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const owner = await insertUser(db, 'dq2-owner');
+      const problem = await seedProblemWithSourceAccess(db, { code: 'dq2-p' });
+      const contestId = await seedContest(db, 'dq2-open', owner.id, problem.id);
+      const app = await buildApp(db);
+      try {
+        const cheat = request.agent(app.getHttpServer());
+        await registerAndLogin(cheat, 'dq2-cheat');
+        expect(contestId).toBeGreaterThan(0);
+
+        // The contest has ended, so every join is a virtual attempt — and a
+        // virtual join is deliberately not idempotent.
+        const first = await cheat.post('/contests/dq2-open/join');
+        expect(first.body.virtual).toBe(1);
+
+        const service = new ContestAccessService(db, uncachedScoreboards());
+        await service.setDisqualified(actorFor(owner.id), 'dq2-open', 'dq2-cheat', true);
+
+        // One more join must not hand the expelled competitor a clean row:
+        // "disqualification is a judgement about the person in this contest,
+        // not about one attempt", and the person has not changed.
+        const second = await cheat.post('/contests/dq2-open/join');
+        expect(second.status).toBe(201);
+        expect(second.body.virtual).toBe(2);
+        expect(second.body.isDisqualified).toBe(true);
+        expect((await cheat.get('/contests/dq2-open/me')).body.isDisqualified).toBe(true);
+
+        // Reinstating still clears every row, the new one included.
+        await service.setDisqualified(actorFor(owner.id), 'dq2-open', 'dq2-cheat', false);
+        const third = await cheat.post('/contests/dq2-open/join');
+        expect(third.body.isDisqualified).toBe(false);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('a global admin may do it; an unrelated signed-in user gets 403 contest_forbidden', async () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);
