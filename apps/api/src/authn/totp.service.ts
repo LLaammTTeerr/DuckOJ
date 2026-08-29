@@ -45,7 +45,39 @@ export class TotpService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
+  /**
+   * D33 — refuses outright when a CONFIRMED credential already exists.
+   *
+   * The upsert below replaces the stored secret and resets `confirmedAt` to
+   * null, which is exactly right while an enrolment is still pending (a
+   * second scan of a fresh QR) and catastrophic once one has been confirmed:
+   * `isEnabled` goes false the instant this returns, so `login` stops asking
+   * for a code at all. One POST carrying no proof of anything — not the
+   * current code, not even the password — turned the second factor off, and
+   * nothing told the account holder. An abandoned re-enrolment did the same
+   * thing by accident: open the enrol screen out of curiosity in a stale
+   * tab, close it, and 2FA is off.
+   *
+   * The check is not a race-free guarantee — two concurrent `begin` calls
+   * can both read "not confirmed" — but the only state two racing `begin`s
+   * can produce is a pair of pending secrets with no confirmed credential
+   * between them, which is the pre-existing "last QR wins" behaviour and
+   * costs nothing. What it does close completely is the single-request case,
+   * which is the whole of the exposure.
+   *
+   * Re-enrolling stays possible: `DELETE /auth/totp` then `begin`. That is
+   * one more deliberate step, and it makes the account's window of no second
+   * factor something its owner asked for rather than something they were
+   * given.
+   */
   async beginEnrolment(userId: number): Promise<{ secret: string; otpauthUrl: string }> {
+    if (await this.isEnabled(userId)) {
+      throw new AppError(
+        409,
+        'totp_already_enabled',
+        'Two-factor authentication is already on for this account. Turn it off before enrolling a new authenticator.',
+      );
+    }
     const secret = totp.generateSecret(SECRET_BYTES);
     const secretEnc = this.encrypt(secret);
     await this.db

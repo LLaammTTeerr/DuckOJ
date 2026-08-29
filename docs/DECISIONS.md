@@ -788,3 +788,48 @@ are gone; the web reset page is out of this brief's surface.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B1 auth
 brief), no human available to consult.*
+
+## D33 — Starting a TOTP enrolment cannot un-enrol an existing one
+
+`POST /auth/totp/begin` upserted a fresh secret with `confirmedAt: null`.
+Against a *pending* enrolment that is right — the last QR shown is the one
+that works. Against a *confirmed* one it was an un-enrol: `isEnabled` went
+false the moment the call returned, `login` stopped asking for a code, and
+the account was down to a password. Verified against the live stack: `begin`
+→ `GET /auth/me` reports `totpEnabled: false` → sign-in with the password
+alone answers 200.
+
+Two ways to arrive there, one hostile and one not. Hostile: whoever holds a
+stolen session strips the second factor with a single POST that proves
+nothing — not the current code, not the password — and the holder is not
+told. Accidental: a stale tab whose cached `/auth/me` still says "off" shows
+the Enable button; one click, then the user wanders off, and 2FA is now off
+with a pending secret nobody scanned.
+
+**The rule.** `begin` answers `409 totp_already_enabled` when a confirmed
+credential exists. Re-enrolling means `DELETE /auth/totp` first.
+
+**Why not stage the new secret and swap it on confirm** — the strictly better
+behaviour, and what a `pending_secret_enc` column would buy: it needs a
+migration, and this brief deliberately adds none (a migration number is
+shared state with the other agents working this repo tonight). The refusal is
+the subset of that fix which needs no schema change and gives up nothing that
+`DELETE` + `begin` does not restore in one extra click. If the column is ever
+added, this ruling is the thing to revisit.
+
+**The window is not closed, it is made explicit.** `DELETE /auth/totp` still
+needs no code, so a session holder can still end up with no second factor —
+in two steps, one of which the UI already guards with a confirm dialog and
+which raises a `totp_reset`-shaped absence the owner can see on their own
+security page. Step-up re-authentication (demand the current TOTP code, or
+the password, before `DELETE`) is the real fix for the hostile case and is a
+larger decision than this one: it needs a password-confirm flow the app does
+not have anywhere yet.
+
+**No UI change.** `security.tsx` renders Enable only when `totpEnabled` is
+false, so the refusal is unreachable from a correctly-loaded screen; it is
+the stale-tab and the raw-API paths that meet it, which are exactly the ones
+that should.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B1 auth
+brief), no human available to consult.*

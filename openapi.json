@@ -11378,7 +11378,7 @@
           "Auth"
         ],
         "summary": "Begin TOTP enrolment",
-        "description": "Upserts a fresh, unconfirmed secret. Calling this again before confirming silently replaces the previous secret — and calling it after 2FA is already enabled disables it until `confirm` succeeds.",
+        "description": "Upserts a fresh, unconfirmed secret. Calling this again while an enrolment is still pending replaces the previous secret, so the last QR shown is the one that works. Calling it once 2FA is already ON is refused (409 `totp_already_enabled`, D33): the upsert would clear `confirmedAt` and turn the second factor off with no code and no notice. Re-enrol by disabling first.",
         "responses": {
           "200": {
             "description": "The secret and its otpauth:// URL, to render as a QR code",
@@ -11449,6 +11449,51 @@
           },
           "403": {
             "description": "Signed in, but authenticated by an access token rather than an interactive session (`session_required`) — credential management is session-only",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Two-factor authentication is already enabled (`totp_already_enabled`) — disable it before enrolling again",
             "content": {
               "application/problem+json": {
                 "schema": {

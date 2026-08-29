@@ -33,8 +33,10 @@ registry.registerPath({
   tags: ['Auth'],
   summary: 'Begin TOTP enrolment',
   description:
-    'Upserts a fresh, unconfirmed secret. Calling this again before confirming silently replaces the ' +
-    'previous secret — and calling it after 2FA is already enabled disables it until `confirm` succeeds.',
+    'Upserts a fresh, unconfirmed secret. Calling this again while an enrolment is still pending ' +
+    'replaces the previous secret, so the last QR shown is the one that works. Calling it once 2FA is ' +
+    'already ON is refused (409 `totp_already_enabled`, D33): the upsert would clear `confirmedAt` and ' +
+    'turn the second factor off with no code and no notice. Re-enrol by disabling first.',
   responses: {
     200: {
       description: 'The secret and its otpauth:// URL, to render as a QR code',
@@ -42,6 +44,11 @@ registry.registerPath({
     },
     401: NOT_SIGNED_IN,
     403: SESSION_REQUIRED,
+    409: {
+      description:
+        'Two-factor authentication is already enabled (`totp_already_enabled`) — disable it before enrolling again',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
 
