@@ -61,7 +61,8 @@ corepack pnpm bootstrap:admin <you>   # first admin (D19)
 2. Registration hides a taken email behind a fake 201 (D26); full closure
    needs verify-before-create.
 3. TOTP has no recovery codes — the admin reset (M9) is the fallback.
-4. No contest clarifications/announcements, problem tags, editorials,
-   comments; rank names are placeholders (D6).
+4. No problem tags, editorials, comments; rank names are placeholders (D6).
+   Contest clarifications and announcements shipped (D31), untested against
+   the live stack.
 5. `judged.live` keyed by job id (not attempt) — narrow stale-packet window,
    documented in D29.

@@ -13,8 +13,8 @@ Each iteration N:
 - Controller merges, runs the full ritual, redeploys, pushes, ledgers, and
   starts N+1. A killed agent is resumed from its transcript, not re-run.
 
-Backlog (strike when shipped): contest clarifications/announcements ·
-problem tags + filter · TOTP recovery codes · editorials (per problem,
+Backlog (strike when shipped): ~~contest clarifications/announcements~~
+(F1, D31) · problem tags + filter · TOTP recovery codes · editorials (per problem,
 visible after solve or after contest) · real rank names (D6) · contest PDF
 booklet (typst) · user settings (display name, preferred locale server-side)
 · org-restricted contests · comments · submission source diff between
