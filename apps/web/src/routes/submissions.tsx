@@ -3,6 +3,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { formatPoints } from '../format.js';
 import { verdictToken } from './submit.js';
 
 type Submission = paths['/submissions']['get']['responses'][200]['content']['application/json']['items'][number];
@@ -163,7 +164,7 @@ export function SubmissionsPage({
                 </td>
                 <td className="num">
                   {typeof s.points === 'number' && typeof s.maxPoints === 'number'
-                    ? `${s.points}/${s.maxPoints}`
+                    ? `${formatPoints(s.points)}/${formatPoints(s.maxPoints)}`
                     : '—'}
                 </td>
                 <td>{new Date(s.createdAt).toLocaleString()}</td>

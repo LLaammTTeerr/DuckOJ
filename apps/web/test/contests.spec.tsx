@@ -219,3 +219,59 @@ describe('ContestPage join transport safety', () => {
     expect(screen.getByRole('button', { name: /^join$/i })).toBeEnabled();
   });
 });
+
+describe('score display precision', () => {
+  it('trims repeating floats on the scoreboard — score and cell alike', async () => {
+    get.mockResolvedValue({
+      data: {
+        label_by_problem: { a: 'A' },
+        problems: [
+          { code: 'a', label: 'A', points: 100, points_scaling_factor: null, total_ac: 1, first_solve: 'kim' },
+        ],
+        ranking: [
+          {
+            rank: 1,
+            participant: 'kim',
+            virtual: 0,
+            is_disqualified: false,
+            // An ioi16 subtask worth 100/3: raw, this printed
+            // `33.333333333` into a column sized for three digits.
+            score: 33.333333333,
+            cumtime: 0,
+            tiebreaker: 0,
+            frozen_score: 0,
+            frozen_cumtime: 0,
+            frozen_tiebreaker: 0,
+            submission_count: 1,
+            format_data: { a: { points: 66.666666666, time: 600 } },
+          },
+        ],
+      },
+    });
+    wrap(<ScoreboardPage contestKey="spring" />);
+
+    const row = await screen.findByRole('row', { name: /kim/i });
+    expect(row).toHaveTextContent('33.33');
+    expect(row).toHaveTextContent('66.67 · 10m');
+    expect(row).not.toHaveTextContent('33.333333333');
+    expect(row).not.toHaveTextContent('66.666666666');
+  });
+
+  it("formats the contest problems table with the contest's own pointsPrecision", async () => {
+    get.mockImplementation((path: string) =>
+      path === '/contests/{key}'
+        ? Promise.resolve({
+            data: {
+              ...RUNNING,
+              pointsPrecision: 3,
+              problems: [{ code: 'aplusb', name: 'A plus B', label: 'A', points: 33.333333333 }],
+            },
+          })
+        : Promise.resolve({ data: undefined }),
+    );
+    wrap(<ContestPage contestKey="spring" />);
+
+    // Three decimals because the contest says three — not the default two.
+    expect(await screen.findByText('33.333')).toBeInTheDocument();
+  });
+});

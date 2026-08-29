@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { formatPoints } from '../format.js';
 import { meQueryOptions } from '../me.js';
 
 type Contest = paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
@@ -184,7 +185,12 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
                     {problem.name}
                   </Link>
                 </td>
-                <td className="num">{problem.points}</td>
+                {/* The one place the contest's OWN `pointsPrecision` is
+                    available to format with — it rides on `GET
+                    /contests/{key}` and on no other payload this app reads
+                    (the scoreboard's does not carry it), so every other
+                    score display falls back to formatPoints' default. */}
+                <td className="num">{formatPoints(problem.points, contest.data.pointsPrecision)}</td>
                 <td>
                   {/* The `contestKey` obligation from 4d: a submission only
                       counts if the key travels with it, and this link is how
@@ -240,11 +246,13 @@ function cell(data: Cell | undefined): string {
   if (data.tries === undefined) {
     // The three non-icpc formats: points, with the scoring time beside a
     // nonzero score.
-    return data.points > 0 ? `${String(data.points)} \u00b7 ${String(minutes)}m` : String(data.points);
+    return data.points > 0
+      ? `${formatPoints(data.points)} \u00b7 ${String(minutes)}m`
+      : formatPoints(data.points);
   }
   if (data.points > 0) {
     const marker = data.tries === 1 ? '+' : `+${String(data.tries - 1)}`;
-    return `${String(data.points)} (${marker}, ${String(minutes)}m)`;
+    return `${formatPoints(data.points)} (${marker}, ${String(minutes)}m)`;
   }
   return data.tries > 0 ? `\u2212${String(data.tries)}` : '\u2014';
 }
@@ -305,7 +313,7 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
                 {row.virtual !== 0 ? <span className="muted"> (virtual)</span> : null}
                 {row.is_disqualified ? <span className="muted"> (disqualified)</span> : null}
               </td>
-              <td className="num">{row.score}</td>
+              <td className="num">{formatPoints(row.score)}</td>
               <td className="num">{row.cumtime}</td>
               {problems.map((problem) => (
                 <td key={problem.code} className="num">

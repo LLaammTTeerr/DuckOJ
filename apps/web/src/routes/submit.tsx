@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { formatPoints } from '../format.js';
 
 export type SubmissionDetail =
   paths['/submissions/{id}']['get']['responses'][200]['content']['application/json'];
@@ -133,7 +134,7 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
           {typeof submission.points === 'number' && typeof submission.maxPoints === 'number' ? (
             <small>
               {' '}
-              — {submission.points}/{submission.maxPoints}
+              — {formatPoints(submission.points)}/{formatPoints(submission.maxPoints)}
             </small>
           ) : null}
         </p>

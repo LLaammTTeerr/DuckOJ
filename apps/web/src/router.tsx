@@ -18,6 +18,7 @@ import {
 import { ContestPage, ContestsPage, ScoreboardPage } from './routes/contests.js';
 import { ContestNewPage } from './routes/contest-new.js';
 import { TokensPage } from './routes/tokens.js';
+import { SecurityPage } from './routes/security.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
 import { AdminPage } from './routes/admin.js';
@@ -124,6 +125,9 @@ function RootComponent() {
           <a href="/api/v1/docs">API</a>
           {me.data?.globalRole === 'admin' ? <Link to="/admin">Admin</Link> : null}
           {me.data ? <Link to="/account/tokens">Tokens</Link> : null}
+          {/* Beside Tokens: both are `/account/*`, both are session-only, and
+              a 2FA screen nobody can find is a 2FA screen nobody turns on. */}
+          {me.data ? <Link to="/account/security">Security</Link> : null}
           {me.data ? (
             <Link to="/notifications" aria-label={`Notifications, ${String(unread)} unread`}>
               {unread > 0 ? `[${String(unread)}]` : '[ ]'}
@@ -396,6 +400,11 @@ const tokensRoute = createRoute({
   path: '/account/tokens',
   component: TokensPage,
 });
+const securityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/account/security',
+  component: SecurityPage,
+});
 const notificationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/notifications',
@@ -450,6 +459,7 @@ const routeTree = rootRoute.addChildren([
   orgsRoute,
   orgRoute,
   tokensRoute,
+  securityRoute,
   notificationsRoute,
   adminRoute,
   userRoute,

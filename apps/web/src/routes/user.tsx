@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { rankBand } from '@duckoj/glicko2';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { formatPoints } from '../format.js';
 
 type Profile = paths['/users/{username}']['get']['responses'][200]['content']['application/json'];
 type RatingEvent =
@@ -58,7 +59,7 @@ export function UserPage({ username }: { username: string }) {
           </tr>
           <tr>
             <th>Points</th>
-            <td className="num">{user.stats.points}</td>
+            <td className="num">{formatPoints(user.stats.points)}</td>
           </tr>
           <tr>
             <th>Submissions</th>
