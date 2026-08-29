@@ -59,142 +59,173 @@ export class Worker {
   async start(): Promise<void> {
     this.running = true;
     while (this.running) {
-      let claimed: ClaimedJob | null;
-      try {
-        claimed = await this.jobs.claim(this.workerId);
-      } catch (error: unknown) {
-        // A transient database error here (a dropped connection, Postgres
-        // restarting) must not end the loop: `claim()` used to sit outside
-        // any try, so a rejection propagated out of `start()` and killed the
-        // whole worker — every submission from then on sits at `queued`
-        // forever with nothing to claim it, and no alarm anywhere. Logging
-        // and retrying after the same poll delay used for "no job available"
-        // makes this self-healing instead.
-        console.error(
-          JSON.stringify({
-            msg: 'claim failed',
-            error: describeError(error),
-          }),
-        );
-        await new Promise((r) => setTimeout(r, POLL_MS));
-        continue;
-      }
-      if (!claimed) {
-        await new Promise((r) => setTimeout(r, POLL_MS));
-        continue;
+      // Reserve judge capacity BEFORE claiming, never after. A job claimed
+      // with no judge free to run it sits leased-but-unrunnable for its whole
+      // lease, and the grading watchdog that eventually fires on it is the
+      // cancel B2 turned into a different student's permanent IE. Reserving
+      // first means a claimed job is always immediately runnable.
+      //
+      // A driver that does not implement `tryAcquireSlot` (every in-process
+      // test double) is treated as unlimited, exactly as before.
+      let releaseSlot: (() => void) | null = null;
+      if (this.driver.tryAcquireSlot) {
+        releaseSlot = this.driver.tryAcquireSlot();
+        if (!releaseSlot) {
+          // Saturated: back off on the same poll delay used for "no job
+          // available" and leave the queue to whichever loop holds a slot.
+          // `stop()` is still honoured, because the loop keeps turning.
+          await new Promise((r) => setTimeout(r, POLL_MS));
+          continue;
+        }
       }
 
-      this.current = claimed;
-      this.heartbeatTimer = setInterval(() => {
-        // `heartbeatOnce` awaits a DB round-trip; an unguarded rejection here
-        // is an unhandled rejection that terminates the Node 22 process, same
-        // failure mode as the unguarded `claim()` above.
-        void this.heartbeatOnce().catch((error: unknown) => {
+      try {
+        let claimed: ClaimedJob | null;
+        try {
+          claimed = await this.jobs.claim(this.workerId);
+        } catch (error: unknown) {
+          // A transient database error here (a dropped connection, Postgres
+          // restarting) must not end the loop: `claim()` used to sit outside
+          // any try, so a rejection propagated out of `start()` and killed the
+          // whole worker — every submission from then on sits at `queued`
+          // forever with nothing to claim it, and no alarm anywhere. Logging
+          // and retrying after the same poll delay used for "no job available"
+          // makes this self-healing instead.
           console.error(
             JSON.stringify({
-              msg: 'heartbeat failed',
+              msg: 'claim failed',
+              error: describeError(error),
+            }),
+          );
+          await new Promise((r) => setTimeout(r, POLL_MS));
+          continue;
+        }
+        if (!claimed) {
+          await new Promise((r) => setTimeout(r, POLL_MS));
+          continue;
+        }
+
+        this.current = claimed;
+        this.heartbeatTimer = setInterval(() => {
+          // `heartbeatOnce` awaits a DB round-trip; an unguarded rejection here
+          // is an unhandled rejection that terminates the Node 22 process, same
+          // failure mode as the unguarded `claim()` above.
+          void this.heartbeatOnce().catch((error: unknown) => {
+            console.error(
+              JSON.stringify({
+                msg: 'heartbeat failed',
+                jobId: claimed.id,
+                attempt: claimed.attempt,
+                error: describeError(error),
+              }),
+            );
+          });
+        }, HEARTBEAT_MS);
+        let watchdog: NodeJS.Timeout | null = null;
+
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const ceilingMs = Math.min(gradingCeilingMs(claimed), this.maxGradingMs === MAX_GRADING_MS ? Infinity : this.maxGradingMs);
+            watchdog = setTimeout(() => {
+              reject(
+                new Error(
+                  `grading exceeded ${ceilingMs}ms for job ${claimed.id} attempt ${claimed.attempt}`,
+                ),
+              );
+            }, ceilingMs);
+
+            this.driver
+              .dispatch(
+                {
+                  id: String(claimed.id),
+                  attempt: claimed.attempt,
+                  kind: 'submission',
+                  packageHash: claimed.packageHash,
+                  revisionId: String(claimed.revisionId),
+                  language: claimed.languageKey,
+                  source: claimed.source,
+                  limits: { timeMs: claimed.timeMs, memoryKb: claimed.memoryKb },
+                },
+                async (event) => {
+                  // A failed write must fail the ATTEMPT, not vanish into the
+                  // driver's per-packet catch: before this, a rejected
+                  // submission_cases insert was logged and skipped while
+                  // grading sailed on to a clean 'done' with rows silently
+                  // missing — an at-most-once delivery under a comment economy
+                  // that promises at-least-once. Rejecting here leaves the job
+                  // uncompleted, so the lease lapse regrades the whole attempt.
+                  let current: boolean;
+                  try {
+                    current = await this.writer.apply(claimed, event);
+                  } catch (error) {
+                    reject(error instanceof Error ? error : new Error(String(error)));
+                    throw error;
+                  }
+                  if (!current) return resolve();
+                  if (
+                    event.type === 'finished' ||
+                    event.type === 'compileError' ||
+                    event.type === 'internalError' ||
+                    event.type === 'terminated'
+                  ) {
+                    resolve();
+                  }
+                },
+              )
+              .catch(reject);
+          });
+          await this.jobs.complete(claimed.id, claimed.attempt);
+        } catch (error: unknown) {
+          // One job's failure must not end the loop for every other
+          // submission: log it and let the loop go around for the next claim.
+          // This deliberately does not bound retries — the job re-leases after
+          // the lease window and may fail again. An attempt cap is scheduling
+          // policy, deferred to Phase 4.
+          console.error(
+            JSON.stringify({
+              msg: 'job failed',
               jobId: claimed.id,
               attempt: claimed.attempt,
               error: describeError(error),
             }),
           );
-        });
-      }, HEARTBEAT_MS);
-      let watchdog: NodeJS.Timeout | null = null;
-
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const ceilingMs = Math.min(gradingCeilingMs(claimed), this.maxGradingMs === MAX_GRADING_MS ? Infinity : this.maxGradingMs);
-          watchdog = setTimeout(() => {
-            reject(
-              new Error(
-                `grading exceeded ${ceilingMs}ms for job ${claimed.id} attempt ${claimed.attempt}`,
-              ),
-            );
-          }, ceilingMs);
-
-          this.driver
-            .dispatch(
-              {
-                id: String(claimed.id),
+          // Whatever ended the try block without the dispatch promise
+          // resolving — the watchdog firing chief among them — must not leave
+          // the driver still grading this attempt: DmojDriver reuses DMOJ's
+          // submission-id across retries on the precondition that the previous
+          // attempt was terminated first (see its `dispatch` doc comment).
+          // Cancelling here is what makes that precondition hold on this path
+          // too, not only the lease-lapsed one in `heartbeatOnce`. `cancel`
+          // itself is fenced by (job id, attempt) in every driver, so calling
+          // it here is a safe no-op when there is nothing live to cancel (e.g.
+          // `dispatch` rejected before ever registering a live entry) — and
+          // in `DmojDriver` it is addressed to the one connection actually
+          // running this submission, so a job that never reached a judge
+          // cancels nothing rather than terminating somebody else's grade.
+          try {
+            await this.driver.cancel(String(claimed.id), claimed.attempt);
+          } catch (cancelError: unknown) {
+            console.error(
+              JSON.stringify({
+                msg: 'cancel after job failure also failed',
+                jobId: claimed.id,
                 attempt: claimed.attempt,
-                kind: 'submission',
-                packageHash: claimed.packageHash,
-                revisionId: String(claimed.revisionId),
-                language: claimed.languageKey,
-                source: claimed.source,
-                limits: { timeMs: claimed.timeMs, memoryKb: claimed.memoryKb },
-              },
-              async (event) => {
-                // A failed write must fail the ATTEMPT, not vanish into the
-                // driver's per-packet catch: before this, a rejected
-                // submission_cases insert was logged and skipped while
-                // grading sailed on to a clean 'done' with rows silently
-                // missing — an at-most-once delivery under a comment economy
-                // that promises at-least-once. Rejecting here leaves the job
-                // uncompleted, so the lease lapse regrades the whole attempt.
-                let current: boolean;
-                try {
-                  current = await this.writer.apply(claimed, event);
-                } catch (error) {
-                  reject(error instanceof Error ? error : new Error(String(error)));
-                  throw error;
-                }
-                if (!current) return resolve();
-                if (
-                  event.type === 'finished' ||
-                  event.type === 'compileError' ||
-                  event.type === 'internalError' ||
-                  event.type === 'terminated'
-                ) {
-                  resolve();
-                }
-              },
-            )
-            .catch(reject);
-        });
-        await this.jobs.complete(claimed.id, claimed.attempt);
-      } catch (error: unknown) {
-        // One job's failure must not end the loop for every other
-        // submission: log it and let the loop go around for the next claim.
-        // This deliberately does not bound retries — the job re-leases after
-        // the lease window and may fail again. An attempt cap is scheduling
-        // policy, deferred to Phase 4.
-        console.error(
-          JSON.stringify({
-            msg: 'job failed',
-            jobId: claimed.id,
-            attempt: claimed.attempt,
-            error: describeError(error),
-          }),
-        );
-        // Whatever ended the try block without the dispatch promise
-        // resolving — the watchdog firing chief among them — must not leave
-        // the driver still grading this attempt: DmojDriver reuses DMOJ's
-        // submission-id across retries on the precondition that the previous
-        // attempt was sent `terminate-submission` first (dmoj-driver.ts:49-58).
-        // Cancelling here is what makes that precondition hold on this path
-        // too, not only the lease-lapsed one in `heartbeatOnce`. `cancel`
-        // itself is fenced by (job id, attempt) in every driver, so calling
-        // it here is a safe no-op when there is nothing live to cancel (e.g.
-        // `dispatch` rejected before ever registering a live entry).
-        try {
-          await this.driver.cancel(String(claimed.id), claimed.attempt);
-        } catch (cancelError: unknown) {
-          console.error(
-            JSON.stringify({
-              msg: 'cancel after job failure also failed',
-              jobId: claimed.id,
-              attempt: claimed.attempt,
-              error: describeError(cancelError),
-            }),
-          );
+                error: describeError(cancelError),
+              }),
+            );
+          }
+        } finally {
+          if (watchdog) clearTimeout(watchdog);
+          if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+          this.heartbeatTimer = null;
+          this.current = null;
         }
       } finally {
-        if (watchdog) clearTimeout(watchdog);
-        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-        this.heartbeatTimer = null;
-        this.current = null;
+        // Every exit from the block above — the `continue`s, a throw, a
+        // normal completion — gives the judge slot back here. A slot leaked
+        // on one path would silently shrink the fleet for the rest of the
+        // process's life.
+        releaseSlot?.();
       }
     }
   }
@@ -231,25 +262,28 @@ export class Worker {
  * A fixed set of independent claim loops over one JobStore — the whole of
  * `JUDGED_CONCURRENCY`.
  *
- * Nothing in `Worker` changes. Concurrency is safe here because it was
- * already designed for: `JobStore.claim` takes its row under
- * `FOR UPDATE SKIP LOCKED`, so two loops racing get two different jobs (or
- * one gets null) rather than the same row twice — proved against a real
- * Postgres over two connections in `job-store.concurrency.spec.ts` — and
- * `heartbeat`/`complete`/`isCurrentAttempt` all fence on `(job id, attempt)`
- * rather than on the claimant, so no loop can renew or finish another's
- * attempt. `worker_id` itself is written but never read back for control
- * flow; it is diagnostic, which is why suffixing it below is free.
+ * Concurrency is safe on the database side because it was designed for:
+ * `JobStore.claim` takes its row under `FOR UPDATE SKIP LOCKED`, so two loops
+ * racing get two different jobs (or one gets null) rather than the same row
+ * twice — proved against a real Postgres over two connections in
+ * `job-store.concurrency.spec.ts` — and `heartbeat`/`complete`/
+ * `isCurrentAttempt` all fence on `(job id, attempt)` rather than on the
+ * claimant, so no loop can renew or finish another's attempt. `worker_id`
+ * itself is written but never read back for control flow; it is diagnostic,
+ * which is why suffixing it below is free.
  *
  * Each loop gets `#1`, `#2`, … appended so `grading_jobs.worker_id` still
  * names exactly one loop when a stuck job has to be traced to its logs.
  *
- * IMPORTANT: this raises how many grades `judged` will *ask* for at once, not
- * how many the judge can actually run. The DMOJ judge behind
- * `DmojDriver`/`BridgeServer` is the real ceiling — `capabilities()` still
- * declares `concurrency: 1`, and nothing here consults it. Raising this knob
- * past the number of judge containers buys queueing at the judge, not
- * throughput. See docs/runbook.md, "Judging throughput".
+ * It is NOT safe on the judge side by itself, and this is what B2 cost us: a
+ * pool that claims more jobs than the fleet can grade leaves the surplus
+ * leased with nothing running it, and the grading watchdog that eventually
+ * fires cancels a job the judge never started. `Worker` therefore reserves a
+ * judge slot through `driver.tryAcquireSlot()` before it claims, so the
+ * number of jobs in flight is bounded by the number of judge connections, not
+ * by this number. Raising this knob past the number of judge containers now
+ * buys nothing at all — the extra loops simply never win a slot. See
+ * docs/runbook.md, "Judging throughput".
  */
 export function startWorkerPool(
   jobs: JobStore,

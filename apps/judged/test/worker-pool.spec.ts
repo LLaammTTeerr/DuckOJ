@@ -79,6 +79,48 @@ function blockingDriver(): { driver: JudgeDriver; inFlight: string[]; release: (
   return { driver, inFlight, release };
 }
 
+/**
+ * A driver with `capacity` judge execution slots, the shape `DmojDriver`
+ * exposes once it tracks which connection is grading what. Dispatch blocks
+ * until released, so a claim loop that ignored `tryAcquireSlot` would visibly
+ * hold more jobs than there are slots.
+ */
+function saturatingDriver(capacity: number): {
+  driver: JudgeDriver;
+  inFlight: string[];
+  release: () => void;
+} {
+  const inFlight: string[] = [];
+  let held = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const driver: JudgeDriver = {
+    start: async () => {},
+    capabilities: () => ({ languages: ['cpp17'], concurrency: capacity }),
+    tryAcquireSlot: () => {
+      if (held >= capacity) return null;
+      held += 1;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        held -= 1;
+      };
+    },
+    dispatch: async (job: GradingJob, emit: EmitEvent) => {
+      inFlight.push(job.id);
+      await emit({ type: 'dispatched' });
+      await gate;
+      await emit({ type: 'finished', verdict: 'AC', points: 1, maxPoints: 1, timeMs: 1, memoryKb: 1 });
+    },
+    cancel: async () => {},
+    stop: async () => {},
+  };
+  return { driver, inFlight, release };
+}
+
 async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
@@ -104,6 +146,39 @@ describe('startWorkerPool', () => {
       // one loop when a job has to be diagnosed after the fact.
       expect(new Set(claims.map((c) => c.workerId)).size).toBe(3);
       for (const claim of claims) expect(claim.workerId).toMatch(/^judged-1#[123]$/);
+    } finally {
+      release();
+      pool.stop();
+      await pool.finished;
+    }
+  }, 30_000);
+
+  /**
+   * B2's back-pressure half. A DMOJ judge grades one submission per
+   * connection, so a pool that claims more jobs than there are idle
+   * connections leaves the extras leased-but-unrunnable until their own
+   * grading watchdog fires — and it is that watchdog's `cancel` that used to
+   * terminate whatever the judge was really running. The pool must therefore
+   * reserve a judge slot BEFORE it claims, not after.
+   */
+  it('claims no more jobs than the driver has idle judge slots', async () => {
+    const claims: Claim[] = [];
+    const jobs = fakeJobStore(2, claims);
+    const writer = { apply: async () => true } as unknown as EventWriter;
+    const { driver, inFlight, release } = saturatingDriver(1);
+
+    const pool = startWorkerPool(jobs, writer, driver, 'judged-1', 2);
+    try {
+      await waitFor(() => inFlight.length === 1);
+      // Ample time for the second loop to claim job 2 if it were not gated.
+      await new Promise((r) => setTimeout(r, 300));
+      expect(inFlight).toHaveLength(1);
+      expect(claims).toHaveLength(1);
+
+      // Releasing the one slot is what lets the queue move.
+      release();
+      await waitFor(() => inFlight.length === 2);
+      expect(claims).toHaveLength(2);
     } finally {
       release();
       pool.stop();

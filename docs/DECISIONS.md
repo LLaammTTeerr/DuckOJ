@@ -511,3 +511,50 @@ Rulings taken during task P8 with nobody to ask.
 Left open: a fold already in flight when a write commits can still store the
 pre-write board, for one TTL. Closing it needs a cross-worker epoch read on
 every request, which costs more than the two seconds it buys.
+
+## D28 — A judge connection grades one submission at a time, and a terminate is addressed to it
+
+Final review's blocker **B2**. `terminate-submission` carries no submission id
+(`packages/judge-protocol/src/dmoj-packets.ts`), and `DmojDriver.cancel`
+broadcast it. With `JUDGED_CONCURRENCY=2` against the one `judge` container,
+job A could sit undispatched behind job B, hit its own grading ceiling, and
+cancel — terminating **B**, whose owner got a permanent `errored`/`IE` with no
+requeue and nothing to appeal.
+
+**The ruling: one submission per judge connection.** Nobody is available to
+confirm it, so it is recorded as a ruling rather than a fact. It follows from
+the protocol itself: judge-server tracks a single current submission and
+answers `current-submission-id` with exactly one id, and `terminate-submission`
+names none — a protocol that expected several concurrent grades per socket
+could do neither. We therefore treat a connection as a one-slot resource:
+
+- The driver keeps a connection id → submission map, maintained from both
+  ends — what we sent, and what every reply packet's `submission-id` confirms.
+- `cancel` sends `terminate-submission` to the one connection provably running
+  that submission, and to nothing otherwise: a job still queued, a job whose
+  judge vanished, a job already finished cancels nothing, logs
+  `cancel for a submission no judge is running`, and emits **no** `terminated`
+  event — a submission no judge touched must not be written off as IE.
+- `dispatch` never sends a second `submission-request` to a busy connection;
+  it parks until one is idle, and rejects if cancelled while parked (a
+  silently-resolving dispatch would hang the claim loop forever).
+- A judge redialling under the same `judge_nodes` name clears its own stale
+  assignment at handshake, or the fresh connection would read as busy forever.
+
+**Back-pressure, not just targeting.** Targeting alone still leaves a surplus
+job leased with nothing running it until its watchdog fires. `Worker` now
+reserves a judge slot (`JudgeDriver.tryAcquireSlot`, optional, synchronous)
+*before* it claims and releases it after completing, so a claimed job is always
+immediately runnable. A driver without the method is unlimited, which keeps
+every in-process test double unchanged.
+
+**`JUDGED_CONCURRENCY` ships 1, not 2.** With back-pressure, 2 against one
+judge is now provably *safe* — and provably *inert*: the second loop can never
+win a slot, so it polls the database every 500 ms and claims nothing. The
+brief's "keep 2 and say why" branch has no honest why. One loop per judge, and
+it rises with the fleet (docs/runbook.md, "Judging throughput"), which is the
+sequencing the runbook already prescribed and the repo had not followed.
+
+Left open: `live` is still keyed by job id, not `(job, attempt)`. Terminating
+attempt N on its own connection and not reusing that connection until the judge
+answers narrows the window hard, but it is still an argument from timing.

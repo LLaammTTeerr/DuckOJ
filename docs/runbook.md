@@ -784,25 +784,55 @@ Before/after numbers for the 2000-VU profile are in `load/RESULTS.md`.
 Two separate ceilings, and they are commonly confused.
 
 **`judged` — how many jobs are claimed at once.** `JUDGED_CONCURRENCY`
-(default 2, max 16) runs that many independent claim loops in the one
-`judged` process (`apps/judged/src/worker.ts`, `startWorkerPool`). This was
-safe to add without touching the claim path: `JobStore.claim` already takes
+(default **1**, max 16) runs that many independent claim loops in the one
+`judged` process (`apps/judged/src/worker.ts`, `startWorkerPool`). Each loop's
+`worker_id` is suffixed `#1`, `#2`, … so a stuck job in `grading_jobs` still
+names exactly one loop. Set it in `.env` (`JUDGED_CONCURRENCY=`), which
+`docker-compose.yml` passes through.
+
+The claim path itself has always been concurrency-safe: `JobStore.claim` takes
 its row under `FOR UPDATE SKIP LOCKED`, so two loops racing get two different
 jobs, and `heartbeat`/`complete`/`isCurrentAttempt` fence on `(job id,
 attempt)` rather than on the claimant, so no loop can renew or finish
-another's attempt. Each loop's `worker_id` is suffixed `#1`, `#2`, … so a
-stuck job in `grading_jobs` still names exactly one loop.
-
-Set it in `.env` (`JUDGED_CONCURRENCY=`), which `docker-compose.yml` passes
-through.
+another's attempt.
 
 **The judge — how many grades actually run at once. This is the real
-ceiling.** There is one `judge` container, and `DmojDriver.capabilities()`
-still reports `concurrency: 1`. Nothing in `judged` consults that number:
-raising `JUDGED_CONCURRENCY` past the number of judge containers buys a
-deeper queue *at the judge*, not throughput. Default 2 is chosen so that one
-slow grade does not block every submission behind it, not because two grades
-run in parallel today.
+ceiling.** A DMOJ judge grades **one submission per connection** (D28), so the
+fleet's capacity is the number of connected `judge` containers. There is one.
+
+`judged` now enforces that rather than merely documenting it. Two mechanisms,
+both in the B2 fix:
+
+- **Targeted cancel.** `terminate-submission` carries no submission id, so
+  `DmojDriver` tracks which connection is grading which submission and sends a
+  terminate only to that one. A cancel for a job no judge is running sends
+  nothing, logs `cancel for a submission no judge is running`, and emits no
+  `terminated` event. Before this, one job's watchdog terminated whatever the
+  judge was really running — a different student's submission, permanently
+  `errored`/`IE` with no requeue.
+- **Back-pressure.** A claim loop reserves a judge slot
+  (`JudgeDriver.tryAcquireSlot`) *before* it claims, so `judged` never leases
+  more jobs than the judges can run and a claimed job is always immediately
+  runnable. A loop with no slot polls every 500 ms and claims nothing.
+
+Two consequences an operator will actually see:
+
+1. **Raising `JUDGED_CONCURRENCY` past the number of judges does nothing.** It
+   is not a deeper queue any more — the extra loops never win a slot. Raise it
+   *with* the fleet, one per judge.
+2. **With no judge connected, nothing is claimed at all.** Submissions stay
+   `queued` instead of being claimed, timing out on the 300 s watchdog and
+   showing up as IE. If the queue is not moving, check the judge is connected
+   (`podman logs duckoj_judged_1` for a handshake) before suspecting `judged`.
+
+### Grep for the failure this replaced
+
+    podman logs duckoj_judged_1 2>&1 | grep 'cancel for a submission no judge'
+
+Each line is a job whose watchdog or lapsed lease fired while nothing was
+grading it. Harmless in itself — that is the fix working — but a steady stream
+means jobs are being cancelled before they reach a judge, which is worth
+tracing to the packages or the agent, not the bridge.
 
 ### Adding a second judge container
 
@@ -838,7 +868,9 @@ key)`, so the work is registration and a service copy.
    `wait_healthy` step alongside `judge`, so a second judge that never comes
    online fails the bring-up loudly instead of silently halving capacity.
 
-5. **Then, and only then, raise `JUDGED_CONCURRENCY` to 2 per judge.**
+5. **Then, and only then, raise `JUDGED_CONCURRENCY` to 2** — one loop per
+   judge. Until the second judge is actually handshaking, the second loop
+   cannot win a judge slot and the change is inert (D28).
 
 What is genuinely untested about this: two judges grading the same problem
 concurrently, and the `live`-map hazard `DmojDriver`'s class comment already

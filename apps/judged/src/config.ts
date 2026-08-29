@@ -8,13 +8,17 @@ const EnvSchema = z.object({
   WORKER_ID: z.string().min(1).default('judged-1'),
   /**
    * How many independent claim loops this process runs (see
-   * `startWorkerPool`). Default 2: one loop means a single slow grade blocks
-   * every submission behind it, which on a contest day is the difference
-   * between a queue that drains and one that does not. Capped at 16 because
-   * the DMOJ judge, not `judged`, is the real ceiling — anything past the
-   * number of judge containers only deepens the queue at the judge.
+   * `startWorkerPool`). Default 1: **one loop per judge container**, and this
+   * stack runs one judge.
+   *
+   * A DMOJ judge grades one submission per connection, and each loop now
+   * reserves a judge slot before it claims (`JudgeDriver.tryAcquireSlot`), so
+   * a second loop against a single judge never wins a slot — it polls and
+   * backs off. Raising this past the number of judges is therefore inert, not
+   * merely unhelpful; raise it with the fleet, in step (D28, docs/runbook.md
+   * "Judging throughput"). Capped at 16 for the same reason.
    */
-  JUDGED_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+  JUDGED_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(1),
   /** Where judge-agent's `POST /packages/ensure` lives, dialled before every dispatch. */
   AGENT_ORIGIN: z.string().url().default('http://judge-agent:3002'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
