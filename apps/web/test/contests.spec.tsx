@@ -50,6 +50,25 @@ describe('ContestPage', () => {
     expect(screen.queryByRole('link', { name: /^Nộp bài$/ })).toBeNull();
   });
 
+  it('does not ask whether a VISITOR has joined', async () => {
+    // `GET /contests/{key}/me` is session-only: signed out it answers 401,
+    // not 404, so asking it unconditionally put a red line in the console of
+    // every anonymous visitor to a contest page — the most public page the
+    // app has. Found by Task P5's journey 6, whose watchdog fails on any
+    // 4xx that is not documented as by-design.
+    get.mockImplementation((path: string) =>
+      path === '/contests/{key}'
+        ? Promise.resolve({ data: RUNNING })
+        : Promise.resolve({ data: undefined }),
+    );
+    wrap(<ContestPage contestKey="spring" />);
+
+    // The page still renders, and still offers the join it cannot yet know
+    // about.
+    expect(await screen.findByRole('button', { name: /^Tham gia$/ })).toBeInTheDocument();
+    expect(get.mock.calls.map(([path]) => path as string)).not.toContain('/contests/{key}/me');
+  });
+
   it('shows the window and attempt once joined', async () => {
     const endTime = new Date(Date.now() + 1_800_000).toISOString();
     get.mockImplementation((path: string) =>

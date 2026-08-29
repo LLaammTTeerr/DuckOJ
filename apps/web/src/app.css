@@ -430,6 +430,29 @@ tr:hover td {
   color: var(--muted, inherit);
 }
 
+/* On a phone, a table that does not fit scrolls ITSELF — the page must not.
+   The problem list's six columns need ~392px of content and a 390px-wide
+   phone leaves 358px inside `main`'s padding, so the whole document scrolled
+   sideways: the nav, the heading and every other row slid under the thumb
+   together, and the column you were reading was never the one that moved.
+   Found by Task P5's journey 6, which measures
+   `documentElement.scrollWidth <= innerWidth` on a 390x844 viewport.
+
+   `display: block` is what makes the table a scroll container at all — a
+   `<table>` is not one, and `overflow-x` alone does nothing to it. The cost
+   is that a table NARROWER than the screen no longer stretches to the panel's
+   full width on a phone, so its rules stop short of the right edge; that is a
+   cosmetic loss on one breakpoint against a page that could not be read at
+   all. Desktop layout is untouched: the rule lives inside the breakpoint. */
+@media (max-width: 700px) {
+  table {
+    display: block;
+    overflow-x: auto;
+    /* Keeps the horizontal scroll from also becoming a vertical one. */
+    overflow-y: hidden;
+  }
+}
+
 /* --- forms ------------------------------------------------------------- */
 
 label {

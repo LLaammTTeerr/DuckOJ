@@ -131,12 +131,19 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
 
   // 404 is the ordinary "you have not joined" answer, so it is a state rather
   // than an error — see the endpoint's own note.
+  //
+  // `enabled` because the route is session-only: to a signed-out visitor it
+  // answers 401, and a contest page is the most public page this app has.
+  // Asking anyway put a red console line under every anonymous visit and
+  // taught nothing — a visitor has joined nothing by definition. Same guard
+  // the notification bell uses.
   const participation = useQuery({
     queryKey: ['contest-me', contestKey],
     queryFn: async () => {
       const { data } = await api.GET('/contests/{key}/me', { params: { path: { key: contestKey } } });
       return data ?? null;
     },
+    enabled: me.data != null,
   });
 
   async function join(): Promise<void> {
