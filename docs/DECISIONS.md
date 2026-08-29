@@ -428,3 +428,24 @@ Rulings taken during task P1-D with nobody to ask.
   during a freeze for anyone polling it. It is a leak of the same family and
   it is not this task's; naming it here is what stops it being rediscovered as
   a surprise.
+
+## D24 — A submission names its contest with no visibility check of its own
+
+`SubmissionSummary` and `SubmissionDetail` both carry `contestKey` /
+`contestLabel`, read from `contest_submissions ⋈ contest_participations ⋈
+contests` as a LEFT JOIN, and `null` for a practice submission. The link is
+the `contest_submissions` row — never "a submission targeting a problem this
+contest happens to contain".
+
+**No `canViewContest` gate is applied to it**, matching what
+`SubmissionListQuery.contest` already does: the filter narrows an
+already-`visibleSubmissionsWhere`-restricted set and asks nothing further
+about the contest. The rule is therefore *whoever may see the submission may
+see which contest it sits in*. The alternative — a per-row visibility check —
+would cost the one-query property `listVisible` is built around, and would be
+answering a question the caller can already answer by other means: they are
+looking at the submission itself.
+
+Safe against fan-out because `contest_submissions_submission_idx` is UNIQUE on
+`submission_id`: at most one contest row per submission, so page size and the
+keyset cursor computed from it are untouched.

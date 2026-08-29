@@ -41,6 +41,28 @@ export const SubmissionCaseDto = z.object({
   feedback: z.string().nullable(),
 });
 
+/**
+ * Which contest this submission was made INTO, or `null` for a practice
+ * submission — the `contest_submissions` row, never "a submission that
+ * happens to target a contest's problem" (the same distinction
+ * `SubmissionListQuery.contest` draws).
+ *
+ * Spread into BOTH `SubmissionDetail` and `SubmissionSummary` rather than
+ * declared twice: a list row and a detail page must never disagree about
+ * which contest a submission belongs to.
+ *
+ * Visibility: exactly what the `contest` filter already applies — none of
+ * its own. A caller who may see the submission at all may see which contest
+ * it sits in; the key is only ever attached to a row `visibleSubmissionsWhere`
+ * has already admitted, so it discloses nothing about contests whose
+ * submissions the caller cannot list.
+ */
+const CONTEST_LINK = {
+  contestKey: z.string().nullable(),
+  /** The contest's display name — `null` exactly when `contestKey` is. */
+  contestLabel: z.string().nullable(),
+};
+
 export const SubmissionDetail = z.object({
   id: z.number().int(),
   problemCode: z.string(),
@@ -63,6 +85,7 @@ export const SubmissionDetail = z.object({
   memoryKb: z.number().int().nullable(),
   compileOutput: z.string().nullable(),
   cases: z.array(SubmissionCaseDto),
+  ...CONTEST_LINK,
   createdAt: Timestamp,
   judgedAt: Timestamp.nullable(),
   /**
@@ -110,6 +133,7 @@ export const SubmissionSummary = z.object({
   verdict: Verdict.nullable(),
   points: z.number().nullable(),
   maxPoints: z.number().nullable(),
+  ...CONTEST_LINK,
   createdAt: Timestamp,
   /**
    * As on `SubmissionDetail` (D23): `verdict` and `points` are `null` because

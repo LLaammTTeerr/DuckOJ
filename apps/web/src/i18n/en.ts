@@ -33,6 +33,7 @@ export const en = {
   'nav.security': 'Security',
   'nav.signIn': 'Sign in',
   'nav.signOut': 'Sign out',
+  'nav.register': 'Register',
   'nav.notifications': 'Notifications, {count} unread',
   'nav.language': 'Language',
   'nav.languageVi': 'Vietnamese',
@@ -101,6 +102,22 @@ export const en = {
   'auth.verifyIntroNoToken': 'This link is missing its token.',
   'auth.verifySubmit': 'Confirm address',
   'auth.verifyDone': 'Address confirmed.',
+  'auth.registerTitle': 'Create an account',
+  'auth.registerIntro': 'A username, an address, and a password you have not used elsewhere.',
+  'auth.registerSubmit': 'Register',
+  'auth.registerLink': 'No account yet? Register',
+  'auth.haveAccount': 'Already have an account? Sign in',
+  'auth.displayName': 'Display name',
+  'auth.confirmPassword': 'Confirm password',
+  'auth.registerFailed': 'Could not create the account.',
+  'auth.verificationSent':
+    'A confirmation link will be sent to this address. Nothing here waits on it — registering signs you in straight away.',
+  'auth.errUsernameLength': 'Between 3 and 32 characters.',
+  'auth.errUsernameChars': 'Letters, digits, dot, underscore and hyphen only.',
+  'auth.errEmail': 'That does not look like an email address.',
+  'auth.errDisplayName': 'Between 1 and 64 characters.',
+  'auth.errPasswordLength': 'At least 10 characters.',
+  'auth.errPasswordMismatch': 'The two passwords do not match.',
 
   // ── home ──────────────────────────────────────────────────────────────
   'home.intro':
@@ -215,6 +232,7 @@ export const en = {
   'submissions.any': 'Any',
   'submissions.colId': 'id',
   'submissions.colProblem': 'problem',
+  'submissions.colContest': 'contest',
   'submissions.colUser': 'user',
   'submissions.colLanguage': 'language',
   'submissions.colVerdict': 'verdict',
@@ -226,6 +244,7 @@ export const en = {
   // D23. Hover text on the `?` a frozen row shows instead of a verdict —
   // "there is a result and it is being withheld", never "still grading".
   'submission.frozen': 'Hidden until the scoreboard unfreezes.',
+  'submission.contest': 'Contest',
 
   // ── contests ──────────────────────────────────────────────────────────
   'contests.title': 'Contests',

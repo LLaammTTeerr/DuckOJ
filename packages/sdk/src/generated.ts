@@ -3864,6 +3864,8 @@ export interface paths {
                                 verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE" | null;
                                 points: number | null;
                                 maxPoints: number | null;
+                                contestKey: string | null;
+                                contestLabel: string | null;
                                 /** Format: date-time */
                                 createdAt: string;
                                 frozen: boolean;
@@ -4087,6 +4089,8 @@ export interface paths {
                                 maxPoints: number;
                                 feedback: string | null;
                             }[];
+                            contestKey: string | null;
+                            contestLabel: string | null;
                             /** Format: date-time */
                             createdAt: string;
                             /** Format: date-time */

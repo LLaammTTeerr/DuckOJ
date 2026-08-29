@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import {
   contestParticipations,
   contests,
@@ -30,6 +31,29 @@ import {
   maskFrozenDetail,
   maskFrozenSummary,
 } from './submission.freeze.js';
+
+/**
+ * The `contest_submissions ⋈ contest_participations ⋈ contests` chain that
+ * answers "which contest was this submission made INTO", attached as a LEFT
+ * JOIN to both read paths so a list row and a detail page cannot disagree.
+ *
+ * Aliased, not used bare: `listVisible`'s `contest=` filter builds a
+ * subquery over these same three tables, and an unaliased outer join would
+ * put two `contests` in one statement — legal SQL (the inner one shadows),
+ * but a shadowing that only has to be read wrong once.
+ *
+ * A LEFT JOIN is safe against row fan-out here because
+ * `contest_submissions_submission_idx` is UNIQUE on `submission_id`: at most
+ * one contest row per submission, so the page size — and the keyset cursor
+ * computed from it — is untouched.
+ *
+ * No contest-visibility predicate of its own, matching the `contest` filter
+ * exactly: the key rides along on rows `visibleSubmissionsWhere` has already
+ * admitted.
+ */
+const contestLink = alias(contestSubmissions, 'link_contest_submissions');
+const contestLinkParticipation = alias(contestParticipations, 'link_contest_participations');
+const contestLinkContest = alias(contests, 'link_contests');
 
 /**
  * The ONLY module permitted to import `@duckoj/db/guarded` for submissions,
@@ -272,6 +296,8 @@ export class SubmissionAccessService {
         verdict: submissions.verdict,
         points: submissions.points,
         maxPoints: submissions.maxPoints,
+        contestKey: contestLinkContest.key,
+        contestLabel: contestLinkContest.name,
         createdAt: submissions.createdAt,
         // The SQL form of the freeze predicate, as a computed column. The
         // list cannot use the row form: it would need this submission's
@@ -282,6 +308,9 @@ export class SubmissionAccessService {
       .innerJoin(problems, eq(problems.id, submissions.problemId))
       .innerJoin(schema.languages, eq(schema.languages.id, submissions.languageId))
       .innerJoin(schema.users, eq(schema.users.id, submissions.userId))
+      .leftJoin(contestLink, eq(contestLink.submissionId, submissions.id))
+      .leftJoin(contestLinkParticipation, eq(contestLinkParticipation.id, contestLink.participationId))
+      .leftJoin(contestLinkContest, eq(contestLinkContest.id, contestLinkParticipation.contestId))
       .where(and(...conditions))
       .orderBy(desc(submissions.id))
       .limit(filters.limit + 1);
@@ -296,6 +325,8 @@ export class SubmissionAccessService {
         verdict: row.verdict,
         points: row.points,
         maxPoints: row.maxPoints,
+        contestKey: row.contestKey,
+        contestLabel: row.contestLabel,
         createdAt: row.createdAt.toISOString(),
         frozen: false,
       };
@@ -337,12 +368,17 @@ export class SubmissionAccessService {
         timeMs: submissions.timeMs,
         memoryKb: submissions.memoryKb,
         compileOutput: submissions.compileOutput,
+        contestKey: contestLinkContest.key,
+        contestLabel: contestLinkContest.name,
         createdAt: submissions.createdAt,
         judgedAt: submissions.judgedAt,
       })
       .from(submissions)
       .innerJoin(problems, eq(problems.id, submissions.problemId))
       .innerJoin(schema.languages, eq(schema.languages.id, submissions.languageId))
+      .leftJoin(contestLink, eq(contestLink.submissionId, submissions.id))
+      .leftJoin(contestLinkParticipation, eq(contestLinkParticipation.id, contestLink.participationId))
+      .leftJoin(contestLinkContest, eq(contestLinkContest.id, contestLinkParticipation.contestId))
       .where(eq(submissions.id, id))
       .limit(1);
 
@@ -423,6 +459,8 @@ export class SubmissionAccessService {
       timeMs: row.timeMs,
       memoryKb: row.memoryKb,
       compileOutput: row.compileOutput,
+      contestKey: row.contestKey,
+      contestLabel: row.contestLabel,
       cases: cases.map((c) => ({
         groupIndex: c.groupIndex,
         caseIndex: c.caseIndex,

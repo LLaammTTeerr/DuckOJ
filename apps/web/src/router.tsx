@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, createRootRoute, createRoute, createRouter, useParams, useSearch } from '@tanstack/react-router';
 import { LoginForm, type LoginValues } from './routes/login.js';
+import { RegisterPage } from './routes/register.js';
 import { DEFAULT_PROBLEM_CODE, SubmitPage } from './routes/submit.js';
 import { ProblemsPage } from './routes/problems.js';
 import { ProblemPage } from './routes/problem.js';
@@ -54,6 +55,13 @@ function RecoveryLink() {
   return (
     <p className="muted">
       <Link to="/forgot-password">{t('auth.forgotPassword')}</Link>
+      {' · '}
+      {/* Beside recovery rather than inside `LoginForm`, for the same reason
+          recovery is: the form is deliberately router-free so its tests can
+          render it bare. Every place that shows the signed-out form — `/`,
+          `/submit`, `/submissions` — renders this component right after it,
+          so all three grow the way in as well as the way back in. */}
+      <Link to="/register">{t('auth.registerLink')}</Link>
     </p>
   );
 }
@@ -239,7 +247,10 @@ export function ShellNav() {
             <SignOutButton />
           </>
         ) : (
-          <Link to="/">{t('nav.signIn')}</Link>
+          <>
+            <Link to="/">{t('nav.signIn')}</Link>
+            <Link to="/register">{t('nav.register')}</Link>
+          </>
         )}
       </div>
     </nav>
@@ -533,6 +544,12 @@ const userRoute = createRoute({
   component: UserRouteComponent,
 });
 
+const registerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/register',
+  component: RegisterPage,
+});
+
 const forgotPasswordRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/forgot-password',
@@ -561,6 +578,7 @@ const routeTree = rootRoute.addChildren([
   submitRoute,
   submissionsRoute,
   submissionRoute,
+  registerRoute,
   forgotPasswordRoute,
   resetPasswordRoute,
   verifyEmailRoute,
