@@ -26,6 +26,7 @@
  * |--------------------------------------------|------------------------------------------------------|
  * | `ctx === null` (no contest)                 | `not exists (… contest_submissions …)`               |
  * | `submission.userId === actor.userId`        | `submissions.user_id <> :me`                          |
+ * | (no row form — a profile has no one row)    | `actor === null` drops both ownership clauses         |
  * | `isAdmin(actor)`                            | the whole predicate collapses to `false`              |
  * | `ctx.contestCreatedBy === actor.userId`     | `contests.created_by <> :me`                          |
  * | `freezeAtMs(end, F)` / `isFrozenAt(...)`    | `:now >= endsAt − F min AND :now < endsAt`            |
@@ -111,11 +112,11 @@ export function isSubmissionFrozen(
  * subqueries with the query builder, this one is a single raw expression and
  * a `db` parameter would only be there to look symmetrical.
  */
-export function frozenSubmissionsWhere(actor: Actor, now: Date): SQL<boolean> {
+export function frozenSubmissionsWhere(actor: Actor | null, now: Date): SQL<boolean> {
   // An admin is never masked, so the whole expression collapses rather than
   // being evaluated and then ignored — the same shape `visibleSubmissionsWhere`
   // uses for the clause that makes its own predicate trivially true.
-  if (isAdmin(actor)) return sql<boolean>`false`;
+  if (actor !== null && isAdmin(actor)) return sql<boolean>`false`;
 
   // `participationEndMs`, restated in SQL. Read it beside that function, not
   // alone: spectators take the contest's end, a live entrant is capped by it,
@@ -144,8 +145,18 @@ export function frozenSubmissionsWhere(actor: Actor, now: Date): SQL<boolean> {
   // expression is compared three ways.
   const at = sql`${now.toISOString()}::timestamptz`;
 
+  // `null` is an ANONYMOUS viewer, and the two ownership escapes below are
+  // the only clauses that mention the actor at all: nobody is the submitter,
+  // and nobody is the contest's creator, so both simply drop. Written as
+  // omitted conjuncts rather than as `<> -1` against a sentinel id — a
+  // sentinel would be a second thing to get right, and `user_id <> -1` reads
+  // as a real comparison rather than as "this clause does not apply".
+  const notMine = actor === null ? sql`true` : sql`${submissions.userId} <> ${actor.userId}`;
+  const notMyContest =
+    actor === null ? sql`true` : sql`${contests.createdBy} <> ${actor.userId}`;
+
   const predicate = sql`(
-    ${submissions.userId} <> ${actor.userId}
+    ${notMine}
     and exists (
       select 1
       from ${contestSubmissions}
@@ -154,7 +165,7 @@ export function frozenSubmissionsWhere(actor: Actor, now: Date): SQL<boolean> {
       join ${contests} on ${contests.id} = ${contestParticipations.contestId}
       where ${contestSubmissions.submissionId} = ${submissions.id}
         and ${contests.frozenLastMinutes} > 0
-        and ${contests.createdBy} <> ${actor.userId}
+        and ${notMyContest}
         and ${at} >= ${freezeAt}
         and ${at} < (${endsAt})
         and ${submissions.createdAt} >= ${freezeAt}

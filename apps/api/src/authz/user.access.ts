@@ -14,6 +14,7 @@ import { DB } from '../config/config.module.js';
 import { likeEscape } from './problem.access.js';
 import { AppError } from '../common/app.error.js';
 import type { Actor } from './actor.js';
+import { frozenSubmissionsWhere } from './submission.freeze.js';
 
 const { users } = schema;
 
@@ -74,7 +75,13 @@ export class UserAccessService {
     };
   }
 
-  async getByUsername(username: string): Promise<UserProfileDto> {
+  /**
+   * `actor` is `Actor | null` because the route is `@Public()` — an anonymous
+   * poller is exactly the viewer this endpoint's freeze leak (M1) was
+   * discovered from, so "no actor" has to be a real, non-privileged case
+   * rather than a caller the type system lets a handler forget.
+   */
+  async getByUsername(username: string, actor: Actor | null): Promise<UserProfileDto> {
     const row = (
       await this.db
         .select({ ...PUBLIC_COLUMNS, about: users.about })
@@ -87,7 +94,7 @@ export class UserAccessService {
     // private is meant to prevent.
     if (!row) throw new AppError(404, 'user_not_found', 'No such user.');
 
-    return { ...toSummary(row), about: row.about, stats: await this.statsFor(row.id) };
+    return { ...toSummary(row), about: row.about, stats: await this.statsFor(row.id, actor) };
   }
 
   async updateMe(actor: Actor, body: UpdateMeRequestDto): Promise<UserProfileDto> {
@@ -105,7 +112,9 @@ export class UserAccessService {
       .from(users)
       .where(eq(users.id, actor.userId));
     if (!row) throw new AppError(404, 'user_not_found', 'No such user.');
-    return this.getByUsername(row.username);
+    // The actor is themselves, so the freeze below never applies: editing your
+    // profile must not blank out your own numbers for the rest of a contest.
+    return this.getByUsername(row.username, actor);
   }
 
   /**
@@ -113,18 +122,42 @@ export class UserAccessService {
    * same thing to every reader (§4). Computed on read rather than denormalised
    * onto the row: a stored counter is a second write path that drifts, and this
    * project deleted one such column the same week.
+   *
+   * ## The freeze (M1, D22/D23)
+   *
+   * `solvedCount` and `points` describe an OUTCOME, which is exactly what a
+   * frozen board withholds. Without the exclusion below, a competitor polling
+   * `/users/rival` through the last hour of a rated contest reads
+   * `solvedCount` tick 3→4 the moment the rival's AC lands, and `points`
+   * 210→268 for how much it was worth under partial scoring — strictly more
+   * than the board's own `pending` count discloses, which says only that an
+   * attempt exists. D23 named this leak in its "Out of scope, deliberately"
+   * clause; this closes it with the same predicate the submission routes use
+   * (`frozenSubmissionsWhere`), never a second copy of the rule.
+   *
+   * `submissionCount` is deliberately NOT filtered. "Somebody submitted" is
+   * what `pending` already announces, `GET /submissions` still lists every
+   * frozen row, and a count that disagreed with a list the same viewer can
+   * page would be a new inconsistency bought with no secrecy.
+   *
+   * One clock for both aggregates, read once: two queries either side of a
+   * freeze instant that ticked between them would publish a `solvedCount`
+   * its `points` could not account for.
    */
-  private async statsFor(userId: number): Promise<UserStatsDto> {
+  private async statsFor(userId: number, actor: Actor | null): Promise<UserStatsDto> {
     const publicProblem = and(
       eq(submissions.userId, userId),
       eq(problems.visibility, 'public'),
     );
+    const frozen = frozenSubmissionsWhere(actor, new Date());
 
     const [totals] = await this.db
       .select({
         submissionCount: count(submissions.id),
+        // The exclusion sits INSIDE the `case`, not in the `WHERE`: in the
+        // `WHERE` it would drop the row from `submissionCount` too.
         solvedCount: countDistinct(
-          sql`case when ${submissions.verdict} = 'AC' then ${submissions.problemId} end`,
+          sql`case when ${submissions.verdict} = 'AC' and not ${frozen} then ${submissions.problemId} end`,
         ),
       })
       .from(submissions)
@@ -140,7 +173,10 @@ export class UserAccessService {
       })
       .from(submissions)
       .innerJoin(problems, eq(problems.id, submissions.problemId))
-      .where(publicProblem)
+      // Here the `WHERE` is the right place: this subquery feeds `points`
+      // alone, and a frozen submission must not raise the best-per-problem
+      // maximum it is folded into.
+      .where(and(publicProblem, sql`not ${frozen}`))
       .groupBy(submissions.problemId)
       .as('best_per_problem');
 

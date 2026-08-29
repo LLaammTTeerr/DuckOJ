@@ -9,7 +9,7 @@ import {
   type UserProfileDto,
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
-import { CurrentActor, Public } from '../authn/auth.guard.js';
+import { CurrentActor, MaybeActor, Public } from '../authn/auth.guard.js';
 import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { UserAccessService } from '../authz/user.access.js';
@@ -50,11 +50,21 @@ export class UsersController {
     return this.users.list(query);
   }
 
+  /**
+   * `@MaybeActor()`, not `@CurrentActor()`: the route is public, and the
+   * actor is not for authorization but for the freeze (M1) — `solvedCount`
+   * and `points` withhold a rival's contest ACs while their board is frozen,
+   * and an anonymous poller is the least privileged viewer there is, not an
+   * exempt one.
+   */
   @Get(':username')
   @Public()
   @RequireScope('users:read')
-  get(@Param('username') username: string): Promise<UserProfileDto> {
-    return this.users.getByUsername(username);
+  get(
+    @Param('username') username: string,
+    @MaybeActor() actor: Actor | null,
+  ): Promise<UserProfileDto> {
+    return this.users.getByUsername(username, actor);
   }
 
   /** Under `users:read`: a rating history is part of a public profile. */
