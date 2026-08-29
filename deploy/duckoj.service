@@ -6,20 +6,39 @@
 # served nothing. This unit is the fix; `loginctl enable-linger` makes user
 # units start at boot without a login.
 #
-# Install:
+# Install (and everything else about this unit — what SKIP_BUILD=1 means, how
+# to read its status and logs, and why a redeploy after `git pull` must be a
+# manual `scripts/compose-up.sh` — is documented in docs/runbook.md, section
+# "Boot and reboot". That section is the source of truth; these four lines are
+# the reminder):
 #   loginctl enable-linger "$USER"
 #   mkdir -p ~/.config/systemd/user
 #   sed "s|__REPO__|$PWD|" deploy/duckoj.service > ~/.config/systemd/user/duckoj.service
 #   systemctl --user daemon-reload && systemctl --user enable --now duckoj
 [Unit]
 Description=DuckOJ compose stack
-After=network-online.target
-Wants=network-online.target
+# NOT network-online.target: a systemd USER manager has no such unit (review
+# finding m8 — confirmed absent from `systemctl --user list-unit-files`), so
+# the ordering that used to be written here was silently dropped and
+# compose-up.sh could start before the network was usable. The generous
+# timeouts below masked it most of the time. `podman-user-wait-network-online`
+# is the unit that DOES exist in the user manager for exactly this, shipped
+# static by podman itself.
+After=podman-user-wait-network-online.service
+Wants=podman-user-wait-network-online.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=__REPO__
+# SKIP_BUILD=1 makes compose-up.sh reuse the images already on disk instead of
+# rebuilding them on every power cycle, which would delay availability by
+# minutes for nothing. The cost, stated plainly because it is a real one
+# (review finding M10): this unit NEVER picks up a code change. It recreates
+# containers from whatever images exist, so if someone pulled since the last
+# manual build, a reboot brings the stack up fully healthy while running the
+# previous build. After ANY code change, run `scripts/compose-up.sh` by hand
+# (without SKIP_BUILD) — see docs/runbook.md, "Boot and reboot".
 Environment=SKIP_BUILD=1
 Environment=API_TIMEOUT=180
 Environment=JUDGED_TIMEOUT=180

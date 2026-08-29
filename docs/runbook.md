@@ -626,6 +626,117 @@ podman-compose was available here); behavior under a fresh Podman socket after
 a host reboot; and the exact internal mechanism podman-compose uses when
 checking `service_completed_successfully` (see the hedge above — the symptom
 is confirmed, the internal cause is inferred, not traced).
+
+## Boot and reboot
+
+Podman has no daemon. `docker-compose.yml`'s `restart: unless-stopped` is
+therefore worth nothing across a power cycle: on 2026-08-25 this host rebooted
+and every container sat in `Exited` for **four days** while the tailscale URL
+served nothing at all. Two systemd **user** units close that hole —
+`deploy/duckoj.service` (the stack) and `deploy/duckoj-backup.timer` (the
+nightly backup). Both are user units, so both need lingering.
+
+### Installing both units
+
+    loginctl enable-linger "$USER"
+    mkdir -p ~/.config/systemd/user
+
+    # the stack
+    sed "s|__REPO__|$PWD|" deploy/duckoj.service > ~/.config/systemd/user/duckoj.service
+
+    # the nightly backup (service + timer; the service has no [Install] — it
+    # exists to be fired by the timer, never enabled on its own)
+    sed "s|__REPO__|$PWD|" deploy/duckoj-backup.service > ~/.config/systemd/user/duckoj-backup.service
+    sed "s|__REPO__|$PWD|" deploy/duckoj-backup.timer   > ~/.config/systemd/user/duckoj-backup.timer
+
+    systemctl --user daemon-reload
+    systemctl --user enable --now duckoj
+    systemctl --user enable --now duckoj-backup.timer
+
+`loginctl enable-linger` is the load-bearing line. Without it a *user* manager
+only exists while that user has a login session, so nothing starts at boot and
+everything is torn down at logout — which is exactly the four-day outage
+above, with extra steps. Run it once; it survives reboots.
+
+`__REPO__` is substituted with `$PWD`, so run these from the real checkout
+(`/home/lamter/Projects/duckoj`), not from a worktree.
+
+### `SKIP_BUILD=1`: what the boot unit does *not* do
+
+`deploy/duckoj.service` sets `SKIP_BUILD=1`, which makes `scripts/compose-up.sh`
+skip `podman-compose build` and bring the stack up from the images already on
+disk. That is deliberate: rebuilding every image on every power cycle would
+delay availability by minutes, on a machine whose only job at that moment is
+to be reachable again.
+
+**The consequence, stated plainly: this unit never picks up a code change.**
+It recreates containers from whatever images exist. If someone ran `git pull`
+since the last manual build, a reboot brings the stack up reporting fully
+healthy while serving the *previous* build, and the checkout on disk says
+otherwise. `compose-up.sh`'s own comments argue at length that a bring-up
+which reports healthy while running old code "does not fail, it lies" — that
+hazard is not eliminated here, it is *scheduled*, and this is where you find
+out about it.
+
+**So: after any code change, redeploy by hand.**
+
+    cd ~/Projects/duckoj && git pull
+    scripts/compose-up.sh            # no SKIP_BUILD — this one rebuilds
+
+That is the whole redeploy procedure. `systemctl --user restart duckoj` is
+*not* a redeploy: it re-runs the same script with `SKIP_BUILD=1` still set and
+gives you the old images back.
+
+### Checking status and logs
+
+    systemctl --user status duckoj              # active (exited) is correct — Type=oneshot + RemainAfterExit
+    journalctl --user -u duckoj -n 100          # the last bring-up, i.e. compose-up.sh's own output
+    journalctl --user -u duckoj -b              # this boot only
+    podman ps                                   # what is actually running now
+
+`Type=oneshot` with `RemainAfterExit=yes` means a healthy unit shows **`active
+(exited)`**, not `active (running)`. That is not a fault. The containers are
+supervised by podman, not by this unit; the unit's job is to have run
+`compose-up.sh` successfully once. If it says `failed`, the journal holds
+`compose-up.sh`'s `FATAL:` line and the failing service's logs — the script
+prints both before exiting non-zero.
+
+`ExecStop` is `podman-compose stop`, so `systemctl --user stop duckoj` stops
+the stack. That is also how you take the site down deliberately; the backup
+timer will **not** bring it back up (see below).
+
+### Verifying the nightly backup actually ran
+
+    systemctl --user list-timers duckoj-backup.timer
+    journalctl --user -u duckoj-backup -n 50
+
+`list-timers` shows `NEXT`/`LEFT` and `LAST`/`PASSED`. A `LAST` of `n/a` on a
+host that has been up for more than a day means it has never fired — check
+that the timer is `enabled` and that lingering is on. The journal holds
+`backup.sh`'s own output, including the `==> Wrote:` sizes, so a backup that
+"ran" but produced a suspiciously small dump is visible there.
+
+Force one now, without waiting for 03:00:
+
+    systemctl --user start duckoj-backup.service
+
+Two properties worth knowing, both deliberate:
+
+- The timer fires at `03:00:00 Asia/Ho_Chi_Minh` with the timezone written
+  into the expression, because a bare `03:00` that silently means UTC is 10:00
+  local — the middle of a contest morning, the one hour a `pg_dump` must not
+  start. `Persistent=true` makes the first boot after a powered-off night take
+  the backup it missed.
+- The backup unit is ordered `After=duckoj.service` but no longer `Wants=` it.
+  A stack you stopped on purpose stays stopped: 03:00 will not silently start
+  it, and `backup.sh` will exit loudly instead, which is the intended
+  behaviour.
+
+**Nothing alerts you when a backup fails.** `Type=oneshot` with no
+`OnFailure=` means a nightly `pg_dump` that starts failing is visible only in
+`journalctl`. D17 accepts that; it is a known cost, not an oversight. Someone
+has to look.
+
 ## Backups
 
 Two things on this host are irreplaceable: the Postgres database, and the
@@ -649,26 +760,86 @@ are written to `.partial` and renamed only after the producing command exits
 0, so the directory never holds a truncated file under a name that looks
 restorable.
 
-Env: `KEEP`, `COMPOSE_PROJECT`, `PG_CONTAINER`, `STORE_VOLUME`, `PG_USER`,
-`PG_DB`, `SKIP_STORE=1`.
+Env: `KEEP`, `COMPOSE_PROJECT_NAME`, `PG_CONTAINER`, `STORE_VOLUME`,
+`PG_USER`, `PG_DB`, `SKIP_STORE=1`. `KEEP` must be a non-negative integer and
+is validated before any work is done, so a typo cannot fail the run *after* a
+good backup is already on disk.
 
-**From a git worktree, pass `COMPOSE_PROJECT=duckoj`.** The compose project
-name is the repo *directory* name — exactly as `scripts/compose-up.sh`
+**From a git worktree, pass `COMPOSE_PROJECT_NAME=duckoj`.** The compose
+project name is the repo *directory* name — exactly as `scripts/compose-up.sh`
 computes it — so run from a worktree the container lookup finds nothing and
-the script exits non-zero telling you this.
+the script exits non-zero telling you this. (The older `COMPOSE_PROJECT` is
+still accepted as a deprecated alias by both scripts. Use the new name: in
+`restore.sh` the difference is load-bearing, and dangerous — see Restoring.)
+
+### The backups contain the identity table — the file modes are the protection
+
+A dump holds every `users` row: argon2id password hashes, the email addresses
+and display names of students who are minors, session and token hashes, and
+encrypted TOTP secrets. There is no encryption at rest and no access log on
+these files, so the only thing between them and another account on this host
+is the filesystem mode. `backup.sh` sets `umask 077` before it creates
+anything and enforces:
+
+    ~/duckoj-backups            drwx------   (700)
+    ~/duckoj-backups/duckoj-*   -rw-------   (600)
+
+Every pre-existing `duckoj-*` file in the destination is tightened on each
+run, so a directory created before this was enforced gets fixed on the next
+nightly rather than staying loose forever. **If `ls -l ~/duckoj-backups` ever
+shows anything other than those modes, something outside these scripts wrote
+there — investigate it.** The same applies to wherever the off-host copies
+land: `scp` does not preserve a 700 directory into a world-readable parent.
 
 ### Restoring
 
     CONFIRM=yes scripts/restore.sh ~/duckoj-backups/duckoj-20260829-030000
 
 It refuses to run without `CONFIRM=yes` — there is no interactive prompt, so
-that it fails rather than hangs when run from an unattended shell. It stops
-`api` and `judged` (both hold connections; `judged` actively writes
-`grading_jobs`), leaves `postgres` up, reloads the database with `pg_restore
---clean --if-exists --no-owner`, imports the volume tar, and starts the two
-services again. `SERVICES=""` skips the stop/start entirely — that is how the
-restore path is exercised against a throwaway container without touching a
-live stack.
+that it fails rather than hangs when run from an unattended shell. It also
+refuses if the postgres container it resolved is not **running**, before it
+touches anything.
+
+The sequence, in order:
+
+1. `podman-compose stop api judged` — both hold connections, and `judged` is
+   actively `UPDATE`ing `grading_jobs`. `postgres` stays up; it is what we are
+   restoring into.
+2. `pg_restore --clean --if-exists --no-owner` from `<prefix>.dump`.
+3. **`podman-compose up --no-deps --force-recreate migrate`**, with the same
+   exit-code check `scripts/compose-up.sh` does.
+4. `podman volume import` of `<prefix>.package_store.tar`, if it exists.
+5. `podman-compose start api judged`.
+
+**Step 3 is why a restore is not just a `pg_restore`.** The dump carries the
+schema as of backup time, drizzle's migrations table included, and `--clean`
+replaces the live schema with it. Restore a two-week-old backup onto today's
+images without it and the database is behind the code: the stack comes up
+healthy (no healthcheck touches a new column) and the first request that does
+returns a 500. That is the "schema drift that announces success" `compose-up.sh`
+exists to prevent, and it used to be reintroduced through this path.
+
+#### Which project it talks to — read this before running from a worktree
+
+Pass **`COMPOSE_PROJECT_NAME`**, not `COMPOSE_PROJECT`. `restore.sh` resolves
+one project name (`COMPOSE_PROJECT_NAME`, else the deprecated
+`COMPOSE_PROJECT`, else the repo directory name) and **exports** it, so the
+container lookup and every `podman-compose` call mean the same stack.
+
+Before, they could disagree, and the failure was silent and catastrophic:
+`COMPOSE_PROJECT=duckoj scripts/restore.sh …` from a worktree found the *live*
+postgres by label while `podman-compose stop api judged` targeted the
+worktree's own empty project and printed nothing alarming — so `pg_restore
+--clean` dropped every table underneath a live `api` and a `judged`
+mid-`UPDATE`, which is the exact hazard step 1 exists to prevent. The alias is
+still read so an old invocation now does the right thing, but write the new
+name.
+
+`SERVICES=""` means **data path only**: no `podman-compose` command is run at
+all — no stop, no migrate, no start. That is how the restore path is exercised
+against a throwaway container without going near a live stack
+(`scripts/test/restore.test.sh`), and it is not a mode to use on this host
+unless you are doing exactly that.
 
 It is idempotent. The database half is a full `--clean` reload. The volume
 half is *additive*: `podman volume import` untars over what is already there
@@ -678,34 +849,52 @@ identical bytes. It also means a restore does not delete packages uploaded
 since the backup, which is deliberate: an orphaned blob costs disk, a deleted
 one costs a problem.
 
-`pg_restore` is run without `--exit-on-error`, because a `--clean` reload
-into a fresh database emits harmless "does not exist" noise for every object.
-The script prints a warning when `pg_restore` exits non-zero — **read the
-output before trusting that restore**; it is not a hard failure only because
-the benign case is the common one.
+#### When a step fails
+
+`pg_restore` is still run without `--exit-on-error`, because a `--clean`
+reload into a fresh database emits harmless noise for objects the target never
+had. Its output is judged **afterwards** instead: a non-zero exit, or any
+error line outside the known-benign `already exists` class, is a hard failure.
+
+Which failure it was decides what happens to `api` and `judged`:
+
+- **`pg_restore` failed, or `migrate` failed.** The database is in a state
+  nobody has verified — half the tables restored, or the right tables at the
+  wrong schema version. The script prints the full log, exits non-zero, and
+  **deliberately leaves `api` and `judged` stopped**, telling you so in
+  capitals. A half-restored schema that `api` is serving and `judged` is
+  grading against is worse than a stack that is honestly down. Investigate,
+  fix, re-run the restore; only then `podman-compose start api judged`.
+- **Anything else after the writers were stopped** — most realistically a
+  failed `podman volume import` from a truncated tar. The database is already
+  reloaded and migrated and only package bytes are missing, so a trap
+  **restarts the writers**, loudly, and the script still exits non-zero. The
+  site does not stay down while someone notices.
+
+That split is D30.
+
+**The first real restore should be watched, not trusted.** The data path — the
+`pg_restore` round trip, the migrate step, the volume import, the `CONFIRM`
+gate, idempotence, and both failure paths above — is covered by
+`scripts/test/restore.test.sh` against a throwaway postgres and a stub
+compose binary, which is green. What has *never* run is `podman-compose stop
+api judged` → restore → `start` against this live stack. Do the first one with
+a terminal open on `journalctl`, not from a script.
 
 ### Nightly, unattended
 
 `deploy/duckoj-backup.service` + `deploy/duckoj-backup.timer` are systemd
 *user* units, same shape and same `__REPO__` substitution as
-`deploy/duckoj.service`:
+`deploy/duckoj.service`. **Install steps, how to verify the timer actually
+fired, and how to force a run now are all in "Boot and reboot" above** — the
+two units are installed together and share `loginctl enable-linger`, so they
+are documented in one place rather than two that drift.
 
-    loginctl enable-linger "$USER"
-    mkdir -p ~/.config/systemd/user
-    sed "s|__REPO__|$PWD|" deploy/duckoj-backup.service > ~/.config/systemd/user/duckoj-backup.service
-    sed "s|__REPO__|$PWD|" deploy/duckoj-backup.timer   > ~/.config/systemd/user/duckoj-backup.timer
-    systemctl --user daemon-reload
-    systemctl --user enable --now duckoj-backup.timer
-
-The timer fires at `03:00:00 Asia/Ho_Chi_Minh` — the timezone is in the
-expression on purpose, because a bare "03:00" that silently means UTC is
-10:00 local, the middle of a contest morning. `Persistent=true` makes the
-first boot after a powered-off night take the backup it missed; this host has
-already sat powered off for four days once (see the incident note in
-`deploy/duckoj.service`).
-
-Check it: `systemctl --user list-timers duckoj-backup.timer`, and
-`journalctl --user -u duckoj-backup -n 50` for the last run.
+The one-line summary: the timer fires at `03:00:00 Asia/Ho_Chi_Minh` with the
+timezone in the expression (a bare "03:00" meaning UTC is 10:00 local, the
+middle of a contest morning), `Persistent=true` catches up a backup missed
+while powered off, and `systemctl --user list-timers duckoj-backup.timer` plus
+`journalctl --user -u duckoj-backup -n 50` are how you tell whether it ran.
 
 **Off-host copies are not automated and are not this repo's job** (D17).
 Fourteen nightly backups on the same disk as the database protect against
@@ -770,7 +959,7 @@ several:
 ### Putting a second proxy in front of Caddy changes who the rate limiter sees
 
 The per-IP windows — login's 30 per fifteen minutes (D16) and registration's 5
-per hour (D26) — key on `clientIp()` in
+per hour (D30) — key on `clientIp()` in
 `apps/api/src/authn/auth.controller.ts`, which reads the **first** entry of
 `X-Forwarded-For`.
 
