@@ -1,20 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import { Algorithm, hash, verify } from '@node-rs/argon2';
+import { hashPassword, verifyPassword } from './password.hash.js';
 
-/** OWASP-recommended argon2id parameters: 19 MiB, 2 iterations, 1 lane. */
-const OPTIONS = { algorithm: Algorithm.Argon2id, memoryCost: 19_456, timeCost: 2, parallelism: 1 };
-
+/**
+ * The injectable seam over the KDF. The parameters themselves live in
+ * `password.hash.ts` — a framework-free module `scripts/bootstrap-admin.ts`
+ * can import without a Nest container; see its doc comment.
+ */
 @Injectable()
 export class PasswordService {
   hash(plain: string): Promise<string> {
-    return hash(plain, OPTIONS);
+    return hashPassword(plain);
   }
 
-  async verify(hashed: string, plain: string): Promise<boolean> {
-    try {
-      return await verify(hashed, plain, OPTIONS);
-    } catch {
-      return false;
-    }
+  verify(hashed: string, plain: string): Promise<boolean> {
+    return verifyPassword(hashed, plain);
   }
 }

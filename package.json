@@ -16,7 +16,8 @@
     "verify": "pnpm -r typecheck && pnpm run typecheck:scripts && pnpm -r lint && pnpm run lint:scripts && pnpm -r test && pnpm --filter @duckoj/contracts openapi && pnpm --filter @duckoj/sdk exec openapi-typescript ../../openapi.json -o src/generated.ts && git diff --exit-code -- openapi.json packages/sdk/src/generated.ts && pnpm --filter @duckoj/web exec vite build",
     "seed": "tsx scripts/seed-problem.ts",
     "package:build": "tsx scripts/package-build.ts",
-    "polygon:import": "tsx scripts/polygon-import.ts"
+    "polygon:import": "tsx scripts/polygon-import.ts",
+    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts"
   },
   "dependencies": {
     "@duckoj/db": "workspace:*",
