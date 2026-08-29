@@ -14,6 +14,7 @@ import { asc, inArray } from 'drizzle-orm';
 import { contestSubmissions, submissionCases } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { ContestAccessService } from '../src/authz/contest.access.js';
+import { uncachedScoreboards } from './scoreboard.fixtures.js';
 import { withTestDb } from './db.harness.js';
 import { discoverFixtures, readContest, seedGoldenContest } from './contest-golden.fixtures.js';
 import { computeContestScoreboard } from '@duckoj/contest-formats';
@@ -71,7 +72,7 @@ describe('a regraded submission is scored on its latest attempt only', () => {
 
       await addSecondAttempt(db, (points) => points / 2);
 
-      const board = await new ContestAccessService(db).getScoreboard(null, key);
+      const board = await new ContestAccessService(db, uncachedScoreboards()).getScoreboard(null, key);
       const byName = new Map(board.ranking.map((row) => [row.participant, row.score]));
       for (const row of golden.ranking) {
         expect([row.participant, byName.get(row.participant)]).toEqual([
@@ -85,12 +86,12 @@ describe('a regraded submission is scored on its latest attempt only', () => {
   it('a zeroed second attempt wins over the first', async () => {
     await withTestDb(async (db) => {
       const { key } = await seedGoldenContest(db, readContest(FIXTURE));
-      const before = await new ContestAccessService(db).getScoreboard(null, key);
+      const before = await new ContestAccessService(db, uncachedScoreboards()).getScoreboard(null, key);
       expect(before.ranking.some((row) => row.score > 0)).toBe(true);
 
       await addSecondAttempt(db, () => 0);
 
-      const after = await new ContestAccessService(db).getScoreboard(null, key);
+      const after = await new ContestAccessService(db, uncachedScoreboards()).getScoreboard(null, key);
       expect(after.ranking.map((row) => row.score)).toEqual(after.ranking.map(() => 0));
     });
   }, 120_000);

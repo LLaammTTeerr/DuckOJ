@@ -449,3 +449,65 @@ looking at the submission itself.
 Safe against fan-out because `contest_submissions_submission_idx` is UNIQUE on
 `submission_id`: at most one contest row per submission, so page size and the
 keyset cursor computed from it are untouched.
+
+## D25 — The scoreboard is cached in Redis for two seconds, keyed by view and freeze phase
+
+P7 measured `GET /contests/{key}/scoreboard` at a 3.57 s p95 under 2000 VUs
+(`load/RESULTS.md`) for a 520-byte response: `ContestAccessService` loads every
+participation and every submission in the contest and folds the board in
+JavaScript on every request. It now folds at most once per key per two
+seconds.
+
+**Why this is safe.** The fold takes a clock (D22) and the clock reaches it in
+exactly one place — `isFrozenAt`, per participation. The board is therefore
+*piecewise constant* in `now`, with breakpoints only at a participation's own
+freeze instant and its own end. Caching a board is caching an interval, not an
+instant.
+
+Rulings taken during task P8 with nobody to ask.
+
+- **Redis, not an in-process map.** `main.ts` forks `API_WORKERS` workers
+  (P7), so an in-process cache is four caches with four independent miss
+  rates and four different answers for one contest. The `REDIS_URL` client
+  the realtime gateway already uses is the one every worker shares.
+  *Coalescing* stays in-process — one fold per key per worker at a time — and
+  a distributed lock is deliberately not built: it would add a round trip and
+  a lease to every read to save at most `API_WORKERS − 1` folds per TTL.
+- **The key is `(contest id, view, freeze phase)`.** The privileged view is
+  folded with no clock at all, so it is one key whatever the time is; a public
+  view carries the instant its phase began — `0`, the contest's freeze
+  instant, or its end. Sharing one key between the two views would serve a
+  contest's creator the board a spectator just cached, which is the one thing
+  a scoreboard cache must never do. The two comparisons come from
+  `window.ts` (`freezeAtMs`, `isFrozenAt`) rather than being rewritten; D22
+  and D23 each record a bug from a second derivation of that predicate.
+- **Only the CONTEST's boundaries are in the key.** A virtual or
+  time-limited participation has its own shifted pair (D22), invisible
+  without loading the participations — the expensive thing this exists to
+  avoid. Those boards thaw at most one TTL late. That is the whole of the
+  staleness this design admits by construction, and it is why the TTL is two
+  seconds rather than thirty.
+- **`scoreboardForSystem` is never cached.** The rating replay folding a
+  stale board into everybody's rating is the failure D22 was designed
+  against, and the cache must not reintroduce it by a side door.
+- **The API deletes on the writes it handles; a verdict rides the TTL.**
+  Disqualify, contest edit and rejudge delete the contest's keys after their
+  write commits. A submission graded by `judged` does not: the event writer
+  is a separate process that never calls into the API, and a board two
+  seconds behind a verdict is not a contest-day problem. An edit deletes the
+  old *and* merged key sets, because the patch may have moved a boundary that
+  is itself in the key.
+- **`cache: 'hit' | 'miss'` is a response header (`X-Scoreboard-Cache`), never
+  a body field.** The body is the goldens' snake_case shape, compared byte for
+  byte by 23 replays; a cache is transport metadata, not something the contest
+  format has an opinion about. A coalesced waiter reports `miss` — it did not
+  read the cache, it waited on a fold.
+- **A cache may never fail a request.** With Redis unreachable every command
+  rejects at once (`enableOfflineQueue: false`), the outage is logged once,
+  and the board is folded exactly as before. `ScoreboardCache` swallows a
+  rejecting store as well, so the guarantee is structural rather than a
+  convention each store must remember.
+
+Left open: a fold already in flight when a write commits can still store the
+pre-write board, for one TTL. Closing it needs a cross-worker epoch read on
+every request, which costs more than the two seconds it buys.
