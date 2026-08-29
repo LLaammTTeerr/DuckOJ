@@ -267,6 +267,9 @@ export const en = {
   'scoreboard.undq': 'un-DQ {name}',
   'contest.edit': 'Edit contest',
   'submission.rejudge': 'Rejudge',
+  // D21: a rejudge never replays ratings. The admin has to re-rate each
+  // affected contest once the queue drains, so the screen names them.
+  'rejudge.reRate': 'Re-rate these contests once grading finishes: {keys}.',
   'submission.rejudgeConfirm': 'Rejudge submission #{id}? Its current verdict is discarded.',
 
   'contestNew.title': 'New contest',

@@ -255,6 +255,7 @@ export const vi = {
   'scoreboard.undq': 'Khôi phục {name}',
   'contest.edit': 'Sửa kỳ thi',
   'submission.rejudge': 'Chấm lại',
+  'rejudge.reRate': 'Hãy tính lại rating cho các kỳ thi này sau khi chấm xong: {keys}.',
   'submission.rejudgeConfirm': 'Chấm lại bài nộp #{id}? Kết quả hiện tại sẽ bị hủy.',
 
   'contestNew.title': 'Kỳ thi mới',

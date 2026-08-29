@@ -17,6 +17,10 @@ export function SubmissionPage({ id }: { id: number }) {
   const client = useQueryClient();
   const me = useQuery(meQueryOptions);
   const [rejudgeError, setRejudgeError] = useState<string | null>(null);
+  // D21: the rejudge answers with the rated contests it touched, and does NOT
+  // replay their ratings — nothing else in the product will say so, so the
+  // screen that fired it has to.
+  const [reRate, setReRate] = useState<string[]>([]);
   // A rejudge resets the verdict and re-queues grading; firing it twice
   // races two claims for one submission, so the button is held down until
   // the request settles — the same busy-flag shape every write on this app
@@ -44,14 +48,16 @@ export function SubmissionPage({ id }: { id: number }) {
     }
     setRejudgeBusy(true);
     setRejudgeError(null);
+    setReRate([]);
     try {
-      const { error } = await api.POST('/admin/submissions/{id}/rejudge', {
+      const { data, error } = await api.POST('/admin/submissions/{id}/rejudge', {
         params: { path: { id } },
       });
       if (error) {
         setRejudgeError(error.detail ?? error.code);
         return;
       }
+      setReRate(data.ratedContestKeys);
       // The submission is `queued` again the moment this returns; the cached
       // copy on screen still shows the old verdict.
       await client.invalidateQueries({ queryKey: ['submission', id] });
@@ -91,6 +97,11 @@ export function SubmissionPage({ id }: { id: number }) {
         </p>
       ) : null}
       {rejudgeError ? <p role="alert">{rejudgeError}</p> : null}
+      {/* Contest keys are content — never translated, joined with the plain
+          list separator both locales use. */}
+      {reRate.length > 0 ? (
+        <p role="status">{t('rejudge.reRate', { keys: reRate.join(', ') })}</p>
+      ) : null}
       <VerdictPanel submission={s} />
       <h2>{t('submission.source')}</h2>
       <pre>

@@ -83,6 +83,9 @@ export function ProblemEditPage(props: { code?: string }) {
   const [rejudgeBusy, setRejudgeBusy] = useState(false);
   const [rejudgeMessage, setRejudgeMessage] = useState<string | null>(null);
   const [rejudgeError, setRejudgeError] = useState<string | null>(null);
+  // D21: see submission.tsx — a rejudge names the contests to re-rate and
+  // replays nothing itself.
+  const [reRate, setReRate] = useState<string[]>([]);
 
   async function handleRejudge(): Promise<void> {
     // No undo: every verdict on this problem is discarded and re-earned.
@@ -92,6 +95,7 @@ export function ProblemEditPage(props: { code?: string }) {
     setRejudgeBusy(true);
     setRejudgeError(null);
     setRejudgeMessage(null);
+    setReRate([]);
     try {
       const { data, error } = await api.POST('/admin/problems/{code}/rejudge', {
         params: { path: { code: props.code! } },
@@ -101,6 +105,7 @@ export function ProblemEditPage(props: { code?: string }) {
         return;
       }
       setRejudgeMessage(t('problemEdit.rejudgeQueued', { n: data.submissionsQueued }));
+      setReRate(data.ratedContestKeys);
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
@@ -225,7 +230,15 @@ export function ProblemEditPage(props: { code?: string }) {
               {t('problemEdit.rejudgeAll')}
             </button>
           </p>
-          {rejudgeMessage ? <p role="status">{rejudgeMessage}</p> : null}
+          {/* One status line, not two: `role="status"` is announced, and two
+              live regions firing at once talk over each other. Contest keys
+              are content and are never translated. */}
+          {rejudgeMessage ? (
+            <p role="status">
+              {rejudgeMessage}
+              {reRate.length > 0 ? ` ${t('rejudge.reRate', { keys: reRate.join(', ') })}` : ''}
+            </p>
+          ) : null}
           {rejudgeError ? <p role="alert">{rejudgeError}</p> : null}
         </section>
       ) : null}

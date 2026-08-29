@@ -74,7 +74,7 @@ afterEach(() => {
 describe('rejudging one submission', () => {
   it('is offered to an admin, confirms, and posts', async () => {
     routeGet('admin', DETAIL);
-    post.mockResolvedValue({ data: { submissionId: 42, jobId: 7 } });
+    post.mockResolvedValue({ data: { submissionId: 42, jobId: 7, ratedContestKeys: [] } });
     vi.stubGlobal('confirm', vi.fn(() => true));
 
     wrap(<SubmissionPage id={42} />);
@@ -85,6 +85,33 @@ describe('rejudging one submission', () => {
         params: { path: { id: 42 } },
       }),
     );
+  });
+
+  it('names the rated contests to re-rate, because the rejudge will not (D21)', async () => {
+    routeGet('admin', DETAIL);
+    post.mockResolvedValue({
+      data: { submissionId: 42, jobId: 7, ratedContestKeys: ['spring-open', 'winter-cup'] },
+    });
+    vi.stubGlobal('confirm', vi.fn(() => true));
+
+    wrap(<SubmissionPage id={42} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Chấm lại' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Hãy tính lại rating cho các kỳ thi này sau khi chấm xong: spring-open, winter-cup.',
+    );
+  });
+
+  it('says nothing about re-rating when no rated contest was touched', async () => {
+    routeGet('admin', DETAIL);
+    post.mockResolvedValue({ data: { submissionId: 42, jobId: 7, ratedContestKeys: [] } });
+    vi.stubGlobal('confirm', vi.fn(() => true));
+
+    wrap(<SubmissionPage id={42} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Chấm lại' }));
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('a cancelled confirm sends nothing', async () => {
@@ -129,7 +156,7 @@ describe('rejudging one submission', () => {
 describe("rejudging a problem's whole history", () => {
   it('is offered to an admin on the edit screen and reports how many were queued', async () => {
     routeGet('admin', PROBLEM);
-    post.mockResolvedValue({ data: { submissionsQueued: 12 } });
+    post.mockResolvedValue({ data: { submissionsQueued: 12, ratedContestKeys: [] } });
     vi.stubGlobal('confirm', vi.fn(() => true));
 
     wrap(<ProblemEditPage code="aplusb" />);
@@ -141,6 +168,21 @@ describe("rejudging a problem's whole history", () => {
       }),
     );
     expect(await screen.findByRole('status')).toHaveTextContent('Đã xếp hàng 12 bài nộp.');
+  });
+
+  it('names the rated contests to re-rate beside the queued count (D21)', async () => {
+    routeGet('admin', PROBLEM);
+    post.mockResolvedValue({ data: { submissionsQueued: 12, ratedContestKeys: ['spring-open'] } });
+    vi.stubGlobal('confirm', vi.fn(() => true));
+
+    wrap(<ProblemEditPage code="aplusb" />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Chấm lại toàn bộ bài nộp' }));
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Đã xếp hàng 12 bài nộp.');
+    expect(status).toHaveTextContent(
+      'Hãy tính lại rating cho các kỳ thi này sau khi chấm xong: spring-open.',
+    );
   });
 
   it('is not offered to a non-admin, nor when creating a new problem', async () => {
