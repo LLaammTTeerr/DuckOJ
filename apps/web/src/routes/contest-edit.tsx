@@ -29,6 +29,22 @@ interface ProblemRow {
   code: string;
   points: string;
   partial: boolean;
+  /**
+   * The setter's label, carried through unedited.
+   *
+   * `problems` is the one all-or-nothing field in the PATCH body — the API
+   * replaces the whole list — so anything this form drops is a thing the save
+   * destroys. A contest labelled `A`, `B`, `C` (which is what an API client or
+   * a seeded contest looks like) would come back `1`, `2`, `3`. Worse, the
+   * server's "is this actually a change?" check compares labels too, so a
+   * dropped label turns an untouched save of a RUNNING contest into a 409
+   * `contest_started` — the no-op case the API deliberately allows.
+   *
+   * `undefined` for a row added here: the API then defaults it to the
+   * 1-based position, which is the right answer for a brand-new row and not
+   * something this form should have to know.
+   */
+  label?: string;
 }
 
 /**
@@ -87,6 +103,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
         code: problem.code,
         points: String(problem.points),
         partial: problem.partial,
+        label: problem.label,
       })),
     );
     setSeededFrom(contest.key);
@@ -123,6 +140,10 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
             code: row.code.trim(),
             points: Number(row.points),
             partial: row.partial,
+            // Omitted, never sent as `undefined`: `exactOptionalPropertyTypes`
+            // separates the two, and a present-but-undefined key would travel
+            // into the request body.
+            ...(row.label === undefined ? {} : { label: row.label }),
           })),
         },
       });

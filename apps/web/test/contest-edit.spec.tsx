@@ -94,6 +94,27 @@ describe('ContestEditPage', () => {
     await waitFor(() => expect(navigate).toHaveBeenCalled());
   });
 
+  it("carries each problem's label back unchanged, and omits it for a row added here", async () => {
+    // `problems` is replaced wholesale by the API, so anything this form
+    // drops the save destroys — and a dropped label also makes an untouched
+    // save of a running contest a 409 `contest_started`, because the
+    // server's "did anything change?" check compares labels.
+    get.mockResolvedValue({ data: CONTEST });
+    patch.mockResolvedValue({ data: CONTEST });
+    wrap(<ContestEditPage contestKey="spring" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Add problem' }));
+    await userEvent.type(screen.getByLabelText('Problem 2 code'), 'newone');
+    await userEvent.click(screen.getByRole('button', { name: 'Save contest' }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    const body = patch.mock.calls[0]![1].body as { problems: Record<string, unknown>[] };
+    expect(body.problems[0]).toEqual({ code: 'aplusb', points: 100, partial: true, label: 'A' });
+    // No label at all for the new row — the API defaults it to the position,
+    // which this form has no business second-guessing.
+    expect(body.problems[1]).toEqual({ code: 'newone', points: 100, partial: true });
+  });
+
   it('shows the server refusal verbatim and never wedges the button', async () => {
     get.mockResolvedValue({ data: CONTEST });
     patch.mockResolvedValue({ error: { code: 'contest_started', detail: 'This contest has started.' } });
