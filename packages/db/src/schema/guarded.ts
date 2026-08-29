@@ -3,6 +3,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   doublePrecision,
   index,
   integer,
@@ -434,4 +435,61 @@ export const ratingEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('rating_event_identity_idx').on(t.contestId, t.userId)],
+);
+
+/**
+ * `private` — the asker and the organisers; `public` — everyone who may see
+ * the contest, signed in or not. Two values, an enum rather than a boolean,
+ * because a third state ("withdrawn") is the kind of thing a contest day
+ * asks for and a boolean cannot grow one.
+ */
+export const clarificationVisibility = pgEnum('clarification_visibility', ['private', 'public']);
+
+/**
+ * Contest-day Q&A: a participant's question and the organiser's answer, in
+ * one row (D31). An **announcement** is the same row with no `question` —
+ * `answer` carries the text, `visibility` is `public`, and `asked_by` is the
+ * organiser who posted it, because `asked_by` means "who wrote this row",
+ * not "who is waiting for a reply".
+ *
+ * Guarded: which rows a viewer may read depends on the contest's own
+ * visibility AND on who they are inside it, so every read goes through
+ * `apps/api/src/authz/contest.clarifications.ts` and never through a direct
+ * query.
+ */
+export const contestClarifications = pgTable(
+  'contest_clarifications',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    contestId: bigint('contest_id', { mode: 'number' })
+      .notNull()
+      .references(() => contests.id, { onDelete: 'cascade' }),
+    /**
+     * The contest problem this is about, or `null` for the contest as a
+     * whole. References `problems`, not `contest_problems`: the question
+     * survives the contest problem list being reshuffled, and the write path
+     * checks the problem is actually attached to this contest.
+     */
+    problemId: bigint('problem_id', { mode: 'number' }).references(() => problems.id),
+    /** Who wrote the row — a participant asking, or an organiser announcing. */
+    askedBy: bigint('asked_by', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** `null` on an announcement, which is the whole of what makes it one. */
+    question: text('question'),
+    answer: text('answer'),
+    answeredBy: bigint('answered_by', { mode: 'number' }).references(() => users.id),
+    answeredAt: timestamp('answered_at', { withTimezone: true }),
+    visibility: clarificationVisibility('visibility').notNull().default('private'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('contest_clarifications_contest_idx').on(t.contestId, t.id),
+    /**
+     * A row with neither a question nor an answer is a blank line in a feed
+     * two thousand students are reading. Refused in the database, not only
+     * in the service: the service is one caller, the table is forever.
+     */
+    check('contest_clarifications_text_ck', sql`${t.question} IS NOT NULL OR ${t.answer} IS NOT NULL`),
+  ],
 );

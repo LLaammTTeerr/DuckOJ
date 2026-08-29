@@ -120,6 +120,13 @@
       "when": 1788009387854,
       "tag": "0016_contest_submissions_restrict",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788016166814,
+      "tag": "0017_contest_clarifications",
+      "breakpoints": true
     }
   ]
 }
