@@ -186,6 +186,8 @@ export const vi = {
   'revState.archived': 'đã lưu trữ',
 
   // ── submitting ────────────────────────────────────────────────────────
+  'submit.intoContest': 'Nộp vào kỳ thi',
+  'submit.practice': 'Bài nộp luyện tập — không tính vào kỳ thi nào.',
   'submit.title': 'Nộp bài giải — {code}',
   'submit.language': 'Ngôn ngữ',
   'submit.sourceCode': 'Mã nguồn',

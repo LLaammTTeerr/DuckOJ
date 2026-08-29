@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { formatPoints } from '../format.js';
@@ -484,6 +485,22 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
   return (
     <section>
       <h1>{t('submit.title', { code: problemCode })}</h1>
+      {/* m23 — this is the one screen where practice and competing are
+          actually chosen, and it never said which it was doing. `contestKey`
+          decides whether a `contest_submissions` row is written at all, and a
+          submission that silently went to practice is unrecoverable: the
+          window closes and it never counted. A hyperlink, like every other
+          entity on this site. */}
+      {props.contestKey === undefined ? (
+        <p className="muted">{t('submit.practice')}</p>
+      ) : (
+        <p role="status">
+          {t('submit.intoContest')}{' '}
+          <Link to="/contests/$key" params={{ key: props.contestKey }}>
+            {props.contestKey}
+          </Link>
+        </p>
+      )}
       <SubmitForm onSubmit={handleSubmit} languages={LANGUAGES} busy={busy} />
       {submitError ? <p role="alert">{submitError}</p> : null}
       {submission ? <VerdictPanel submission={submission} /> : null}

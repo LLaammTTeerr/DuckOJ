@@ -560,6 +560,25 @@ function ClarificationsPanel({
   );
 }
 
+/**
+ * The freeze instant, as the banner should say it (m17).
+ *
+ * `frozenAt` is the CONTEST's freeze instant while `frozen` is
+ * per-participation (D22), so a virtual entrant replaying a contest three
+ * weeks later is told the board froze at a time that is not today. `HH:MM`
+ * alone then reads as this afternoon. Same day: the time, which is what
+ * somebody sitting the live contest wants. Any other day: the date too.
+ */
+function freezeInstant(iso: string, locale: Locale): string {
+  const at = new Date(iso);
+  const today = new Date();
+  const sameDay =
+    at.getFullYear() === today.getFullYear() &&
+    at.getMonth() === today.getMonth() &&
+    at.getDate() === today.getDate();
+  return sameDay ? formatTime(iso, locale) : formatDateTime(iso, locale);
+}
+
 type Cell = Scoreboard['ranking'][number]['format_data'][string];
 
 /**
@@ -671,7 +690,7 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
           working as configured, not something going wrong. */}
       {query.data.frozen && query.data.frozenAt !== null ? (
         <p role="status">
-          {t('scoreboard.frozen', { time: formatTime(query.data.frozenAt, locale) })}
+          {t('scoreboard.frozen', { time: freezeInstant(query.data.frozenAt, locale) })}
         </p>
       ) : null}
       <table>
