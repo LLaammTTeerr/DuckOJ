@@ -33,3 +33,4 @@
 - CI on ef4c6fd (merged main): success.
 - P1-C DONE_WITH_CONCERNS (cb06591..c355fdb): freeze window (D22), D21 web hint; 1046 tests, 29/29 mutants. Concern carried: freeze applies only at the scoreboard (`/contests/{key}/me`, `/submissions` still show late verdicts) — noted as a follow-up.
 - Redeployed api/migrate/judged + web from c355fdb; scoreboard live. Pushed; CI polling. Dispatched P5 (opus) Playwright journeys against the live stack.
+- Dispatched P1-D (worktree, opus, D23): freeze masking on /submissions, /contests/{key}/me, WebSocket — closes P1-C's concern.
