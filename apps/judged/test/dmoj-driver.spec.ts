@@ -109,20 +109,23 @@ describe('DmojDriver', () => {
     }, 10_000);
   }, 30_000);
 
-  it('ensures the package before broadcasting a submission-request', async () => {
+  it('ensures the package before sending a submission-request', async () => {
     // Assert ordering, not co-occurrence: record ensure and the socket write
     // into one array and assert the array, exactly as the web socket tests do.
-    // A dispatch that broadcasts first would still "call ensure".
+    // A dispatch that sent first would still "call ensure".
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
     const order: string[] = [];
-    const originalBroadcast = server.broadcast.bind(server);
-    vi.spyOn(server, 'broadcast').mockImplementation((packet) => {
-      order.push('broadcast');
-      originalBroadcast(packet);
+    // `sendTo`, not `broadcast`: a submission goes to the one connection the
+    // driver has picked for it (B2). Broadcasting per-submission traffic is
+    // what let one job's cancel kill another job's grade.
+    const originalSendTo = server.sendTo.bind(server);
+    vi.spyOn(server, 'sendTo').mockImplementation((id, packet) => {
+      order.push('send');
+      return originalSendTo(id, packet);
     });
     const agent = {
       ensure: vi.fn(async () => {
@@ -137,10 +140,10 @@ describe('DmojDriver', () => {
     await driver.dispatch(job, async () => {});
 
     expect(agent.ensure).toHaveBeenCalledWith(job.packageHash);
-    expect(order).toEqual(['ensure', 'broadcast']);
+    expect(order).toEqual(['ensure', 'send']);
   }, 30_000);
 
-  it('does not broadcast when ensure fails, and rejects so the worker can log it', async () => {
+  it('sends nothing when ensure fails, and rejects so the worker can log it', async () => {
     // The judge must receive nothing. A submission dispatched to a judge that
     // lacks the package grades as a mystery internal error.
     server = new BridgeServer({
@@ -148,6 +151,7 @@ describe('DmojDriver', () => {
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
+    const sendSpy = vi.spyOn(server, 'sendTo');
     const broadcastSpy = vi.spyOn(server, 'broadcast');
     const agent = {
       ensure: vi.fn(async () => {
@@ -161,6 +165,7 @@ describe('DmojDriver', () => {
 
     await expect(driver.dispatch(job, async () => {})).rejects.toThrow('agent unreachable');
 
+    expect(sendSpy).not.toHaveBeenCalled();
     expect(broadcastSpy).not.toHaveBeenCalled();
     const receivedBeforeWait = judge!.received.length;
     await new Promise((resolve) => setTimeout(resolve, 200));

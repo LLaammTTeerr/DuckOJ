@@ -68,9 +68,10 @@ export class BridgeServer {
    * The problem set each judge last announced, from its `handshake` and any
    * later `supported-problems` packet. Replaced wholesale on each
    * announcement, never merged — a judge that dropped a package must not
-   * appear to still have it. Nothing schedules on this yet (concurrency is
-   * 1), but it is what lets a later phase verify a dispatch against what the
-   * judge believes, rather than merely trusting it.
+   * appear to still have it. Scheduling picks a connection by *idleness*
+   * (`DmojDriver`), not by problem set; this is what would let a later phase
+   * verify a dispatch against what the judge believes, rather than merely
+   * trusting it.
    */
   private readonly problemSets = new Map<string, Set<string>>();
   private handler: PacketHandler = () => {};
@@ -112,9 +113,41 @@ export class BridgeServer {
       });
   }
 
-  /** Sends to any connected judge. Phase 1 has exactly one. */
+  /**
+   * Sends to EVERY connected judge.
+   *
+   * Deliberately not used for anything carrying a submission: DMOJ's
+   * `terminate-submission` has no submission id
+   * (`packages/judge-protocol/src/dmoj-packets.ts`), so broadcasting one kills
+   * whatever each judge happens to be running — which is how B2 turned one
+   * job's watchdog into another student's permanent IE. Per-submission
+   * traffic goes through `sendTo`, addressed to the connection the driver
+   * knows is grading it. This stays for genuinely fleet-wide packets and for
+   * the tests that exercise reachability.
+   */
   broadcast(packet: BridgeToJudgePacket): void {
     for (const connection of this.connections.values()) connection.send(packet);
+  }
+
+  /**
+   * Sends to exactly one judge. Returns false when that judge is no longer
+   * connected, so a caller can tell "delivered" from "there was nobody to
+   * deliver to" rather than assuming the packet landed.
+   */
+  sendTo(id: string, packet: BridgeToJudgePacket): boolean {
+    const connection = this.connections.get(id);
+    if (!connection) return false;
+    connection.send(packet);
+    return true;
+  }
+
+  /**
+   * The ids of every currently connected judge, in the order they handshook.
+   * This is what lets the driver pick a connection to dispatch on instead of
+   * shouting at all of them.
+   */
+  connectionIds(): string[] {
+    return [...this.connections.keys()];
   }
 
   listen(port: number): Promise<number> {

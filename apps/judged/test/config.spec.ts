@@ -23,8 +23,10 @@ describe('loadConfig', () => {
     expect(() => loadConfig(rest)).toThrow(/REDIS_URL/);
   });
 
-  it('runs two claim loops by default', () => {
-    expect(loadConfig(valid).concurrency).toBe(2);
+  it('runs one claim loop per judge by default, and this stack has one judge', () => {
+    // D29: a DMOJ judge grades one submission per connection, so a second
+    // loop against a single judge can never win a judge slot.
+    expect(loadConfig(valid).concurrency).toBe(1);
   });
 
   it('takes JUDGED_CONCURRENCY from the environment as a number', () => {

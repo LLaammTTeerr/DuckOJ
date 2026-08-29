@@ -116,11 +116,12 @@ services:
       # actually listens on (AGENT_PORT below, on the `judge` service).
       AGENT_ORIGIN: http://judge:3002
       # How many independent claim loops judged runs (apps/judged/src/worker.ts,
-      # `startWorkerPool`). Default 2 so one slow grade stops blocking every
-      # submission behind it. This is NOT a throughput dial past the number of
-      # `judge` containers: the DMOJ judge is the real ceiling, and there is one
-      # of it here — see docs/runbook.md, "Judging throughput".
-      JUDGED_CONCURRENCY: ${JUDGED_CONCURRENCY:-2}
+      # `startWorkerPool`). One loop per `judge` container, and there is one
+      # `judge` here. A DMOJ judge grades one submission per connection, and a
+      # loop reserves a judge slot before it claims, so a second loop against
+      # this single judge would never win one — raise this only when you add
+      # judges (D28, docs/runbook.md "Judging throughput").
+      JUDGED_CONCURRENCY: ${JUDGED_CONCURRENCY:-1}
     # The judge dials OUT to judged (see the `judge` service below) — judged
     # needs no ingress at all. Do NOT publish 9999 (or 3001) to the host:
     # BridgeServer now verifies every handshake's `(id, key)` against
