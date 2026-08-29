@@ -53,3 +53,4 @@
 - Final review (final-review.md): B1 contest-edit cascade-wipes contest_submissions; B2 judged cancel broadcasts terminate with concurrency 2; B3 backup timer never installed; M1–M11. Cleared with evidence: route markers, cluster state, cache view separation, freeze masks, rejudge fence, XFF (Caddy strips untrusted).
 - B3 fixed now: timer installed, first backup ran (dump 127 KB + store 386 KB), modes tightened to 700/600.
 - Dispatched F1 (main, opus): B1, M1, M2 (D26), M3 (D27), M9, M11. F2 (worktree, opus): B2 targeted cancel + back-pressure (D28). F3 (worktree, opus): M4–M8, M10.
+- Session limit (7pm reset) killed F1/F2/F3 mid-flight; all three resumed from transcripts.
