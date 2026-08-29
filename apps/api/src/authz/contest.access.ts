@@ -473,19 +473,35 @@ export class ContestAccessService {
           'This contest has started; its format can no longer change.',
         );
       }
-      if (problemInputs !== undefined && (await this.problemsWouldChange(contest.id, problemInputs))) {
-        throw new AppError(
-          409,
-          'contest_started',
-          'This contest has started; its problems can no longer change.',
-        );
-      }
     }
 
     // Resolved before the transaction opens, exactly as `create` does it: a
     // problem the actor may not see must refuse the whole edit without
     // having written anything.
     const problemIds = problemInputs ? await this.resolveProblemIds(actor, problemInputs) : [];
+
+    // The started guard on the problem list, narrowed to what is actually
+    // destructive (D28). It used to refuse ANY difference, which sounds
+    // safer and was not: the no-op path fell straight through to a
+    // delete-and-reinsert of the whole list, and
+    // `contest_submissions.contest_problem_id` is `ON DELETE cascade`, so a
+    // running contest lost every submission it had (B1). Removals stay
+    // refused, because a removal is the one edit whose cascade cannot be
+    // avoided by writing more carefully.
+    if (started && problemInputs !== undefined) {
+      const kept = new Set(problemIds);
+      const current = await this.db
+        .select({ problemId: contestProblems.problemId })
+        .from(contestProblems)
+        .where(eq(contestProblems.contestId, contest.id));
+      if (current.some((row) => !kept.has(row.problemId))) {
+        throw new AppError(
+          409,
+          'contest_started',
+          'This contest has started; a problem can no longer be removed from it.',
+        );
+      }
+    }
 
     await this.db.transaction(async (tx) => {
       await tx
@@ -509,23 +525,58 @@ export class ContestAccessService {
         .where(eq(contests.id, contest.id));
 
       if (problemInputs !== undefined) {
-        // Replaced wholesale rather than diffed: the list is ordered, and
-        // `order` is positional. Safe to delete because this branch is only
-        // reachable before the start (or with an identical list), and a
-        // contest that has not started has no `contest_submissions` rows
-        // pointing at these ids.
-        await tx.delete(contestProblems).where(eq(contestProblems.contestId, contest.id));
-        if (problemInputs.length > 0) {
-          await tx.insert(contestProblems).values(
-            problemInputs.map((problem, index) => ({
-              contestId: contest.id,
-              problemId: problemIds[index]!,
-              label: problem.label ?? String(index + 1),
-              points: problem.points,
-              partial: problem.partial ?? true,
-              order: index,
-            })),
+        // DIFFED by problem id, never replaced wholesale (B1/D28).
+        // `contest_submissions.contest_problem_id` is `ON DELETE cascade` on
+        // these ids, so `delete` here is a data-destroying operation on a
+        // running contest — including when the list being written is
+        // identical to the stored one, which is exactly what the edit form
+        // resubmits when an organiser only moves `endTime`. Rows that stay
+        // keep their id; only genuinely removed problems are deleted, and
+        // the guard above has already refused that once the contest started.
+        //
+        // The unique index is `(contest_id, problem_id)` and nothing
+        // constrains `label` or `order`, so an in-place reorder cannot
+        // collide row by row — deleting first is ordering hygiene, not a
+        // workaround.
+        const current = await tx
+          .select({ id: contestProblems.id, problemId: contestProblems.problemId })
+          .from(contestProblems)
+          .where(eq(contestProblems.contestId, contest.id));
+        const existingIdByProblem = new Map(current.map((row) => [row.problemId, row.id]));
+
+        const desired = problemInputs.map((problem, index) => ({
+          problemId: problemIds[index]!,
+          label: problem.label ?? String(index + 1),
+          points: problem.points,
+          partial: problem.partial ?? true,
+          order: index,
+        }));
+        const keptProblemIds = new Set(desired.map((row) => row.problemId));
+
+        const removed = current.filter((row) => !keptProblemIds.has(row.problemId));
+        if (removed.length > 0) {
+          await tx.delete(contestProblems).where(
+            inArray(
+              contestProblems.id,
+              removed.map((row) => row.id),
+            ),
           );
+        }
+        for (const row of desired) {
+          const existingId = existingIdByProblem.get(row.problemId);
+          if (existingId === undefined) {
+            await tx.insert(contestProblems).values({ contestId: contest.id, ...row });
+          } else {
+            await tx
+              .update(contestProblems)
+              .set({
+                label: row.label,
+                points: row.points,
+                partial: row.partial,
+                order: row.order,
+              })
+              .where(eq(contestProblems.id, existingId));
+          }
         }
       }
     });
@@ -537,28 +588,6 @@ export class ContestAccessService {
     await this.invalidateScoreboards(contest, { id: contest.id, endTime, frozenLastMinutes });
 
     return this.getVisible(actor, contest.key);
-  }
-
-  /**
-   * Whether `inputs` describes a different problem set from the one stored —
-   * codes, order, points, partial and label all count, because every one of
-   * them changes what the scoreboard computes.
-   */
-  private async problemsWouldChange(
-    contestId: number,
-    inputs: ContestProblemInputDto[],
-  ): Promise<boolean> {
-    const current = await this.loadProblemRows(contestId);
-    if (current.length !== inputs.length) return true;
-    return inputs.some((input, index) => {
-      const row = current[index]!;
-      return (
-        row.code.toLowerCase() !== input.code.toLowerCase() ||
-        row.points !== input.points ||
-        row.partial !== (input.partial ?? true) ||
-        row.label !== (input.label ?? String(index + 1))
-      );
-    });
   }
 
   /** Loads a contest by key, or 404s — for absence and invisibility alike. */

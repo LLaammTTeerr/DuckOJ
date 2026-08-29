@@ -11,7 +11,14 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { asc, eq } from 'drizzle-orm';
-import { contestOrgs, contestProblems, contests, organizations } from '@duckoj/db/guarded';
+import {
+  contestOrgs,
+  contestParticipations,
+  contestProblems,
+  contestSubmissions,
+  contests,
+  organizations,
+} from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { ContestAccessService } from '../src/authz/contest.access.js';
 import { uncachedScoreboards } from './scoreboard.fixtures.js';
@@ -19,6 +26,7 @@ import type { Actor } from '../src/authz/actor.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import {
+  insertGradedSubmission,
   insertUser,
   registerAndLogin,
   seedProblemAndLanguage,
@@ -264,6 +272,153 @@ describe('once a contest has started', () => {
       });
       expect(after.name).toBe('Live and renamed');
       expect(after.problems.map((p) => p.code)).toEqual(['ce6-p']);
+    });
+  }, 120_000);
+});
+
+/**
+ * B1 — an edit of a RUNNING contest must not touch `contest_problems.id`.
+ *
+ * `contest_submissions.contest_problem_id` is `ON DELETE cascade`
+ * (0008_contests.sql:58), so a delete-and-reinsert of an identical problem
+ * list takes every submission of the contest with it. These two tests pin the
+ * two halves of the rule: an unchanged (or merely re-labelled) list keeps the
+ * SAME row ids, and a list that drops a problem is refused outright.
+ */
+describe('editing a contest that is already running', () => {
+  async function seedContestSubmission(
+    db: Db,
+    opts: { contestId: number; problemId: number; userId: number },
+  ): Promise<{ submissionId: number; contestProblemId: number }> {
+    const [participation] = await db
+      .insert(contestParticipations)
+      .values({
+        contestId: opts.contestId,
+        userId: opts.userId,
+        virtual: 0,
+        startTime: new Date(Date.now() - 30 * MINUTE),
+      })
+      .returning({ id: contestParticipations.id });
+    const [contestProblem] = await db
+      .select({ id: contestProblems.id })
+      .from(contestProblems)
+      .where(eq(contestProblems.contestId, opts.contestId));
+    const submissionId = await insertGradedSubmission(db, {
+      userId: opts.userId,
+      problemId: opts.problemId,
+      verdict: 'AC',
+      points: 100,
+      maxPoints: 100,
+    });
+    await db.insert(contestSubmissions).values({
+      participationId: participation!.id,
+      contestProblemId: contestProblem!.id,
+      submissionId,
+    });
+    return { submissionId, contestProblemId: contestProblem!.id };
+  }
+
+  it('keeps every contest submission when the problem list is resubmitted unchanged', async () => {
+    await withTestDb(async (db) => {
+      const { owner, problem } = await baseline(db, 'ce9');
+      const contestId = await seedContest(db, {
+        key: 'ce9',
+        ownerId: owner.id,
+        problemId: problem.id,
+        startsInMs: -30 * MINUTE,
+        endsInMs: 30 * MINUTE,
+      });
+      const entrant = await insertUser(db, 'ce9-entrant');
+      const seeded = await seedContestSubmission(db, {
+        contestId,
+        problemId: problem.id,
+        userId: entrant.id,
+      });
+      const service = new ContestAccessService(db, uncachedScoreboards());
+
+      // The organiser pushes the end out by fifteen minutes. The web form
+      // always resubmits the whole body, problem list included.
+      await service.update(actorFor(owner.id), 'ce9', {
+        endTime: new Date(Date.now() + 45 * MINUTE).toISOString(),
+        problems: [{ code: 'ce9-p', points: 100, partial: true, label: 'A' }],
+      });
+
+      const rows = await db
+        .select({
+          submissionId: contestSubmissions.submissionId,
+          contestProblemId: contestSubmissions.contestProblemId,
+        })
+        .from(contestSubmissions);
+      // Not merely "a row survives": the row must still point at the SAME
+      // `contest_problems.id`, which is what a delete/re-insert destroys.
+      expect(rows).toEqual([
+        { submissionId: seeded.submissionId, contestProblemId: seeded.contestProblemId },
+      ]);
+    });
+  }, 120_000);
+
+  it('updates a label in place rather than replacing the row', async () => {
+    await withTestDb(async (db) => {
+      const { owner, problem } = await baseline(db, 'ce10');
+      const contestId = await seedContest(db, {
+        key: 'ce10',
+        ownerId: owner.id,
+        problemId: problem.id,
+        startsInMs: -30 * MINUTE,
+        endsInMs: 30 * MINUTE,
+      });
+      const entrant = await insertUser(db, 'ce10-entrant');
+      const seeded = await seedContestSubmission(db, {
+        contestId,
+        problemId: problem.id,
+        userId: entrant.id,
+      });
+      const service = new ContestAccessService(db, uncachedScoreboards());
+
+      const after = await service.update(actorFor(owner.id), 'ce10', {
+        problems: [{ code: 'ce10-p', points: 150, partial: false, label: 'A1' }],
+      });
+      expect(after.problems).toEqual([
+        expect.objectContaining({ code: 'ce10-p', label: 'A1', points: 150, partial: false }),
+      ]);
+
+      const rows = await db.select({ id: contestProblems.id }).from(contestProblems);
+      expect(rows).toEqual([{ id: seeded.contestProblemId }]);
+      const links = await db
+        .select({ contestProblemId: contestSubmissions.contestProblemId })
+        .from(contestSubmissions);
+      expect(links).toEqual([{ contestProblemId: seeded.contestProblemId }]);
+    });
+  }, 120_000);
+
+  it('refuses a removal with 409 contest_started, so nothing can cascade', async () => {
+    await withTestDb(async (db) => {
+      const { owner, problem } = await baseline(db, 'ce11');
+      await seedProblemWithSourceAccess(db, { code: 'ce11-q' });
+      const contestId = await seedContest(db, {
+        key: 'ce11',
+        ownerId: owner.id,
+        problemId: problem.id,
+        startsInMs: -30 * MINUTE,
+        endsInMs: 30 * MINUTE,
+      });
+      const entrant = await insertUser(db, 'ce11-entrant');
+      await seedContestSubmission(db, { contestId, problemId: problem.id, userId: entrant.id });
+      const service = new ContestAccessService(db, uncachedScoreboards());
+
+      // Dropping `ce11-p` for `ce11-q` is a removal, whatever else it is.
+      await expect(
+        service.update(actorFor(owner.id), 'ce11', {
+          problems: [{ code: 'ce11-q', points: 100, partial: true }],
+        }),
+      ).rejects.toMatchObject({ status: 409, code: 'contest_started' });
+      // An emptied list is a removal too.
+      await expect(
+        service.update(actorFor(owner.id), 'ce11', { problems: [] }),
+      ).rejects.toMatchObject({ status: 409, code: 'contest_started' });
+
+      const rows = await db.select({ id: contestSubmissions.id }).from(contestSubmissions);
+      expect(rows).toHaveLength(1);
     });
   }, 120_000);
 });

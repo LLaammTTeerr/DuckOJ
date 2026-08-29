@@ -511,3 +511,43 @@ Rulings taken during task P8 with nobody to ask.
 Left open: a fold already in flight when a write commits can still store the
 pre-write board, for one TTL. Closing it needs a cross-worker epoch read on
 every request, which costs more than the two seconds it buys.
+
+## D28 — A contest edit diffs its problem list; only a REMOVAL is refused after the start
+
+`contest_submissions.contest_problem_id` is `ON DELETE cascade` on
+`contest_problems.id` (`0008_contests.sql:58`). `PATCH /contests/{key}` used
+to replace the whole list — `delete … where contest_id = …`, then re-insert —
+and guarded that with "a started contest refuses any problem *change*". The
+two together were a data-loss bug, not a safety net: an identical list is not
+a change, so the guard let it through, and the delete then cascaded away
+**every submission of a running contest**. The edit form resubmits the whole
+body, so pushing `endTime` out by fifteen minutes was enough to do it.
+
+The write is now a diff keyed on `problem_id`: a row that stays keeps its
+`contest_problems.id` and is UPDATEd in place (label, points, partial,
+order), a genuinely new problem is INSERTed, and only a genuinely removed one
+is DELETEd. Nothing a surviving problem can be edited into moves an id, so
+nothing cascades.
+
+That makes the started guard narrower on purpose, and this is the product
+ruling: **after the start, a removal is refused (409 `contest_started`); a
+relabel, a repoint, a reorder and an addition are allowed.** Refusing
+everything was the old rule and it protected nothing — it never fired on the
+one edit that destroyed data, and it did fire on the organiser fixing a label
+typo thirty minutes into a provincial contest, which is a real thing to need.
+Removal stays refused because a removal's cascade is not avoidable by writing
+more carefully: the participation→problem mapping it deletes is the only
+record of which submissions counted.
+
+Cost: changing a live contest's points *does* rewrite the scoreboard under
+the competitors, which the organiser now has no guard against. The scoreboard
+cache is invalidated on both key sets already (D25), so what they see is
+correct — it is simply different from a minute ago. The alternative, refusing
+it, is the rule that just cost a contest its submissions.
+
+Not done here, deliberately: changing the FK to `ON DELETE restrict`, so the
+next such bug is a loud 500 rather than silent loss. It needs a migration and
+this brief allocated no migration number.
+
+*Ruled by the implementer during the province-ready final-review fixes
+(2026-08-29, F1 brief), no human available to consult.*
