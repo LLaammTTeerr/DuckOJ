@@ -30,7 +30,7 @@ import type { FormatSemantics, LoweredContest, LoweredParticipation } from './lo
 import { pyRound, toIntegerField } from './numeric.js';
 import { computeScoreboard, numericLabel } from './scoreboard.js';
 import type { FormatDefinition, ParticipationResult } from './scoreboard.js';
-import type { ContestInput, FormatData, IcpcFormatData, Scoreboard } from './types.js';
+import type { ContestInput, FormatData, IcpcFormatData, Instant, Scoreboard } from './types.js';
 
 export interface LegacyIoiConfig {
   cumtime: boolean;
@@ -111,6 +111,7 @@ export function legacyIoiFormatDefinition(
 export function legacyIoiFormat(
   input: ContestInput,
   semantics: FormatSemantics = 'duckoj',
+  now?: Instant,
 ): Scoreboard {
-  return computeScoreboard(input, legacyIoiFormatDefinition(input.format_config), semantics);
+  return computeScoreboard(input, legacyIoiFormatDefinition(input.format_config), semantics, now);
 }

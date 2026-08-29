@@ -36,7 +36,7 @@ import type { FormatSemantics, LoweredContest, LoweredParticipation, LoweredSubm
 import { pyRound, toIntegerField } from './numeric.js';
 import { alphabeticLabel, computeScoreboard } from './scoreboard.js';
 import type { FormatDefinition, ParticipationResult } from './scoreboard.js';
-import type { ContestInput, FormatData, IcpcFormatData, Scoreboard } from './types.js';
+import type { ContestInput, FormatData, IcpcFormatData, Instant, Scoreboard } from './types.js';
 
 const CONFIG_DEFAULTS = { penalty: 20 };
 
@@ -93,9 +93,15 @@ function makeUpdateParticipation(penaltyMinutes: number) {
       );
       const dtSecond = secondsSinceStart(timeMs, participation);
       const dt = Math.floor(dtSecond / 60);
-      // `participation.is_frozen` is false for every golden, so no submission
-      // is ever frozen and the frozen fields mirror the live ones.
-      const isFrozenSub = contest.isFrozen;
+      // `is_frozen` on a CELL means "this cell hides attempts" — the freeze
+      // itself happened in `lower()`, which dropped those submissions and
+      // counted them here (D22). The DMOJ branch that zeroed `frozen_points`
+      // for such a cell is gone: this board already IS the public board, and
+      // projecting a second freeze onto it would hide the very score being
+      // published. The `frozen_*` fields therefore mirror the served board,
+      // which is what they did for all 23 goldens too.
+      const pending = participation.pending.get(problem.code) ?? 0;
+      const isFrozenSub = pending > 0;
 
       let frozenPoints = 0;
       let tries = 0;
@@ -106,12 +112,8 @@ function makeUpdateParticipation(penaltyMinutes: number) {
         if (points) {
           tries = subs.filter((submission) => submission.dateMs <= timeMs).length;
           penalty += (tries - 1) * penaltyMinutes;
-          if (!isFrozenSub) {
-            frozenPenalty += (tries - 1) * penaltyMinutes;
-            frozenTries = tries;
-          } else {
-            frozenTries = subs.length;
-          }
+          frozenPenalty += (tries - 1) * penaltyMinutes;
+          frozenTries = tries;
         } else {
           tries = subs.length;
           frozenTries = tries;
@@ -125,12 +127,10 @@ function makeUpdateParticipation(penaltyMinutes: number) {
         last = Math.max(last, dt);
         score += points;
 
-        if (!isFrozenSub) {
-          frozenPoints = points;
-          frozenCumtime += dt;
-          frozenLast = Math.max(frozenLast, dt);
-          frozenScore += points;
-        }
+        frozenPoints = points;
+        frozenCumtime += dt;
+        frozenLast = Math.max(frozenLast, dt);
+        frozenScore += points;
       }
 
       formatData[problem.code] = {
@@ -166,6 +166,7 @@ export function icpcFormatDefinition(config: Record<string, unknown> | null): Fo
 export function icpcFormat(
   input: ContestInput,
   semantics: FormatSemantics = 'duckoj',
+  now?: Instant,
 ): Scoreboard {
-  return computeScoreboard(input, icpcFormatDefinition(input.format_config), semantics);
+  return computeScoreboard(input, icpcFormatDefinition(input.format_config), semantics, now);
 }

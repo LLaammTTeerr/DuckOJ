@@ -95,3 +95,22 @@ export function participationEndMs(participant: WindowParticipant, contest: Wind
 export function isWithinWindow(dateMs: number, startMs: number, endMs: number): boolean {
   return dateMs >= startMs && dateMs <= endMs;
 }
+
+/**
+ * The instant a participation's board freezes: `F` minutes before its **own**
+ * end, so a virtual entrant's freeze is shifted by their own start exactly as
+ * their window is (D22). `null` when the contest has no freeze window.
+ */
+export function freezeAtMs(endMs: number, frozenLastMinutes: number): number | null {
+  if (frozenLastMinutes <= 0) return null;
+  return endMs - frozenLastMinutes * 60_000;
+}
+
+/**
+ * Whether a participation is inside its freeze window at `nowMs`: closed at
+ * the freeze instant, **open at the end**. At `now >= end` the board unfreezes
+ * — which is the whole point of a freeze window rather than a permanent one.
+ */
+export function isFrozenAt(nowMs: number, freezeMs: number | null, endMs: number): boolean {
+  return freezeMs !== null && nowMs >= freezeMs && nowMs < endMs;
+}

@@ -312,3 +312,56 @@ drains, and `POST /admin/contests/{key}/rate` replays.
 The honest alternative — a completion hook in judged that replays — is a
 cross-service dependency for a rare operation; deferred until a real contest
 needs it.
+
+## D22 — The scoreboard freezes by filtering, per participation, against an injected clock
+
+`frozen_last_minutes = F > 0` on a contest means: while `now` is inside a
+participation's own `[end − F·60s, end)`, that row is computed **only** from
+its submissions dated strictly before the freeze instant, and the ones inside
+the window are reported as a per-cell `pending` count instead. The response
+carries `frozen` and `frozenAt`; the contest's creator and global admins
+always get the live board (`frozen: false`), and at `now ≥ end` the board
+unfreezes for everyone.
+
+Five rulings, taken during task P1-C with nobody to ask. (The brief numbered
+this D19; that number had already been taken by the bootstrap-admin ruling, so
+the freeze is D22.)
+
+- **The clock is a parameter, never read.** `lower(input, semantics, now?)`,
+  and **omitting `now` means "no freeze"**. That single default serves both
+  callers who must not freeze: the privileged viewer, and `scoreboardForSystem`
+  — the rating replay, which would otherwise fold a half-board into everybody's
+  rating. A default that froze on a forgotten argument fails dangerous; this
+  one fails visible.
+- **The freeze instant is per participation, not per contest** —
+  `participation.end − F·60s`, so a virtual entrant's freeze is shifted by
+  their own start exactly as their window already is. The cost is a conflict
+  inside the brief itself: a virtual attempt still running after `end_time`
+  stays frozen past the moment the brief says the board unfreezes "for
+  everyone". The specific clause wins over the general one; the alternative
+  reveals a running competitor's last hour to everyone watching.
+- **`pending` sits on the ranking row, not in `format_data`.** A problem whose
+  only submissions are inside the freeze window has no `format_data` cell at
+  all, so a count nested there would silently vanish for exactly the case the
+  freeze exists to describe. A submission outside the participation's window is
+  **void, not pending**: advertising an attempt that will never appear when the
+  board thaws is worse than hiding it.
+- **Filtering is the whole of the freeze**, so DMOJ's per-cell `frozen_*`
+  mirror fields now mirror the board actually served rather than projecting a
+  second freeze onto an already-frozen one — that branch would have zeroed the
+  very score being published. `is_frozen` on an `icpc` cell became real with
+  the meaning it should always have had: *this cell hides attempts*. All 23
+  goldens pin `frozen_last_minutes: 0`, so every one of them is byte-identical.
+- **`frozen`/`frozenAt` are camelCase in a snake_case object.** The snake_case
+  fields are the goldens' own shape, frozen from DMOJ; these two are DuckOJ's
+  additions and are spelled the way the rest of the API spells things. `frozen`
+  is true when at least one *ranked* row is inside its own freeze window —
+  "this board hides something", which is the claim the banner makes; a
+  spectator's window never raises it, because a spectator is never ranked.
+
+Write time: `frozenLastMinutes` must be `≥ 0` and **strictly less than the
+contest's duration in minutes** (422 `contest_freeze_too_long`), validated
+against the merged state on edit — shrinking a contest under a stored freeze
+window has to be refused too. The old blanket refusal
+(`contest_freeze_unsupported`) is gone from the API, the contracts and the
+schema comments.

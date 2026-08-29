@@ -27,9 +27,9 @@ export interface ContestSpec {
   /** Decimal places `score` is rounded to — once, at the end. */
   points_precision: number;
   /**
-   * Freeze window. Every golden pins this to 0; a non-zero value makes the
-   * output depend on `timezone.now()`, so it is out of scope for this phase
-   * (4a ledger, deferred-decisions table) and the formats reject it.
+   * Freeze window, in minutes before the end. Every golden pins this to 0; a
+   * non-zero value makes the output depend on the clock, which is why `lower()`
+   * takes `now` explicitly and never reads it (D22).
    */
   frozen_last_minutes: number;
 }
@@ -121,6 +121,13 @@ export interface RankingRow {
   frozen_tiebreaker: number;
   submission_count: number;
   format_data: Record<string, FormatData | IcpcFormatData>;
+  /**
+   * Problem code → attempts the freeze is hiding from this row (D22).
+   * **Present on every row iff the board is frozen**, and absent otherwise —
+   * a golden must stay byte-identical, and an always-present empty map would
+   * change all 23 of them.
+   */
+  pending?: Record<string, number>;
 }
 
 export interface ScoreboardProblem {
@@ -137,10 +144,25 @@ export interface Scoreboard {
   label_by_problem: Record<string, string>;
   problems: ScoreboardProblem[];
   ranking: RankingRow[];
+  /**
+   * Whether this board hides anything — at least one ranked row is inside its
+   * own freeze window at the `now` the caller supplied (D22).
+   *
+   * `frozen`/`frozenAt` are camelCase where everything around them is
+   * snake_case: the snake_case fields are the goldens' own shape, frozen from
+   * DMOJ, and these two are DuckOJ's own additions. The goldens compare
+   * `ranking`, `problems` and `label_by_problem` only, so adding them here
+   * costs no fixture.
+   */
+  frozen: boolean;
+  /** `end_time − F·60s` whenever `F > 0`, whatever the clock says; else null. */
+  frozenAt: Instant | null;
 }
 
 /** A contest format: a pure function from the input shape to the output shape. */
 export type ContestFormat = (
   input: ContestInput,
   semantics?: 'duckoj' | 'dmojCompat',
+  /** The clock the freeze window is judged against; omitted means "no freeze". */
+  now?: Instant,
 ) => Scoreboard;

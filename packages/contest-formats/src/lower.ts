@@ -9,12 +9,15 @@
 
 import { pyRound } from './numeric.js';
 import {
+  SPECTATE,
+  freezeAtMs,
+  isFrozenAt,
   isWithinWindow,
   parseInstant,
   participationEndMs,
   participationStartMs,
 } from './window.js';
-import type { ContestInput, ContestSpec, ProblemSpec, TestCaseSpec } from './types.js';
+import type { ContestInput, ContestSpec, Instant, ProblemSpec, TestCaseSpec } from './types.js';
 
 export { LIVE, SPECTATE } from './window.js';
 
@@ -56,8 +59,22 @@ export interface LoweredParticipation {
   startMs: number;
   /** `ContestParticipation.end_time`, in epoch milliseconds. */
   endMs: number;
+  /**
+   * `endMs − F·60s`, or `null` with no freeze window. Per PARTICIPATION, not
+   * per contest: a virtual entrant's freeze is shifted by their own start,
+   * exactly as their window is (D22).
+   */
+  freezeMs: number | null;
+  /** Whether `now` fell inside this participation's freeze window. */
+  isFrozen: boolean;
   /** This participation's `ContestSubmission` rows, in insertion order. */
   submissions: LoweredSubmission[];
+  /**
+   * Problem code → how many in-window submissions the freeze hid. Lives here
+   * rather than in `format_data` because a problem whose only submissions are
+   * inside the freeze window has no `format_data` cell to hang a count on.
+   */
+  pending: Map<string, number>;
 }
 
 export interface LoweredContest {
@@ -68,8 +85,20 @@ export interface LoweredContest {
   problemsByCode: Map<string, LoweredProblem>;
   /** Every participation, in fixture order, spectators included. */
   participations: LoweredParticipation[];
-  /** `Contest.is_frozen`. Always false: the formats reject a freeze window. */
+  /**
+   * Whether this lowering hid anything: true when at least one RANKED
+   * participation is inside its own freeze window. "The board you are looking
+   * at is incomplete" is the claim a viewer needs, and it is the claim the
+   * banner makes (D22).
+   */
   isFrozen: boolean;
+  /**
+   * The CONTEST's own freeze instant, `end_time − F·60s`, as an ISO instant —
+   * present whenever `F > 0`, whatever the clock says, so a caller can say
+   * when the board freezes as well as that it is frozen. `null` with no
+   * freeze window.
+   */
+  frozenAt: Instant | null;
   /** Which semantics this lowering was performed under. `default` reads it. */
   semantics: FormatSemantics;
 }
@@ -161,19 +190,25 @@ export function contestSubmissionPoints(
   return points;
 }
 
+/**
+ * @param now The instant to compute at, for the freeze window (D22).
+ *   **Omitted means "no freeze"** — which is exactly the privileged view, and
+ *   is also what the rating replay wants: a default that silently froze a
+ *   caller who forgot the argument would fold a half-board into a rating.
+ */
 export function lower(
   input: ContestInput,
   semantics: FormatSemantics = 'duckoj',
+  now?: Instant,
 ): LoweredContest {
   const spec = input.contest;
-  if (spec.frozen_last_minutes !== 0) {
-    throw new Error(
-      'frozen_last_minutes must be 0: Contest.is_frozen compares timezone.now() to the ' +
-        'freeze instant, so a freeze window makes the scoreboard wall-clock dependent. ' +
-        'No golden covers it (4a ledger, deferred-decisions table); it needs its own ' +
-        'scenario design with an injected clock.',
-    );
+  // A negative window is nonsense rather than "no freeze", so it is refused
+  // here as well as at the API's write time — this package is reachable
+  // directly. Zero and absent both mean the same thing: no freeze.
+  if (spec.frozen_last_minutes < 0) {
+    throw new Error(`frozen_last_minutes must not be negative: ${spec.frozen_last_minutes}`);
   }
+  const nowMs = now === undefined ? null : parseInstant(now);
 
   const problems: LoweredProblem[] = input.problems.map((problem) => ({
     code: problem.code,
@@ -183,14 +218,21 @@ export function lower(
   }));
   const problemsByCode = new Map(problems.map((problem) => [problem.code, problem]));
 
-  const participations: LoweredParticipation[] = input.participants.map((participant) => ({
-    name: participant.name,
-    virtual: participant.virtual,
-    isDisqualified: participant.is_disqualified ?? false,
-    startMs: participationStartMs(participant, spec),
-    endMs: participationEndMs(participant, spec),
-    submissions: [],
-  }));
+  const participations: LoweredParticipation[] = input.participants.map((participant) => {
+    const endMs = participationEndMs(participant, spec);
+    const freezeMs = freezeAtMs(endMs, spec.frozen_last_minutes);
+    return {
+      name: participant.name,
+      virtual: participant.virtual,
+      isDisqualified: participant.is_disqualified ?? false,
+      startMs: participationStartMs(participant, spec),
+      endMs,
+      freezeMs,
+      isFrozen: nowMs !== null && isFrozenAt(nowMs, freezeMs, endMs),
+      submissions: [],
+      pending: new Map<string, number>(),
+    };
+  });
   const byName = new Map(
     participations.map((participation) => [participation.name, participation]),
   );
@@ -208,10 +250,17 @@ export function lower(
     // DIV-1. Nothing upstream filters by time, so `icpc/03-deadline-boundary`
     // scores a submission a full minute past the deadline as a solve. The
     // window is per-participation and inclusive at both ends; see window.ts.
-    if (
-      semantics === 'duckoj' &&
-      !isWithinWindow(dateMs, participation.startMs, participation.endMs)
-    ) {
+    const inWindow = isWithinWindow(dateMs, participation.startMs, participation.endMs);
+    if (semantics === 'duckoj' && !inWindow) {
+      continue;
+    }
+    // The freeze runs AFTER the window filter, and only over what the window
+    // kept: a submission outside the participation's window is void, not
+    // pending, and counting it would advertise attempts that will never
+    // appear when the board thaws.
+    if (inWindow && participation.isFrozen && dateMs >= (participation.freezeMs ?? Infinity)) {
+      const code = submission.problem;
+      participation.pending.set(code, (participation.pending.get(code) ?? 0) + 1);
       continue;
     }
     participation.submissions.push({
@@ -223,13 +272,19 @@ export function lower(
     });
   }
 
+  const contestFreezeMs = freezeAtMs(parseInstant(spec.end_time), spec.frozen_last_minutes);
   return {
     spec,
     precision: spec.points_precision,
     problems,
     problemsByCode,
     participations,
-    isFrozen: false,
+    // Spectators are never ranked, so a spectator's freeze window would
+    // announce a frozen board that hides nothing anyone can see.
+    isFrozen: participations.some(
+      (participation) => participation.virtual > SPECTATE && participation.isFrozen,
+    ),
+    frozenAt: contestFreezeMs === null ? null : new Date(contestFreezeMs).toISOString(),
     semantics,
   };
 }

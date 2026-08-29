@@ -40,7 +40,7 @@ import type { FormatSemantics, LoweredContest, LoweredParticipation } from './lo
 import { pyRound } from './numeric.js';
 import { NO_FROZEN_FIELDS, computeScoreboard, numericLabel } from './scoreboard.js';
 import type { FormatDefinition, ParticipationResult } from './scoreboard.js';
-import type { ContestInput, FormatData, IcpcFormatData, Scoreboard } from './types.js';
+import type { ContestInput, FormatData, IcpcFormatData, Instant, Scoreboard } from './types.js';
 
 /**
  * `ContestParticipation.get_best_subtask_point()`, for one problem.
@@ -125,6 +125,7 @@ export const ioi16FormatDefinition: FormatDefinition = {
 export function ioi16Format(
   input: ContestInput,
   semantics: FormatSemantics = 'duckoj',
+  now?: Instant,
 ): Scoreboard {
-  return computeScoreboard(input, ioi16FormatDefinition, semantics);
+  return computeScoreboard(input, ioi16FormatDefinition, semantics, now);
 }

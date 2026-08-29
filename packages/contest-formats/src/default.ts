@@ -20,7 +20,7 @@ import type { FormatSemantics, LoweredContest, LoweredParticipation } from './lo
 import { pyRound, toIntegerField } from './numeric.js';
 import { NO_FROZEN_FIELDS, computeScoreboard, numericLabel } from './scoreboard.js';
 import type { FormatDefinition, ParticipationResult } from './scoreboard.js';
-import type { ContestInput, FormatData, IcpcFormatData, Scoreboard } from './types.js';
+import type { ContestInput, FormatData, IcpcFormatData, Instant, Scoreboard } from './types.js';
 
 function updateParticipation(
   contest: LoweredContest,
@@ -74,6 +74,7 @@ export const defaultFormatDefinition: FormatDefinition = {
 export function defaultFormat(
   input: ContestInput,
   semantics: FormatSemantics = 'duckoj',
+  now?: Instant,
 ): Scoreboard {
-  return computeScoreboard(input, defaultFormatDefinition, semantics);
+  return computeScoreboard(input, defaultFormatDefinition, semantics, now);
 }

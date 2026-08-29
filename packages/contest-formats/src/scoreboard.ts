@@ -14,6 +14,7 @@ import type {
   ContestInput,
   FormatData,
   IcpcFormatData,
+  Instant,
   RankingRow,
   Scoreboard,
   ScoreboardProblem,
@@ -161,8 +162,9 @@ export function computeScoreboard(
   input: ContestInput,
   definition: FormatDefinition,
   semantics: FormatSemantics = 'duckoj',
+  now?: Instant,
 ): Scoreboard {
-  const contest = lower(input, semantics);
+  const contest = lower(input, semantics, now);
 
   const rows: ComputedRow[] = contest.participations
     .filter((participation) => participation.virtual > SPECTATE)
@@ -202,6 +204,12 @@ export function computeScoreboard(
     frozen_tiebreaker: row.result.frozen_tiebreaker,
     submission_count: row.submissionCount,
     format_data: row.result.format_data,
+    // Spread rather than `pending: undefined`: `exactOptionalPropertyTypes`
+    // forbids the latter, and an unfrozen board must not grow the key at all
+    // (every golden would gain a field).
+    ...(contest.isFrozen
+      ? { pending: Object.fromEntries(row.participation.pending) }
+      : {}),
   }));
 
   return {
@@ -210,6 +218,8 @@ export function computeScoreboard(
     ),
     problems,
     ranking,
+    frozen: contest.isFrozen,
+    frozenAt: contest.frozenAt,
   };
 }
 

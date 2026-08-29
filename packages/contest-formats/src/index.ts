@@ -50,7 +50,7 @@ export { contestSubmissionPoints } from './lower.js';
  * `dmojCompat` is named in exactly one place, the golden suite.
  */
 export type { FormatSemantics } from './lower.js';
-export { isWithinWindow, participationEndMs, participationStartMs } from './window.js';
+export { freezeAtMs, isFrozenAt, isWithinWindow, participationEndMs, participationStartMs } from './window.js';
 export type { WindowContest, WindowParticipant } from './window.js';
 
 /**
@@ -67,7 +67,7 @@ export { icpcFormat } from './icpc.js';
 export { legacyIoiFormat } from './legacy-ioi.js';
 export { ioi16Format } from './ioi16.js';
 
-import type { ContestFormat, ContestInput, Scoreboard } from './types.js';
+import type { ContestFormat, ContestInput, Instant, Scoreboard } from './types.js';
 import type { FormatSemantics } from './lower.js';
 import { defaultFormat } from './default.js';
 import { icpcFormat } from './icpc.js';
@@ -92,10 +92,18 @@ export function isContestFormatName(name: string): name is ContestFormatName {
   return Object.prototype.hasOwnProperty.call(CONTEST_FORMATS, name);
 }
 
-/** Computes a scoreboard with the format named by `input.format`. */
+/**
+ * Computes a scoreboard with the format named by `input.format`.
+ *
+ * `now` is the clock the freeze window is judged against (D22). **Omitting it
+ * means "no freeze"**, which is both the privileged view and what the rating
+ * replay needs — a default that froze on a forgotten argument would fold a
+ * half-board into a rating.
+ */
 export function computeContestScoreboard(
   input: ContestInput,
   semantics: FormatSemantics = 'duckoj',
+  now?: Instant,
 ): Scoreboard {
   const format = CONTEST_FORMATS[input.format];
   if (format === undefined) {
@@ -104,5 +112,5 @@ export function computeContestScoreboard(
         `${Object.keys(CONTEST_FORMATS).join(', ')}`,
     );
   }
-  return format(input, semantics);
+  return format(input, semantics, now);
 }
