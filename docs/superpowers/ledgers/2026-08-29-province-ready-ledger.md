@@ -19,3 +19,4 @@
 - Ruling: parallel agents only in worktrees and only for DB-free work; DB-test tasks run on main one at a time (shared test Postgres would cross-contaminate).
 - 15:12 P1-B DONE_WITH_CONCERNS on `worktree-agent-a35dec3c52fa8290b` (6ae754c): /account/security + formatPoints; QR encoder vendored (Nayuki, MIT, decode-verified 4/4). Ruling: keep vendored copy (no lockfile churn; verified). Merge into main after P1-A finishes.
 - 15:13 P2 i18n dispatched (worktree, opus) on top of P1-B's branch.
+- Host process restarted; all four agents killed. State found: P1-A rejudge committed (9eaa670), disqualify uncommitted; P4 two commits; P3 14 dirty files; P2 only the merge. All four resumed via their transcripts (not re-dispatched).
