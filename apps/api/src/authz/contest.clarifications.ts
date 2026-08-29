@@ -191,6 +191,13 @@ export class ContestClarificationsService {
     const contest = await this.contests.loadVisible(actor, key);
     if (!canRunContest(actor, contest)) throw FORBIDDEN;
 
+    // `:id` is a path segment, so a client can send `abc` — and `Number('abc')`
+    // reaches Postgres as `NaN`, which it refuses as a bigint with a 500. Refused
+    // here as 404 rather than `orgs.controller.ts`'s 400 `bad_request`, because
+    // 404 is what this route already declares and "no such clarification" is
+    // exactly true of an id that cannot name one.
+    if (!Number.isInteger(id) || id <= 0) throw NOT_FOUND;
+
     const [row] = await this.db
       .select()
       .from(contestClarifications)

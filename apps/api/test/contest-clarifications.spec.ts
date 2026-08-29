@@ -404,3 +404,23 @@ describe('announcements', () => {
     });
   }, 120_000);
 });
+
+describe('a malformed clarification id', () => {
+  it('is 404, not a 500 from Postgres refusing NaN as a bigint', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const organiser = await agentFor(app, 'clar-nan-boss');
+        await seedContest(db, { key: 'clar-nan', createdBy: await userIdOf(db, 'clar-nan-boss') });
+
+        const res = await organiser
+          .patch('/contests/clar-nan/clarifications/abc')
+          .send({ answer: 'A.' });
+        expect(res.status).toBe(404);
+        expect(res.body.code).toBe('clarification_not_found');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});
