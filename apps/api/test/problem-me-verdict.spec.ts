@@ -233,7 +233,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
     });
   }, 120_000);
 
-  it('6. issues exactly one statement for the whole page, regardless of how many rows carry a `me`', async () => {
+  it('6. issues a fixed number of statements for a page, regardless of how many rows are on it', async () => {
     await withQueryLog(async (db, log) => {
       await seedProblemAndLanguage(db);
       const solver = await insertUser(db, 'onestmt-solver');
@@ -249,10 +249,22 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       }
 
       const service = new ProblemAccessService(db, UNUSED_STORE);
+
+      // Three statements, not one, since tags landed (D35): the D35 hidden-id
+      // scan, the page itself, and the whole page's tags in one `IN`. What
+      // this test pins is not the number but its INDEPENDENCE from the row
+      // count — a per-row lookup for `me` (the original regression) or for
+      // `tags` (the new one) would make the two measurements below differ.
       log.reset();
-      const page = await service.listVisible(actorFor(solver.id), { limit: 50 });
-      expect(page.items.filter((p) => p.code.startsWith('onestmt-'))).toHaveLength(8);
-      expect(log.queries).toHaveLength(1);
+      const wide = await service.listVisible(actorFor(solver.id), { limit: 50 });
+      expect(wide.items.filter((p) => p.code.startsWith('onestmt-'))).toHaveLength(8);
+      const wideCount = log.queries.length;
+
+      log.reset();
+      const narrow = await service.listVisible(actorFor(solver.id), { limit: 2 });
+      expect(narrow.items).toHaveLength(2);
+      expect(log.queries).toHaveLength(wideCount);
+      expect(wideCount).toBe(3);
     });
   }, 120_000);
 
