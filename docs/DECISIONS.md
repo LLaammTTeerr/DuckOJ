@@ -512,6 +512,52 @@ Left open: a fold already in flight when a write commits can still store the
 pre-write board, for one TTL. Closing it needs a cross-worker epoch read on
 every request, which costs more than the two seconds it buys.
 
+## D27 — A contest submission's source is withheld until its window closes
+
+`source_access = 'solved'` opens a **problem's** solutions to anyone holding
+an AC on it — the practice affordance P10 turned into a two-click control on
+the problem edit screen. `canViewSubmission` has no notion of a contest, so
+that setting also handed the first competitor to solve a problem every rival's
+accepted C++, live, for the remaining hours of a contest that reused it. D23
+left `source` outside the freeze on the reasoning that it "is already governed
+by `canViewSubmission`"; this is the clause that makes that true.
+
+**The rule.** While a submission's contest participation window (D22's
+`participationEndMs`) is still open, its `source` is `null` and
+`sourceHidden: true` for everyone except its submitter, the contest's creator,
+and global admins. At `now >= end` — the participation's own end, so a virtual
+entrant's source stays withheld past the contest's `end_time` exactly as their
+board does — it is served normally.
+
+Three deliberate independences:
+
+- **Not the freeze.** It has no `frozen_last_minutes`, applies to contests
+  with no freeze at all, and covers the whole window rather than its last
+  minutes: reading a rival's solution at minute five is worse than reading
+  their verdict at minute fifty-five, not better. It shares
+  `SubmissionFreezeContext` and `loadSubmissionFreezeContext` with the freeze
+  because both need the same participation end instant, and a second
+  derivation of that instant is the split-predicate bug this project has
+  found once per phase.
+- **Not `source_access`.** The setting keeps meaning what its label says. A
+  setter who opens a problem for practice does not have to remember that it
+  might be reused in a contest one day.
+- **A mask, not a 404.** The submission still answers 200 with everything
+  else on it; only the one field is withheld, and `sourceHidden` says so
+  rather than leaving `null` to read as "this submission was empty".
+
+Cost: a curator or author of the problem — who may read every submission to it
+— loses the source of contest submissions for the duration. That is the
+intended direction. A contest's own creator keeps it, which is the role that
+actually has to investigate cheating while the contest runs.
+
+Only the detail route needed changing: `source` is not on
+`SubmissionSummary`, so there is no SQL form of this predicate and no list to
+keep in agreement.
+
+*Ruled by the implementer during the province-ready final-review fixes
+(2026-08-29, F1 brief), no human available to consult.*
+
 ## D28 — A contest edit diffs its problem list; only a REMOVAL is refused after the start
 
 `contest_submissions.contest_problem_id` is `ON DELETE cascade` on

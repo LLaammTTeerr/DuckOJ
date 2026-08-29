@@ -4067,7 +4067,7 @@ export interface paths {
                             id: number;
                             problemCode: string;
                             languageKey: string;
-                            source: string;
+                            source: string | null;
                             /** @enum {string} */
                             state: "queued" | "compiling" | "grading" | "done" | "errored";
                             /** @enum {string|null} */
@@ -4096,6 +4096,7 @@ export interface paths {
                             /** Format: date-time */
                             judgedAt: string | null;
                             frozen: boolean;
+                            sourceHidden: boolean;
                         };
                     };
                 };

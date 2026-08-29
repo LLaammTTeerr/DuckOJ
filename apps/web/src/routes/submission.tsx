@@ -116,9 +116,15 @@ export function SubmissionPage({ id }: { id: number }) {
       ) : null}
       <VerdictPanel submission={s} />
       <h2>{t('submission.source')}</h2>
-      <pre>
-        <code>{s.source}</code>
-      </pre>
+      {/* D27: `sourceHidden` rather than `source === null`, so "withheld
+          during a contest" never reads as "this submission was empty". */}
+      {s.sourceHidden ? (
+        <p className="muted">{t('submission.sourceHidden')}</p>
+      ) : (
+        <pre>
+          <code>{s.source}</code>
+        </pre>
+      )}
       <p>
         <Link to="/submissions">{t('common.allSubmissions')}</Link>
       </p>

@@ -68,15 +68,17 @@ export const SubmissionDetail = z.object({
   problemCode: z.string(),
   languageKey: z.string(),
   /**
-   * The code as submitted. Present on every submission this route answers
-   * 200 for and never null — it is not a field with its own visibility rule
-   * bolted on beside the submission's (design §2.1). `canViewSubmission`
-   * decides whether the *submission* is visible; the source is part of it.
+   * The code as submitted, or `null` when `sourceHidden` is true.
+   *
+   * It is otherwise not a field with its own visibility rule bolted on beside
+   * the submission's (design §2.1): `canViewSubmission` decides whether the
+   * *submission* is visible, and the source is part of it. The one exception
+   * is D27 — see `sourceHidden`.
    *
    * Deliberately absent from `SubmissionSummary`: a page of 25 submissions
    * would otherwise carry 25 source files, and a list has no use for them.
    */
-  source: z.string(),
+  source: z.string().nullable(),
   state: SubmissionState,
   verdict: Verdict.nullable(),
   points: z.number().nullable(),
@@ -100,6 +102,22 @@ export const SubmissionDetail = z.object({
    * every client that forgot to check for it.
    */
   frozen: z.boolean(),
+  /**
+   * D27 — the contest clause on the source. `true` means `source` is `null`
+   * because this submission belongs to a contest participation whose window
+   * is still open and the viewer is neither its submitter, nor the contest's
+   * creator, nor a global admin.
+   *
+   * Independent of `frozen`: it applies to a contest with no freeze at all,
+   * and it applies for the whole window rather than its last minutes. Also
+   * independent of the problem's `source_access` — that setting decides who
+   * may read a *practice* solution, and it was never meant to hand a
+   * competitor a rival's live contest source.
+   *
+   * Required, and separate from `source: null`, for the same reason `frozen`
+   * is required: "withheld" must be distinguishable from "empty".
+   */
+  sourceHidden: z.boolean(),
 });
 export type SubmissionDetailDto = z.infer<typeof SubmissionDetail>;
 

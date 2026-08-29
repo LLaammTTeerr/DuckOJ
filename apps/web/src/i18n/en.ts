@@ -245,6 +245,10 @@ export const en = {
   // D23. Hover text on the `?` a frozen row shows instead of a verdict —
   // "there is a result and it is being withheld", never "still grading".
   'submission.frozen': 'Hidden until the scoreboard unfreezes.',
+  // D27. Shown in place of the code itself, so the panel never looks like a
+  // submission that happened to be empty.
+  'submission.sourceHidden':
+    'The source is hidden while this contest is still running. It becomes readable when the window closes.',
   'submission.contest': 'Contest',
 
   // ── contests ──────────────────────────────────────────────────────────

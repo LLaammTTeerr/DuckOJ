@@ -7835,7 +7835,10 @@
                       "type": "string"
                     },
                     "source": {
-                      "type": "string"
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "state": {
                       "type": "string",
@@ -7984,6 +7987,9 @@
                     },
                     "frozen": {
                       "type": "boolean"
+                    },
+                    "sourceHidden": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -8003,7 +8009,8 @@
                     "contestLabel",
                     "createdAt",
                     "judgedAt",
-                    "frozen"
+                    "frozen",
+                    "sourceHidden"
                   ]
                 }
               }

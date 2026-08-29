@@ -41,6 +41,18 @@
  * test (`apps/api/test/submission-freeze.spec.ts`) that seeds every
  * participation shape — spectating, live ± time limit, virtual ± time limit,
  * no freeze at all — and asserts the two mark the same set.
+ *
+ * ## The other contest-window rule (D27)
+ *
+ * `isContestSourceHidden` at the bottom of this file is NOT the freeze — it
+ * has no freeze window, no `frozen_last_minutes`, and it runs for a
+ * participation's whole duration. It lives here anyway, deliberately: it
+ * needs the same participation end instant, off the same
+ * `SubmissionFreezeContext`, loaded by the same `loadSubmissionFreezeContext`
+ * probe. A second derivation of `participationEndMs` in a second file is the
+ * split-predicate bug this project has found once per phase, and one shared
+ * context is what stops the two rules disagreeing about when a contest is
+ * over.
  */
 import { eq, sql, type SQL } from 'drizzle-orm';
 import { contestParticipations, contestSubmissions, contests, submissions } from '@duckoj/db/guarded';
@@ -257,4 +269,49 @@ export function maskFrozenDetail(detail: SubmissionDetailDto): SubmissionDetailD
     cases: [],
     frozen: true,
   };
+}
+
+/**
+ * D27 — whether this submission's `source` must be withheld from `actor`
+ * because its contest is still running.
+ *
+ * `source_access = 'solved'` opens a *problem's* solutions to anyone holding
+ * an AC on it. That predicate (`canViewSubmission`) knows nothing about
+ * contests, so a problem opened for practice and later reused in a contest
+ * handed the first competitor to solve it every rival's accepted source, live,
+ * for the rest of the contest. This clause closes that without touching
+ * `source_access`, which remains the right control for practice.
+ *
+ * Deliberately NOT part of the freeze:
+ *
+ * - it applies for the participation's WHOLE window, not its last `F`
+ *   minutes, because reading a rival's solution at minute five is worse than
+ *   reading their verdict at minute fifty-five;
+ * - it applies when `frozen_last_minutes` is 0, i.e. to every contest;
+ * - it withholds one field and leaves the submission otherwise intact, so a
+ *   viewer entitled to the row still gets the row.
+ *
+ * The same four escapes as the freeze, in the same order and for the same
+ * reasons: your own source is yours, an admin sees everything, and the
+ * contest's creator is running the thing.
+ */
+export function isContestSourceHidden(
+  actor: Actor,
+  submission: { userId: number },
+  ctx: SubmissionFreezeContext | null,
+  now: Date,
+): boolean {
+  if (ctx === null) return false;
+  if (submission.userId === actor.userId) return false;
+  if (isAdmin(actor)) return false;
+  if (ctx.contestCreatedBy === actor.userId) return false;
+  // Open-ended at the start and closed at the end, matching
+  // `participationEndMs` everywhere else: at `now === end` the window is over
+  // and the source is released, the same instant the board unfreezes.
+  return now.getTime() < ctx.participationEndMs;
+}
+
+/** The D27 mask: one field, plus the flag that says it was withheld. */
+export function maskHiddenSource(detail: SubmissionDetailDto): SubmissionDetailDto {
+  return { ...detail, source: null, sourceHidden: true };
 }

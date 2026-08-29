@@ -231,6 +231,8 @@ export const vi = {
   'submission.notFound': 'Không có bài nộp này.',
   'submission.source': 'Mã nguồn',
   'submission.frozen': 'Được ẩn cho tới khi bảng điểm hết đóng băng.',
+  'submission.sourceHidden':
+    'Mã nguồn được ẩn trong khi kỳ thi còn diễn ra. Mã sẽ hiện ra khi hết thời gian thi.',
   'submission.contest': 'Kỳ thi',
 
   // ── contests ──────────────────────────────────────────────────────────

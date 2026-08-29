@@ -26,10 +26,12 @@ import { canViewContest, loadContestContext } from './contest.visibility.js';
 import { canViewSubmission, loadSubmissionContext, visibleSubmissionsWhere } from './submission.visibility.js';
 import {
   frozenSubmissionsWhere,
+  isContestSourceHidden,
   isSubmissionFrozen,
   loadSubmissionFreezeContext,
   maskFrozenDetail,
   maskFrozenSummary,
+  maskHiddenSource,
 } from './submission.freeze.js';
 
 /**
@@ -343,12 +345,17 @@ export class SubmissionAccessService {
    * shared predicate rather than a handler's own `where`, so this and
    * `listVisible` cannot answer differently; see `submission.visibility.ts`.
    *
-   * `source` is returned on every submission this answers 200 for. That is
-   * not a separate rule with its own check (design §2.1): the widened
+   * `source` rides along on every submission this answers 200 for, with ONE
+   * exception (D27): a submission whose contest participation window is still
+   * open serves `source: null, sourceHidden: true` to everyone but its
+   * submitter, the contest's creator and a global admin. That is a contest
+   * rule, not a `source_access` rule — `source_access = 'solved'` decides who
+   * may read a practice solution, and reading a rival's solution *during a
+   * contest* is a different question it was never asked.
+   *
+   * Everywhere else the original reasoning stands (design §2.1): the widened
    * predicate decides whether the *submission* is visible, and the source is
-   * part of the submission. A 200 that withheld the source would mean the
-   * viewer was allowed to see the submission but not what it was, which is
-   * not a state any row of the table describes.
+   * part of the submission.
    */
   async getVisible(actor: Actor, id: number): Promise<SubmissionDetailDto> {
     const rows = await this.db
@@ -475,12 +482,18 @@ export class SubmissionAccessService {
       createdAt: row.createdAt.toISOString(),
       judgedAt: row.judgedAt ? row.judgedAt.toISOString() : null,
       frozen: false,
+      sourceHidden: false,
     };
 
+    // One context, one clock, two independent contest rules (D23 and D27).
+    // Reading the clock twice could put the two masks on opposite sides of a
+    // participation end that ticked between them.
+    const now = new Date();
     const freezeCtx = await loadSubmissionFreezeContext(this.db, id);
-    return isSubmissionFrozen(actor, row, freezeCtx, new Date())
-      ? maskFrozenDetail(detail)
+    const shown = isContestSourceHidden(actor, row, freezeCtx, now)
+      ? maskHiddenSource(detail)
       : detail;
+    return isSubmissionFrozen(actor, row, freezeCtx, now) ? maskFrozenDetail(shown) : shown;
   }
 }
 
