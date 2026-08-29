@@ -47,15 +47,40 @@ registry.registerPath({
   path: '/auth/register',
   tags: ['Auth'],
   summary: 'Create an account',
+  description:
+    'A taken EMAIL is answered with 201 and a body of the same shape, and no account is created (D26) — ' +
+    'an address is not public, and a distinguishable refusal made this endpoint an email-enumeration ' +
+    'oracle. A taken USERNAME is still a 409: a username is public, and refusing it is the only way a ' +
+    'caller can pick another one.',
   request: { body: { content: { 'application/json': { schema: RegisterRequest } } } },
   responses: {
-    201: { description: 'The account was created', content: { 'application/json': { schema: MeResponse } } },
+    201: {
+      description:
+        'The account was created — OR the address was already registered, in which case nothing was ' +
+        'created and this response is deliberately indistinguishable from the one above (D26)',
+      content: { 'application/json': { schema: MeResponse } },
+    },
     409: {
-      description: 'That username or email is already registered (`username_taken` or `email_taken`)',
+      description: 'That username is already registered (`username_taken`)',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     422: {
       description: 'The request body failed validation',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    429: {
+      description:
+        'Too many registrations from this client IP (`register_rate_limited`) — five per hour (D26). ' +
+        'Unlike login, EVERY attempt counts: what is metered is the cost of an argon2id hash, which a ' +
+        'successful registration pays in full. The refusal itself records nothing, so the window drains. ' +
+        '`Retry-After` carries the whole seconds until another attempt will be accepted.',
+      headers: {
+        'Retry-After': {
+          description: 'Whole seconds until another attempt will be accepted',
+          required: true,
+          schema: { type: 'integer' },
+        },
+      },
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },

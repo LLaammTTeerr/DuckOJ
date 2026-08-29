@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import { count, eq, sql } from 'drizzle-orm';
 import { schema } from '@duckoj/db';
+import { MeResponse } from '@duckoj/contracts';
 import { PasswordService } from '../src/authn/password.service.js';
 import { AuthService } from '../src/authn/auth.service.js';
 import { buildApp } from './app.harness.js';
@@ -13,6 +15,7 @@ import { withTestDb } from './db.harness.js';
  */
 type AuthServiceWithPrivates = AuthService & {
   assertAvailable(field: 'username' | 'email', value: string): Promise<void>;
+  isTaken(field: 'username' | 'email', value: string): Promise<boolean>;
 };
 
 describe('PasswordService', () => {
@@ -135,6 +138,166 @@ describe('POST /auth/register', () => {
 
       spy.mockRestore();
       await app.close();
+    });
+  }, 120_000);
+});
+
+/**
+ * D26 — registration is metered, and a taken EMAIL answers like a success.
+ *
+ * Usernames stay public (`username_taken` is unchanged: a username is on
+ * every scoreboard). An address is not, and `email_taken` made this endpoint
+ * an enumeration oracle against a roster of minors — contradicting the
+ * app's own posture two files over, where forgot-password answers identically
+ * whether or not the account exists.
+ */
+describe('POST /auth/register — enumeration and metering (D26)', () => {
+  const BODY = {
+    username: 'newcomer',
+    email: 'taken@example.com',
+    password: 'a-long-enough-password',
+    displayName: 'Newcomer',
+  };
+
+  it('answers a taken email exactly like a success, and creates nothing', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const first = await request(app.getHttpServer())
+          .post('/auth/register')
+          .send({ ...BODY, username: 'incumbent' });
+        expect(first.status).toBe(201);
+
+        const second = await request(app.getHttpServer()).post('/auth/register').send(BODY);
+        // Same status, same body SHAPE, and the submitted values echoed back
+        // — anything that differed would be the oracle all over again.
+        expect(second.status).toBe(201);
+        expect(MeResponse.safeParse(second.body).success).toBe(true);
+        expect(second.body.username).toBe('newcomer');
+        expect(second.body.email).toBe('taken@example.com');
+        expect(second.body.displayName).toBe('Newcomer');
+        expect(second.body.globalRole).toBe('user');
+        expect(second.body.emailVerified).toBe(false);
+        expect(second.body.totpEnabled).toBe(false);
+        // A fabricated id, not `0` — a fixed sentinel would be a fresh
+        // oracle in the field meant to close one.
+        expect(second.body.id).toBeGreaterThan(0);
+
+        // Nothing was written.
+        const [users] = await db.select({ n: count() }).from(schema.users);
+        expect(users?.n).toBe(1);
+        const rows = await db
+          .select({ username: schema.users.username })
+          .from(schema.users)
+          .where(sql`lower(${schema.users.email}) = 'taken@example.com'`);
+        expect(rows).toEqual([{ username: 'incumbent' }]);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('answers a racing unique violation on the email the same way', async () => {
+    // The INSERT-time backstop, reached the same way the username race test
+    // reaches it: `assertAvailable` stubbed out so Postgres itself raises
+    // 23505 on `users_email_lower_idx`. That path used to surface
+    // `email_taken`, which would have left the oracle open under a race.
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      const auth = app.get(AuthService) as AuthServiceWithPrivates;
+      const spy = vi.spyOn(auth, 'assertAvailable').mockResolvedValue(undefined);
+      const readSpy = vi.spyOn(auth, 'isTaken').mockResolvedValue(false);
+      try {
+        await db.insert(schema.users).values({
+          username: 'incumbent',
+          email: 'taken@example.com',
+          displayName: 'Incumbent',
+          passwordHash: 'not-a-real-hash-this-row-is-only-here-to-collide',
+        });
+
+        const res = await request(app.getHttpServer()).post('/auth/register').send(BODY);
+        expect(res.status).toBe(201);
+        expect(res.body.username).toBe('newcomer');
+        expect(res.body.email).toBe('taken@example.com');
+        // No row count is asserted here, deliberately: the 23505 this test
+        // provokes aborts `withTestDb`'s enclosing transaction, so every
+        // later statement on that connection fails. What matters is the
+        // answer, and the answer is a 201 — the same one the pre-check path
+        // gives, which the previous test pins against the real table.
+      } finally {
+        spy.mockRestore();
+        readSpy.mockRestore();
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('refuses the sixth registration from one IP with 429 and a Retry-After', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        for (let i = 0; i < 5; i++) {
+          const res = await request(app.getHttpServer())
+            .post('/auth/register')
+            .set('X-Forwarded-For', '203.0.113.7')
+            .send({ ...BODY, username: `member${String(i)}`, email: `member${String(i)}@x.test` });
+          expect(res.status).toBe(201);
+        }
+
+        const refused = await request(app.getHttpServer())
+          .post('/auth/register')
+          .set('X-Forwarded-For', '203.0.113.7')
+          .send({ ...BODY, username: 'member5', email: 'member5@x.test' });
+        expect(refused.status).toBe(429);
+        expect(refused.body.code).toBe('register_rate_limited');
+        expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
+        // Refused BEFORE the argon2 hash, so nothing was written.
+        const [users] = await db.select({ n: count() }).from(schema.users);
+        expect(users?.n).toBe(5);
+
+        // A different IP has its own window, and the refusal recorded
+        // nothing — the same shape D16 gives login.
+        const other = await request(app.getHttpServer())
+          .post('/auth/register')
+          .set('X-Forwarded-For', '198.51.100.4')
+          .send({ ...BODY, username: 'elsewhere', email: 'elsewhere@x.test' });
+        expect(other.status).toBe(201);
+        const events = await db
+          .select({ key: schema.rateEvents.key })
+          .from(schema.rateEvents)
+          .where(eq(schema.rateEvents.purpose, 'register'));
+        expect(events.filter((row) => row.key === 'ip:203.0.113.7')).toHaveLength(5);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('meters a refused registration too — a taken email still burns the window', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await request(app.getHttpServer())
+          .post('/auth/register')
+          .set('X-Forwarded-For', '203.0.113.9')
+          .send({ ...BODY, username: 'incumbent' });
+        // Four more attempts, all on the SAME (now taken) address: each one
+        // is a fake 201 and each one still counts, or the meter would not
+        // cover the enumeration it exists to make expensive.
+        for (let i = 0; i < 4; i++) {
+          await request(app.getHttpServer())
+            .post('/auth/register')
+            .set('X-Forwarded-For', '203.0.113.9')
+            .send({ ...BODY, username: `probe${String(i)}` });
+        }
+        const refused = await request(app.getHttpServer())
+          .post('/auth/register')
+          .set('X-Forwarded-For', '203.0.113.9')
+          .send({ ...BODY, username: 'probe9' });
+        expect(refused.status).toBe(429);
+      } finally {
+        await app.close();
+      }
     });
   }, 120_000);
 });

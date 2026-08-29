@@ -110,8 +110,11 @@ export const en = {
   'auth.displayName': 'Display name',
   'auth.confirmPassword': 'Confirm password',
   'auth.registerFailed': 'Could not create the account.',
+  // D26. The second sentence is the honest cost of answering a taken address
+  // as a success: this page can no longer tell the person their address is
+  // already in use, so it says up front what that will look like.
   'auth.verificationSent':
-    'A confirmation link will be sent to this address. Nothing here waits on it — registering signs you in straight away.',
+    'A confirmation link will be sent to this address. Nothing here waits on it — registering signs you in straight away. If this address already has an account, no new one is created and the sign-in below will not work: use “Forgotten your password?” instead.',
   'auth.errUsernameLength': 'Between 3 and 32 characters.',
   'auth.errUsernameChars': 'Letters, digits, dot, underscore and hyphen only.',
   'auth.errEmail': 'That does not look like an email address.',

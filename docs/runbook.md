@@ -767,6 +767,27 @@ several:
   half the notifications in any other". Verified with eight concurrent
   subscribers across four workers during a real grade.
 
+### Putting a second proxy in front of Caddy changes who the rate limiter sees
+
+The per-IP windows — login's 30 per fifteen minutes (D16) and registration's 5
+per hour (D26) — key on `clientIp()` in
+`apps/api/src/authn/auth.controller.ts`, which reads the **first** entry of
+`X-Forwarded-For`.
+
+That is correct today because **Caddy strips `X-Forwarded-*` from untrusted
+clients** (Caddy ≥ 2.7; no `trusted_proxies` is configured, so every client is
+untrusted) and writes the connecting address itself. Verified empirically
+against `caddy:2-alpine` v2.11.4 with this repo's `reverse_proxy` shape: a
+request carrying `X-Forwarded-For: 9.9.9.9` reaches the API as
+`x-forwarded-for: 127.0.0.1`. There is exactly one entry and it is Caddy's.
+
+**If province IT ever fronts Caddy with nginx, HAProxy or a cloud load
+balancer, revisit `clientIp` before anything else.** Those proxies *append*
+rather than strip, so the leftmost entry becomes whatever the client sent, and
+both per-IP windows are bypassable with one header on every request. The fix
+at that point is to configure `trusted_proxies` in the `Caddyfile` and take
+the rightmost untrusted hop, not to keep reading `[0]`.
+
 ### If a worker crashes
 
 The primary re-forks it with exponential backoff (1s, doubling to 30s), and

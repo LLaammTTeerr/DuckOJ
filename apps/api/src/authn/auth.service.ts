@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
@@ -20,6 +21,17 @@ const CONFLICT_FIELD_BY_CONSTRAINT: Record<string, 'username' | 'email'> = {
   users_email_lower_idx: 'email',
 };
 
+/**
+ * What `register` did, for a caller that must answer identically either way
+ * (D26). `created: false` means the address was already registered and
+ * nothing was written — the `user` is a synthesised echo of the request,
+ * never a real row, and must never be treated as one.
+ */
+export interface RegistrationOutcome {
+  created: boolean;
+  user: MeResponseDto;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -27,11 +39,28 @@ export class AuthService {
     @Inject(PasswordService) private readonly passwords: PasswordService,
   ) {}
 
-  async register(input: RegisterRequestDto): Promise<MeResponseDto> {
+  /**
+   * D26 — a taken USERNAME is a 409, a taken EMAIL is a fake success.
+   *
+   * The asymmetry is the whole ruling. A username is public — it is on every
+   * scoreboard and in every submission list — so `username_taken` discloses
+   * nothing and refusing it is the only way a person can pick another one. An
+   * address is not public, and answering "that email is already registered"
+   * to an anonymous POST made this endpoint an enumeration oracle over a
+   * roster of minors, which is exactly the posture `sendPasswordReset`
+   * already refuses to take two files over.
+   */
+  async register(input: RegisterRequestDto): Promise<RegistrationOutcome> {
     await this.assertAvailable('username', input.username);
-    await this.assertAvailable('email', input.email);
+    const emailTaken = await this.isTaken('email', input.email);
 
+    // Hashed unconditionally, BEFORE the branch. Skipping the 19 MiB argon2id
+    // on the taken-email path would make the fake 201 come back in a fraction
+    // of the time a real one takes — the same oracle, read with a stopwatch
+    // instead of with a status code. `login` burns the same cost against an
+    // unknown identifier for the same reason.
     const passwordHash = await this.passwords.hash(input.password);
+    if (emailTaken) return { created: false, user: syntheticMe(input) };
 
     let user: typeof schema.users.$inferSelect | undefined;
     try {
@@ -45,10 +74,15 @@ export class AuthService {
         })
         .returning();
     } catch (error) {
-      throw toRegistrationConflict(error);
+      const conflict = toRegistrationConflict(error);
+      // The race the pre-check above cannot close. It has to answer the same
+      // way the pre-check does, or the oracle survives under concurrency —
+      // which is a condition an attacker can simply create.
+      if (conflict.code === 'email_taken') return { created: false, user: syntheticMe(input) };
+      throw conflict;
     }
 
-    return toMe(user!, false);
+    return { created: true, user: toMe(user!, false) };
   }
 
   async login(usernameOrEmail: string, password: string): Promise<typeof schema.users.$inferSelect> {
@@ -83,16 +117,50 @@ export class AuthService {
   }
 
   private async assertAvailable(field: 'username' | 'email', value: string): Promise<void> {
+    if (await this.isTaken(field, value)) {
+      throw new AppError(409, `${field}_taken`, `That ${field} is already registered.`);
+    }
+  }
+
+  /**
+   * The read half of `assertAvailable`, split out for the email path, which
+   * must decide what to do rather than be refused (D26).
+   */
+  private async isTaken(field: 'username' | 'email', value: string): Promise<boolean> {
     const column = field === 'username' ? schema.users.username : schema.users.email;
     const existing = await this.db
       .select({ id: schema.users.id })
       .from(schema.users)
       .where(sql`lower(${column}) = lower(${value})`)
       .limit(1);
-    if (existing.length > 0) {
-      throw new AppError(409, `${field}_taken`, `That ${field} is already registered.`);
-    }
+    return existing.length > 0;
   }
+}
+
+/**
+ * The body a taken-email registration answers with (D26): the submitted
+ * values echoed back, in the shape a real success has, with the columns the
+ * schema would have defaulted.
+ *
+ * The id is RANDOM, not `0` and not a constant: a fixed sentinel is itself a
+ * perfect oracle, sitting in the one field this function exists to make
+ * uninformative. It is never persisted and never resolves to anything —
+ * whatever the client does with it next answers 404, exactly as it would for
+ * an id that has since been deleted.
+ */
+function syntheticMe(input: RegisterRequestDto): MeResponseDto {
+  return {
+    id: randomInt(1, 2 ** 31 - 1),
+    username: input.username,
+    email: input.email,
+    displayName: input.displayName,
+    globalRole: 'user',
+    locale: 'vi',
+    timezone: 'Asia/Ho_Chi_Minh',
+    totpEnabled: false,
+    emailVerified: false,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 export function toMe(

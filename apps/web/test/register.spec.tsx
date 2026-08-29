@@ -161,7 +161,12 @@ describe('RegisterPage on success', () => {
 });
 
 describe('RegisterPage on a server refusal', () => {
-  it('puts email_taken next to the email field and never signs in', async () => {
+  // D26 replaced the old `email_taken` test. The API no longer emits that
+  // code — a taken address is answered as a success, so this page cannot
+  // learn about it and must not act as though it could. Two tests take its
+  // place: nothing marks the email field any more, and the chained sign-in
+  // failure that follows is surfaced rather than swallowed.
+  it('never marks the email field from a server code (D26 — no email_taken exists)', async () => {
     post.mockResolvedValue({
       error: { code: 'email_taken', detail: 'That email is already registered.' },
     });
@@ -169,11 +174,25 @@ describe('RegisterPage on a server refusal', () => {
     await fillValid();
     await submit();
 
-    expect(screen.getByLabelText(/^Email$/)).toHaveAccessibleDescription(/already registered/);
-    expect(screen.getByLabelText(/^Email$/)).toHaveAttribute('aria-invalid', 'true');
-    // The username is not the field at fault and must not be marked as one.
+    // Routed to the banner, not onto the field: an unexpected code is not a
+    // licence to guess which input it is about.
+    expect(await screen.findByRole('alert')).toHaveTextContent('already registered');
+    expect(screen.getByLabelText(/^Email$/)).not.toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByLabelText(/^Tên đăng nhập$/)).not.toHaveAttribute('aria-invalid', 'true');
-    expect(post).toHaveBeenCalledTimes(1);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the sign-in failure that follows a taken-address registration (D26)', async () => {
+    // What a person with an already-registered address actually experiences:
+    // a 201, then a sign-in that cannot work because no account was created.
+    post
+      .mockResolvedValueOnce({ data: { id: 7, username: 'nguoidung' } })
+      .mockResolvedValueOnce({ error: { code: 'invalid_credentials', detail: 'Sai mật khẩu.' } });
+    wrap();
+    await fillValid();
+    await submit();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sai mật khẩu.');
     expect(navigate).not.toHaveBeenCalled();
   });
 

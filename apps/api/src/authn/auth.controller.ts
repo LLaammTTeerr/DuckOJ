@@ -46,14 +46,57 @@ const LOGIN_LIMIT_PER_USER = 10;
 const LOGIN_LIMIT_PER_IP = 30;
 
 /**
+ * D26 — registration rate limiting.
+ *
+ * One window, per client IP: five accounts an hour. `register` is anonymous,
+ * was unmetered, and costs 19 MiB of argon2id per call — two hundred
+ * concurrent POSTs put every `API_WORKERS` thread in front of a native hash
+ * and take the site down with no sophistication at all. It is also the
+ * endpoint an email-enumeration sweep runs through, and the meter is what
+ * makes that sweep expensive rather than free.
+ *
+ * **Every attempt counts here, unlike login.** D16 counts only failures
+ * because the thing being guarded there is a credential and a successful
+ * sign-in proves the caller is not the attacker. Nothing is being guessed
+ * here: what is being metered is the *cost*, and a successful registration
+ * costs exactly as much as a refused one. Counting successes only is what
+ * would make the meter decorative — an attacker registering real accounts is
+ * the resource-exhaustion case, not an exemption from it. The 429 itself
+ * still records nothing, so the window drains rather than a shared address
+ * staying locked out for as long as someone keeps knocking.
+ *
+ * There is no per-identifier window to pair with it: the identifier is chosen
+ * freely by the caller, so it would meter nothing.
+ */
+const REGISTER_PURPOSE = 'register';
+const REGISTER_WINDOW_MS = 60 * 60_000;
+const REGISTER_LIMIT_PER_IP = 5;
+
+/**
  * The client's address: the FIRST hop of `X-Forwarded-For`, else the socket.
  *
- * The first entry is the one Caddy (this stack's only proxy) prepends, and
- * every entry after it is whatever the client itself claimed — trusting the
- * last, or the whole list, would let a caller pick a fresh "IP" per request
- * and walk straight past the per-IP window. Express' own `req.ip` is not used
- * because it returns the socket address unless `trust proxy` is set, and this
- * application deliberately does not set it.
+ * **What actually happens today** (verified empirically against
+ * `caddy:2-alpine` v2.11.4, the tag compose pins, with this repo's own
+ * `reverse_proxy` shape): Caddy ≥ 2.7 STRIPS `X-Forwarded-*` from untrusted
+ * clients rather than appending to them — no `trusted_proxies` is configured,
+ * so every client is untrusted — and sets the header to the connecting
+ * address alone. A request arriving with `X-Forwarded-For: 9.9.9.9` reaches
+ * this function as `x-forwarded-for: 127.0.0.1`. So the header holds exactly
+ * one entry, it is Caddy's, and there is no per-IP bypass to be had.
+ *
+ * **Why `[0]` and not the last entry.** The invariant this code depends on is
+ * "the leftmost entry is the one the trusted proxy wrote". That is true of a
+ * stripping proxy trivially, and it is the correct read for an appending one
+ * (nginx, most cloud LBs) only while the leftmost entry is written rather
+ * than forwarded — which is NOT true of an appending proxy in front of an
+ * untrusted client. The day province IT fronts Caddy with a second proxy
+ * layer, `[0]` becomes attacker-controlled and D16's 30/IP window (and D26's
+ * 5/IP one) is bypassable with one header. `docs/runbook.md` records that a
+ * second proxy layer requires revisiting this function.
+ *
+ * Express' own `req.ip` is not used because it returns the socket address
+ * unless `trust proxy` is set, and this application deliberately does not set
+ * it.
  */
 function clientIp(req: Request): string {
   const forwarded = req.headers['x-forwarded-for'];
@@ -88,8 +131,45 @@ export class AuthController {
   @HttpCode(201)
   async register(
     @Body(new ZodValidationPipe(RegisterRequest)) body: RegisterRequestDto,
+    @Req() req: Request,
   ): Promise<MeResponseDto> {
-    const user = await this.auth.register(body);
+    // Checked BEFORE anything expensive: the whole point is that a refused
+    // caller does not pay for — or make this process pay for — an argon2id
+    // hash. `allow` rather than the split read/record pair login uses,
+    // because here every attempt counts, so "count" and "record" are the same
+    // moment (see REGISTER_PURPOSE above).
+    const ipKey = `ip:${clientIp(req)}`;
+    const retryAfter = await this.limiter.retryAfterSeconds(
+      REGISTER_PURPOSE,
+      ipKey,
+      REGISTER_LIMIT_PER_IP,
+      REGISTER_WINDOW_MS,
+    );
+    if (retryAfter !== null) {
+      throw new AppError(
+        429,
+        'register_rate_limited',
+        'Too many accounts have been created from this address. Try again later.',
+        undefined,
+        { 'Retry-After': String(retryAfter) },
+      );
+    }
+    await this.limiter.record(REGISTER_PURPOSE, ipKey, REGISTER_WINDOW_MS);
+
+    const { created, user } = await this.auth.register(body);
+    if (!created) {
+      // D26: the address is already registered. The response above is
+      // indistinguishable from a success and nothing was written, so this log
+      // line is the ONLY record that it happened — without it the operator
+      // investigating "a student says they registered and cannot sign in" has
+      // no evidence at all. The address is logged because the log is not the
+      // channel the oracle runs over; the API's answer is.
+      this.logger.warn(
+        `register: address already in use, answered as success (email=${body.email}, ` +
+          `username=${body.username})`,
+      );
+      return user;
+    }
     // The user row is committed; the verification mail is best-effort on top
     // of it. A mailer outage (or anything else `sendVerification` trips on)
     // must not turn a successful signup into a 500 — the resend endpoint

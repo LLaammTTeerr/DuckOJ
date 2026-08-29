@@ -1582,7 +1582,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create an account */
+        /**
+         * Create an account
+         * @description A taken EMAIL is answered with 201 and a body of the same shape, and no account is created (D26) — an address is not public, and a distinguishable refusal made this endpoint an email-enumeration oracle. A taken USERNAME is still a 409: a username is public, and refusing it is the only way a caller can pick another one.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -1602,7 +1605,7 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description The account was created */
+                /** @description The account was created — OR the address was already registered, in which case nothing was created and this response is deliberately indistinguishable from the one above (D26) */
                 201: {
                     headers: {
                         [name: string]: unknown;
@@ -1624,7 +1627,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description That username or email is already registered (`username_taken` or `email_taken`) */
+                /** @description That username is already registered (`username_taken`) */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -1647,6 +1650,28 @@ export interface paths {
                 /** @description The request body failed validation */
                 422: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Too many registrations from this client IP (`register_rate_limited`) — five per hour (D26). Unlike login, EVERY attempt counts: what is metered is the cost of an argon2id hash, which a successful registration pays in full. The refusal itself records nothing, so the window drains. `Retry-After` carries the whole seconds until another attempt will be accepted. */
+                429: {
+                    headers: {
+                        /** @description Whole seconds until another attempt will be accepted */
+                        "Retry-After": number;
                         [name: string]: unknown;
                     };
                     content: {

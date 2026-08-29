@@ -512,6 +512,65 @@ Left open: a fold already in flight when a write commits can still store the
 pre-write board, for one TTL. Closing it needs a cross-worker epoch read on
 every request, which costs more than the two seconds it buys.
 
+## D26 — Registration is metered per IP, and a taken EMAIL answers like a success
+
+`POST /auth/register` was anonymous, unmetered, and costs 19 MiB of argon2id
+per call; it also answered `409 email_taken`, which the register screen
+rendered next to the email field. Two problems in one endpoint, fixed
+together because the first is what made the second cheap.
+
+**Metering.** Five registrations per client IP per hour, counted in
+`rate_events` under purpose `register` with D13's DB-backed limiter, refused
+`429 register_rate_limited` with `Retry-After` in whole seconds. The IP is
+derived exactly as D16 derives login's. The check runs **before** the hash, so
+a refused caller costs this process nothing.
+
+**Every attempt counts, unlike login.** D16 counts only failures because what
+it guards is a credential, and a successful sign-in proves the caller is not
+the attacker. Nothing is being guessed here: what is metered is the *cost*,
+and a successful registration pays it in full. The 429 itself still records
+nothing, so the window drains rather than a shared address staying locked out
+for as long as someone keeps knocking. There is no per-identifier window to
+pair with it, because the identifier is chosen freely by the caller and would
+meter nothing.
+
+**Enumeration.** `username_taken` stays a 409 — a username is public, it is
+on every scoreboard and in every submission list, and refusing it is the only
+way a person can pick another one. A taken **email** is answered `201` with a
+body of the same shape (the submitted values echoed back, a random positive
+id, the schema's `locale`/`timezone` defaults), **no account is created**, no
+verification mail is sent, and the API logs one `warn` line naming the address
+— the only record that it happened, since the response deliberately is not
+one. The argon2id hash runs on that path too: skipping it would return the
+fake 201 in a fraction of the time a real one takes, which is the same oracle
+read with a stopwatch. The INSERT-time race answers the same way, or the
+oracle survives under a condition an attacker can simply create.
+
+**What this costs, honestly:**
+
+- A person whose address is already registered is told nothing. They get a
+  201, the page's chained sign-in fails, and they have to work out that they
+  already have an account. The register screen's standing copy now says this
+  will happen and points at "Forgotten your password?" — standing copy shown
+  to everyone before submitting is not an oracle.
+- **The oracle is narrowed, not closed.** After a fake 201 the account still
+  does not exist, so `GET /users/{username}` 404s and the chained login fails
+  — a determined attacker can still distinguish the two outcomes at one extra
+  request each. The rate limit is what makes that expensive rather than free.
+  Closing it fully needs verify-before-create (create nothing until the
+  address is confirmed by mail), which is a larger change to the signup flow
+  than this brief allows and would make the "registering signs you in straight
+  away" property go away.
+- **5/IP/hour is harsh behind NAT.** A whole school or a province office
+  behind one public address gets five accounts an hour between them. That is
+  the number the brief specified and it ships as specified; if a seating-day
+  signup queue hits it, raise `REGISTER_LIMIT_PER_IP` in
+  `auth.controller.ts` — it is one constant, and the cost of a higher number
+  is only that the enumeration sweep gets cheaper.
+
+*Ruled by the implementer during the province-ready final-review fixes
+(2026-08-29, F1 brief), no human available to consult.*
+
 ## D27 — A contest submission's source is withheld until its window closes
 
 `source_access = 'solved'` opens a **problem's** solutions to anyone holding

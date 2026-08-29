@@ -80,10 +80,17 @@ export function validateRegistration(values: Values, t: TFunction): Partial<Reco
   return errors;
 }
 
-/** Which field a server refusal is about, if it is about one at all. */
+/**
+ * Which field a server refusal is about, if it is about one at all.
+ *
+ * `email_taken` is deliberately absent (D26): the API no longer emits it — a
+ * taken address is answered as a success — and routing it to the email field
+ * is exactly the rendering that made this page an enumeration oracle. Any
+ * future code that reappears here goes to the banner instead of being guessed
+ * onto a field.
+ */
 function fieldForCode(code: string | undefined): Field | null {
   if (code === 'username_taken') return 'username';
-  if (code === 'email_taken') return 'email';
   return null;
 }
 
