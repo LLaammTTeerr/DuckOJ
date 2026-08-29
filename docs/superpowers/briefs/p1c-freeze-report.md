@@ -54,8 +54,7 @@ merged state". Full ritual green: **1046 tests, 0 failures**; regen leaves no di
   competitor can watch their own late verdicts, and so can anyone reading `/submissions`.
 - **`frozen` is a board-wide flag** while `pending` is per row, so a viewer whose own row is
   not frozen still sees the banner. Truthful ("this board hides something"), possibly confusing.
-- The freeze window is **not editable per participation**, and nothing extends a freeze past
-  `end_time` for a contest whose results are still being reviewed — D22's "unfreeze at the end"
-  is unconditional.
+- Nothing extends a freeze past `end_time` for a contest still under review; D22's
+  "unfreeze at the end" is unconditional.
 - 400 vs 422 now split within one method: `contest_window_invalid` is 400 and
   `contest_freeze_too_long` is 422, both from the same brief, both verbatim.
