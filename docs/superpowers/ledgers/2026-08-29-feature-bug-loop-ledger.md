@@ -8,3 +8,4 @@
 - B-1 DONE, merged (09d0290): 8 auth bugs fixed (D32 reset revokes PATs, D33 TOTP begin cannot un-enrol, D34 single-use codes, session IP, expired-row sweeper, /users/me validation, register retry, oj chmod). api redeployed, pushed.
 - B-2 dispatched (worktree, opus): contests area, D36–D38 reserved.
 - F-2 DONE (8989cdc..0aee729): tags/difficulty/filters, D35, migration 0018; deployed + pushed. Tags not yet applied to live demo problems (F-3 does it).
+- F-3 dispatched (main, opus): apply tags to live demo set; TOTP recovery codes, migration 0019, D39.
