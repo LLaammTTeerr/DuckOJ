@@ -4,7 +4,7 @@ Dành cho người ra đề đã có sẵn một thư mục đề — do bộ k�
 `competitive-programming` sinh ra, hoặc theo bố cục Polygon như
 `content/problems/*` — và muốn kiểm tra rồi đưa lên DuckOJ bằng **một lệnh**.
 
-    corepack pnpm prepare <thư-mục-đề>
+    corepack pnpm prepare:problem <thư-mục-đề>
 
 Lệnh này chạy **cổng kiểm tra** (gate): nó không sửa gì trong thư mục của bạn,
 chỉ trả lời một câu — *đề này đã sẵn sàng chưa* — rồi ghi `prepare-report.json`
@@ -68,7 +68,7 @@ Muốn nhanh, chỉ kiểm tra cấu trúc mà không biên dịch gì: thêm `-
 
 ## 3. Dò lỗi lời giải mẫu bằng stress test
 
-    corepack pnpm prepare stress <thư-mục-đề> \
+    corepack pnpm prepare:problem stress <thư-mục-đề> \
       --brute brute.cpp --gen stress-gen.py --rounds 200
 
 **Giao ước của bộ sinh: `<gen> <seed>` in ra ĐÚNG MỘT test lên stdout.** Đây
@@ -83,7 +83,7 @@ lệnh **từ chối** thay vì coi đó là phản ví dụ — người làm t
 
 ## 4. Đóng gói và đưa lên
 
-    corepack pnpm prepare publish <thư-mục-đề> \
+    corepack pnpm prepare:problem publish <thư-mục-đề> \
       --base-url http://localhost:8080/api/v1 \
       --token "$DUCKOJ_TOKEN" \
       --publish --visibility public
@@ -115,9 +115,9 @@ mà không cần máy chủ nào đang chạy, và in ra mã băm.
 1. Bộ kỹ năng `competitive-programming` dựng thư mục đề: `problem.json`,
    test, `solutions/*.cpp` có `@tag`/`@expect`, `flags.json`.
 2. Thêm `statement.md` (Việt + Anh) — bản `.tex` giữ nguyên, DuckOJ không đọc.
-3. `corepack pnpm prepare <dir>` cho tới khi **READY**.
-4. `corepack pnpm prepare stress ...` nếu còn nghi lời giải mẫu.
-5. `corepack pnpm prepare publish <dir> --publish` — xong.
+3. `corepack pnpm prepare:problem <dir>` cho tới khi **READY**.
+4. `corepack pnpm prepare:problem stress ...` nếu còn nghi lời giải mẫu.
+5. `corepack pnpm prepare:problem publish <dir> --publish` — xong.
 
 ---
 
@@ -130,7 +130,7 @@ For a setter who already has a problem directory — produced by the
 `content/problems/*` uses — and wants it checked and published in **one
 command**.
 
-    corepack pnpm prepare <problem-dir>
+    corepack pnpm prepare:problem <problem-dir>
 
 That runs the **gate**. It changes nothing in your directory; it answers one
 question — *is this problem ready* — writes `prepare-report.json` beside it,
@@ -179,7 +179,7 @@ is the verdict it actually gets).
 
 ### 3. Stress testing the model solution
 
-    corepack pnpm prepare stress <problem-dir> \
+    corepack pnpm prepare:problem stress <problem-dir> \
       --brute brute.cpp --gen stress-gen.py --rounds 200
 
 **The generator contract is `<gen> <seed>` writing ONE case to stdout.** The
@@ -192,7 +192,7 @@ counterexample: the oracle has to be right.
 
 ### 4. Packaging and publishing
 
-    corepack pnpm prepare publish <problem-dir> \
+    corepack pnpm prepare:problem publish <problem-dir> \
       --base-url http://localhost:8080/api/v1 --token "$DUCKOJ_TOKEN" \
       --publish --visibility public
 
@@ -217,6 +217,6 @@ the package with no server running and prints its hash.
 1. The skills build the directory: `problem.json`, tests, `solutions/*.cpp`
    with `@tag`/`@expect`, `flags.json`.
 2. Add `statement.md` in both languages.
-3. `corepack pnpm prepare <dir>` until it says **READY**.
-4. `corepack pnpm prepare stress ...` if the model solution is still in doubt.
-5. `corepack pnpm prepare publish <dir> --publish`.
+3. `corepack pnpm prepare:problem <dir>` until it says **READY**.
+4. `corepack pnpm prepare:problem stress ...` if the model solution is still in doubt.
+5. `corepack pnpm prepare:problem publish <dir> --publish`.

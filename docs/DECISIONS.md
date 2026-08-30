@@ -3658,7 +3658,7 @@ tables that already exist.*
 
 ## D90 — `prepare` publishes through `POST /packages` + `/revisions`, and one directory has one hash
 
-`packages/prepare` (`corepack pnpm prepare <problem-dir>`) is the gate a
+`packages/prepare` (`corepack pnpm prepare:problem <problem-dir>`) is the gate a
 prepared problem passes before it reaches a stack, and the publisher that puts
 it there. Two doors existed into a live problem and it takes exactly one.
 

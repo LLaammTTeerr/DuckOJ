@@ -1,7 +1,7 @@
 # F21 — `packages/prepare`: the problem-preparation gate and publisher
 
 **DONE.** One pipeline from a prepared directory to a live problem, as a library plus a
-CLI: `corepack pnpm prepare <problem-dir>`. **Shipped:** `packages/prepare/src/`:
+CLI: `corepack pnpm prepare:problem <problem-dir>`. **Shipped:** `packages/prepare/src/`:
 `load{,-polygon,-skills}.ts` (both layouts detected, normalised into one
 `PreparedProblem`), `statement.ts`, `solution-meta.ts`, `classification.ts`, `flags.ts`,
 `toolchain.ts` (g++, `timeout`, `ulimit -v`, testlib lookup), `judge.ts`, `validate.ts`
