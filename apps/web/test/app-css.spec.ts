@@ -68,6 +68,30 @@ describe('app.css', () => {
     expect(getComputedStyle(host.querySelector('input')!).width).toBe('100%');
   });
 
+  /**
+   * The credential sheet (D61), asserted as TEXT rather than through
+   * `getComputedStyle`.
+   *
+   * jsdom resolves the cascade but has no print medium — `@media print` rules
+   * never match, so a computed-style assertion here would pass whatever the
+   * block contained, including nothing. What can still be checked honestly is
+   * that the block exists, that it is the one hiding the shell, and that the
+   * table it formats is the one the import panel actually renders.
+   */
+  it('prints the credential table and hides everything around it', () => {
+    const block = /@media print\s*\{([\s\S]*?)\n\}/.exec(CSS)?.[1];
+    expect(block).toBeDefined();
+    expect(block).toContain('.shell-nav');
+    expect(block).toContain('.no-print');
+    expect(block).toContain('.print-credentials');
+    // A password is read character by character off this sheet; wrapping it
+    // onto a second line is how a pupil types the wrong one.
+    expect(block).toContain('white-space: nowrap');
+    // A class of forty is two pages, and the second is unreadable without
+    // the header repeated.
+    expect(block).toContain('display: table-header-group');
+  });
+
   it('names no custom property that the stylesheet never defines', () => {
     // `.dq td { color: var(--muted, inherit) }` shipped naming a variable
     // that does not exist — the fallback always won, so the disqualified-row

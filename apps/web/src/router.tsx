@@ -31,6 +31,7 @@ import { ContestEditPage } from './routes/contest-edit.js';
 import { TokensPage } from './routes/tokens.js';
 import { SecurityPage } from './routes/security.js';
 import { SettingsPage } from './routes/settings.js';
+import { ChangePasswordPage, PasswordGate } from './routes/password.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
 import { AdminPage } from './routes/admin.js';
@@ -223,7 +224,13 @@ function RootComponent() {
       <PreferenceSync />
       <ShellNav />
       <main>
-        <Outlet />
+        {/* D61 — an account created by a school's roster import holds a
+            password it never chose, and is shown nothing else until it has
+            one. A swap rather than a redirect: a redirect is one
+            `history.back()` away from being undone. */}
+        <PasswordGate>
+          <Outlet />
+        </PasswordGate>
       </main>
     </>
   );
@@ -267,6 +274,10 @@ export function ShellNav() {
             three are `/account/*`, and a language a reader can only change
             per-browser is a language they change again on every machine. */}
         {me.data ? <Link to="/account/settings">{t('nav.settings')}</Link> : null}
+        {/* Same `/account/*` shelf. Until D61 there was no way to change a
+            password while signed in at all — only the reset link, which needs
+            a mailbox an imported pupil does not have. */}
+        {me.data ? <Link to="/account/password">{t('nav.password')}</Link> : null}
         {me.data ? (
           <Link to="/notifications" aria-label={t('nav.notifications', { count: unread })}>
             {unread > 0 ? `[${String(unread)}]` : '[ ]'}
@@ -640,6 +651,11 @@ const settingsRoute = createRoute({
   path: '/account/settings',
   component: SettingsPage,
 });
+const passwordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/account/password',
+  component: ChangePasswordPage,
+});
 const notificationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/notifications',
@@ -704,6 +720,7 @@ const routeTree = rootRoute.addChildren([
   tokensRoute,
   securityRoute,
   settingsRoute,
+  passwordRoute,
   notificationsRoute,
   adminRoute,
   userRoute,

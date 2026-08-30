@@ -937,3 +937,57 @@ fieldset label {
   margin-right: 12px;
   white-space: nowrap;
 }
+
+/* The credential sheet a school prints once (D61).
+ *
+ * The passwords a roster import hands back exist in exactly one place — that
+ * response — and the teacher's job in the next sixty seconds is to get them
+ * onto paper. So printing this page prints the TABLE and nothing else: no
+ * nav, no buttons, no textarea full of the same thing again, and no colour
+ * that a monochrome laser turns into unreadable grey.
+ *
+ * `.no-print` is the escape hatch for the controls that only make sense on
+ * screen; the rule below hides the shell wholesale so a screen added later
+ * does not have to remember to mark itself. */
+.no-print {
+  /* Nothing on screen — this class only means something to a printer. */
+}
+
+@media print {
+  .shell-nav,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
+  .panel {
+    border: none;
+    box-shadow: none;
+    padding: 0;
+  }
+  .print-credentials {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .print-credentials th,
+  .print-credentials td {
+    border: 1px solid #000;
+    padding: 4px 8px;
+    /* A generated password is read character by character off this sheet, so
+     * it must not be re-flowed onto a second line and must not be rendered in
+     * a proportional face where l and 1 look alike. The alphabet already
+     * excludes the pairs that confuse; this keeps the rest legible. */
+    white-space: nowrap;
+    font-family: inherit;
+  }
+  /* Repeat the header on every page: a class of forty is two pages, and the
+   * second one is unreadable without it. */
+  .print-credentials thead {
+    display: table-header-group;
+  }
+  .print-credentials tr {
+    break-inside: avoid;
+  }
+}

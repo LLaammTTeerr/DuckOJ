@@ -248,6 +248,223 @@ function OrgContests({ slug }: { slug: string }) {
   );
 }
 
+/**
+ * "Nhập danh sách học sinh" — D61's roster import, for an owner.
+ *
+ * Two steps, deliberately: **check** (`dryRun`) shows the school exactly what
+ * the server understood before anything is created, and **confirm** creates
+ * it. The passwords come back once and are recoverable from nowhere, so the
+ * result is rendered three ways at once — a table styled for a printer, a
+ * download, and a plain-text box — because each of the three fails somewhere.
+ * A download is inert in an embedded viewer; a print dialog is missing on a
+ * tablet; a selection is the one that always works.
+ */
+function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () => Promise<void> }) {
+  const t = useT();
+  const [csv, setCsv] = useState('');
+  const [preview, setPreview] = useState<PreviewRow[] | null>(null);
+  const [rowErrors, setRowErrors] = useState<RowError[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function send(dryRun: boolean): Promise<void> {
+    setBusy(true);
+    try {
+      const { data, error: err } = await api.POST('/orgs/{slug}/members/import', {
+        params: { path: { slug } },
+        body: { csv, dryRun },
+      });
+      if (err) {
+        // Per-row failures ride in `fields`, keyed `rows[<n>].<field>` — the
+        // one structured slot `ProblemDetails` has. Anything else (403, 429,
+        // a 422 about the body itself) is one sentence.
+        const rows = toRowErrors(err.fields);
+        setRowErrors(rows.length > 0 ? rows : null);
+        setError(rows.length > 0 ? null : (err.detail ?? t('import.error')));
+        setPreview(null);
+        return;
+      }
+      setError(null);
+      setRowErrors(null);
+      if (dryRun) {
+        setPreview((data as { rows: PreviewRow[] }).rows);
+      } else {
+        setPreview(null);
+        setResult(data as ImportResult);
+        await onImported();
+      }
+    } catch {
+      setError(t('import.error'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function readFile(file: File | undefined): Promise<void> {
+    if (!file) return;
+    setCsv(await file.text());
+    setPreview(null);
+    setRowErrors(null);
+  }
+
+  if (result) {
+    return (
+      <>
+        <h2>{t('import.credentials')}</h2>
+        <p role="alert">{t('import.credentialsWarning')}</p>
+        <p className="no-print">
+          <a
+            href={`data:text/csv;charset=utf-8,${encodeURIComponent(result.csv)}`}
+            download={`${slug}-accounts.csv`}
+          >
+            {t('import.download')}
+          </a>{' '}
+          <button type="button" onClick={() => window.print()}>
+            {t('import.print')}
+          </button>
+        </p>
+        <table className="print-credentials">
+          <thead>
+            <tr>
+              <th>{t('import.colUsername')}</th>
+              <th>{t('import.colName')}</th>
+              <th>{t('import.colPassword')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.created.map((row) => (
+              <tr key={row.username}>
+                <td>{row.username}</td>
+                <td>{row.displayName}</td>
+                <td>{row.password}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {/* The always-works copy. A blob or `data:` download is inert inside
+            some embedded browsers, and a selection is not. */}
+        <p className="no-print">{t('import.copyHint')}</p>
+        <textarea className="no-print" readOnly rows={8} value={result.csv} aria-label={t('import.copyLabel')} />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <h2>{t('import.title')}</h2>
+      <p className="muted">{t('import.hint')}</p>
+      <p>
+        <input
+          type="file"
+          accept=".csv,text/csv,text/plain"
+          aria-label={t('import.file')}
+          onChange={(e) => void readFile(e.target.files?.[0])}
+        />
+      </p>
+      <p>
+        <textarea
+          rows={8}
+          value={csv}
+          aria-label={t('import.csv')}
+          placeholder={'hs001,Nguyễn Văn A\nhs002,Trần Thị B'}
+          onChange={(e) => {
+            setCsv(e.target.value);
+            setPreview(null);
+            setRowErrors(null);
+          }}
+        />
+      </p>
+      {error ? <p role="alert">{error}</p> : null}
+      {rowErrors ? (
+        <table>
+          <thead>
+            <tr>
+              <th>{t('import.colRow')}</th>
+              <th>{t('import.colField')}</th>
+              <th>{t('import.colProblem')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rowErrors.map((row) => (
+              <tr key={`${String(row.row)}-${row.field}-${row.message}`}>
+                <td>{row.row === 0 ? '—' : row.row}</td>
+                <td>{row.field}</td>
+                <td>{row.message}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {preview ? (
+        <>
+          <p>{t('import.previewCount', { n: preview.length })}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>{t('import.colUsername')}</th>
+                <th>{t('import.colName')}</th>
+                <th>{t('import.colEmail')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {preview.map((row) => (
+                <tr key={row.username}>
+                  <td>{row.username}</td>
+                  <td>{row.displayName}</td>
+                  <td>{row.emailProvided ? row.email : <span className="muted">{t('import.noEmail')}</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
+      <p>
+        <button type="button" disabled={csv.trim() === '' || busy} onClick={() => void send(true)}>
+          {t('import.check')}
+        </button>{' '}
+        <button type="button" disabled={preview === null || busy} onClick={() => void send(false)}>
+          {t('import.confirm')}
+        </button>
+      </p>
+    </>
+  );
+}
+
+interface PreviewRow {
+  username: string;
+  displayName: string;
+  email: string;
+  emailProvided: boolean;
+}
+interface ImportResult {
+  created: Array<{ username: string; displayName: string; password: string }>;
+  csv: string;
+}
+interface RowError {
+  row: number;
+  field: string;
+  message: string;
+}
+
+/**
+ * `fields` back into rows. The key is `rows[<n>].<field>`; anything that does
+ * not match that shape is not a row problem and is left to the sentence the
+ * server sent, so a future validation key added elsewhere cannot render as a
+ * row number of `NaN`.
+ */
+function toRowErrors(fields: Record<string, string[]> | undefined): RowError[] {
+  const out: RowError[] = [];
+  for (const [key, messages] of Object.entries(fields ?? {})) {
+    const match = /^rows\[(\d+)\]\.(.+)$/.exec(key);
+    if (!match) continue;
+    for (const message of messages) {
+      out.push({ row: Number(match[1]), field: match[2]!, message });
+    }
+  }
+  return out.sort((a, b) => a.row - b.row);
+}
+
 export function OrgPage({ slug }: { slug: string }) {
   const t = useT();
   const client = useQueryClient();
@@ -356,6 +573,13 @@ export function OrgPage({ slug }: { slug: string }) {
       {requested ? <p>{t('org.requestSent')}</p> : null}
 
       {decider ? <RequestsQueue slug={slug} onDecided={refresh} /> : null}
+
+      {/* Owner or global admin only — the API refuses an org `admin` (D61),
+          and offering a control that always 403s is worse than not having
+          one. */}
+      {myRole === 'owner' || me.data?.globalRole === 'admin' ? (
+        <RosterImportPanel slug={slug} onImported={refresh} />
+      ) : null}
 
       <OrgContests slug={slug} />
 
