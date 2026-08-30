@@ -117,6 +117,7 @@ const DYNAMIC_KEY_PREFIXES: readonly string[] = [
   'visibility.', // problem-edit.tsx, over the visibility enum
   'sourceAccess.', // problem-edit.tsx, over the source-access enum
   'problemRole.', // problem-edit.tsx, from a member's role
+  'testData.unpaired.', // problem-testdata.tsx, from a pairing failure's reason
 ];
 
 function sourceFiles(dir: string): string[] {

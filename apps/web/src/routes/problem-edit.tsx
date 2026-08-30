@@ -6,6 +6,7 @@ import { meQueryOptions } from '../me.js';
 import { renderStatement } from '../markdown.js';
 import { tagsQueryOptions } from '../tags.js';
 import { useLocale, useT, tagName } from '../i18n/index.js';
+import { ProblemTestDataTab } from './problem-testdata.js';
 
 type ProblemDetail = paths['/problems/{code}']['get']['responses'][200]['content']['application/json'];
 type Visibility = ProblemDetail['visibility'];
@@ -103,6 +104,11 @@ export function ProblemEditPage(props: { code?: string }) {
   const [editorial, setEditorial] = useState('');
   const [editorialPublished, setEditorialPublished] = useState(false);
   const allTags = useQuery(tagsQueryOptions);
+  // Two tabs on the edit route, one on the create route. The test-data tab
+  // (D87) builds a package for a problem that must already exist — it needs
+  // a `code` to open a draft against — so it is not offered while creating
+  // one, exactly as `tags`, `difficulty` and the editorial are not.
+  const [tab, setTab] = useState<'details' | 'testdata'>('details');
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -239,6 +245,21 @@ export function ProblemEditPage(props: { code?: string }) {
       <h1>
         {isEdit ? t('problemEdit.editTitle', { code: props.code! }) : t('problemEdit.newTitle')}
       </h1>
+      {isEdit ? (
+        <nav>
+          <button type="button" onClick={() => setTab('details')} disabled={tab === 'details'}>
+            {t('problemEdit.tabDetails')}
+          </button>{' '}
+          <button type="button" onClick={() => setTab('testdata')} disabled={tab === 'testdata'}>
+            {t('problemEdit.tabTestData')}
+          </button>
+        </nav>
+      ) : null}
+
+      {isEdit && tab === 'testdata' ? <ProblemTestDataTab code={props.code!} /> : null}
+
+      {tab === 'details' ? (
+        <>
       {/* `submitError` is the server's own error CODE (`problem_code_taken`)
           — deliberately verbatim, never paraphrased or translated: this is a
           tool for people who read codes (task-12 brief). */}
@@ -409,6 +430,8 @@ export function ProblemEditPage(props: { code?: string }) {
             ))}
           </ul>
         </section>
+      ) : null}
+        </>
       ) : null}
     </section>
   );
