@@ -23,6 +23,28 @@ const BEARER_SCHEME = /^Bearer\s+/i;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 /**
+ * The reason phrase for a refusal status line, for the handful of statuses a
+ * deliberate refusal during the upgrade can carry.
+ *
+ * A status LINE needs a phrase; HTTP/1.1 allows any text, but a client
+ * reading the raw line is a person debugging, so the registered phrase is
+ * the useful one. Anything unlisted falls back to the status alone rather
+ * than to a guess.
+ */
+const STATUS_TEXT: Record<number, string> = {
+  400: 'Bad Request',
+  401: 'Unauthorized',
+  403: 'Forbidden',
+  404: 'Not Found',
+  409: 'Conflict',
+  429: 'Too Many Requests',
+};
+
+function statusText(status: number): string {
+  return STATUS_TEXT[status] ?? '';
+}
+
+/**
  * How many submissions one connection may watch at once.
  *
  * `subscriptions` was append-only and unbounded, and nothing but closing the
@@ -168,7 +190,7 @@ export class SubmissionsGateway implements OnModuleDestroy {
         }
         this.wss.handleUpgrade(req, socket, head, (ws) => this.accept(ws, actor));
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         // `authenticate` touches the database via `sessions.resolve` /
         // `tokens.resolve`, so it is never actually total. Without this
         // `.catch`, any throw inside it — a transient database error, or
@@ -176,6 +198,16 @@ export class SubmissionsGateway implements OnModuleDestroy {
         // becomes an unhandled promise rejection, and Node 22 terminates
         // the process on those by default. A single bad connection must
         // never take the whole API down with it.
+        //
+        // A deliberate refusal is carried through with its own status (D102:
+        // `tokens.resolve` refuses a flagged account's token). Reporting a
+        // ruling as `500 Internal Server Error` tells a client to retry the
+        // one thing that can never work, which is the exact diagnostic shape
+        // B-17 removed from the MCP surface.
+        if (error instanceof AppError) {
+          socket.end(`HTTP/1.1 ${String(error.status)} ${statusText(error.status)}\r\n\r\n`);
+          return;
+        }
         socket.end('HTTP/1.1 500 Internal Server Error\r\n\r\n');
       });
   };

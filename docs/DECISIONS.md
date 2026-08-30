@@ -4601,3 +4601,68 @@ drives it with.
 *Ruled by the reviewer during the 2026-08-30 feature/bug loop (B-18 whole-diff
 review), no human available to consult. No migration.*
 
+
+## D102 — While `must_change_password` is set, the API mints no token and honours none
+
+D61 put the forced password change on the web alone, and said why: gating the
+API "would mean auditing every endpoint for a new refusal code that a client
+can already avoid, in exchange for stopping a pupil who would have to be
+driving the API by hand to reach it." That last clause was true when it was
+written. It is not true now — `oj login` and the MCP server (D89) are the
+documented way to drive this API by hand, and they take an access token that
+`POST /auth/tokens` hands out to any session, including the session a pupil
+opens on the password printed on a classroom sheet. The exposure is not the
+token; a change revokes every one of them. The exposure is that the change
+then never happens: the pupil has what they came for.
+
+- **`POST /auth/tokens` is `409 password_change_required` while the flag is
+  set.** 409, not 403: nothing is wrong with the credential or the caller's
+  rights — the account is in a state that this request conflicts with, and the
+  state is one the caller can leave.
+- **The check is in `TokenService.issue`, not in `TokensController`.** The
+  controller is not the only door: anything that later mints a token for a
+  user passes through this method, and a rule written one layer above it is a
+  rule the next caller forgets. The same argument D61 itself makes for
+  `org-import.core.ts`.
+- **A token that already exists is refused too, on reads as well as writes.**
+  With the mint closed, the only way to hold a token and the flag at once is
+  to have minted it BEFORE this rule — a token predating the deploy. That is
+  precisely the population the mint check cannot reach, and it is the whole
+  incident: a pupil who ran `oj login` once keeps a credential the forced
+  change was supposed to have ended. `TokenService.resolve` therefore throws
+  the same refusal. Reads are refused with writes because a token is ONE
+  credential, and splitting the refusal by HTTP verb would make every new
+  write route inherit its protection from its method — the exact shape the
+  deny-by-default `AuthGuard` exists to avoid.
+- **The session is deliberately untouched.** It is how the change is made:
+  `PasswordGate` needs `GET /auth/me` to know it must swap the page, and
+  `POST /auth/password/change` is `@SessionOnly`. Listing and revoking tokens
+  stay available too — revoking a credential is never the thing to block
+  while an account is in a state this defensive.
+- **Nothing new had to be published for the bearer flow to LEARN the
+  obligation.** `LoginResponse` is `{ user: MeResponse }` and `MeResponse`
+  has carried `mustChangePassword` since D61, so a non-browser client is told
+  at login and again on every `/auth/me`. Pinned by a test rather than
+  assumed, because it is now load-bearing rather than incidental.
+- **The refusal names a browser, because no client that can see it is one.**
+  `oj` gave each command its own guess at a failure — "check your token",
+  "could not list problems", "submission refused" — and every one of those
+  guesses sends the reader to fix the wrong thing. One `refuse()` answers
+  D102 ahead of the guess, in `whoami`, `problems`, `problems show`,
+  `languages`, `submit` and `watch`; `watch` needed it most, since a 409 was
+  otherwise five polls and ten seconds before a message about a flaky judge.
+  The MCP server needed no change — B-17's `asHandlerError` already carries
+  `code` and `detail` through all three doors — and now has a test saying so.
+- **The WebSocket upgrade reports a refusal with its own status.** The
+  gateway's `.catch` turned any throw from `authenticate` into `500 Internal
+  Server Error`, which for a ruling tells a client to retry the one thing
+  that can never work. An `AppError` now writes its own status line.
+
+**What is not gated, and why that is the whole audit.** D61 feared "auditing
+every endpoint". No endpoint was audited, because the gate is not on
+endpoints: it is on the two operations that make a token exist and make a
+token work. Every route reached by a token is covered by construction, and no
+route reached by a session is affected at all.
+
+*Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
+no human available to consult. No migration, one new refusal code.*

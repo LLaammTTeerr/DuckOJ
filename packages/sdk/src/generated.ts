@@ -9600,6 +9600,26 @@ export interface paths {
                         };
                     };
                 };
+                /** @description The account still carries `mustChangePassword` (`password_change_required`, D102). An imported account holds a password it never chose, printed on a sheet handed round a classroom; a token minted before that password is replaced would outlive the replacement. Change the password first (`POST /auth/password/change`) — the same refusal is returned to any request that authenticates with an already-minted token. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
                 /** @description The request body failed validation */
                 422: {
                     headers: {

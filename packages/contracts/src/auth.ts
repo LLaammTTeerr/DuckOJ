@@ -94,8 +94,13 @@ export const MeResponse = z.object({
    *
    * `POST /auth/password/change` is the one route that clears it, and is also
    * the one route that accepts a new password WITHOUT the old one while it is
-   * set. The API does not gate any other route on it — the obligation is
-   * enforced by the web client, deliberately (D61).
+   * set. D61 left every OTHER route to the web client; D102 narrows that to
+   * the session: while this flag is set, `POST /auth/tokens` is `409
+   * password_change_required` and so is any request authenticated by a token
+   * that was minted before it. A non-browser client (`oj`, the MCP server)
+   * therefore learns the obligation from this field at login and from that
+   * refusal afterwards, rather than silently working around a gate that only
+   * the browser applies.
    */
   mustChangePassword: z.boolean(),
   createdAt: Timestamp,
