@@ -295,7 +295,7 @@ describe('turning 2FA off takes the codes with it (D39)', () => {
       const app = await buildApp(db);
       try {
         const { agent, codes } = await enrol(app, 'rclambda');
-        expect((await agent.delete('/auth/totp')).status).toBe(204);
+        expect((await agent.delete('/auth/totp').send({ password: PASSWORD })).status).toBe(204);
 
         const userId = await userIdOf(db, 'rclambda');
         const rows = await db

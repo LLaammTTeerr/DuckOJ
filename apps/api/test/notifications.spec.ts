@@ -18,6 +18,7 @@ import { OrgAccessService } from '../src/authz/org.access.js';
 import { NotificationsService } from '../src/notifications/notifications.service.js';
 import { AdminUsersService } from '../src/admin/admin-users.service.js';
 import { TotpService } from '../src/authn/totp.service.js';
+import { PasswordService } from '../src/authn/password.service.js';
 import { TotpRecoveryService } from '../src/authn/totp-recovery.service.js';
 import { RateLimiter } from '../src/common/rate-limiter.js';
 import type { Actor } from '../src/authz/actor.js';
@@ -128,6 +129,7 @@ describe('role-grant notifications', () => {
           TEST_CONFIG,
           new RateLimiter(db),
           new TotpRecoveryService(db, new NotificationsService(db)),
+          new PasswordService(),
         ),
       );
 

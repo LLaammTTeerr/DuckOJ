@@ -174,8 +174,11 @@ describe('POST /auth/totp/begin against an already-confirmed credential (D33)', 
           ).status,
         ).toBe(200);
 
-        // Re-enrolling is still possible; it just has to say so out loud.
-        expect((await agent.delete('/auth/totp')).status).toBe(204);
+        // Re-enrolling is still possible; it just has to say so out loud —
+        // and, since D72, present the account password.
+        expect(
+          (await agent.delete('/auth/totp').send({ password: 'a-long-enough-password' })).status,
+        ).toBe(204);
         expect((await agent.post('/auth/totp/begin')).status).toBe(200);
       } finally {
         await app.close();

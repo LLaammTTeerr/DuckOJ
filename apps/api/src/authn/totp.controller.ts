@@ -1,8 +1,10 @@
 import { Body, Controller, Delete, HttpCode, Inject, Post } from '@nestjs/common';
 import {
   TotpConfirmRequest,
+  TotpDisableRequest,
   TotpRecoveryRegenerateRequest,
   type TotpConfirmRequestDto,
+  type TotpDisableRequestDto,
   type TotpRecoveryCodesResponseDto,
   type TotpRecoveryRegenerateRequestDto,
 } from '@duckoj/contracts';
@@ -50,9 +52,17 @@ export class TotpController {
     return { recoveryCodes: await this.totp.regenerateRecoveryCodes(actor.userId, body.code) };
   }
 
+  /**
+   * D72 — carries the account password. A session is what an intruder
+   * steals, and turning the second factor off with the stolen thing is the
+   * move the second factor exists to stop.
+   */
   @Delete()
   @HttpCode(204)
-  disable(@CurrentActor() actor: Actor): Promise<void> {
-    return this.totp.disable(actor.userId);
+  disable(
+    @CurrentActor() actor: Actor,
+    @Body(new ZodValidationPipe(TotpDisableRequest)) body: TotpDisableRequestDto,
+  ): Promise<void> {
+    return this.totp.disableWithPassword(actor.userId, body.password);
   }
 }

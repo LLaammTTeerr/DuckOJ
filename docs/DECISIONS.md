@@ -2037,3 +2037,41 @@ tag is a topic, not an assignment. `problem_sets` + `problem_set_items`
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F9 brief),
 no human available to consult. Migration 0026.*
+
+## D72 — Credential management is metered, and turning the second factor off costs the password
+
+B1 found two doors left ajar by D33 and named them in its rulings section:
+`POST /auth/totp/confirm` had no attempt limiter ("twelve wrong codes all
+answer 422"), and `DELETE /auth/totp` demanded nothing at all. Both were
+left on the argument that the caller already holds the session. That is
+precisely the argument that fails: a session is the thing an intruder
+steals, and both routes are reachable with exactly the stolen thing.
+
+- **Ten confirmations per account per fifteen minutes, 429
+  `totp_confirm_rate_limited` with a `Retry-After`.** A confirm attempt is a
+  guess at six digits against a secret the server has just issued; unmetered,
+  a scripted loop covers a meaningful share of the space in minutes. The
+  meter is read BEFORE the code is checked, so a *correct* code inside a
+  spent window is refused too — a limiter the winning guess walks past is not
+  a limiter. `RateLimiter.allow` rather than `consumeOnce`: this is a
+  nuisance bound, and `allow` records the refused attempt as well, so a
+  hammering caller keeps burning their own window. Keyed on the user id, so a
+  fresh session does not buy a fresh ten, and one account cannot spend
+  another's.
+- **`DELETE /auth/totp` carries `{ password }`; a wrong one is 401
+  `invalid_credentials`, an absent one 422.** The same code and status
+  `POST /auth/password/change` answers for the same mistake. A password, not
+  a TOTP code: the phone is the thing that gets lost, which is why the
+  recovery codes exist, and demanding the authenticator to *remove* the
+  authenticator would strand exactly the user this route is for.
+- **The check lives in `TotpService.disableWithPassword`, not in `disable`.**
+  `AdminUsersService.resetTotp` calls `disable` to unlock somebody who lost
+  their phone, and an admin does not hold that person's password. Two
+  callers, two rules, one clearing routine — the recovery codes still go with
+  the credential in the same transaction (D39).
+- **The web replaces its `confirm()` dialog with the password field rather
+  than asking twice.** A dialog proves the click was deliberate; this route
+  needs proof of who is clicking, and the stolen session has the click.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F13 owed
+sweep), no human available to consult. No migration.*

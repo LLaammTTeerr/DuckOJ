@@ -7,6 +7,7 @@ import { APP_CONFIG, DB } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import { RateLimiter } from '../common/rate-limiter.js';
+import { PasswordService } from './password.service.js';
 import { TotpRecoveryService } from './totp-recovery.service.js';
 
 const ISSUER = 'DuckOJ';
@@ -55,6 +56,25 @@ const totp = authenticator.clone({ window: [1, 0] });
 const REPLAY_PURPOSE = 'totp_used';
 const REPLAY_WINDOW_MS = 120_000;
 
+/**
+ * D72 — ten confirmation attempts per account per fifteen minutes.
+ *
+ * B1 left this open on the argument that the caller already holds the
+ * session. That is the wrong end of it: a confirm attempt is a guess at six
+ * digits against a secret the server just handed out, and an unmetered guess
+ * loop is a one-in-a-million code brute-forced in under a minute of scripted
+ * requests — from the very session an intruder is holding while the real
+ * owner is mid-enrolment.
+ *
+ * `allow`, not `consumeOnce`: this is a nuisance bound, and `allow` records
+ * the refused attempt too, so a caller hammering the endpoint keeps burning
+ * their own window rather than probing its edge for free. Keyed on the user
+ * id, never the session — a new session must not buy a fresh ten.
+ */
+const CONFIRM_PURPOSE = 'totp_confirm';
+const CONFIRM_LIMIT = 10;
+const CONFIRM_WINDOW_MS = 15 * 60_000;
+
 @Injectable()
 export class TotpService {
   constructor(
@@ -62,6 +82,7 @@ export class TotpService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(RateLimiter) private readonly limiter: RateLimiter,
     @Inject(TotpRecoveryService) private readonly recovery: TotpRecoveryService,
+    @Inject(PasswordService) private readonly passwords: PasswordService,
   ) {}
 
   /**
@@ -119,6 +140,25 @@ export class TotpService {
    * it — and the user would have no reason to suspect it.
    */
   async confirmEnrolment(userId: number, code: string): Promise<string[]> {
+    // Metered BEFORE the code is looked at (D72): a limiter a correct code
+    // walks past is a limiter the attacker's winning guess walks past, which
+    // is the only guess that matters.
+    const key = String(userId);
+    if (!(await this.limiter.allow(CONFIRM_PURPOSE, key, CONFIRM_LIMIT, CONFIRM_WINDOW_MS))) {
+      const retryAfter = await this.limiter.retryAfterSeconds(
+        CONFIRM_PURPOSE,
+        key,
+        CONFIRM_LIMIT,
+        CONFIRM_WINDOW_MS,
+      );
+      throw new AppError(
+        429,
+        'totp_confirm_rate_limited',
+        'Too many confirmation attempts. Try again later.',
+        undefined,
+        { 'Retry-After': String(retryAfter ?? 1) },
+      );
+    }
     const secret = await this.secretFor(userId);
     if (!secret || !totp.verify({ token: code, secret })) {
       // Distinct from the login-time `invalid_totp_code` (401): this one means
@@ -171,6 +211,29 @@ export class TotpService {
    * outlive the reset made to defeat it. This is also the path
    * `AdminUsersService.resetTotp` takes, so an admin reset clears them too.
    */
+  /**
+   * D72 — the account holder's own disable, which re-authenticates.
+   *
+   * The check lives HERE and not in `disable`: `AdminUsersService.resetTotp`
+   * calls `disable` to unlock somebody who lost their phone, and an admin
+   * does not have that person's password. Two callers, two rules, one
+   * clearing routine.
+   */
+  async disableWithPassword(userId: number, password: string): Promise<void> {
+    const [user] = await this.db
+      .select({ passwordHash: schema.users.passwordHash })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    if (!user) throw new AppError(401, 'authentication_required', 'You must be signed in.');
+    if (!(await this.passwords.verify(user.passwordHash, password))) {
+      // The same code and status `POST /auth/password/change` answers for
+      // the same mistake — a client should not have to learn two.
+      throw new AppError(401, 'invalid_credentials', 'That is not your current password.');
+    }
+    await this.disable(userId);
+  }
+
   async disable(userId: number): Promise<void> {
     await this.db.transaction(async (tx) => {
       await tx.delete(schema.totpCredentials).where(eq(schema.totpCredentials.userId, userId));

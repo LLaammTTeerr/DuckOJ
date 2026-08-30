@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { schema, type Db } from '@duckoj/db';
 import { TotpService } from '../src/authn/totp.service.js';
 import { TotpRecoveryService } from '../src/authn/totp-recovery.service.js';
+import { PasswordService } from '../src/authn/password.service.js';
 import { NotificationsService } from '../src/notifications/notifications.service.js';
 import { RateLimiter } from '../src/common/rate-limiter.js';
 import type { AppConfig } from '../src/config/config.schema.js';
@@ -23,7 +24,7 @@ describe('TotpService', () => {
   it('is disabled until enrolment is confirmed', async () => {
     await withTestDb(async (db) => {
       const userId = await makeUser(db, 'mia');
-      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)));
+      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)), new PasswordService());
 
       await service.beginEnrolment(userId);
       expect(await service.isEnabled(userId)).toBe(false);
@@ -33,7 +34,7 @@ describe('TotpService', () => {
   it('confirms with a valid code and then verifies', async () => {
     await withTestDb(async (db) => {
       const userId = await makeUser(db, 'nina');
-      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)));
+      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)), new PasswordService());
 
       const { secret } = await service.beginEnrolment(userId);
       await service.confirmEnrolment(userId, authenticator.generate(secret));
@@ -46,7 +47,7 @@ describe('TotpService', () => {
   it('rejects an incorrect confirmation code', async () => {
     await withTestDb(async (db) => {
       const userId = await makeUser(db, 'omar');
-      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)));
+      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)), new PasswordService());
       await service.beginEnrolment(userId);
       // Distinct from login's 401 `invalid_totp_code`: a client must be able to
       // tell "your second factor was wrong" from "the code you typed while
@@ -61,7 +62,7 @@ describe('TotpService', () => {
   it('issues a 160-bit secret, per RFC 4226 §4 R6', async () => {
     await withTestDb(async (db) => {
       const userId = await makeUser(db, 'raj');
-      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)));
+      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)), new PasswordService());
       const { secret } = await service.beginEnrolment(userId);
 
       // Base32, 5 bits per character: 32 characters is 160 bits. otplib's own
@@ -74,7 +75,7 @@ describe('TotpService', () => {
   it('accepts the previous 30-second step but not the next one', async () => {
     await withTestDb(async (db) => {
       const userId = await makeUser(db, 'sena');
-      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)));
+      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)), new PasswordService());
       const { secret } = await service.beginEnrolment(userId);
       await service.confirmEnrolment(userId, authenticator.generate(secret));
 
@@ -106,7 +107,7 @@ describe('TotpService', () => {
   it('stores the secret encrypted, not in plaintext', async () => {
     await withTestDb(async (db) => {
       const userId = await makeUser(db, 'pia');
-      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)));
+      const service = new TotpService(db, config, new RateLimiter(db), new TotpRecoveryService(db, new NotificationsService(db)), new PasswordService());
       const { secret } = await service.beginEnrolment(userId);
 
       const rows = await db.select().from(schema.totpCredentials);
