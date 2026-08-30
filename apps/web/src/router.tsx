@@ -35,6 +35,7 @@ import { ChangePasswordPage, PasswordGate } from './routes/password.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
 import { AdminPage } from './routes/admin.js';
+import { HelpPage } from './routes/help.js';
 import { NotificationsPage, notificationsQueryOptions } from './routes/notifications.js';
 import { api } from './api.js';
 // `meQueryOptions` moved to `./me.js` (see that file's doc comment) so
@@ -265,6 +266,10 @@ export function ShellNav() {
         <Link to="/orgs">{t('nav.orgs')}</Link>
         <Link to="/submissions">{t('nav.submissions')}</Link>
         <a href="/api/v1/docs">{t('nav.api')}</a>
+        {/* Ungated, beside the API reference: the student guide is most
+            needed by someone who has not signed in yet — the first thing it
+            explains is how to register. */}
+        <Link to="/help">{t('nav.help')}</Link>
         {me.data?.globalRole === 'admin' ? <Link to="/admin">{t('nav.admin')}</Link> : null}
         {me.data ? <Link to="/account/tokens">{t('nav.tokens')}</Link> : null}
         {/* Beside Tokens: both are `/account/*`, both are session-only, and
@@ -666,6 +671,11 @@ const adminRoute = createRoute({
   path: '/admin',
   component: AdminPage,
 });
+const helpRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/help',
+  component: HelpPage,
+});
 const userRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/users/$username',
@@ -723,6 +733,7 @@ const routeTree = rootRoute.addChildren([
   passwordRoute,
   notificationsRoute,
   adminRoute,
+  helpRoute,
   userRoute,
 ]);
 
