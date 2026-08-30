@@ -304,12 +304,11 @@ describe('problem comments (D109)', () => {
 
       // The attempt rows are the ten created comments, not twelve: the two
       // refusals left no attempt behind them.
-      const [{ n }] = await db
-        .select({ n: schema.rateEvents.id })
+      const attempts = await db
+        .select({ id: schema.rateEvents.id })
         .from(schema.rateEvents)
-        .where(and(eq(schema.rateEvents.purpose, 'problem_comment'), eq(schema.rateEvents.key, `user:${String(a.id)}`)))
-        .then((rows) => [{ n: rows.length }]);
-      expect(n).toBe(10);
+        .where(and(eq(schema.rateEvents.purpose, 'problem_comment'), eq(schema.rateEvents.key, `user:${String(a.id)}`)));
+      expect(attempts).toHaveLength(10);
     });
   });
 
