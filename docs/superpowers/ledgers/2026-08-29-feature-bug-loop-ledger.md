@@ -14,3 +14,4 @@
 - F-3 and B-3 killed by API timeouts (F-3 at web tests, B-3 at start); both resumed from transcripts on 2026-08-30.
 - F-3 DONE (b82682e..ddd1e16): TOTP recovery codes, D39, migration 0019; demo tags applied live; deployed + pushed.
 - F-4 dispatched (main, opus): editorials, migration 0021, D43.
+- B-3 DONE_WITH_CONCERNS on `worktree-b3-judging` (98b10af..2122c37): D40 checker-based problems always IE'd (init.yml checker form), batch-end unhandled (5/20 vs 25/25), CE output sanitised, 413 reachable, case-row fence, memory NaN, oj watch CE. Merge blocked by F-4's dirty tree → merge after F-4. Follow-ups: judge-disconnect abandonment channel (architectural), /packages/{hash} session-cookie access (auth), reclaimExpired dead code.
