@@ -692,4 +692,14 @@ export const vi = {
   'globalRole.user': 'người dùng',
   'globalRole.setter': 'người ra đề',
   'globalRole.admin': 'quản trị viên',
+
+  // ── hướng dẫn sử dụng (/help) ─────────────────────────────────────────
+  'nav.help': 'Trợ giúp',
+  'help.title': 'Hướng dẫn sử dụng',
+  'help.intro':
+    'Ba bản hướng dẫn, mỗi bản cho một vai trò. Mỗi bản viết bằng tiếng Việt, kèm phần tiếng Anh ở sau, và cả hai đều hiện ở đây — ngôn ngữ bạn đang xem trang được đặt trước.',
+  'help.roleGroup': 'Chọn bản hướng dẫn',
+  'help.tabStudent': 'Học sinh',
+  'help.tabTeacher': 'Giáo viên',
+  'help.tabAdmin': 'Quản trị',
 } satisfies Record<MsgKey, string>;

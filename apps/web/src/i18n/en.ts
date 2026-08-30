@@ -724,6 +724,16 @@ export const en = {
   'globalRole.user': 'user',
   'globalRole.setter': 'setter',
   'globalRole.admin': 'admin',
+
+  // ── the guides (/help) ────────────────────────────────────────────────
+  'nav.help': 'Help',
+  'help.title': 'Guides',
+  'help.intro':
+    'Three guides, one per role. Each is written in Vietnamese with an English section after it, and both are shown here — the language you are reading the site in comes first.',
+  'help.roleGroup': 'Choose a guide',
+  'help.tabStudent': 'Students',
+  'help.tabTeacher': 'Teachers',
+  'help.tabAdmin': 'Administrators',
 } satisfies Record<string, string>;
 
 /** Every id the app may ask for — `vi.ts` must cover exactly this set. */
