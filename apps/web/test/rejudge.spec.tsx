@@ -101,9 +101,15 @@ describe('rejudging one submission', () => {
     wrap(<SubmissionPage id={42} />);
     await userEvent.click(await screen.findByRole('button', { name: 'Chấm lại' }));
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
+    // Scoped to the re-rate message by text: the submission's VerdictPanel is
+    // now itself a live region (loop-b20 — the verdict is announced as it
+    // arrives), so this page carries more than one role="status". The re-rate
+    // note is still a live region, which is what this test guards.
+    const rerate = await screen.findByText(/Hãy tính lại rating/);
+    expect(rerate).toHaveTextContent(
       'Hãy tính lại rating cho các kỳ thi này sau khi chấm xong: spring-open, winter-cup.',
     );
+    expect(rerate.closest('[role="status"]')).not.toBeNull();
   });
 
   it('says nothing about re-rating when no rated contest was touched', async () => {
@@ -115,7 +121,10 @@ describe('rejudging one submission', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Chấm lại' }));
 
     await waitFor(() => expect(post).toHaveBeenCalled());
-    expect(screen.queryByRole('status')).toBeNull();
+    // By text, not by role: the VerdictPanel is now a live region of its own
+    // (loop-b20), so "no status at all" is no longer the right assertion —
+    // "no re-rate message" is, and that is what this test means.
+    expect(screen.queryByText(/Hãy tính lại rating/)).toBeNull();
   });
 
   it('a cancelled confirm sends nothing', async () => {
