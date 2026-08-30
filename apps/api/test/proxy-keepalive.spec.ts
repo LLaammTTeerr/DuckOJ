@@ -93,7 +93,9 @@ describe('reverse-proxy keep-alive', () => {
     // Every `reverse_proxy api:3000` must carry it — the /api, /ws and probe
     // handles are three separate proxies to the same upstream, and a pool is
     // per-proxy.
-    const apiProxies = caddyfile.match(/reverse_proxy\s+api:3000/g) ?? [];
+    // `\{` matters: the file also *mentions* `reverse_proxy api:3000` in a
+    // comment, and counting that as a proxy makes this assertion unfixable.
+    const apiProxies = caddyfile.match(/reverse_proxy\s+api:3000\s*\{/g) ?? [];
     const transports = caddyfile.match(/transport\s+http\s*\{/g) ?? [];
     expect(transports.length).toBe(apiProxies.length);
   });
