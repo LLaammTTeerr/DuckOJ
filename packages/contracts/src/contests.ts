@@ -824,3 +824,127 @@ registry.registerPath({
     422: VALIDATION_FAILED,
   },
 });
+
+/* ------------------------------------- results export and certificates (D71) */
+
+/**
+ * Who may export a contest's results, and when.
+ *
+ * **The contest's creator or a global admin, at any time** — the same
+ * `canRunContest` predicate `canEdit` reports, and nobody else ever. The
+ * export is always the LIVE board (no freeze, D22), so widening it to "anyone,
+ * once the contest has ended" would hand a `.csv` to a caller mid-freeze that
+ * publishes exactly what the scoreboard is hiding. The web offers the links
+ * once the contest is over; the API's gate is the person, not the clock.
+ */
+const RESULTS_FORBIDDEN = {
+  description: 'The caller can see this contest but does not run it (`contest_forbidden`)',
+  content: { 'application/problem+json': { schema: ProblemDetails } },
+};
+
+registry.registerPath({
+  method: 'get',
+  path: '/contests/{key}/results.csv',
+  tags: ['Contests'],
+  summary: "The contest's final standings as a spreadsheet — the organisers only",
+  description:
+    'One row per ranked participation: rank, username, display name, the competitor’s own ' +
+    'organizations, then points/attempts/time per problem, the total, the ICPC penalty, a ' +
+    'disqualification flag and the virtual number (`0` live, `n` the n-th replay). ' +
+    '**Disqualified rows are included and flagged, never dropped** — the record of what ' +
+    'happened is the row (D37). UTF-8 **with a BOM** and CRLF line endings, because the ' +
+    'consumer is Excel: without the BOM every Vietnamese name in the file is read in the ' +
+    'machine’s ANSI code page. Text fields that a spreadsheet would run as a formula are ' +
+    'prefixed with an apostrophe. Always the live, unfrozen board.',
+  request: { params: ContestKeyParam },
+  responses: {
+    200: {
+      description: 'The results sheet',
+      content: { 'text/csv': { schema: z.string() } },
+    },
+    401: NOT_SIGNED_IN,
+    403: RESULTS_FORBIDDEN,
+    404: CONTEST_NOT_FOUND,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/contests/{key}/results.pdf',
+  tags: ['Contests'],
+  summary: 'The final standings as a printable landscape PDF — the organisers only',
+  description:
+    'A landscape A4 table, page-numbered with a repeating header row: rank, account, name, ' +
+    'organizations, one column per problem, total and penalty. A disqualified row is marked ' +
+    '`[DQ]` and a virtual replay `(ảo)`; both stay on the sheet. Vietnamese headings with an ' +
+    'English subtitle, and no `?lang=` — the sheet is names and numbers, and it carries no ' +
+    'statement text at all (D62 holds by construction). Cached for 60 s on a hash of the ' +
+    'document, exactly as the booklet is.',
+  request: { params: ContestKeyParam },
+  responses: {
+    200: {
+      description: 'The rendered standings',
+      content: { 'application/pdf': { schema: z.string() } },
+    },
+    401: NOT_SIGNED_IN,
+    403: RESULTS_FORBIDDEN,
+    404: CONTEST_NOT_FOUND,
+    501: {
+      description: 'This server has no typst binary configured (`statement_pdf_unavailable`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+/**
+ * Which certificates to print: **exactly one** of `top` and `username`.
+ *
+ * Neither a default `top` nor "both means everybody" — a request that names
+ * no scope is a request whose author has not decided how many certificates
+ * they are printing, and guessing on their behalf prints a hundred pages.
+ */
+export const CertificatesQuery = z
+  .object({
+    top: z.coerce.number().int().min(1).max(1000).optional(),
+    username: z.string().min(1).max(64).optional(),
+  })
+  .refine((query) => (query.top === undefined) !== (query.username === undefined), {
+    message: 'Pass exactly one of `top` or `username`.',
+  });
+export type CertificatesQueryDto = z.infer<typeof CertificatesQuery>;
+
+registry.registerPath({
+  method: 'get',
+  path: '/contests/{key}/certificates.pdf',
+  tags: ['Contests'],
+  summary: 'One A4 landscape certificate per participant — the organisers only',
+  description:
+    'Vietnamese with an English subtitle ("GIẤY CHỨNG NHẬN" / "CERTIFICATE OF ACHIEVEMENT"): ' +
+    'the contest, the participant’s display name, their rank, their total, the contest’s end ' +
+    'date and a signature line. The issuer is the contest’s own organizations (D56), or the ' +
+    'site itself when it is restricted to none. **A disqualified row and a virtual replay ' +
+    'never get one** — the results sheet is a record, a certificate is an award — so `top=N` ' +
+    'counts down the ranking after that exclusion, and a `username` naming an ineligible or ' +
+    'unranked competitor answers 404. The date is the contest’s end, never the moment of ' +
+    'download, so two prints are the same document. Cached for 60 s on a hash of the document.',
+  request: { params: ContestKeyParam, query: CertificatesQuery },
+  responses: {
+    200: {
+      description: 'The rendered certificates',
+      content: { 'application/pdf': { schema: z.string() } },
+    },
+    401: NOT_SIGNED_IN,
+    403: RESULTS_FORBIDDEN,
+    404: {
+      description:
+        'No such contest, one the caller may not see, or no certifiable result for that ' +
+        '`username` (`contest_not_found`, `contest_participant_not_found`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
+    501: {
+      description: 'This server has no typst binary configured (`statement_pdf_unavailable`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
