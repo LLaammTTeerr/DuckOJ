@@ -123,7 +123,9 @@ describe('the problem list', () => {
     // so this asserts on the decoded href rather than pinning the exact
     // encoding — what matters is that the chip links at the filtered list.
     expect(decodeURIComponent(chip.getAttribute('href') ?? '')).toContain('/problems?tag=["do-thi"]');
-    expect(within(row).getAllByRole('cell')[5]).toHaveTextContent('4');
+    // Difficulty is cell 6 since D49 added the solved/attempted column
+    // between Tests and it (code, name, time, mem, tests, solved, difficulty).
+    expect(within(row).getAllByRole('cell')[6]).toHaveTextContent('4');
   });
 
   it('renders no chips at all for a problem whose tags are empty', async () => {

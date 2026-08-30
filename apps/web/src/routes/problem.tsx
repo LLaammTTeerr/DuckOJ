@@ -4,7 +4,8 @@ import { meQueryOptions } from '../me.js';
 import { api } from '../api.js';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { renderStatement } from '../markdown.js';
-import { useLocale, useT, tagName } from '../i18n/index.js';
+import { verdictToken } from './submit.js';
+import { formatDateTime, useLocale, useT, tagName, verdictName } from '../i18n/index.js';
 
 // The API deliberately returns the same 404 `problem_not_found` for a
 // problem that does not exist and one the caller may not see (spec §3,
@@ -169,6 +170,125 @@ export function ProblemPage(props: { code: string }) {
           </>
         ) : null}
       </p>
+      <ProblemStatsSection code={problem.code} />
+    </section>
+  );
+}
+
+/**
+ * "Thống kê" — the problem's submission statistics (D49).
+ *
+ * Its own query, and its own component, so a slow aggregate never delays the
+ * statement: the page a competitor came for renders while this is still in
+ * flight. An error here is SILENT — the section simply does not appear —
+ * because statistics are commentary on the problem, and a red banner over a
+ * statement because a count could not be totalled would be the tail wagging
+ * the dog.
+ *
+ * Every count is `0` and every list empty both for a problem nobody has
+ * attempted and for a viewer sitting a running contest that uses it (D35):
+ * the API returns the same shape for both, deliberately, so this component
+ * cannot tell them apart and must not try.
+ */
+function ProblemStatsSection({ code }: { code: string }) {
+  const t = useT();
+  const { locale } = useLocale();
+  const query = useQuery({
+    queryKey: ['problem-stats', code],
+    queryFn: async () => {
+      const { data, error } = await api.GET('/problems/{code}/stats', {
+        params: { path: { code } },
+      });
+      if (error) return null;
+      return data;
+    },
+    retry: false,
+  });
+
+  const stats = query.data;
+  if (!stats) return null;
+  return (
+    <section>
+      <h2>{t('problem.stats')}</h2>
+      <p>
+        {t('problem.statsSummary', {
+          total: String(stats.totalSubmissions),
+          attempted: String(stats.attemptedUsers),
+          solved: String(stats.solvedUsers),
+          // A percentage with no decimals: the difference between 41 % and
+          // 41.3 % is not a fact anybody acts on. `—` when there is nothing
+          // to divide — the API sends `null`, never a 0 % nobody earned.
+          rate:
+            stats.acceptanceRate === null
+              ? '—'
+              : `${String(Math.round(stats.acceptanceRate * 100))}%`,
+        })}
+      </p>
+      {stats.verdicts.length > 0 ? (
+        <p>
+          {stats.verdicts.map((bucket) => (
+            <span key={bucket.key}>
+              {/* The same badge the submissions list draws, so a verdict
+                  reads identically wherever it appears. */}
+              <span
+                className={`badge ${verdictToken(bucket.key)}`}
+                title={verdictName(t, bucket.key)}
+              >
+                {bucket.key}
+              </span>{' '}
+              {bucket.count}{' '}
+            </span>
+          ))}
+        </p>
+      ) : null}
+      {stats.languages.length > 0 ? (
+        <p className="muted">
+          {stats.languages.map((bucket) => `${bucket.key} ${String(bucket.count)}`).join(' · ')}
+        </p>
+      ) : null}
+      {stats.firstSolver ? (
+        <p>
+          {t('problem.statsFirstSolver')}{' '}
+          <Link to="/users/$username" params={{ username: stats.firstSolver.username }}>
+            {stats.firstSolver.username}
+          </Link>{' '}
+          <span className="muted">{formatDateTime(stats.firstSolver.createdAt, locale)}</span>
+        </p>
+      ) : null}
+      {stats.fastest.length > 0 ? (
+        <table>
+          <thead>
+            <tr>
+              <th>{t('problem.statsColUser')}</th>
+              <th className="num">{t('problem.statsColTime')}</th>
+              <th className="num">{t('problem.statsColMemory')}</th>
+              <th>{t('problem.statsColSubmission')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stats.fastest.map((row) => (
+              <tr key={row.submissionId}>
+                <td>
+                  <Link to="/users/$username" params={{ username: row.username }}>
+                    {row.username}
+                  </Link>
+                </td>
+                <td className="num">{row.timeMs} ms</td>
+                <td className="num">{row.memoryKb === null ? '—' : `${row.memoryKb} KB`}</td>
+                <td>
+                  {/* Every entity is a hyperlink. The submission page decides
+                      for itself whether this viewer may open it — the
+                      statistics disclose that somebody solved the problem and
+                      how fast, never their source. */}
+                  <Link to="/submissions/$id" params={{ id: String(row.submissionId) }}>
+                    #{row.submissionId}
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
     </section>
   );
 }

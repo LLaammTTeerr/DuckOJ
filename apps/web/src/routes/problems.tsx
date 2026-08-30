@@ -222,6 +222,7 @@ export function ProblemsPage(props: {
               <th className="num">{t('problems.colTime')}</th>
               <th className="num">{t('problems.colMem')}</th>
               <th className="num">{t('problems.colTests')}</th>
+              <th className="num">{t('problems.colSolved')}</th>
               <th className="num">{t('problems.colDifficulty')}</th>
               <th>{t('problems.colTags')}</th>
               <th>{t('problems.colMe')}</th>
@@ -253,6 +254,15 @@ export function ProblemsPage(props: {
                 <td className="num">{p.timeMs !== null ? `${p.timeMs} ms` : '—'}</td>
                 <td className="num">{formatMemoryMb(p.memoryKb)}</td>
                 <td className="num">{p.testCount ?? '—'}</td>
+                {/* "solved / attempted" in one cell (D49): the ratio is the
+                    number a reader wants, and two columns of counts would
+                    push the tags off a phone. `0 / 0` is honest for a
+                    problem nobody has touched AND for one whose statistics
+                    D35 is withholding — the API returns the same pair for
+                    both, deliberately, exactly as it does for tags. */}
+                <td className="num">
+                  {p.solvedCount} / {p.attemptedCount}
+                </td>
                 <td className="num">{p.difficulty ?? '—'}</td>
                 <td>
                   {/* Chips are LINKS, not decoration — "every entity is a

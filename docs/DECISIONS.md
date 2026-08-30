@@ -1475,3 +1475,59 @@ behind a page break, headed `Bài A. …`, page-numbered throughout.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F6 brief),
 no human available to consult. No migration.*
+
+## D49 — Statistics count a submission only once its contest window has closed
+
+`GET /problems/{code}/stats` — total submissions, people who tried, people who
+solved, the acceptance rate, a verdict and a language histogram, the ten
+fastest ACs and the first solver — plus `solvedCount`/`attemptedCount` on every
+row of `GET /problems`. Visibility is exactly the problem's, decided by
+`getVisible` before anything is counted.
+
+- **The exclusion is uniform, and that is the ruling.** A submission joins the
+  statistics only once its contest participation window has closed — the same
+  instant D27 releases its source and D22 unfreezes its board, off the same
+  `participationEndsAtSql()`, now shared by `frozenSubmissionsWhere` and
+  `contestWindowOpenWhere` rather than transcribed twice. It applies to every
+  viewer, an admin and the contest's own creator included. Per-viewer would
+  have been defensible and is worse: it makes a 30 s cache a per-viewer cache,
+  and it puts the same mask in five places where it only has to be forgotten
+  once. A live room's acceptance rate is a difficulty hint of exactly the
+  family D35 withholds. **Corollary, accepted:** while a contest runs, "first
+  solver" can name the second person to solve it — the true first is sitting
+  in an open window — and it corrects itself when the window closes.
+- **D35 masks the statistics too, on the way out.** A viewer holding a
+  participation in a running contest that uses the problem gets zeros, empty
+  lists, `acceptanceRate: null` and no first solver: exactly what a problem
+  nobody has attempted returns. Blanked, never signalled — the same rule, the
+  same `contestHiddenProblemIds` set, as the tags and the editorial. The cache
+  stores the TRUE object and the mask is applied after the read, so the mask
+  can never be what gets cached for everybody.
+- **Acceptance rate is accepted submissions / total submissions**, not solvers
+  over attempters — that is what every judge means by the words, and it is what
+  the verdict histogram beside it breaks down. `null`, never `0`, when there is
+  nothing to divide.
+- **The fastest table is one row per person**, their own best AC with a
+  recorded `time_ms` (`DISTINCT ON (user_id)`, re-sorted outside), so one
+  student's eleven resubmissions cannot own it. It links `/submissions/{id}`,
+  which decides for itself whether the viewer may open it: the statistics
+  disclose that somebody solved the problem and how fast, never their source,
+  and a link that 404s for a viewer without a source grant is
+  `canViewSubmission`'s existing answer rather than a new hole.
+- **The list counters are ONE aggregate for the page**, never one query per row
+  — the N+1 `tags` and `testCount` were hoisted onto the summary to avoid — and
+  **migration 0022** adds `submissions(problem_id, user_id, verdict)` to pay
+  for it. Postgres indexes no foreign key on its own and the existing composite
+  is led by `user_id`, so without it the most public page in the app
+  sequentially scanned a table that grows forever (D11). Measured on the test
+  container at 60 000 rows: a bitmap index scan over the page's ids, 4.8 ms,
+  instead of a full scan. This is the case F5's "no index, deliberately" ruling
+  explicitly left open — that one was an admin-only page, this one is hot.
+- **30 s in Redis**, one key per problem (`duckoj:pstats:v1:<id>`), through the
+  same read-through cache the scoreboard and the booklet use. `X-Stats-Cache`
+  is a header, never a body field — D25's precedent. The list counters are
+  deliberately uncached: a page's ids differ per request, so the key would miss
+  almost always.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F6 brief),
+no human available to consult. Migration 0022.*

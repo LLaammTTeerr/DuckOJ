@@ -75,8 +75,17 @@ const testSubmitRoute = createRoute({ getParentRoute: () => testRootRoute, path:
 // Tag chips link back into the filtered list (`/problems?tag=`), so that
 // path has to resolve here too.
 const testProblemsRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/problems' });
+// D49's statistics link every solver and every fastest submission.
+const testUserRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/users/$username' });
+const testSubmissionRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/submissions/$id' });
 const testRouter = createRouter({
-  routeTree: testRootRoute.addChildren([testProblemsRoute, testProblemRoute, testSubmitRoute]),
+  routeTree: testRootRoute.addChildren([
+    testProblemsRoute,
+    testProblemRoute,
+    testSubmitRoute,
+    testUserRoute,
+    testSubmissionRoute,
+  ]),
   history: createMemoryHistory({ initialEntries: ['/problems'] }),
 });
 
@@ -109,6 +118,8 @@ const PROBLEM_A = {
   me: null,
   tags: [],
   difficulty: null,
+  attemptedCount: 0,
+  solvedCount: 0,
 };
 
 const PROBLEM_B = {
@@ -123,6 +134,8 @@ const PROBLEM_B = {
   me: null,
   tags: [],
   difficulty: null,
+  attemptedCount: 0,
+  solvedCount: 0,
 };
 
 const PROBLEM_DRAFT_ONLY = {
@@ -137,6 +150,8 @@ const PROBLEM_DRAFT_ONLY = {
   me: null,
   tags: [],
   difficulty: null,
+  attemptedCount: 0,
+  solvedCount: 0,
 };
 
 describe('formatMemoryMb', () => {
@@ -388,5 +403,89 @@ describe('ProblemPage authoring links', () => {
     await screen.findByRole('link', { name: 'Tất cả bài nộp' });
     expect(screen.queryByRole('link', { name: 'Sửa' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Phiên bản' })).toBeNull();
+  });
+});
+
+describe('problem statistics (D49)', () => {
+  const STATS = {
+    totalSubmissions: 8,
+    attemptedUsers: 4,
+    solvedUsers: 2,
+    acceptanceRate: 0.25,
+    verdicts: [
+      { key: 'WA', count: 5 },
+      { key: 'AC', count: 3 },
+    ],
+    languages: [{ key: 'cpp17', count: 8 }],
+    fastest: [
+      {
+        submissionId: 42,
+        username: 'nam',
+        timeMs: 12,
+        memoryKb: 2048,
+        createdAt: '2026-01-02T00:00:00Z',
+      },
+    ],
+    firstSolver: { submissionId: 7, username: 'mai', createdAt: '2026-01-01T00:00:00Z' },
+  };
+  const DETAIL = {
+    ...PROBLEM_A,
+    statement: 'Add.',
+    totalPoints: 100,
+    checkerKind: 'wcmp',
+    createdAt: '2026-01-01T00:00:00Z',
+    attemptedCount: 4,
+    solvedCount: 2,
+  };
+
+  it('shows the counts, the fastest table and the first solver, each entity a hyperlink', async () => {
+    mockApiGet({
+      '/problems/{code}': apiResponse(DETAIL),
+      '/problems/{code}/stats': apiResponse(STATS),
+    });
+
+    renderWithClient(<ProblemPage code="aplusb" />);
+
+    await screen.findByRole('heading', { name: 'Thống kê' });
+    expect(screen.getByText(/8 lượt nộp/)).toBeInTheDocument();
+    // A percentage with no decimals — 41 % versus 41.3 % is not a fact
+    // anybody acts on.
+    expect(screen.getByText(/25% được chấp nhận/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'mai' })).toBeInTheDocument();
+    const fastest = screen.getByRole('link', { name: 'nam' });
+    expect(fastest).toHaveAttribute('href', '/users/nam');
+    expect(screen.getByRole('link', { name: '#42' })).toHaveAttribute('href', '/submissions/42');
+  });
+
+  it('renders nothing at all when the statistics cannot be read', async () => {
+    // Commentary on the problem, never a banner over it: a statement must
+    // render even when an aggregate fails.
+    mockApiGet({
+      '/problems/{code}': apiResponse(DETAIL),
+      '/problems/{code}/stats': { data: undefined, error: { code: 'problem_not_found' }, response: new Response() },
+    });
+
+    renderWithClient(<ProblemPage code="aplusb" />);
+
+    await screen.findByRole('heading', { name: /A Plus B/ });
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: 'Thống kê' })).toBeNull();
+    });
+  });
+
+  it('shows solved / attempted on every list row', async () => {
+    mockApiGet({
+      '/problems': apiResponse({
+        items: [{ ...PROBLEM_A, attemptedCount: 4, solvedCount: 2 }],
+        nextCursor: null,
+      }),
+    });
+
+    renderWithClient(<ProblemsPage />);
+    await screen.findByText('aplusb');
+
+    const row = screen.getAllByRole('row')[1]!;
+    expect(within(row).getAllByRole('cell')[5]).toHaveTextContent('2 / 4');
+    expect(within(screen.getAllByRole('row')[0]!).getByRole('columnheader', { name: 'Đã giải' })).toHaveClass('num');
   });
 });
