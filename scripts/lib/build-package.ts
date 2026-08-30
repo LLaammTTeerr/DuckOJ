@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  findMissingPackageFiles,
   packDirectory,
   packageHash,
   parseManifest,
@@ -30,9 +31,12 @@ export async function buildPackage(dir: string): Promise<BuiltPackage> {
 
   const { archive, files } = await packDirectory(dir);
 
-  const declared = new Set(manifest.tests.flatMap((t) => [t.input, t.answer]));
-  const present = new Set(files.map((f) => f.path));
-  const missing = [...declared].filter((p) => !present.has(p));
+  // `findMissingPackageFiles`, not a local set of the test paths: the local
+  // version never looked at `checker.path`, so a package promising a source
+  // checker it did not carry built and uploaded without a word — and every
+  // Polygon import plans exactly that shape of checker. One rule, checked
+  // here and again server-side at attach time.
+  const missing = findMissingPackageFiles(manifest, files);
   if (missing.length > 0) {
     throw new Error(`manifest references files that are not in the package: ${missing.join(', ')}`);
   }
