@@ -979,3 +979,227 @@ registry.registerPath({
     },
   },
 });
+
+/**
+ * Source-similarity reports — chống gian lận (D77).
+ *
+ * Three routes, all `Contests`, all behind the one gate the results exports
+ * use (`canRunContest`): the contest's creator or a global admin. The pair
+ * view returns two competitors' SOURCES side by side, which is exactly what
+ * D27 withholds from everybody else — and D77 is the clause that says the
+ * people running the contest are not "everybody else", because they can
+ * already read every submission of the contest they run.
+ */
+export const SimilarityStatus = z.enum(['running', 'finished', 'failed']);
+export type SimilarityStatusDto = z.infer<typeof SimilarityStatus>;
+
+/**
+ * One reported pair. Both usernames, the problem, both submission ids and
+ * BOTH measures — a pair at containment 0.9 with Jaccard 0.3 is one solution
+ * buried in a longer file, and a pair at 0.9/0.85 is the same file twice.
+ */
+export const SimilarityPair = z.object({
+  problemCode: z.string(),
+  problemLabel: z.string(),
+  /** The two usernames, ordered `a < b` so a pair is named the same way twice. */
+  a: z.string(),
+  b: z.string(),
+  aSubmissionId: z.number().int(),
+  bSubmissionId: z.number().int(),
+  /** Shared fingerprints over the union. */
+  jaccard: z.number(),
+  /** Shared fingerprints over the smaller set — what the threshold tests. */
+  containment: z.number(),
+  /**
+   * The language FAMILY both were written in (`c`, `cpp`, `python`, `java`).
+   * Two submissions are only ever compared inside one family — a Python file
+   * and a C++ file share no tokens, so a score between them would be noise —
+   * but `cpp17` and `cpp20` are the same family and are compared.
+   */
+  language: z.string(),
+});
+export type SimilarityPairDto = z.infer<typeof SimilarityPair>;
+
+/** What the run did on one problem, reported whether or not it found anything. */
+export const SimilarityProblemSummary = z.object({
+  code: z.string(),
+  label: z.string(),
+  /** Participants with a comparable submission on this problem. */
+  participants: z.number().int(),
+  /** Pairs actually compared — `n(n-1)/2` minus the language mismatches. */
+  compared: z.number().int(),
+  /** Pairs at or above the threshold, BEFORE the 500-pair cap. */
+  reported: z.number().int(),
+  /** Whether the cap dropped some of them (the lowest-scoring ones). */
+  truncated: z.boolean(),
+});
+export type SimilarityProblemSummaryDto = z.infer<typeof SimilarityProblemSummary>;
+
+export const SimilarityRun = z.object({
+  id: z.number().int(),
+  status: SimilarityStatus,
+  threshold: z.number(),
+  startedAt: Timestamp,
+  finishedAt: Timestamp.nullable(),
+  /** The organiser who asked; `null` if that account has since been deleted. */
+  requestedBy: z.string().nullable(),
+  /** An error CODE for a failed run, never a stack trace. */
+  error: z.string().nullable(),
+  /** Distinct participants the run looked at, across all problems. */
+  participants: z.number().int(),
+  /** Every problem of the contest, in the contest's own order. */
+  problems: z.array(SimilarityProblemSummary),
+  /** Every reported pair, highest containment first. Empty while running. */
+  pairs: z.array(SimilarityPair),
+});
+export type SimilarityRunDto = z.infer<typeof SimilarityRun>;
+
+/** The latest run, or `null` where a contest has never been checked. */
+export const SimilarityReport = z.object({ run: SimilarityRun.nullable() });
+export type SimilarityReportDto = z.infer<typeof SimilarityReport>;
+
+export const RunSimilarityRequest = z.object({
+  /**
+   * The containment above which a pair is reported. `0.6` by default — high
+   * enough that two independent solutions to the same easy problem do not
+   * fill the table, low enough that a renamed copy cannot slip under it.
+   *
+   * Floored at `0.3`: below that the report is noise, and a report nobody
+   * trusts is worse than no report (D77).
+   */
+  threshold: z.number().min(0.3).max(1).default(0.6),
+});
+export type RunSimilarityRequestDto = z.infer<typeof RunSimilarityRequest>;
+
+const SIMILARITY_FORBIDDEN = {
+  description: 'The caller can see this contest but does not run it (`contest_forbidden`)',
+  content: { 'application/problem+json': { schema: ProblemDetails } },
+};
+
+registry.registerPath({
+  method: 'post',
+  path: '/contests/{key}/similarity',
+  tags: ['Contests'],
+  summary: 'Start a source-similarity check over this contest — the organisers only',
+  description:
+    'Compares one submission per participant per problem — their accepted one, else their ' +
+    'highest-scoring one — and reports every pair whose fingerprint containment reaches ' +
+    '`threshold`. Runs in the API process behind a per-contest advisory lock, so a second ' +
+    'request while one is running answers 409 `similarity_running`. A contest with more than ' +
+    '3000 participants, or a problem that would need more than 500 reported pairs, is refused ' +
+    'or truncated rather than allowed to run for an hour — see 422 `similarity_too_large`. ' +
+    '**A report is a prompt to look, never a verdict** (D77).',
+  request: {
+    params: ContestKeyParam,
+    body: { content: { 'application/json': { schema: RunSimilarityRequest } } },
+  },
+  responses: {
+    201: {
+      description: 'The run, freshly started (`status: "running"`)',
+      content: { 'application/json': { schema: SimilarityRun } },
+    },
+    401: NOT_SIGNED_IN,
+    403: SIMILARITY_FORBIDDEN,
+    404: CONTEST_NOT_FOUND,
+    409: {
+      description: 'A run of this contest is already going (`similarity_running`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: {
+      description:
+        'The request failed validation, or the contest is too large to check ' +
+        '(`similarity_too_large`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/contests/{key}/similarity',
+  tags: ['Contests'],
+  summary: 'The latest source-similarity run and its pairs — the organisers only',
+  description:
+    'The most recent run of this contest, whatever its state, with every pair it reported ' +
+    'sorted by containment. `{ "run": null }` for a contest nobody has ever checked — never ' +
+    '404, which would be indistinguishable from a contest that does not exist.',
+  request: { params: ContestKeyParam },
+  responses: {
+    200: {
+      description: 'The latest run, or `null`',
+      content: { 'application/json': { schema: SimilarityReport } },
+    },
+    401: NOT_SIGNED_IN,
+    403: SIMILARITY_FORBIDDEN,
+    404: CONTEST_NOT_FOUND,
+  },
+});
+
+/** One side of the side-by-side view. */
+export const SimilaritySide = z.object({
+  username: z.string(),
+  submissionId: z.number().int(),
+  languageKey: z.string(),
+  source: z.string(),
+  /**
+   * Character ranges of this source that match the other one, merged and
+   * disjoint. Ranges, not paired matches: the algorithm knows WHERE the two
+   * agree, not which block corresponds to which, and inventing an alignment
+   * would be it asserting more than it knows.
+   */
+  spans: z.array(z.object({ start: z.number().int(), end: z.number().int() })),
+});
+export type SimilaritySideDto = z.infer<typeof SimilaritySide>;
+
+export const SimilarityPairView = z.object({
+  problemCode: z.string(),
+  problemLabel: z.string(),
+  jaccard: z.number(),
+  containment: z.number(),
+  a: SimilaritySide,
+  b: SimilaritySide,
+});
+export type SimilarityPairViewDto = z.infer<typeof SimilarityPairView>;
+
+export const SimilarityPairQuery = z.object({
+  /**
+   * Which problem's pair to open. Optional: two competitors who match on
+   * several problems have several pairs, and the default is the
+   * highest-scoring of them — the one an organiser opening the row from the
+   * table meant.
+   */
+  problem: z.string().min(1).max(64).optional(),
+});
+export type SimilarityPairQueryDto = z.infer<typeof SimilarityPairQuery>;
+
+registry.registerPath({
+  method: 'get',
+  path: '/contests/{key}/similarity/{a}/{b}',
+  tags: ['Contests'],
+  summary: 'Two matched submissions side by side, with the matched spans — the organisers only',
+  description:
+    'Both sources in full, plus the character ranges where they agree. This is the one route ' +
+    'in the product that serves another person’s contest source to somebody who is not its ' +
+    'author: D27 withholds it from everyone, and D77 records why the people RUNNING the ' +
+    'contest are not covered by that — they can already read every submission made into it. ' +
+    'The pair must be one the latest run actually reported; anything else is 404.',
+  request: {
+    params: z.object({ key: z.string(), a: z.string(), b: z.string() }),
+    query: SimilarityPairQuery,
+  },
+  responses: {
+    200: {
+      description: 'The two sources and their matched spans',
+      content: { 'application/json': { schema: SimilarityPairView } },
+    },
+    401: NOT_SIGNED_IN,
+    403: SIMILARITY_FORBIDDEN,
+    404: {
+      description:
+        'No such contest, one the caller may not see, no run yet, or a pair this run did not ' +
+        'report (`contest_not_found`, `similarity_pair_not_found`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
+  },
+});

@@ -20,7 +20,9 @@ import {
   ContestListQuery,
   CreateContestRequest,
   PostAnnouncementRequest,
+  RunSimilarityRequest,
   SetDisqualifiedRequest,
+  SimilarityPairQuery,
   UpdateContestRequest,
   type AnswerClarificationRequestDto,
   type AskClarificationRequestDto,
@@ -34,8 +36,13 @@ import {
   type ContestPageDto,
   type CreateContestRequestDto,
   type PostAnnouncementRequestDto,
+  type RunSimilarityRequestDto,
   type ScoreboardDto,
   type SetDisqualifiedRequestDto,
+  type SimilarityPairQueryDto,
+  type SimilarityPairViewDto,
+  type SimilarityReportDto,
+  type SimilarityRunDto,
   type UpdateContestRequestDto,
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
@@ -44,6 +51,7 @@ import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { ContestAccessService } from '../authz/contest.access.js';
 import { ContestClarificationsService } from '../authz/contest.clarifications.js';
+import { ContestSimilarityService } from '../authz/contest.similarity.js';
 import { ScoreboardCache } from '../authz/scoreboard.cache.js';
 import { STATEMENT_RENDERER, type StatementRenderer } from '../statements/statement-renderer.js';
 import { BOOKLET_CACHE_TTL_MS, bookletCacheKey } from '../statements/booklet.cache.js';
@@ -73,6 +81,7 @@ export class ContestsController {
     @Inject(STATEMENT_RENDERER) private readonly statements: StatementRenderer,
     @Inject(ScoreboardCache) private readonly cache: ScoreboardCache,
     @Inject(ContestResultsService) private readonly results: ContestResultsService,
+    @Inject(ContestSimilarityService) private readonly similarity: ContestSimilarityService,
   ) {}
 
   // `@Public()` is marked per handler, never on the class: `Public()` only
@@ -252,6 +261,68 @@ export class ContestsController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${contestKey}-certificates.pdf"`);
     return new StreamableFile(Buffer.from(value.pdf, 'base64'));
+  }
+
+  /**
+   * Start a source-similarity check over this contest (D77).
+   *
+   * `contests:write`, matching every other organiser action here rather than
+   * a scope of its own: running a contest you created is the same authority
+   * as creating it. **No `@Public()`** — this writes a row and starts work.
+   *
+   * The handler returns as soon as the run row is committed; the comparing
+   * happens in this process behind a per-contest advisory lock, and `GET`
+   * is how an organiser learns it finished. Who may actually ask is
+   * `ContestSimilarityService`'s call, never this controller's.
+   */
+  @Post(':key/similarity')
+  @HttpCode(201)
+  @RequireScope('contests:write')
+  runSimilarity(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Body(new ZodValidationPipe(RunSimilarityRequest)) body: RunSimilarityRequestDto,
+  ): Promise<SimilarityRunDto> {
+    return this.similarity.start(actor, key, body.threshold);
+  }
+
+  /**
+   * The latest similarity run and its pairs (D77).
+   *
+   * **No `@Public()`**, unlike the contest reads above and for the same
+   * reason `results.csv` has none: an anonymous caller has no business
+   * reaching a handler whose whole output is a list of people suspected of
+   * copying. `contests:read`, because it is a read.
+   */
+  @Get(':key/similarity')
+  @RequireScope('contests:read')
+  similarityReport(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+  ): Promise<SimilarityReportDto> {
+    return this.similarity.latest(actor, key);
+  }
+
+  /**
+   * Two matched submissions side by side, with the matched spans (D77).
+   *
+   * The one route in the product that serves another person's contest source
+   * to somebody who is not its author. D27 withholds it from everyone; D77
+   * records why the people RUNNING the contest are not covered by that
+   * clause — they can already read every submission made into it, one at a
+   * time. The pair must be one the latest run reported, so this cannot
+   * become "show me any two competitors' code".
+   */
+  @Get(':key/similarity/:a/:b')
+  @RequireScope('contests:read')
+  similarityPair(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Param('a') a: string,
+    @Param('b') b: string,
+    @Query(new ZodValidationPipe(SimilarityPairQuery)) query: SimilarityPairQueryDto,
+  ): Promise<SimilarityPairViewDto> {
+    return this.similarity.pairView(actor, key, a, b, query.problem);
   }
 
   /**

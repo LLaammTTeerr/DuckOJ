@@ -10,6 +10,11 @@ import { RateLimiter } from '../common/rate-limiter.js';
 import { ContestAccessService } from './contest.access.js';
 import { DashboardService, REDIS_HEALTH, RedisHealthProbe } from './dashboard.access.js';
 import { ContestClarificationsService } from './contest.clarifications.js';
+import {
+  ContestSimilarityService,
+  DEFAULT_SIMILARITY_BOUNDS,
+  SIMILARITY_BOUNDS,
+} from './contest.similarity.js';
 import { OrgAccessService } from './org.access.js';
 import { OrgImportService } from './org.import.js';
 import { ProblemAccessService } from './problem.access.js';
@@ -34,6 +39,16 @@ import {
   providers: [
     ContestAccessService,
     ContestClarificationsService,
+    // The source-similarity reports (D77). Here rather than beside the
+    // contests controller, on `ContestClarificationsService`'s precedent:
+    // it reads five guarded tables and writes a sixth, which the runbook
+    // confines to `authz/**`. It decides no visibility of its own — it asks
+    // `ContestAccessService` and `canRunContest`, exactly as the results
+    // exports do.
+    ContestSimilarityService,
+    // The two caps, injected so a test can meet them at three participants
+    // rather than three thousand (`PROGRESS_EXPORT_BOUNDS`' precedent).
+    { provide: SIMILARITY_BOUNDS, useValue: DEFAULT_SIMILARITY_BOUNDS },
     // `RateLimiter` is stateless — it counts rows in `rate_events` — so
     // providing it here rather than importing `AuthnModule` (which would
     // close a cycle: `AuthnModule` is imported by every controller module
@@ -80,6 +95,7 @@ import {
   exports: [
     ContestAccessService,
     ContestClarificationsService,
+    ContestSimilarityService,
     DashboardService,
     ScoreboardCache,
     OrgAccessService,

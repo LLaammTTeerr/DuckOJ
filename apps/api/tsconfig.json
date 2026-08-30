@@ -15,6 +15,7 @@
     { "path": "../../packages/contracts" },
     { "path": "../../packages/observability" },
     { "path": "../../packages/package-format" },
-    { "path": "../../packages/realtime" }
+    { "path": "../../packages/realtime" },
+    { "path": "../../packages/similarity" }
   ]
 }

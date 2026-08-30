@@ -2268,6 +2268,453 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/contests/{key}/similarity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The latest source-similarity run and its pairs — the organisers only
+         * @description The most recent run of this contest, whatever its state, with every pair it reported sorted by containment. `{ "run": null }` for a contest nobody has ever checked — never 404, which would be indistinguishable from a contest that does not exist.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The latest run, or `null` */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            run: {
+                                id: number;
+                                /** @enum {string} */
+                                status: "running" | "finished" | "failed";
+                                threshold: number;
+                                /** Format: date-time */
+                                startedAt: string;
+                                /** Format: date-time */
+                                finishedAt: string | null;
+                                requestedBy: string | null;
+                                error: string | null;
+                                participants: number;
+                                problems: {
+                                    code: string;
+                                    label: string;
+                                    participants: number;
+                                    compared: number;
+                                    reported: number;
+                                    truncated: boolean;
+                                }[];
+                                pairs: {
+                                    problemCode: string;
+                                    problemLabel: string;
+                                    a: string;
+                                    b: string;
+                                    aSubmissionId: number;
+                                    bSubmissionId: number;
+                                    jaccard: number;
+                                    containment: number;
+                                    language: string;
+                                }[];
+                            } | null;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The caller can see this contest but does not run it (`contest_forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Start a source-similarity check over this contest — the organisers only
+         * @description Compares one submission per participant per problem — their accepted one, else their highest-scoring one — and reports every pair whose fingerprint containment reaches `threshold`. Runs in the API process behind a per-contest advisory lock, so a second request while one is running answers 409 `similarity_running`. A contest with more than 3000 participants, or a problem that would need more than 500 reported pairs, is refused or truncated rather than allowed to run for an hour — see 422 `similarity_too_large`. **A report is a prompt to look, never a verdict** (D77).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @default 0.6 */
+                        threshold?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description The run, freshly started (`status: "running"`) */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            /** @enum {string} */
+                            status: "running" | "finished" | "failed";
+                            threshold: number;
+                            /** Format: date-time */
+                            startedAt: string;
+                            /** Format: date-time */
+                            finishedAt: string | null;
+                            requestedBy: string | null;
+                            error: string | null;
+                            participants: number;
+                            problems: {
+                                code: string;
+                                label: string;
+                                participants: number;
+                                compared: number;
+                                reported: number;
+                                truncated: boolean;
+                            }[];
+                            pairs: {
+                                problemCode: string;
+                                problemLabel: string;
+                                a: string;
+                                b: string;
+                                aSubmissionId: number;
+                                bSubmissionId: number;
+                                jaccard: number;
+                                containment: number;
+                                language: string;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The caller can see this contest but does not run it (`contest_forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description A run of this contest is already going (`similarity_running`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation, or the contest is too large to check (`similarity_too_large`) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contests/{key}/similarity/{a}/{b}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Two matched submissions side by side, with the matched spans — the organisers only
+         * @description Both sources in full, plus the character ranges where they agree. This is the one route in the product that serves another person’s contest source to somebody who is not its author: D27 withholds it from everyone, and D77 records why the people RUNNING the contest are not covered by that — they can already read every submission made into it. The pair must be one the latest run actually reported; anything else is 404.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    problem?: string;
+                };
+                header?: never;
+                path: {
+                    key: string;
+                    a: string;
+                    b: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The two sources and their matched spans */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            problemCode: string;
+                            problemLabel: string;
+                            jaccard: number;
+                            containment: number;
+                            a: {
+                                username: string;
+                                submissionId: number;
+                                languageKey: string;
+                                source: string;
+                                spans: {
+                                    start: number;
+                                    end: number;
+                                }[];
+                            };
+                            b: {
+                                username: string;
+                                submissionId: number;
+                                languageKey: string;
+                                source: string;
+                                spans: {
+                                    start: number;
+                                    end: number;
+                                }[];
+                            };
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The caller can see this contest but does not run it (`contest_forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, one the caller may not see, no run yet, or a pair this run did not report (`contest_not_found`, `similarity_pair_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users/{username}": {
         parameters: {
             query?: never;
