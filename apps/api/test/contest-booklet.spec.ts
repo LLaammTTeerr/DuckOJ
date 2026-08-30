@@ -218,6 +218,13 @@ const NASTY = [
   '```',
   '',
   '[link](https://e.x/a_b) and an ]unmatched close] and ) too.',
+  '',
+  // A backtick INSIDE inline math. `renderInline` emits the LaTeX into a
+  // typst raw literal delimited by single backticks, and the span rule is
+  // `[^$\n]+` — it excludes \$ and newlines, and nothing else. So one
+  // backtick closes the literal early and the rest of the document is a
+  // syntax error: not this problem's PDF, the WHOLE booklet's.
+  'A tick in math: $a`b$ and $c``d$.',
 ].join('\n');
 
 describe('the lowering never emits an unbalanced typst delimiter', () => {
