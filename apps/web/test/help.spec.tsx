@@ -189,4 +189,32 @@ describe('the guides against the features that exist', () => {
     expect(body).not.toContain('2000 dòng');
     expect(body).not.toContain('2000 rows');
   });
+
+  it('tells a student about the real code editor and its drafts (D84)', async () => {
+    const body = await guideText();
+    expect(body).toContain('trình soạn thảo');
+    expect(body).toContain('Khôi phục bản nháp');
+    expect(body).toContain('real editor');
+  });
+
+  it('tells a student about the progress dashboard (D83)', async () => {
+    const body = await guideText();
+    expect(body).toContain('/me/progress');
+    expect(body).toContain('lịch nhiệt 365 ngày');
+    expect(body).toContain('365-day heatmap');
+  });
+
+  it('tells a teacher about the monitor, similarity check and team contests (D95, D77, D99)', async () => {
+    const body = await guideText('Giáo viên');
+    expect(body).toContain('Theo dõi trực tiếp');
+    expect(body).toContain('Kiểm tra trùng lặp');
+    expect(body).toContain('Thi đồng đội');
+    expect(body).toContain('Live monitor');
+  });
+
+  it('tells an admin about the judge:node CLI and deploy.sh (D68)', async () => {
+    const body = await guideText('Quản trị');
+    expect(body).toContain('judge:node');
+    expect(body).toContain('scripts/deploy.sh');
+  });
 });
