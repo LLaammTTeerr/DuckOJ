@@ -33,7 +33,10 @@ export interface PublishOptions {
   /** Set the problem's visibility. Omitted leaves whatever it has. */
   visibility?: 'private' | 'org' | 'public';
   notes?: string;
-  /** Publish `editorial.md`, when the directory carries one. Default true. */
+  /**
+   * Send `editorial.md`, when the directory carries one. Default true.
+   * SENDING it stores it; it is PUBLISHED only alongside `publish` (D97).
+   */
   editorial?: boolean;
 }
 
@@ -171,14 +174,35 @@ export async function publishProblem(
     steps.push(`published revision ${String(version)}`);
   }
 
-  // 5. The editorial, published in the same PATCH that stores it (D43) —
-  //    the shape `content/README.md` step 7 documents.
+  // 5. The editorial. STORED on every run, PUBLISHED only when this run
+  //    published the revision.
+  //
+  //    Publishing it unconditionally was the bug: `prepare publish <dir>`
+  //    without `--publish` is the documented way to stage a package on a live
+  //    problem — the revision lands as a `draft` for a person to publish
+  //    (D87, and D90's "never a default") — and D43 serves a published
+  //    editorial to *any* viewer who may see the problem. So the command
+  //    whose whole point was that it published nothing handed the room the
+  //    solution write-up. Publishing an editorial is a decision, exactly as
+  //    D88 rules for the clone that carries one "but never carried as
+  //    PUBLISHED"; `--publish` is where that decision is made.
+  //
+  //    A PATCH carrying only `editorial` leaves `editorial_published_at`
+  //    alone (`problem.access.ts` moves it only for an explicit
+  //    `editorialPublished`), so an editorial that is ALREADY published stays
+  //    published and simply gets the new text — which is what re-running on a
+  //    live problem must do.
   if (options.editorial !== false && problem.editorialPath !== null) {
+    const text = await readFile(problem.editorialPath, 'utf8');
     await api.json('PATCH', `/problems/${code}`, {
-      editorial: await readFile(problem.editorialPath, 'utf8'),
-      editorialPublished: true,
+      editorial: text,
+      ...(published ? { editorialPublished: true } : {}),
     });
-    steps.push('published editorial.md');
+    steps.push(
+      published
+        ? 'published editorial.md'
+        : 'stored editorial.md (not published — pass --publish, or publish the revision)',
+    );
   }
 
   return { code, created, packageHash, version, revisionCreated, published, steps };

@@ -4077,3 +4077,33 @@ visible as an attempt rather than invisible as a section.
 
 *Ruled by the implementer during the 2026-08-30 B-17 bug-hunt loop, no human
 available to consult. No migration.*
+
+## D97 — `prepare` stores an editorial on every run and publishes it only with the revision
+
+`publishProblem` sent `editorial.md` with `editorialPublished: true` on every
+run, including runs that published nothing. That is the wrong default in the
+one situation the command is most used for: `prepare publish <dir>` **without**
+`--publish` is how a setter stages next year's package on a live problem — the
+revision lands as a `draft` for a person to publish, which D87 and D90 both
+state — and D43 serves a published editorial to *any* viewer who may see the
+problem, anonymous included. So the command whose entire promise was that it
+published nothing handed the room the solution write-up.
+
+- **The editorial is stored on every run and published only when this run
+  published the revision.** A PATCH carrying `editorial` alone leaves
+  `editorial_published_at` exactly where it was (only an explicit
+  `editorialPublished` moves it, `problem.access.ts`), so re-running on a
+  problem whose editorial is already live updates the text and keeps it live,
+  and re-running on one that is staged keeps it staged.
+- **Publishing an editorial is a decision, not a side effect.** D88 already
+  rules this for the problem clone, which carries the editorial "but never
+  carried as PUBLISHED" because "the source's readers were let in by its
+  author, and cloning is not that decision being made again by someone else".
+  A publish run is where that decision is made here, and `--publish` is how it
+  is spelled — the same flag, the same act.
+- **`--no-editorial` still means "send nothing".** It is the flag for a
+  directory whose `editorial.md` is a working note; the new behaviour is about
+  what a sent editorial does, not about whether it is sent.
+
+*Ruled by the implementer during the 2026-08-30 B-17 bug-hunt loop, no human
+available to consult. No migration.*

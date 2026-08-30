@@ -36,7 +36,8 @@ const USAGE = `usage: prepare <command> <problem-dir> [options]
     --visibility <v>  private | org | public
     --notes <text>    revision notes
     --no-gate         publish without running the gate first (not advised)
-    --no-editorial    do not publish editorial.md
+    --no-editorial    do not send editorial.md at all (it is stored, and
+                      published only alongside --publish)
 
   stress <dir> --brute <file> --gen <file> [--rounds N] [--model <file>]
                     <gen> <seed> writes ONE case to stdout; the brute is the oracle
