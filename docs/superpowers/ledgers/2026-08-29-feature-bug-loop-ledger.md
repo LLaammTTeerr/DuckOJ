@@ -62,3 +62,4 @@
 - B-13 dispatched (worktree, opus): submissions rate limit D80, typst bounds, judge revoke drop D81, cross-chunk emails, Redis warnings, CSRF origin guard D82 (migration 0030 reserved).
 - F-15 DONE_WITH_CONCERNS (423ad13..6347b24): packages/similarity (winnowing), similarity runs (0028, D77), organiser report + side-by-side; Dockerfile deps stage + worktree-walking spec fixed. Deployed + pushed. Owed: stuck-'running' reaper.
 - F-16 dispatched (main, opus): similarity run reaper + student progress page (D83). PROVINCE-READINESS.md gained a loop summary section.
+- F-16 DONE_WITH_CONCERNS (de08363..d82f8d4): similarity reaper, /me/progress + public progress (D83); deployed + pushed.
