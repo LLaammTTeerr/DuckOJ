@@ -954,7 +954,9 @@ registry.registerPath({
     'site itself when it is restricted to none. **A disqualified row and a virtual replay ' +
     'never get one** — the results sheet is a record, a certificate is an award — so `top=N` ' +
     'counts down the ranking after that exclusion, and a `username` naming an ineligible or ' +
-    'unranked competitor answers 404. The date is the contest’s end, never the moment of ' +
+    'unranked competitor answers 404. **`top` is a bound on the RANK, not a count of sheets** ' +
+    '(D74): the board ranks in competition style, so `top=3` over ranks 1, 2, 3, 3 prints four ' +
+    'certificates rather than cutting through the tie. The date is the contest’s end, never the moment of ' +
     'download, so two prints are the same document. Cached for 60 s on a hash of the document.',
   request: { params: ContestKeyParam, query: CertificatesQuery },
   responses: {

@@ -61,6 +61,58 @@ function attemptsOf(data: FormatData | IcpcFormatData): number | null {
   return 'tries' in data ? data.tries : null;
 }
 
+/**
+ * Who gets a certificate.
+ *
+ * **A disqualified row never does, and neither does a virtual replay.** The
+ * results sheet keeps both — the record of what happened is the row (D37) —
+ * but a certificate is not a record, it is an award, and awarding one for a
+ * replay of a contest already run, or to somebody expelled from it, is the
+ * one thing this endpoint must not print. `top=N` counts down the ranking
+ * AFTER that exclusion, so `top=3` is three certificates and not two plus a
+ * gap.
+ *
+ * **A tie is never cut through (D74).** The board ranks in competition style
+ * — equal score and equal penalty share a rank, and the rank after a group
+ * of k jumps by k — so `slice(0, top)` handed a certificate to one of two
+ * competitors ranked equal third and nothing to the other, on the order the
+ * scoreboard happened to break the tie in (a tiebreaker column no printed
+ * result mentions). The boundary is therefore a RANK, not a count: everybody
+ * at or above the rank the Nth eligible row holds. `top=3` over ranks
+ * 1, 2, 3, 3 is four certificates, and the fourth is not a mistake — it says
+ * "third", which is what the board says.
+ *
+ * The rank printed is the row's own rank from the live board, never its
+ * index in this filtered list: a competitor's certificate says where they
+ * finished, and the board is what says it.
+ *
+ * Exported for its own test: the tie is a property of this selection and
+ * nothing downstream of it can see one.
+ */
+export function selectCertified(rows: ResultRow[], scope: CertificateScope): ResultRow[] {
+  const eligible = rows.filter((row) => !row.disqualified && row.virtual === 0);
+  if (scope.username !== undefined) {
+    const wanted = scope.username.toLowerCase();
+    const found = eligible.find((row) => row.username.toLowerCase() === wanted);
+    if (!found) {
+      // 404, not 403: this is a row that is not there — an unranked, a
+      // disqualified or a virtual-only entrant — and naming which of the
+      // three would report a disqualification to whoever asked. The
+      // organiser can already read all three from the results sheet.
+      throw new AppError(
+        404,
+        'contest_participant_not_found',
+        'No certifiable result for that participant in this contest.',
+      );
+    }
+    return [found];
+  }
+  const boundary = scope.top === undefined ? undefined : eligible[scope.top - 1];
+  // Fewer eligible rows than were asked for: every one of them, as before.
+  if (boundary === undefined) return eligible;
+  return eligible.filter((row) => row.rank <= boundary.rank);
+}
+
 @Injectable()
 export class ContestResultsService {
   constructor(
@@ -112,40 +164,8 @@ export class ContestResultsService {
     };
   }
 
-  /**
-   * Who gets a certificate.
-   *
-   * **A disqualified row never does, and neither does a virtual replay.** The
-   * results sheet keeps both — the record of what happened is the row (D37) —
-   * but a certificate is not a record, it is an award, and awarding one for a
-   * replay of a contest already run, or to somebody expelled from it, is the
-   * one thing this endpoint must not print. `top=N` counts down the ranking
-   * AFTER that exclusion, so `top=3` is three certificates and not two plus a
-   * gap.
-   *
-   * The rank printed is the row's own rank from the live board, never its
-   * index in this filtered list: a competitor's certificate says where they
-   * finished, and the board is what says it.
-   */
   private selectCertified(rows: ResultRow[], scope: CertificateScope): ResultRow[] {
-    const eligible = rows.filter((row) => !row.disqualified && row.virtual === 0);
-    if (scope.username !== undefined) {
-      const wanted = scope.username.toLowerCase();
-      const found = eligible.find((row) => row.username.toLowerCase() === wanted);
-      if (!found) {
-        // 404, not 403: this is a row that is not there — an unranked, a
-        // disqualified or a virtual-only entrant — and naming which of the
-        // three would report a disqualification to whoever asked. The
-        // organiser can already read all three from the results sheet.
-        throw new AppError(
-          404,
-          'contest_participant_not_found',
-          'No certifiable result for that participant in this contest.',
-        );
-      }
-      return [found];
-    }
-    return eligible.slice(0, scope.top);
+    return selectCertified(rows, scope);
   }
 
   /**

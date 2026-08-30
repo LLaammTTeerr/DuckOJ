@@ -2680,3 +2680,31 @@ one ordinary session.
 
 *Ruled by the implementer during the 2026-08-30 B-11 review loop, no human
 available to consult. No migration.*
+
+## D74 — `top=N` certificates never cut through a tie
+
+The scoreboard ranks in competition style (`packages/contest-formats/src/
+scoreboard.ts`): equal score and equal penalty share a rank, and after a
+group of k tied rows the next rank jumps by k. D71's certificate selection
+was `eligible.slice(0, top)`, which is a count — so a contest whose third
+and fourth rows both rank **3** answered `top=3` with a certificate for one
+of them and nothing for the other, decided by the order the scoreboard
+happened to break a tie it does not print. Two pupils with identical results
+stand in the same hall and one of them is handed a piece of paper.
+
+**The boundary is a rank, not a count.** `top=N` certifies everybody whose
+rank is at or above the rank held by the Nth eligible row. `top=3` over
+ranks 1, 2, 3, 3 is four certificates, and the fourth is not an error: it
+says "Hạng 3 / Rank 3", which is what the board says. An organiser who wants
+exactly N sheets of paper is asking a question the board cannot answer, and
+answering it anyway means answering it wrongly for the person left out.
+
+Everything else about D71's selection stands: the disqualified and the
+virtual replays are excluded first and `top` counts down what remains, the
+rank printed is the row's own rank from the live board, and `?username=`
+still answers 404 `contest_participant_not_found` without saying which of
+the three reasons applied. A `top` larger than the eligible field still
+certifies the whole field.
+
+*Ruled by the implementer during the 2026-08-30 B-11 review loop, no human
+available to consult. No migration.*
