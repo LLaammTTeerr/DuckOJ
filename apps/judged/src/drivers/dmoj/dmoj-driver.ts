@@ -543,8 +543,13 @@ export class DmojDriver implements JudgeDriver {
 }
 
 
-/** Everything in `\x1b[ … <letter>` — gcc's SGR colours and its `\x1b[K`. */
-const ANSI_ESCAPE = /\x1b\[[0-9;]*[A-Za-z]/g;
+/**
+ * Everything in `ESC [ … <letter>` — gcc's SGR colours and its `ESC [K`.
+ *
+ * Built from the code point rather than written as a literal `\x1b` so the
+ * pattern carries no control character of its own (`no-control-regex`).
+ */
+const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(0x1b)}\\[[0-9;]*[A-Za-z]`, 'g');
 
 function escapeForRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

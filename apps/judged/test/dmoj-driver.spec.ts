@@ -627,7 +627,7 @@ describe('DmojDriver — compile output is fit to show the submitter', () => {
 
   it('strips gcc colour escapes from a compile error', async () => {
     const message = await compileLog('compile-error', REAL_GCC_CE);
-    expect(message).not.toMatch(/\x1b/);
+    expect(message).not.toContain(String.fromCharCode(0x1b));
   }, 30_000);
 
   it('never shows the package hash where the filename belongs', async () => {

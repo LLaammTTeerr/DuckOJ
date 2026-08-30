@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { submissions, submissionCases } from '@duckoj/db/guarded';
+import { submissions } from '@duckoj/db/guarded';
 
 import { schema, type Db } from '@duckoj/db';
 import type { GradingEvent } from '@duckoj/judge-protocol';
