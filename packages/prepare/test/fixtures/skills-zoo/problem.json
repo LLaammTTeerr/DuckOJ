@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "name": "tong-hai-so-zoo",
+  "title": { "vi": "Tổng hai số" },
+  "tags": ["mo-phong"],
+  "limits": { "time_ms_published": 1000, "memory_mb": 256 },
+  "io": { "input": "stdin", "output": "stdout" },
+  "checker": { "kind": "stock", "name": "ncmp" },
+  "constraints": [{ "id": "value", "expr": "1 \\le a, b \\le 1000", "min": 1, "max": 1000 }],
+  "subtasks": [
+    {
+      "id": "g1",
+      "points": 100,
+      "bounds": {},
+      "constraints_text": ["Không có ràng buộc gì thêm"],
+      "depends_on": []
+    }
+  ],
+  "examples": []
+}

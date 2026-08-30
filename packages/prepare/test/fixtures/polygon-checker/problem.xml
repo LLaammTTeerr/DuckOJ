@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!-- `polygon-good` with a source checker: the shape every real Polygon
+     import plans (`kind: "source"`, `checker/check.cpp`). -->
+<problem revision="1" short-name="tong-hai-so-checker" url="">
+  <names>
+    <name language="vietnamese" value="Tổng hai số"/>
+  </names>
+  <judging input-file="" output-file="">
+    <testset name="tests">
+      <time-limit>1000</time-limit>
+      <memory-limit>268435456</memory-limit>
+      <test-count>2</test-count>
+      <input-path-pattern>tests/%02d</input-path-pattern>
+      <answer-path-pattern>tests/%02d.a</answer-path-pattern>
+      <tests>
+        <test method="manual" sample="false" points="50" group="g1"/>
+        <test method="manual" sample="false" points="50" group="g1"/>
+      </tests>
+      <groups>
+        <group name="g1" points="100" points-policy="each-test" feedback-policy="icpc"/>
+      </groups>
+    </testset>
+  </judging>
+  <assets>
+    <checker name="testlib" type="testlib">
+      <source path="check.cpp" type="cpp.g++17"/>
+    </checker>
+    <solutions>
+      <solution tag="main">
+        <source path="solution.cpp" type="cpp.g++17"/>
+      </solution>
+    </solutions>
+  </assets>
+</problem>

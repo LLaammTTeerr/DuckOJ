@@ -1,0 +1,14 @@
+/**
+ * @tag        main
+ * @expect     g1=OK
+ * @algorithm  Reads two integers and prints their sum.
+ * @complexity O(1)
+ */
+#include <iostream>
+
+int main() {
+  long long a = 0, b = 0;
+  std::cin >> a >> b;
+  std::cout << a + b << "\n";
+  return 0;
+}

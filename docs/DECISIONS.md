@@ -3489,3 +3489,80 @@ without reopening the door the 7a ruling (2026-08-22) shut.
 *Ruled by the implementer during the 2026-08-30 feature loop (F18 brief), no
 human available to consult. No migration — the filesystem is the whole
 record.*
+
+
+## D90 — `prepare` publishes through `POST /packages` + `/revisions`, and one directory has one hash
+
+`packages/prepare` (`corepack pnpm prepare <problem-dir>`) is the gate a
+prepared problem passes before it reaches a stack, and the publisher that puts
+it there. Two doors existed into a live problem and it takes exactly one.
+
+- **The packages path, not D87's drafts, even though drafts need fewer
+  privileges.** Drafts carry one scope (`problems:publish`); this carries two
+  (`+ packages:write`). That is the only respect in which drafts are cheaper,
+  and it loses to representability. `DraftFileName` is flat by contract —
+  `^[A-Za-z0-9._-]+$`, no separator, "so the package a draft builds names its
+  tests `01.in`, not `tests/01.in`" — and **every** Polygon import plans
+  `tests/NN.in` and, when it has a checker, `checker/check.cpp`. Publishing
+  through a draft would mean flattening every path, which changes the archive,
+  which changes the hash. One directory would then register a different hash
+  through `prepare` than `polygon:import` + `package:build` print for it —
+  precisely the two-hashes-for-one-directory drift D87 moved `buildPackage`
+  into `@duckoj/package-format` to prevent. It would also break the
+  idempotency below, which IS a hash comparison, and drafts always attach a
+  new revision.
+- **Re-running is idempotent by hash.** The revision list is read first and a
+  revision already carrying this package attaches nothing new; the statement,
+  tags and difficulty are patched every run, because those are the things a
+  setter edits between runs. A package that has not changed must not spend a
+  version number.
+- **The manifest and the copy plan for a Polygon directory come from
+  `planImport` itself**, never from a second reading of `problem.xml`. What
+  `prepare` reads out of the XML on its own is only what `planImport` does not
+  return and the package does not contain: group NAMES and the `<solutions>`
+  list.
+- **The blocker in `flags.json` is exactly one thing**: an unresolved HIGH
+  `statement-ambiguity`, which is the one hard stop `reviewing-problems` names
+  for itself. Everything else in that register is flag-and-continue by
+  construction, and a gate that failed on a `timing-band` note would make the
+  whole register unusable. `flags.py` writes no resolution field, so a
+  resolved ambiguity is `"resolved": true` added to the record by hand.
+- **A statement is Markdown or it is not a statement.** The skills produce
+  vnolymp `.tex`, which `problems.statement` cannot store, so a `.tex`-only
+  directory is refused with the two file names that would fix it
+  (`statement.md` with an `## English` section, or `statement.vi.md` +
+  `statement.en.md`). D10 wants both locales and the column is still one
+  column; the gate enforces the pair inside it.
+- **The stock testlib checkers `wcmp` and `ncmp` ARE `{"kind":"standard"}`;
+  every other stock checker is vendored into the package as a testlib source
+  checker (D40).** `rcmp6`'s tolerance, `yesno`'s case-insensitivity and
+  `lcmp`'s line semantics are not token equality, and a package that claimed
+  they were would grade differently from the problem that was set.
+- **Subtask points are split across a subtask's tests so the batch sums to
+  exactly what was declared**, because `renderInitYml` gives a batch
+  `points = sum(member points)` — rounding it away would silently change the
+  ladder. Subtask `depends_on` is refused outright, the same refusal
+  `@duckoj/polygon-import` makes for Polygon's `<dependencies>`, and so is
+  file IO, which a DuckOJ package cannot express at all.
+- **The gate is `timeout` + `ulimit -v`, and says so.** It is not the sandbox:
+  it runs the setter's own code on the setter's own machine to answer a
+  question before anything is uploaded. TLE is wall-clock at 2× the limit. An
+  address-space kill is indistinguishable from any other crash from outside,
+  so a declared `ML` is satisfied by an observed `RE` — reported, not hidden.
+- **A stress generator is `<gen> <seed>` writing ONE case to stdout.** The
+  `gen.py` files under `content/problems/` regenerate a whole `tests/`
+  directory and do not satisfy this; the contract is stated rather than
+  assumed, and the two solutions are compared through the problem's own
+  checker so a problem with several correct answers is not reported broken.
+- **`prepare` is also an npm lifecycle script name.** `pnpm install` runs the
+  root `prepare` script every time, so `scripts/prepare.ts` exits 0 in silence
+  on zero arguments, and checks that BEFORE importing anything from
+  `@duckoj/*` — at install time `packages/prepare/dist` does not exist yet, and
+  a static import would make a fresh install crash. `--help` prints the usage
+  the lifecycle invocation deliberately does not.
+- **Library first, CLI second.** Nothing under `packages/prepare/src` prints or
+  exits; `cli.ts` is the only file that does either, so `apps/mcp` can expose
+  the same pipeline as tools without shelling out and parsing stdout.
+
+*Ruled by the implementer during the 2026-08-30 feature loop (F21 brief), no
+human available to consult. No migration.*

@@ -24,3 +24,8 @@ __pycache__/
 
 # Playwright journey screenshots — evidence, regenerated every run
 apps/web/e2e/screenshots/
+
+# `corepack pnpm prepare <dir>` writes its gate report beside the problem it
+# checked. It is evidence of one run on one machine, regenerated every time —
+# committing it would put a timestamp and local paths into the problem source.
+prepare-report.json

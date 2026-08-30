@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "generated_at": "2026-08-30T10:00:00+07:00",
+  "flags": [
+    {
+      "id": "tim-001",
+      "phase": "validating-solutions",
+      "severity": "medium",
+      "kind": "timing-band",
+      "what": "sol-wrong runs well inside the limit; nothing is close to the band",
+      "assumed": "the band is irrelevant at this size",
+      "changes_if_wrong": "the time limit, if a real machine disagrees",
+      "at": "2026-08-30T10:00:00+07:00"
+    }
+  ]
+}
