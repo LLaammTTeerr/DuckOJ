@@ -14,10 +14,14 @@ import { eq } from 'drizzle-orm';
 import type { INestApplication } from '@nestjs/common';
 import {
   contestClarifications,
+  contestOrgs,
   contestParticipations,
   contestProblems,
   contests,
+  organizations,
   problems,
+  teamMembers,
+  teams,
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { Clarification, ClarificationList } from '@duckoj/contracts';
@@ -582,6 +586,42 @@ describe('broadcastRecipients — the notification cap (D59)', () => {
       const all = await broadcastRecipients(db, contestId, organiser.id, NOTIFY_CAP);
       expect(all.userIds).toEqual([student.id]);
       expect(all.truncated).toBe(false);
+    });
+  }, 120_000);
+
+  // D99 × D14. A team is ONE participation held by whichever member pressed
+  // Join; the row's `user_id` is the captain and the rest of the squad live
+  // in `team_members`. A clarification answer or announcement must reach
+  // every competitor, so the recipient set is the union of the two ways a
+  // person competes here — they hold the row, or they are on the team that
+  // holds it — exactly as D101's "participants online" already counts them.
+  it('reaches EVERY team member, not just the captain who pressed Join (D99)', async () => {
+    await withTestDb(async (db) => {
+      const organiser = await insertUser(db, 'cap-team-org');
+      const contestId = await seedContest(db, { key: 'cap-team', createdBy: organiser.id });
+      await db.update(contests).set({ participationMode: 'team', maxTeamSize: 3 }).where(eq(contests.id, contestId));
+      const [org] = await db
+        .insert(organizations)
+        .values({ slug: 'cap-team-school', name: 'Trường' })
+        .returning({ id: organizations.id });
+      await db.insert(contestOrgs).values({ contestId, orgId: org!.id });
+      const [team] = await db
+        .insert(teams)
+        .values({ orgId: org!.id, slug: 'doi-1', name: 'Đội 1', createdBy: organiser.id })
+        .returning({ id: teams.id });
+      const captain = await insertUser(db, 'cap-team-cap');
+      const second = await insertUser(db, 'cap-team-b');
+      const third = await insertUser(db, 'cap-team-c');
+      await db
+        .insert(teamMembers)
+        .values([captain, second, third].map((u) => ({ teamId: team!.id, userId: u.id })));
+      // ONE participation, on the captain's account (D99).
+      await db
+        .insert(contestParticipations)
+        .values({ contestId, userId: captain.id, teamId: team!.id, startTime: new Date(START) });
+
+      const all = await broadcastRecipients(db, contestId, organiser.id, NOTIFY_CAP);
+      expect(all.userIds).toEqual([captain.id, second.id, third.id].sort((a, b) => a - b));
     });
   }, 120_000);
 });

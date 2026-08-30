@@ -21,6 +21,7 @@ import {
   contestParticipations,
   contestProblems,
   problems,
+  teamMembers,
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import type {
@@ -119,16 +120,30 @@ export async function broadcastRecipients(
  * instead, which is deterministic and is exactly the property at issue.
  */
 export function broadcastRecipientsQuery(tx: Db, contestId: number, excludeUserId: number, cap: number) {
-  return tx
-    .selectDistinct({ userId: contestParticipations.userId })
+  // The two ways a person competes here, D101's "participants online" union.
+  // A team is ONE participation held by whichever member pressed Join (D99),
+  // so `contest_participations.user_id` names only the captain; the rest of
+  // the squad live in `team_members`. Keyed on `user_id` alone, an
+  // announcement or a clarification answer reached one member per team and
+  // left the other two never told — the same captain-only bug D101 and D105
+  // each fixed on another surface. `UNION` (not `UNION ALL`) is the distinct
+  // that `selectDistinct` used to supply: a captain is in both halves and is
+  // one recipient, as is a person holding a live participation plus virtual
+  // attempts.
+  const individuals = tx
+    .select({ userId: contestParticipations.userId })
     .from(contestParticipations)
     .where(
-      and(
-        eq(contestParticipations.contestId, contestId),
-        ne(contestParticipations.userId, excludeUserId),
-      ),
-    )
-    .orderBy(asc(contestParticipations.userId))
+      and(eq(contestParticipations.contestId, contestId), ne(contestParticipations.userId, excludeUserId)),
+    );
+  const members = tx
+    .select({ userId: teamMembers.userId })
+    .from(contestParticipations)
+    .innerJoin(teamMembers, eq(teamMembers.teamId, contestParticipations.teamId))
+    .where(and(eq(contestParticipations.contestId, contestId), ne(teamMembers.userId, excludeUserId)));
+  return individuals
+    .union(members)
+    .orderBy(asc(sql`user_id`))
     // One past the cap, so "was anybody left out" is answered by this query
     // rather than by a second COUNT that could disagree with it.
     .limit(cap + 1);
