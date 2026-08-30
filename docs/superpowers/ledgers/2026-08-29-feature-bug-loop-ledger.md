@@ -111,3 +111,4 @@
 - Dispatched F-27 submission source diff (main, D111) and B-21 comments+cross-cut hunt (worktree, D112–D114). CI polling on 938edf5.
 - F-27 DONE (2efcdc2..3aba597): submission source diff (unified, both sources visibility-gated, D111); deployed via deploy.sh; pushed. Note: root test:ci script calls bare pnpm (not on PATH locally) — works in CI (action-setup); local runs need corepack shim — small fix owed.
 - B-21 DONE, merged (3e6e16e..e796d93): HIGH team-mode captain-only bypass of D109/D35 spoilers; broadcast reaches all team members; comment meter Retry-After + limit (D112); XSS/markers/must-change/team-naming cleared. api 1085/1085, web 544/544. Deployed; pushed.
+- Post-B-21 merge: problem-comments 'oldest first' failed once when run alongside two other DB specs (container contention), passes 13/13 isolated — the flake CI's serial mode avoids; not a regression. B-21 deployed healthy.
