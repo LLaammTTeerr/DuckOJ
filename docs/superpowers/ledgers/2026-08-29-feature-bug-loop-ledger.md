@@ -38,3 +38,4 @@
 - B-9 dispatched (worktree, opus): perf + B-8 leftovers (dashboard bounds/migration 0025, data-swallows, BOOKLET_TZ D64, k6 new routes, refetch backoff), D65 reserved.
 - F-8 DONE (beb7cff..33002b9): bulk student accounts + forced password change + org:import CLI (D61), migration 0024; deployed + pushed. Concern: 2000-row import ≈ 20 s (argon2) — proxy timeout risk noted.
 - F-9 dispatched (main, opus): classroom problem sets (D66), migration 0026.
+- UI agent dispatched (worktree, opus, ui-ux-pro-max skill): Apple Liquid Glass restyle, D67 — owner directive 2026-08-30.
