@@ -1,11 +1,13 @@
 import { Body, Controller, Get, HttpCode, Inject, Logger, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import {
+  ChangePasswordRequest,
   ForgotPasswordRequest,
   LoginRequest,
   RegisterRequest,
   ResetPasswordRequest,
   VerifyEmailRequest,
+  type ChangePasswordRequestDto,
   type ForgotPasswordRequestDto,
   type LoginRequestDto,
   type MeResponseDto,
@@ -25,6 +27,7 @@ import { SessionService } from './session.service.js';
 import { TotpService } from './totp.service.js';
 import { TotpRecoveryService } from './totp-recovery.service.js';
 import { CurrentActor, Public } from './auth.guard.js';
+import { SessionOnly } from './session-only.guard.js';
 import { NoScopeRequired } from './require-scope.decorator.js';
 
 /**
@@ -345,6 +348,43 @@ export class AuthController {
     @Body(new ZodValidationPipe(ResetPasswordRequest)) body: ResetPasswordRequestDto,
   ): Promise<void> {
     await this.recovery.resetPassword(body.token, body.password);
+  }
+
+  /**
+   * D61 — change your own password.
+   *
+   * `@SessionOnly()` is this route's one marker, for exactly the reason
+   * `TokensController` carries it: a machine credential must not be able to
+   * rewrite the credential that governs it. It is also what makes
+   * `currentPassword` safely optional for an account flagged
+   * `mustChangePassword` — the session cookie is the proof of possession
+   * standing in for a password the account never chose.
+   *
+   * The service revokes every session and token, so a cookie is re-issued
+   * here before answering: the caller stays signed in on this device and
+   * nowhere else.
+   */
+  @Post('password/change')
+  @HttpCode(204)
+  @SessionOnly()
+  async changePassword(
+    @CurrentActor() actor: Actor,
+    @Body(new ZodValidationPipe(ChangePasswordRequest)) body: ChangePasswordRequestDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    await this.auth.changePassword(actor.userId, body.currentPassword, body.newPassword);
+    const { token, expiresAt } = await this.sessions.issue(actor.userId, {
+      ip: clientIp(req),
+      userAgent: req.get('user-agent') ?? undefined,
+    });
+    res.cookie(this.config.sessionCookieName, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.config.nodeEnv === 'production',
+      path: '/',
+      expires: expiresAt,
+    });
   }
 
   /** Sends to the *signed-in* user's address, never to one supplied by a caller. */
