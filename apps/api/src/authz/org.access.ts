@@ -44,7 +44,13 @@ const ROSTER_FIRST_PAGE: PaginationQueryDto = { limit: 25 };
  */
 const MAX_MEMBER_CURSOR = 64;
 
-function parseMemberCursor(cursor: string | undefined): string | null {
+/**
+ * Exported so `problem-set.access.ts` — which pages the SAME roster, by the
+ * same username keyset (D58), but needs each member's id and display name
+ * for the progress grid — refuses an over-long cursor with the identical
+ * 422 rather than growing a second, subtly different bound.
+ */
+export function parseMemberCursor(cursor: string | undefined): string | null {
   if (cursor === undefined) return null;
   if (cursor.length === 0 || cursor.length > MAX_MEMBER_CURSOR) {
     throw new AppError(422, 'invalid_cursor', 'That page cursor is not valid.');
@@ -276,6 +282,25 @@ export class OrgAccessService {
     }
     const full = await this.findRowById(row.id);
     return { id: row.id, slug: row.slug, name: full?.name ?? row.slug };
+  }
+
+  /**
+   * The organization, if this actor may SEE it — 404 otherwise — together
+   * with the role they hold in it (`null` for a visitor to a public one).
+   *
+   * The public form of `findVisibleOrgRow`, for `ProblemSetAccessService`:
+   * a set's reads gate on visibility FIRST (an invisible organization is
+   * still 404, unchanged) and on membership second, and both halves of that
+   * have to be the same two questions this file already answers. A second
+   * copy of the visibility condition in another service is the split
+   * predicate this codebase has found once per phase.
+   */
+  async loadVisibleWithRole(
+    actor: Actor | null,
+    slug: string,
+  ): Promise<{ row: typeof organizations.$inferSelect; role: OrgRoleDto | null }> {
+    const row = await this.findVisibleOrgRow(actor, slug);
+    return { row, role: await this.roleIn(actor, row.id) };
   }
 
   private async findOrgRow(slug: string): Promise<OrgRow> {
@@ -660,7 +685,14 @@ export class OrgAccessService {
     };
   }
 
-  private async loadForEdit(actor: Actor | null, slug: string): Promise<{ row: OrgRow; role: OrgRoleDto | null }> {
+  /**
+   * Public since D66: `ProblemSetAccessService` gates every write, and the
+   * progress grid, on exactly "owner or admin of this organization, or a
+   * global admin" — the same question, in the same 404-then-403 order. It is
+   * called from this file too, which is why it kept its place here rather
+   * than moving.
+   */
+  async loadForEdit(actor: Actor | null, slug: string): Promise<{ row: OrgRow; role: OrgRoleDto | null }> {
     const row = await this.findOrgRow(slug);
     if (!(await this.canViewRow(actor, row))) {
       throw new AppError(404, 'organization_not_found', 'No such organization.');

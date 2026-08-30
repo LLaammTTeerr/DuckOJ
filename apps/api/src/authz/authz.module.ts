@@ -13,6 +13,7 @@ import { ContestClarificationsService } from './contest.clarifications.js';
 import { OrgAccessService } from './org.access.js';
 import { OrgImportService } from './org.import.js';
 import { ProblemAccessService } from './problem.access.js';
+import { ProblemSetAccessService } from './problem-set.access.js';
 import { RatingService } from './rating.service.js';
 import { RejudgeService } from './rejudge.access.js';
 import {
@@ -41,6 +42,10 @@ import {
     // framework-free module the CLI also runs.
     OrgImportService,
     ProblemAccessService,
+    // D66's classroom problem sets. Its own provider rather than more
+    // methods on `OrgAccessService`: it asks that service who may act, and
+    // reads three tables that service never touches.
+    ProblemSetAccessService,
     RatingService,
     RejudgeService,
     // The admin operations dashboard (D47). It lives here, not in
@@ -72,6 +77,7 @@ import {
     OrgAccessService,
     OrgImportService,
     ProblemAccessService,
+    ProblemSetAccessService,
     RatingService,
     RejudgeService,
   ],
