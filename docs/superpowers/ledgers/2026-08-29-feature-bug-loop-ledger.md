@@ -21,3 +21,4 @@
 - F-5 dispatched (main, opus): admin ops dashboard + reclaim (D47), real rank names (D46).
 - F-5 DONE (4413430..0ecb3cf): admin ops dashboard + reclaim (D47), rank names (D46 closes D6); deployed + pushed.
 - F-6 dispatched (main, opus): contest PDF booklet (D48), problem statistics (D49).
+- B-4 DONE_WITH_CONCERNS, merged: 6 web bugs (global input width → checkboxes as bars; 404 retry spin; NaN id; translate fallbacks; mark-all-read busy; e2e name). Web rebuilt + pushed. Follow-ups → B-5: /submissions/NaN 502, /packages/{hash} session access, table tabindex wrapper.
