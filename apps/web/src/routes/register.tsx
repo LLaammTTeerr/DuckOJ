@@ -110,6 +110,7 @@ function TextField(props: {
   id: Field;
   label: string;
   type?: string;
+  autoComplete?: string;
   value: string;
   error: string | undefined;
   onChange: (value: string) => void;
@@ -129,6 +130,7 @@ function TextField(props: {
       <input
         id={props.id}
         type={props.type ?? 'text'}
+        autoComplete={props.autoComplete}
         value={props.value}
         aria-invalid={props.error ? true : undefined}
         aria-describedby={props.error ? errorId : undefined}
@@ -297,6 +299,7 @@ export function RegisterPage() {
         <TextField
           id="username"
           label={t('common.username')}
+          autoComplete="username"
           value={values.username}
           error={fieldErrors.username}
           onChange={set('username')}
@@ -305,6 +308,7 @@ export function RegisterPage() {
           id="email"
           label={t('auth.emailLabel')}
           type="email"
+          autoComplete="email"
           value={values.email}
           error={fieldErrors.email}
           onChange={set('email')}
@@ -312,6 +316,7 @@ export function RegisterPage() {
         <TextField
           id="displayName"
           label={t('auth.displayName')}
+          autoComplete="name"
           value={values.displayName}
           error={fieldErrors.displayName}
           onChange={set('displayName')}
@@ -320,6 +325,7 @@ export function RegisterPage() {
           id="password"
           label={t('auth.password')}
           type="password"
+          autoComplete="new-password"
           value={values.password}
           error={fieldErrors.password}
           onChange={set('password')}
@@ -328,6 +334,7 @@ export function RegisterPage() {
           id="confirm"
           label={t('auth.confirmPassword')}
           type="password"
+          autoComplete="new-password"
           value={values.confirm}
           error={fieldErrors.confirm}
           onChange={set('confirm')}

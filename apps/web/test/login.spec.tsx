@@ -20,6 +20,23 @@ describe('LoginForm', () => {
     });
   });
 
+  it('marks the sign-in fields with their input purpose (WCAG 1.3.5)', () => {
+    // The identifier and password carried no `autocomplete`, so a password
+    // manager could not fill them and the browser could not offer to — the
+    // TOTP step and `/account/password` already did this, so the gap was an
+    // inconsistency, not a policy.
+    render(<LoginForm onSubmit={vi.fn()} error={null} needsTotp />);
+    expect(screen.getByLabelText(/Tên đăng nhập hoặc email/)).toHaveAttribute(
+      'autocomplete',
+      'username',
+    );
+    expect(screen.getByLabelText(/^Mật khẩu$/)).toHaveAttribute('autocomplete', 'current-password');
+    expect(screen.getByLabelText(/Mã xác thực hai lớp/)).toHaveAttribute(
+      'autocomplete',
+      'one-time-code',
+    );
+  });
+
   it('shows the server error message', () => {
     render(<LoginForm onSubmit={vi.fn()} error="Incorrect username or password." />);
     expect(screen.getByRole('alert')).toHaveTextContent('Incorrect username or password.');

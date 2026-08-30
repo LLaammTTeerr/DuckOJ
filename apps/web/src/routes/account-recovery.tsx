@@ -163,6 +163,7 @@ export function ResetPasswordPage() {
         <span>{t('auth.newPassword')}</span>
         <input
           type="password"
+          autoComplete="new-password"
           required
           minLength={12}
           value={password}

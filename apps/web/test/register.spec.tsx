@@ -124,6 +124,20 @@ describe('RegisterPage validation', () => {
     expect(post).not.toHaveBeenCalled();
   });
 
+  it('marks each field with its input purpose (WCAG 1.3.5)', () => {
+    wrap();
+    expect(screen.getByLabelText(/^Tên đăng nhập$/)).toHaveAttribute('autocomplete', 'username');
+    expect(screen.getByLabelText(/^Email$/)).toHaveAttribute('autocomplete', 'email');
+    expect(screen.getByLabelText(/^Tên hiển thị$/)).toHaveAttribute('autocomplete', 'name');
+    // A brand-new credential, so `new-password` — never `current-password`,
+    // which would offer to fill an existing one into the field that creates it.
+    expect(screen.getByLabelText(/^Mật khẩu$/)).toHaveAttribute('autocomplete', 'new-password');
+    expect(screen.getByLabelText(/^Nhập lại mật khẩu$/)).toHaveAttribute(
+      'autocomplete',
+      'new-password',
+    );
+  });
+
   it('raises a focusable error summary that links each bad field on a failed submit', async () => {
     wrap();
     await fillValid({ username: 'ab', email: 'not-an-address' });
