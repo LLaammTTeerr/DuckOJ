@@ -228,6 +228,45 @@ describe('ProblemSetProgressPage', () => {
     expect(within(bao).getByText('—')).toBeTruthy();
   });
 
+  it('loads the next page of pupils onto the grid instead of naming a cursor', async () => {
+    // F9 shipped the words "Tải thêm" as a muted paragraph: the screen said
+    // there was more and offered no way to it.
+    get.mockImplementation((path: string, options?: { params?: { query?: { cursor?: string } } }) => {
+      if (path === '/auth/me') return Promise.resolve({ data: ME });
+      if (path !== '/orgs/{slug}/sets/{setSlug}/progress') return Promise.resolve({ data: undefined });
+      return options?.params?.query?.cursor === undefined
+        ? Promise.resolve({ data: { ...GRID, nextCursor: 'bao' } })
+        : Promise.resolve({
+            data: {
+              ...GRID,
+              rows: [
+                {
+                  username: 'chi',
+                  displayName: 'Chi',
+                  role: 'member',
+                  cells: [{ onTime: ATTEMPT_AC, late: null }],
+                },
+              ],
+              nextCursor: null,
+            },
+          });
+    });
+    wrap(<ProblemSetProgressPage slug="hanoi" setSlug="tuan-1" />);
+
+    await screen.findByText('Anna');
+    expect(screen.queryByText('Chi')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /Tải thêm/ }));
+
+    expect(await screen.findByText('Chi')).toBeInTheDocument();
+    // The rows already on screen stay: a teacher scrolling a class must not
+    // lose the top of it to a click at the bottom.
+    expect(screen.getByText('Anna')).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith('/orgs/{slug}/sets/{setSlug}/progress', {
+      params: { path: { slug: 'hanoi', setSlug: 'tuan-1' }, query: { cursor: 'bao' } },
+    });
+    expect(screen.queryByRole('button', { name: /Tải thêm/ })).toBeNull();
+  });
+
   it('links the CSV straight at the API, with format=csv', async () => {
     serve({ '/orgs/{slug}/sets/{setSlug}/progress': GRID });
     wrap(<ProblemSetProgressPage slug="hanoi" setSlug="tuan-1" />);

@@ -16,7 +16,7 @@
  * could only 401.
  */
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import type { paths } from '@duckoj/sdk';
@@ -521,34 +521,45 @@ export function ProblemSetProgressPage({ slug, setSlug }: { slug: string; setSlu
   const t = useT();
   const { locale, timeZone } = useLocale();
   const me = useQuery(meQueryOptions);
-  const grid = useQuery({
+  // Paged, and appended: the grid is the roster (D58), so a class past the
+  // first page needs a way to the rest of itself. `useInfiniteQuery`, like
+  // every other "load more" in the app.
+  const grid = useInfiniteQuery({
     queryKey: ['org-set-progress', slug, setSlug],
     enabled: me.data != null,
-    queryFn: async (): Promise<Progress> => {
+    queryFn: async ({ pageParam }: { pageParam: string | undefined }): Promise<Progress> => {
+      // `exactOptionalPropertyTypes`: an absent cursor is an omitted key.
+      const query: { cursor?: string } = {};
+      if (pageParam !== undefined) query.cursor = pageParam;
       const result = await api.GET('/orgs/{slug}/sets/{setSlug}/progress', {
-        params: { path: { slug, setSlug } },
+        params: { path: { slug, setSlug }, query },
       });
       if (result.error) throw apiError(result, t('sets.progressError'));
       return result.data as Progress;
     },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
 
   if (grid.isPending) return <p className="muted">{t('common.loading')}</p>;
   if (grid.error) return <p role="alert">{grid.error.message}</p>;
   if (!grid.data) return null;
 
-  const dated = grid.data.deadline !== null;
+  // Every page carries the same columns and deadline — they describe the SET,
+  // not the page — so the first page answers for all of them; the rows are
+  // the part that accumulates.
+  const head = grid.data.pages[0]!;
+  const rows = grid.data.pages.flatMap((page) => page.rows);
+  const dated = head.deadline !== null;
   return (
     <section className="panel">
-      <h1>{t('sets.progressTitle', { name: grid.data.name })}</h1>
+      <h1>{t('sets.progressTitle', { name: head.name })}</h1>
       <p className="muted">
         <Link to="/orgs/$slug/sets/$setSlug" params={{ slug, setSlug }}>
           {t('sets.back')}
         </Link>
         {' · '}
-        {grid.data.deadline
-          ? formatDateTime(grid.data.deadline, locale, timeZone)
-          : t('sets.noDeadline')}
+        {head.deadline ? formatDateTime(head.deadline, locale, timeZone) : t('sets.noDeadline')}
         {' · '}
         {/* A plain <a>, not the SDK: the browser is downloading a file the
             server renders, and it carries the session cookie itself. */}
@@ -559,7 +570,7 @@ export function ProblemSetProgressPage({ slug, setSlug }: { slug: string; setSlu
           <thead>
             <tr>
               <th>{t('sets.colStudent')}</th>
-              {grid.data.columns.map((column) => (
+              {head.columns.map((column) => (
                 <th key={column.code} className="num">
                   <Link to="/problems/$code" params={{ code: column.code }}>
                     {column.code}
@@ -569,7 +580,7 @@ export function ProblemSetProgressPage({ slug, setSlug }: { slug: string; setSlu
             </tr>
           </thead>
           <tbody>
-            {grid.data.rows.map((row) => (
+            {rows.map((row) => (
               <tr key={row.username}>
                 <td>
                   <Link to="/users/$username" params={{ username: row.username }}>
@@ -577,7 +588,7 @@ export function ProblemSetProgressPage({ slug, setSlug }: { slug: string; setSlu
                   </Link>
                 </td>
                 {row.cells.map((cell, index) => (
-                  <td key={grid.data.columns[index]?.code ?? index} className="num">
+                  <td key={head.columns[index]?.code ?? index} className="num">
                     <VerdictCell attempt={cell?.onTime ?? null} t={t} />
                     {dated && cell?.late ? (
                       <>
@@ -594,7 +605,17 @@ export function ProblemSetProgressPage({ slug, setSlug }: { slug: string; setSlu
           </tbody>
         </table>
       </div>
-      {grid.data.nextCursor !== null ? <p className="muted">{t('common.loadMore')}</p> : null}
+      {grid.hasNextPage ? (
+        <p>
+          <button
+            type="button"
+            onClick={() => void grid.fetchNextPage()}
+            disabled={grid.isFetchingNextPage}
+          >
+            {t('common.loadMore')}
+          </button>
+        </p>
+      ) : null}
     </section>
   );
 }
