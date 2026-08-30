@@ -750,6 +750,21 @@ export const en = {
   'help.tabStudent': 'Students',
   'help.tabTeacher': 'Teachers',
   'help.tabAdmin': 'Administrators',
+
+  // --- D76: the navigation IA ------------------------------------------
+  // The shell's two shapes. `nav.label` names the landmark; the three
+  // `group*` keys name the desktop bar's clusters; `more`/`moreTitle`/
+  // `close` belong to the phone's overflow sheet. `notificationsTab` is the
+  // bell's VISIBLE label -- `nav.notifications` is the spoken sentence with
+  // its unread count and cannot be shown as a tab caption.
+  'nav.label': 'DuckOJ navigation',
+  'nav.groupMain': 'Main sections',
+  'nav.groupAccount': 'Account',
+  'nav.groupResources': 'Resources',
+  'nav.more': 'More',
+  'nav.moreTitle': 'More options',
+  'nav.close': 'Close',
+  'nav.notificationsTab': 'Notifications',
 } satisfies Record<string, string>;
 
 /** Every id the app may ask for — `vi.ts` must cover exactly this set. */

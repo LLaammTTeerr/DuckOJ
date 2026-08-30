@@ -128,14 +128,19 @@ describe('the intervals themselves', () => {
     // runs each package from its own root, so `src/…` resolves.
     const contests = await readFile('src/routes/contests.tsx', 'utf8');
     const router = await readFile('src/router.tsx', 'utf8');
+    // D76 moved the shell nav — and with it the bell that owns this
+    // interval — out of `router.tsx` into its own module. `router.tsx` is
+    // still read, because the `refetchIntervalInBackground` sweep below is
+    // about every file that could grow a poller, not only the one that has.
+    const nav = await readFile('src/nav.tsx', 'utf8');
     const admin = await readFile('src/routes/admin.tsx', 'utf8');
 
     expect(contests).toContain("refetchInterval: phase === 'running' ? 30_000 : false");
-    expect(router).toContain('refetchInterval: 60_000');
+    expect(nav).toContain('refetchInterval: 60_000');
     expect(admin).toContain('refetchInterval: 15_000');
 
     // And nothing anywhere opts back into polling a tab nobody is looking at.
-    for (const source of [contests, router, admin]) {
+    for (const source of [contests, router, nav, admin]) {
       expect(source).not.toContain('refetchIntervalInBackground');
     }
   });

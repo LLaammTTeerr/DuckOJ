@@ -2638,3 +2638,85 @@ sweep), no human available to consult. No migration.*
 
 
 
+
+## D76 — The nav is two information architectures: a grouped desktop bar and a five-tab phone bar with an overflow sheet
+
+The shell rendered one flat row of links. Signed in, that row was twelve
+items — problems, contests, orgs, submissions, API, help, admin, tokens,
+security, settings, password, the bell — plus the language toggle, the
+display name and sign out. On a desktop it was a wall of equal-weight links
+with no answer to "which of these is the app and which is me". At 390px it
+was a sideways scroller, which D67's review flagged as its first concern: a
+bottom tab bar is at most five items, and anything a reader has to swipe into
+view is, for most readers, not there.
+
+**Desktop (>700px) keeps one glass bar and groups it into three named
+clusters.** `Bài tập · Kỳ thi · Bài nộp · Tổ chức` is where the work is;
+`Trợ giúp · API`, plus `Quản trị` for an admin, is reference; the account
+cluster — bell, display name, settings, security, tokens, password, language,
+sign out — is pushed to the right rail behind a hairline. Each is a
+`role="group"` with a name, so the grouping is in the accessibility tree and
+not only in the pixels. Admin sits with reference rather than with the
+account: it is a place in the app, not a setting on the person.
+
+**The account cluster groups; it does not collapse.** A dropdown was the
+obvious shape and is the wrong one here. On the shared school machines this
+judge is aimed at, "the previous pupil is still signed in" is the default
+state — that is why a sign-out control was added at all — and a way out that
+costs a discovery click is a way out nobody takes. The e2e journeys encode
+the same rule: they assert the sign-out button and the display name are
+visible with no interaction. On a desktop there is room, so both stay on
+screen; on a phone there is not, so both move into the sheet and cost two
+taps.
+
+**Phone (≤700px) gets five tabs and a sheet.** `Bài tập`, `Kỳ thi`,
+`Bài nộp`, then the bell for a member (`Đăng nhập` for a visitor, because a
+bell with no session behind it is a dead tab), then `Thêm`. `Thêm` opens a
+glass sheet holding everything else: orgs, the profile, the four `/account/*`
+screens, admin when the viewer is one, help, the API reference, the language
+toggle and sign out. Every route the flat bar reached is one tap away or two
+through the sheet. Each tab is an SVG icon above its own word — an icon alone
+is a guess, and this app's readers are pupils meeting it for the first time —
+and `flex: 1 1 0; min-width: 0` across five columns is what keeps journey 6's
+`scrollWidth <= innerWidth` true without the old inner scroller.
+
+**Which tree renders is a JS media query, not CSS.** A modal sheet with a
+focus trap cannot exist as a CSS state, and rendering both trees would put
+every link in the document twice — which breaks every `getByRole('link', …)`
+in the suite and makes the accessibility tree lie. `usePhoneLayout` reads
+`window.matchMedia('(max-width: 700px)')` and subscribes to it, so a rotation
+swaps architectures without a reload. jsdom does not implement `matchMedia`
+at all, so it answers *desktop* there: the whole pre-existing unit suite goes
+on exercising the bar it always did, and the phone tree is reached by
+stubbing the global.
+
+**The sheet is a real modal.** `role="dialog"`, `aria-modal`, and a `Thêm`
+button carrying `aria-haspopup="dialog"`, `aria-expanded` and
+`aria-controls`. Focus moves into it on open, Tab and Shift+Tab wrap inside
+it, Escape closes it (listened for on the document, because a backdrop click
+leaves focus on `<body>` and a container-scoped listener would then be deaf),
+the backdrop closes it, every item inside closes it on the way out, and
+closing returns focus to the button that opened it — a keyboard reader
+dropped at the top of the document after each dismissal re-walks the whole
+page to get back. It renders as a **sibling** of `<nav class="shell-nav">`,
+never a child: the bar carries a `backdrop-filter`, which makes it the
+containing block for `position: fixed` descendants, and a full-screen
+backdrop nested inside it is clamped to the bar's own 58px box. The slide-up
+is `animation: … var(--dur)`, so `prefers-reduced-motion` flattens it to
+0.01ms through the D67 token rather than through a rule this file has to
+remember.
+
+The backdrop is a `<button>` — a dismiss target is a control — but
+`aria-hidden` and `tabIndex={-1}`: it duplicates the named close button for a
+pointer, and two controls called "Đóng" is one more than a screen reader can
+tell apart. Nothing focusable is hidden by it.
+
+Every target is `--tap` (44px) or taller, the fixed bar and the sheet both
+pad by `env(safe-area-inset-bottom)`, the active item in either shape is the
+raised glass pill `aria-current="page"` already earns from TanStack Router,
+and one new token — `--scrim` — carries the modal ground in both schemes.
+The unread count is rendered twice on purpose: as a badge (`aria-hidden`)
+for the eye, and inside `nav.notifications`' sentence for the ear.
+
+*Ruled by the implementer during the 2026-08-30 UI loop (navigation IA), no
+human available to consult. No migration; `apps/web` only.*

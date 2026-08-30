@@ -61,6 +61,10 @@
   --faint: #757e8b;
   --line: rgba(18, 22, 28, 0.14);
   --sel: rgba(18, 22, 28, 0.055);
+  /* The scrim behind a modal sheet (D76). Not glass: it is the absence of
+     the page, so it darkens rather than blurs, and it stays put when the
+     material collapses to its solid twin. */
+  --scrim: rgba(12, 15, 20, 0.34);
   /* The solid twin every glass token collapses to. Also the print surface. */
   --panel: #ffffff;
 
@@ -171,6 +175,7 @@
     --faint: #79838f;
     --line: rgba(255, 255, 255, 0.13);
     --sel: rgba(255, 255, 255, 0.06);
+    --scrim: rgba(0, 0, 0, 0.58);
     --panel: #171b22;
 
     --glass-bar: rgba(22, 26, 33, 0.74);
