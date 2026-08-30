@@ -235,6 +235,22 @@ export class FilesystemDraftStore implements DraftStore {
   }
 
   /**
+   * Whether this draft's lock is held by something that could still be
+   * alive — present, and younger than {@link DRAFT_LOCK_STALE_MS}.
+   *
+   * Absent, unreadable, or stale all answer `false`: the sweeper's job is to
+   * reclaim disk nothing can reach, and a lock it cannot read is exactly the
+   * abandoned state `withLock` itself takes over.
+   */
+  private async lockedSince(draftId: string, now: Date): Promise<boolean> {
+    try {
+      return now.getTime() - (await stat(this.lockDir(draftId))).mtimeMs <= DRAFT_LOCK_STALE_MS;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * `mkdir` of a single directory is atomic and fails `EEXIST` if it is
    * already there — one syscall that both tests and takes the lock, with no
    * window between the two. (A lock FILE opened `wx` would do as well; a
@@ -298,6 +314,18 @@ export class FilesystemDraftStore implements DraftStore {
       // one from an absent one, and either way nothing can ever open the
       // draft again.
       if (!isDraftExpired(await this.read(entry), now, ttlMs)) continue;
+      // ...unless something holds it right now (D93). `delete` is `rm -r` of
+      // the whole directory, lock and all, so a draft that crosses its TTL
+      // while a build is reading it is yanked out from under `buildPackage`
+      // — and the setter gets an `ENOENT` quoted verbatim into a 422, for a
+      // build that had already passed the expiry check when it started.
+      //
+      // SKIPPED, not waited on: this runs hourly over every draft on the
+      // volume, and blocking each one for the lock's timeout would let a
+      // single held draft stall the whole sweep. The next tick reclaims it,
+      // an hour is nothing against a 24-hour TTL, and a lock held past
+      // `DRAFT_LOCK_STALE_MS` is not held by anything alive.
+      if (await this.lockedSince(entry, now)) continue;
       await this.delete(entry);
       removed += 1;
     }

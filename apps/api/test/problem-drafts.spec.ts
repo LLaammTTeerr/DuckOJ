@@ -526,4 +526,49 @@ describe('problem package drafts — the caps hold under concurrent PUTs (D93)',
       });
     });
   }, 180_000);
+
+  /**
+   * The sweeper reclaims disk; it must not reclaim a draft something is
+   * reading (D93).
+   *
+   * `delete` is `rm -r` of the whole draft directory, lock and all. A draft
+   * that crosses its 24 hours while a build holds it would be pulled out from
+   * under `buildPackage` mid-tar, and the setter would get the raw `ENOENT`
+   * quoted verbatim into a 422 — for a build that had already passed the
+   * expiry check when it started.
+   */
+  it('leaves an expired draft alone while a build holds it, and reclaims it once the lock is stale', async () => {
+    await withTestDb(async (db) => {
+      await withApp(db, async (app) => {
+        const agent = await setterWithProblem(db, app, 'draft-sweep', 'draft-swp');
+        const draftId = (await agent.post('/api/v1/problems/draft-swp/drafts').send()).body.draftId as string;
+        await fillDraft(agent, 'draft-swp', draftId);
+
+        const store = app.get<DraftStore>(DRAFT_STORE);
+        const metaPath = join(store.filesDir(draftId), '..', 'meta.json');
+        const meta = JSON.parse(await readFile(metaPath, 'utf8')) as { createdAt: string };
+        await writeFile(
+          metaPath,
+          JSON.stringify({ ...meta, createdAt: new Date(Date.now() - 25 * 60 * 60_000).toISOString() }),
+        );
+
+        // Held, as a build in progress holds it.
+        const lockPath = join(store.filesDir(draftId), '..', '.lock');
+        await mkdir(lockPath);
+
+        const sweeper = app.get(DraftSweeper);
+        expect(await sweeper.sweep()).toBe(0);
+        expect(await store.read(draftId)).not.toBeNull();
+        // Still expired, so still unreachable through the API — the skip is
+        // about the DISK, never about who may touch the draft.
+        expect((await putFile(agent, 'draft-swp', draftId, '03.in', 'x')).status).toBe(404);
+
+        // A lock nothing alive can be holding is no reason to keep the bytes.
+        const stale = new Date(Date.now() - 10 * DRAFT_LOCK_STALE_MS);
+        await utimes(lockPath, stale, stale);
+        expect(await sweeper.sweep()).toBe(1);
+        expect(await store.read(draftId)).toBeNull();
+      });
+    });
+  }, 180_000);
 });
