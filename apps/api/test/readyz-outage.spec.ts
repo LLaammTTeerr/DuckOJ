@@ -89,7 +89,9 @@ describe('the probes under an unresponsive database', () => {
     app = await buildApp(hangs);
     const res = await request(app.getHttpServer()).get('/healthz');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: 'ok' });
+    // D86 added the live worker count to this body; it is still computed
+    // without touching anything, which is what this test is about.
+    expect(res.body).toEqual({ status: 'ok', workers: 1 });
   }, 30_000);
 
   it('the deadline is short enough to be useful to a probe interval', () => {

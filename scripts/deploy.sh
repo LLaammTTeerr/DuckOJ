@@ -40,6 +40,13 @@
 # from nothing, in the order podman-compose cannot be trusted to work out.
 # This changes some services on a stack that is already running.
 #
+# KNOWN LIMITATION: `judge-2` sits behind compose's `scale` profile (D68), and
+# podman-compose 1.5 honours a profile only as a `--profile` flag on its own
+# command line — which only `scripts/compose-up.sh` passes. `deploy.sh judge-2`
+# therefore fails at the build, loudly, rather than deploying the wrong thing:
+# use `SCALE=1 scripts/compose-up.sh` for that service until this grows the
+# same flag.
+#
 # ---------------------------------------------------------------------------
 # ENV OVERRIDES (defaults in parentheses)
 #   COMPOSE_PROJECT_NAME  compose project (the repo directory name). EXPORTED,
@@ -355,7 +362,13 @@ if [ -n "$last_reason" ]; then
   echo "FATAL: deploy failed — $last_reason" >&2
   for service in $SERVICES; do
     echo "----- $service -----" >&2
-    "$COMPOSE" logs --tail 80 "$service" >&2 || true
+    # `--tail` first, and a plain `logs` if this podman-compose does not know
+    # it: printing the whole log is noisy, printing NOTHING because a flag was
+    # unsupported would remove the only diagnosis a failed deploy leaves
+    # behind. `scripts/compose-up.sh` uses the bare form for that reason.
+    "$COMPOSE" logs --tail 80 "$service" >&2 ||
+      "$COMPOSE" logs "$service" >&2 ||
+      echo "(no logs available for $service)" >&2
   done
 
   if [ -z "$ROLLBACKABLE" ]; then

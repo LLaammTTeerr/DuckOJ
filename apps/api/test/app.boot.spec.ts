@@ -162,8 +162,15 @@ describe('the real AppModule boots the way the container boots it', () => {
     process.env.PUBLIC_ORIGIN = 'http://localhost:5173';
     process.env.LOG_LEVEL = 'fatal';
     process.env.PACKAGE_STORE_DIR = await mkdtemp(join(tmpdir(), 'duckoj-boot-packages-'));
-    delete process.env.SMTP_HOST;
-    delete process.env.TYPST_BIN;
+    // The PRODUCTION branch of two factories nothing else boots.
+    // `TEST_CONFIG` sets `smtp: null` and `typstBin: null`, so every other
+    // spec in this suite constructs `LogMailer` and `NullStatementRenderer`
+    // and neither `SmtpMailer` nor `TypstStatementRenderer` is ever built by
+    // a module at all. Neither construction dials or spawns anything — a
+    // nodemailer transport is lazy and the renderer only stores a path — so
+    // naming them here costs nothing and closes the gap.
+    process.env.SMTP_HOST = 'smtp.invalid';
+    process.env.TYPST_BIN = '/nonexistent/typst';
 
     const [{ AppModule }, { configureApp }, { loadConfig }, { RedisScoreboardCacheStore }, core] =
       await Promise.all([
