@@ -180,6 +180,17 @@ describe('ProblemsPage', () => {
     expect(screen.getAllByRole('row')).toHaveLength(3); // header + 2 problems
   });
 
+  it('announces an empty result set in a live region (a11y)', async () => {
+    // The list updates as the reader types in the search box; when a query
+    // filters everything away the "no problems" line replaces the table
+    // silently. A screen-reader user typing a code that matches nothing
+    // otherwise hears nothing at all — so the empty state is a live region.
+    mockApiGet({ '/problems': apiResponse({ items: [], nextCursor: null }) });
+    renderWithClient(<ProblemsPage />);
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Không tìm thấy bài tập nào.');
+  });
+
   // Regression coverage for the three problem-list bugs found by screenshot
   // (task report): a single free-text `1000 ms / 65536 KB` cell, memory
   // shown in unreadable raw KB, and — separately — the `me` column.
