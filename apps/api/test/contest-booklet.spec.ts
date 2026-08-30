@@ -28,6 +28,7 @@ import { withTestDb } from './db.harness.js';
 import { ensureRedisUrl } from './redis.harness.js';
 import { insertUser, registerAndLogin } from './submissions.fixtures.js';
 import { STATEMENT_RENDERER, type StatementRenderer } from '../src/statements/statement-renderer.js';
+import { bookletCacheKey } from '../src/statements/booklet.cache.js';
 import {
   bookletToTypst,
   markdownToTypst,
@@ -63,7 +64,14 @@ function problem(over: Partial<BookletProblem> = {}): BookletProblem {
   };
 }
 
-const WINDOW = { startTime: new Date('2026-08-29T02:00:00Z'), endTime: new Date('2026-08-29T07:00:00Z') };
+// `timeZone: null` is D57's "not chosen", which D64 dates in ICT — so every
+// existing assertion in this file still reads the cover in the room's own
+// clock, and the cases that vary the zone say so explicitly.
+const WINDOW = {
+  startTime: new Date('2026-08-29T02:00:00Z'),
+  endTime: new Date('2026-08-29T07:00:00Z'),
+  timeZone: null,
+};
 
 describe('statementSection (D48)', () => {
   it('splits a bilingual statement on the top-level English heading', () => {
@@ -129,6 +137,66 @@ describe('bookletToTypst (D48)', () => {
     expect(doc.trimEnd().endsWith('#pagebreak()')).toBe(false);
     expect(doc).toContain('= Bài A. Tổng hai số');
     expect(doc).toContain('= Bài B. Sàng');
+  });
+
+  it("dates the cover in the reader's own timezone, offset included (D64)", () => {
+    // D48 fixed the cover to ICT and printed `(GMT+7)` as a LITERAL beside
+    // the formatter. D57 had already given every account a timezone, so the
+    // one reader whose clock the booklet is for was the one thing it did not
+    // consult — and the literal is why: once the zone varies, a hardcoded
+    // offset does not merely go stale, it states the wrong hour with
+    // authority. Both halves have to move together, which is why this test
+    // asserts them together.
+    const tokyo = bookletToTypst({
+      name: 'Thi thu tinh',
+      ...WINDOW,
+      lang: 'vi',
+      timeZone: 'Asia/Tokyo',
+      problems: [problem()],
+    });
+    const unescaped = tokyo.replace(/\\/g, '');
+    // 09:00 ICT is 11:00 JST.
+    expect(unescaped).toContain('2026-08-29 11:00');
+    expect(unescaped).toContain('2026-08-29 16:00');
+    expect(tokyo).toContain('GMT+9');
+    expect(tokyo).not.toContain('GMT+7');
+  });
+
+  it('falls back to Indochina Time when the reader has chosen nothing (D57)', () => {
+    // `NULL` means "not chosen" (D57), and D18 makes this a Vietnamese judge
+    // by default — so an anonymous downloader and an account that never
+    // opened the settings screen both get the room's own clock.
+    const chosen = bookletToTypst({ name: 'X', ...WINDOW, lang: 'vi', timeZone: null, problems: [problem()] });
+    expect(chosen.replace(/\\/g, '')).toContain('2026-08-29 09:00');
+    expect(chosen).toContain('GMT+7');
+  });
+
+  it("prints the room's clock rather than 500ing on a timezone it cannot resolve", () => {
+    // D57 accepts any well-formed value into `users.timezone` on purpose, so
+    // a stored `Mars/Olympus` is reachable. `Intl` THROWS on an unknown zone,
+    // and a booklet is a public route: a bad row on one account must not be
+    // able to 500 the printable problems for a whole room.
+    const doc = bookletToTypst({
+      name: 'X',
+      ...WINDOW,
+      lang: 'vi',
+      timeZone: 'Mars/Olympus',
+      problems: [problem()],
+    });
+    expect(doc.replace(/\\/g, '')).toContain('2026-08-29 09:00');
+    expect(doc).toContain('GMT+7');
+  });
+
+  it('gives two zones two cache keys, with no invalidation needed (D48)', () => {
+    // The booklet cache is keyed on a hash of the document about to be
+    // typeset, so a per-reader zone splits the keys by construction — the
+    // cover text differs, therefore the hash differs. Stated as a test
+    // because the alternative reading ("per-viewer caching needs an
+    // invalidation story") is the one that would send somebody rewriting a
+    // cache that is already correct.
+    const ict = bookletToTypst({ name: 'X', ...WINDOW, lang: 'vi', timeZone: 'Asia/Ho_Chi_Minh', problems: [problem()] });
+    const jst = bookletToTypst({ name: 'X', ...WINDOW, lang: 'vi', timeZone: 'Asia/Tokyo', problems: [problem()] });
+    expect(bookletCacheKey(1, 'vi', ict)).not.toBe(bookletCacheKey(1, 'vi', jst));
   });
 
   it('says "Problem" in English and picks the English heading word', () => {
@@ -589,6 +657,44 @@ describe('GET /contests/{key}/booklet.pdf', () => {
           .set('Cookie', entrantCookie);
         expect(entrant.status).toBe(200);
         expect(renderer.documents.at(-1)).toContain('Cho hai số nguyên');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it("dates the cover in the signed-in reader's own timezone (D64)", async () => {
+    await withTestDb(async (db) => {
+      const renderer = fakeRenderer();
+      const app = await buildApp(db, {
+        configOverrides: { redisUrl: await freshRedis() },
+        overrides: [{ provide: STATEMENT_RENDERER, useValue: renderer }],
+      });
+      try {
+        await seedContest(db, { key: 'zoned', visibility: 'public', startsInMs: -MINUTE });
+
+        // Anonymous first: nobody's account to read, so ICT (D57's "not
+        // chosen"). This is also the row that proves the route did not
+        // simply start 500ing on the new read.
+        const anon = await request(app.getHttpServer()).get('/contests/zoned/booklet.pdf');
+        expect(anon.status).toBe(200);
+        expect(renderer.documents.at(-1)).toContain('GMT+7');
+
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'tokyo-reader');
+        await db
+          .update(schema.users)
+          .set({ timezone: 'Asia/Tokyo' })
+          .where(eq(schema.users.username, 'tokyo-reader'));
+
+        const zoned = await agent.get('/contests/zoned/booklet.pdf');
+        expect(zoned.status).toBe(200);
+        // A different zone is a different document, so it is also a
+        // different cache key — the anonymous booklet cached a moment ago
+        // cannot be handed to this reader.
+        expect(zoned.headers['x-booklet-cache']).toBe('miss');
+        expect(renderer.documents.at(-1)).toContain('GMT+9');
+        expect(renderer.documents.at(-1)).not.toContain('GMT+7');
       } finally {
         await app.close();
       }

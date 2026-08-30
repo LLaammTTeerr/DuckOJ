@@ -2038,3 +2038,51 @@ is a lie a reader cannot detect.
 *Ruled by the reviewer during the 2026-08-29 feature/bug loop (B8 whole-diff
 review), no human available to consult. No migration.*
 
+## D64 — The booklet cover is dated in the reader's own timezone, and prints the offset it used
+
+D48 fixed the contest booklet's cover to `Asia/Ho_Chi_Minh` and printed the
+string `(GMT+7)` beside it, reasoning that "there is no per-deploy timezone
+anywhere else in this codebase". Two releases later D57 gave every account
+`users.timezone`, a settings screen to set it on, and made every other date in
+the product honour it — so by the time B-8 flagged the constant, the booklet
+was the one page in DuckOJ that ignored the clock its reader had chosen. **The
+cover now reads `users.timezone` for whoever asked for the PDF, and falls back
+to ICT.**
+
+- **The viewer's zone, not the organiser's.** `contests` carries no timezone
+  column, and adding one would be a migration for a field no screen can set —
+  which is precisely the shape D57 rejected when it made these columns nullable
+  rather than defaulted: a stored preference nobody can edit is not a
+  preference, it is a default wearing a disguise. The account's zone is a value
+  somebody actually chose.
+- **`NULL` still means "not chosen" (D57), and unchosen means ICT (D18).** An
+  anonymous downloader — `booklet.pdf` is `@Public` — and an account that never
+  opened the settings screen both get the room's own clock, which is the answer
+  D48 was right about for the case it was thinking of.
+- **The offset is DERIVED, and that is the real defect this ruling fixes.**
+  `(GMT+7)` was a literal sitting beside a formatter pinned to the same zone:
+  true only while both halves stayed frozen, and the moment the zone became the
+  reader's it would have stopped being stale and started being a confidently
+  wrong hour on a page somebody sits an exam from. It is computed from the zone
+  at the contest's START, not at render time, because a zone with daylight
+  saving has two answers and the one that matters is the one in force when the
+  room sits down.
+- **An unresolvable zone prints ICT rather than 500ing.** D57 deliberately
+  accepts any well-formed value into the column, so `Mars/Olympus` is reachable
+  and `Intl` throws on it. One bad row on one account must not be able to break
+  the printable problems for a whole room at the bell.
+- **The cache needed no work, and that is worth stating** because the opposite
+  reading would send somebody rewriting it. D48 keys the booklet on a hash of
+  the document about to be typeset; the zone changes the cover text, so two
+  zones are two keys by construction, with no invalidation call and no
+  per-viewer cache design. The cost is a lower hit rate on a 60-second TTL in a
+  room that is overwhelmingly on one clock.
+- **Residual, stated rather than fixed:** a booklet is a shared artefact. If an
+  organiser prints one set of papers for a room, every copy carries the
+  organiser's zone, not each student's — which is correct, and is what printing
+  means. The per-reader rule governs the PDF a reader downloads for themselves.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B9 brief),
+no human available to consult. No migration — `users.timezone` already exists
+(0023).*
+

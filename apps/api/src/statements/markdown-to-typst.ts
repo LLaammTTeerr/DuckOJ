@@ -279,16 +279,66 @@ export interface BookletInput {
   startTime: Date;
   endTime: Date;
   lang: StatementLang;
+  /**
+   * The IANA zone to date the cover in — `users.timezone` for the reader who
+   * asked (D64). `null` is D57's "not chosen", and means Indochina Time.
+   */
+  timeZone: string | null;
   problems: BookletProblem[];
 }
 
 /**
+ * The zone a booklet falls back to (D64).
+ *
  * The province is in Indochina Time, and a booklet printed for a room in
- * Vietnam dated in UTC states the wrong hour to everyone holding it. Fixed
- * rather than configurable: there is no per-deploy timezone anywhere else in
- * this codebase, and inventing one for a cover page would be the first.
+ * Vietnam dated in UTC states the wrong hour to everyone holding it. This
+ * used to be THE zone, full stop; D64 makes it the default and reads
+ * `users.timezone` first, on D57's rule that `NULL` means "not chosen" and
+ * D18's that this judge's unchosen default is Vietnamese.
  */
-const BOOKLET_TZ = 'Asia/Ho_Chi_Minh';
+const DEFAULT_BOOKLET_TZ = 'Asia/Ho_Chi_Minh';
+
+/**
+ * `Asia/Tokyo` if the reader's account says so, ICT otherwise.
+ *
+ * The `try` is not defensive padding. D57 deliberately accepts any
+ * well-formed value into `users.timezone` — narrowing it to a list would be
+ * a product ruling that breaks the moment the list grows — so `Mars/Olympus`
+ * is a reachable stored value, and `Intl` THROWS on a zone it cannot
+ * resolve. `booklet.pdf` is a @Public route serving a whole room at the
+ * bell, so one bad row on one account must not be able to 500 it for
+ * everybody. A booklet dated in the room's own clock is the harmless
+ * direction to be wrong in.
+ */
+function resolveZone(timeZone: string | null): string {
+  if (timeZone === null || timeZone === '') return DEFAULT_BOOKLET_TZ;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_BOOKLET_TZ;
+  }
+}
+
+/**
+ * `GMT+7` for the zone the cover is dated in, at the instant it names.
+ *
+ * DERIVED, never written down. D48 printed the string `(GMT+7)` as a literal
+ * beside a formatter pinned to ICT, which was true only for as long as both
+ * halves stayed frozen — and the moment the zone became the reader's, a
+ * hardcoded offset stops being stale and starts being a confidently wrong
+ * hour on a page somebody is about to sit an exam from. Computed at the
+ * contest's START, not at render time, because a zone with daylight saving
+ * has two answers and the one that matters is the one in force when the room
+ * sits down.
+ */
+function offsetLabel(at: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en', { timeZone, timeZoneName: 'longOffset' }).formatToParts(at);
+  const name = parts.find((part) => part.type === 'timeZoneName')?.value ?? 'GMT';
+  // `longOffset` gives `GMT+07:00`; the cover has always read `GMT+7`, and a
+  // whole-hour zone should not grow `:00` because this became configurable.
+  return name.replace(/^GMT([+-])0?(\d+):00$/, 'GMT$1$2');
+}
 
 const BOOKLET_WORDS = {
   vi: {
@@ -310,9 +360,9 @@ const BOOKLET_WORDS = {
 } as const;
 
 /** `2026-08-29 09:00` — `sv-SE` is ISO-shaped, so this needs no hand formatting. */
-function formatInstant(at: Date): string {
+function formatInstant(at: Date, timeZone: string): string {
   return new Intl.DateTimeFormat('sv-SE', {
-    timeZone: BOOKLET_TZ,
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -341,6 +391,7 @@ function cell(text: string): string {
  */
 export function bookletToTypst(input: BookletInput): string {
   const words = BOOKLET_WORDS[input.lang];
+  const zone = resolveZone(input.timeZone);
   const bodies = input.problems.map((problem) => ({
     problem,
     title: renderInline(`${words.heading} ${problem.label}. ${problem.name}`),
@@ -369,7 +420,7 @@ export function bookletToTypst(input: BookletInput): string {
     '#set page(margin: 2cm, numbering: "1")',
     '#set text(11pt)',
     `#align(center)[#text(20pt, weight: "bold")[${cover.typst}]]`,
-    `#align(center)[${escapeText(`${words.window}: ${formatInstant(input.startTime)} – ${formatInstant(input.endTime)} (GMT+7)`)}]`,
+    `#align(center)[${escapeText(`${words.window}: ${formatInstant(input.startTime, zone)} – ${formatInstant(input.endTime, zone)} (${offsetLabel(input.startTime, zone)})`)}]`,
     '#v(1em)',
     '#table(',
     '  columns: 4,',

@@ -312,6 +312,7 @@ export class ContestAccessService {
         startTime: contest.startTime,
         endTime: contest.endTime,
         lang,
+        timeZone: await this.readerTimeZone(actor),
         problems: rows.map((row) => ({
           label: row.label,
           name: row.name,
@@ -321,6 +322,31 @@ export class ContestAccessService {
         })),
       }),
     };
+  }
+
+  /**
+   * The zone to date this reader's cover in (D64): their account's, or null.
+   *
+   * **The viewer's, not the organiser's, and that is the ruling.** A contest
+   * carries no timezone column and inventing one would be a migration for a
+   * field no screen can set — which is the exact shape D57 already rejected
+   * when it made `users.locale`/`users.timezone` nullable rather than
+   * defaulted: a stored preference nobody can edit is not a preference. The
+   * account's zone, meanwhile, is a value the reader chose on
+   * `/account/settings` and every other date in the product already honours.
+   *
+   * `null` for an anonymous downloader and for a token session with no user,
+   * which `bookletToTypst` reads as D57's "not chosen" and prints in ICT.
+   * One extra indexed read on a route that is about to fork a typesetter.
+   */
+  private async readerTimeZone(actor: Actor | null): Promise<string | null> {
+    if (actor === null) return null;
+    const [row] = await this.db
+      .select({ timezone: schema.users.timezone })
+      .from(schema.users)
+      .where(eq(schema.users.id, actor.userId))
+      .limit(1);
+    return row?.timezone ?? null;
   }
 
   /**
