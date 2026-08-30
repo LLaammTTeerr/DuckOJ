@@ -1,8 +1,8 @@
 # F8 — bulk student accounts for a school (2026-08-29 feature/bug loop)
 
-Six commits, one migration (0024), **D61**. Ritual green: typecheck (incl.
-scripts), lint, **1583 tests / 184 files**, regen no-diff, `vite build`.
-Thirty-one mutants applied, **thirty-one killed**. Not pushed.
+Seven commits, one migration (0024), **D61**. Ritual green on the merged tree
+(B-8 landed mid-session): typecheck (incl. scripts), lint, **1583 tests /
+184 files**, regen no-diff, `vite build`. Thirty-one mutants, all killed.
 
 ## Shipped
 **`POST /orgs/{slug}/members/import`** (`Organizations`, `@SessionOnly`). CSV
@@ -56,5 +56,5 @@ its own parser once one is named. Web (8), 9 killed; CLI (4, subprocess), 5.
 request and a proxy or browser timeout would strand it — accounts created,
 passwords lost; not exercised at 2000 against the live stack. A racing unique
 violation **after** `consumeOnce` still spends the minute; an imported `email`
-is never nullable. `expired-rows-sweeper.spec.ts` failed twice on one `-r test`
-run, then passed alone and on both after — F6's flake.
+is never nullable. B-8's fixes landed on `main` mid-session, so the ritual
+above was re-run in full on the merged tree — green, nothing of mine touched.
