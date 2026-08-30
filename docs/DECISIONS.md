@@ -2038,6 +2038,56 @@ the FILE repeats across two chunks before sending anything, since no single
 request can see that. A chunk that fails mid-sequence shows the credentials
 the earlier chunks did create, beside the reason it stopped.
 
+**Amended again 2026-08-30 (B13 leftovers):** the whole-file check covers
+**both identity columns**, not the username alone. B11 recorded the gap as
+"one field short", and the B13 brief carried a diagnosis of it that turned
+out to be wrong — worth writing down, because the wrong diagnosis is the
+expensive thing to build:
+
+- **The server already refuses a repeated address across chunks, and creates
+  nothing when it does.** Probed against a real database: chunk one imports
+  `dung@thpt.vn`, chunk two names it again, and `validateImportRows` answers
+  `422 member_import_invalid` with `rows[1].email`, because `takenIdentities`
+  reads `users` — where chunk one's accounts already are. Pinned now by a
+  test, so it cannot quietly stop being true.
+- **What is actually missing is in the PREVIEW.** A preview creates nothing,
+  so a whole-roster preview compares each chunk against an empty table and
+  every chunk comes back clean. The teacher then presses import and the
+  sequence strands: chunk one's accounts exist, chunk two is refused, half a
+  class holds a printout. That is the defect, and it lives where the file is
+  split rather than where a request is validated.
+
+So the fix is the panel's `crossChunkDuplicate`, extended from usernames to
+usernames **and** addresses, case-folded the way `users_username_lower_idx`
+and `users_email_lower_idx` fold them, with a blank address skipped (the
+placeholder is derived from the username, so it collides only when the
+username already has). `importUsernames` becomes `importIdentities` in
+`@duckoj/contracts`, beside the grammar it reads.
+
+**Three server-side shapes considered and refused**, each because it costs
+more than the client check that closes the case:
+
+- **A short-lived Redis set of addresses per organization.** Wrong substrate
+  for a refusal: every Redis use in this system is best-effort and fail-open
+  by design (D25), the test harness points `redisUrl` at a closed port on
+  purpose, and a correctness guard that silently stops guarding when Redis
+  blinks is worse than no guard. It also adds nothing the `users` check does
+  not already do for real imports.
+- **A claim ledger in `rate_events`.** Same information as `users` for a real
+  import, and for a preview it *breaks D61's own workflow*: the normal flow is
+  a teacher fixing one row and previewing again, which would collide with
+  their own previous preview. Scoping it to a sequence needs a client-supplied
+  sequence id — new contract surface to protect one client from duplicates in
+  a file that client is holding in full.
+- **Exempting `dryRun` from the 500-row cap**, so one preview sees the whole
+  file. It drags the row cap, the body-size limit and the preview table along
+  with it, for a case the client check kills outright.
+
+What remains after this is the preview→import race — somebody registering one
+of these addresses in the seconds between — and that already has its answer:
+the unique violation is caught, validation is re-run, and the caller gets the
+422 naming the row rather than a 500.
+
 ## D62 — A contest booklet carries the problems the reader may read, not the contest's whole list
 
 `GET /contests/{key}/booklet.pdf` (D48) read `problems.statement` for every

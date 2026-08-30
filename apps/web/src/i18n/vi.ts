@@ -664,6 +664,7 @@ export const vi = {
   'import.confirm': 'Tạo tài khoản',
   'import.progress': 'Đang gửi phần {done}/{total}…',
   'import.duplicate': 'Tên đăng nhập {username} xuất hiện nhiều lần trong tệp.',
+  'import.duplicateEmail': 'Địa chỉ email {email} xuất hiện nhiều lần trong tệp.',
   'import.stopped': 'Đã dừng sau {done}/{total} phần; các tài khoản dưới đây đã được tạo.',
   'import.error': 'Không nhập được danh sách.',
   'import.previewCount': 'Sẽ tạo {n} tài khoản.',

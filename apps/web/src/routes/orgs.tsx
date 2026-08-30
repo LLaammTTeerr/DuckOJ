@@ -13,7 +13,7 @@ import { useState } from 'react';
 import {
   ORG_IMPORT_MAX_ROWS,
   credentialsCsv,
-  importUsernames,
+  importIdentities,
   splitImportCsv,
 } from '@duckoj/contracts';
 import type { paths } from '@duckoj/sdk';
@@ -374,21 +374,38 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
   }
 
   /**
-   * The one rule no single request can check: a username the file repeats in
+   * The one rule no single request can check: an identity the file repeats in
    * two different chunks.
    *
-   * The server validates a request against itself and against the database,
-   * so a cross-chunk repeat passes every preview and then dies on the unique
-   * index — after the earlier chunks have already created accounts. The
-   * splitter is the only place that sees the whole file.
+   * A PREVIEW creates nothing, so the server has nothing to compare chunk two
+   * against and every chunk previews clean. The real import then refuses chunk
+   * two — correctly, and after chunk one has already created accounts, which
+   * leaves the teacher holding half a class and a printout to match. This
+   * function is the only thing that sees the whole file before any of it is
+   * sent.
+   *
+   * **Both identity columns**, case-folded the way `users_username_lower_idx`
+   * and `users_email_lower_idx` fold them. It used to scan usernames alone,
+   * which B11 recorded as "one field short": an address is uniquely indexed
+   * exactly as a username is, and a repeated one strands a sequence exactly
+   * the same way. A blank address is skipped — the server invents a
+   * placeholder from the username for those (D61), and a placeholder can only
+   * collide when the username already has.
    */
-  function crossChunkDuplicate(): string | null {
-    const seen = new Set<string>();
-    for (const username of importUsernames(csv)) {
-      const key = username.toLowerCase();
-      if (key === '') continue;
-      if (seen.has(key)) return username;
-      seen.add(key);
+  function crossChunkDuplicate(): { field: 'username' | 'email'; value: string } | null {
+    const seenUsernames = new Set<string>();
+    const seenEmails = new Set<string>();
+    for (const { username, email } of importIdentities(csv)) {
+      const usernameKey = username.toLowerCase();
+      if (usernameKey !== '') {
+        if (seenUsernames.has(usernameKey)) return { field: 'username', value: username };
+        seenUsernames.add(usernameKey);
+      }
+      const emailKey = email.toLowerCase();
+      if (emailKey !== '') {
+        if (seenEmails.has(emailKey)) return { field: 'email', value: email };
+        seenEmails.add(emailKey);
+      }
     }
     return null;
   }
@@ -398,7 +415,11 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
     if (duplicate !== null) {
       setPreview(null);
       setRowErrors(null);
-      setError(t('import.duplicate', { username: duplicate }));
+      setError(
+        duplicate.field === 'username'
+          ? t('import.duplicate', { username: duplicate.value })
+          : t('import.duplicateEmail', { email: duplicate.value }),
+      );
       return;
     }
     await send(true);

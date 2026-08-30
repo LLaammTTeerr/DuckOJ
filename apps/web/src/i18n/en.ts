@@ -696,6 +696,7 @@ export const en = {
   'import.confirm': 'Create the accounts',
   'import.progress': 'Sending part {done} of {total}…',
   'import.duplicate': 'The username {username} appears more than once in this file.',
+  'import.duplicateEmail': 'The email address {email} appears more than once in this file.',
   'import.stopped': 'Stopped after {done} of {total} parts; the accounts below were created.',
   'import.error': 'Could not import the list.',
   'import.previewCount': '{n} accounts will be created.',
