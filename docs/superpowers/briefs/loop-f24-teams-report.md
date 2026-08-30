@@ -44,17 +44,19 @@ D66's rank, D61's owner-only rule being about minting accounts; rosters stay liv
 during a contest; never rated; the exports' `members` column and team-scoped org
 column; similarity labels by team, so teammates are never compared.
 
-**Concerns.** (1) Mid-edit, the coordinator's B-16 merge staged with
-`git add -A` and swept my then-uncommitted contracts, teams controller, module
-wiring and a first cut of `team.access.ts` into merge commit **031dbbc** —
-nothing lost or altered, but this task's diff spans it. (2)
+**Concerns.** (1) Mid-edit, the coordinator's B-16 merge staged with `git add -A`
+and swept my then-uncommitted contracts, teams controller, module wiring and a
+first cut of `team.access.ts` into merge commit **031dbbc** — nothing lost or
+altered, but this task's diff spans it. (2)
 `contest-monitor.spec.ts` was already red on main (B-16 made the harness apply
 `configureApp`, `/api/v1/...`, and the sweep missed that file); mechanical
-prefix fix in `e0151c7`, no assertion changed. (3) The team-name join race is
+prefix fix in `e0151c7`, no assertion changed; `contest-booklet.spec.ts`'s
+Redis-cache assertion (`hit` vs `miss`) flaked once under `pnpm -r test`, which
+runs packages in parallel, and is green in isolation three times over and in a
+dedicated `apps/api` run (117 files, 1032 tests). (3) The team-name join race is
 unguarded — two same-named teams joining in the same instant both land and the
-loser shares the winner's sidecar entry; display-only, named in D99. (4) No
-"my teams" endpoint: the picker issues one `GET /orgs/{slug}/teams` per
-organization the contest names — fine at two schools, not at twenty. (5)
-Rosters are read, never frozen, and no screen warns the teacher. (6) Not
-built: a team detail page, team-scoped notifications, organiser seeding of a
-team (a team enters only by a member pressing Join).
+loser shares the winner's sidecar entry; display-only, named in D99. (4) No "my
+teams" endpoint: the picker issues one `GET /orgs/{slug}/teams` per organization
+the contest names — fine at two schools, not at twenty. (5) Rosters are read,
+never frozen, and no screen warns the teacher. (6) Not built: a team detail page,
+team-scoped notifications, organiser seeding of a team.
