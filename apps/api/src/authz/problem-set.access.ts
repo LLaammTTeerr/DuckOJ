@@ -9,6 +9,7 @@ import {
   submissions,
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
+import { csvQuote, csvSheet, csvText } from '@duckoj/contracts';
 import type {
   CreateProblemSetRequestDto,
   PaginationQueryDto,
@@ -714,34 +715,43 @@ export class ProblemSetAccessService {
  * One column per problem, and a second `<code> (late)` column per problem
  * when the set has a deadline — a deadline nobody can see the other side of
  * buys the teacher nothing. A cell is the attempt's `points`, empty for a
- * problem never attempted; the escaping is `credentialsCsv`'s, which is
- * RFC 4180's.
+ * problem never attempted.
+ *
+ * The BYTES are `@duckoj/contracts/spreadsheet-csv.ts` — D71's rule, which
+ * was written down for the results sheet and implemented there alone. It
+ * applies here in the sharpest form it takes anywhere: the person-typed
+ * column is the display name of the pupil being exported, chosen by them,
+ * and the person who opens the file in Excel is their teacher. A display
+ * name of `=HYPERLINK("http://evil","Nguyễn Văn A")` used to reach that
+ * spreadsheet as a formula. The BOM is not decoration either — a class list
+ * without one is a page of mojibake in the one program it exists for.
+ * Generated cells (a score, a verdict, the trailer's count) are quoted and
+ * never guarded.
  */
 export function progressCsv(grid: ProblemSetProgressDto, truncated = false): string {
-  const escape = (value: string): string =>
-    /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
   const dated = grid.deadline !== null;
   const header = ['username', 'displayName'];
   for (const column of grid.columns) {
     header.push(column.code);
     if (dated) header.push(`${column.code} (late)`);
   }
-  const lines = [header.map(escape).join(',')];
+  const rows = [header.map(csvQuote)];
   for (const row of grid.rows) {
-    const line = [row.username, row.displayName];
+    const line = [csvText(row.username), csvText(row.displayName)];
     row.cells.forEach((cell) => {
-      line.push(score(cell?.onTime ?? null));
-      if (dated) line.push(score(cell?.late ?? null));
+      line.push(csvQuote(score(cell?.onTime ?? null)));
+      if (dated) line.push(csvQuote(score(cell?.late ?? null)));
     });
-    lines.push(line.map(escape).join(','));
+    rows.push(line);
   }
-  // The trailer, only when the file actually stopped early. `truncated` in
-  // the username column is a value no account can hold (usernames are
-  // validated, and this one is not one), and the count beside it says how
-  // many rows the file does carry — a teacher who marks from a short file
-  // must be able to see that it is short, and a script must be able to.
-  if (truncated) lines.push(`truncated,${String(grid.rows.length)}`);
-  return `${lines.join('\n')}\n`;
+  // The trailer, only when the file actually stopped early: the count beside
+  // it says how many rows the file does carry, because a teacher who marks
+  // from a short file must be able to see that it is short, and a script
+  // must be able to. It is NOT distinguished by its first cell — `truncated`
+  // is a valid username (D8) and a pupil could hold it — but by its width:
+  // a data row carries a cell for every column.
+  if (truncated) rows.push(['truncated', String(grid.rows.length)]);
+  return csvSheet(rows);
 }
 
 /**

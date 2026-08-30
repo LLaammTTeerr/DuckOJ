@@ -5,7 +5,9 @@ import { schema, type Db } from '@duckoj/db';
 import type { MeResponseDto, RegisterRequestDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
+import { RateLimiter } from '../common/rate-limiter.js';
 import { PasswordService } from './password.service.js';
+import { spendPasswordCheck } from './password-check.js';
 
 /** Postgres SQLSTATE for a unique-constraint violation. */
 const UNIQUE_VIOLATION = '23505';
@@ -37,6 +39,7 @@ export class AuthService {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(PasswordService) private readonly passwords: PasswordService,
+    @Inject(RateLimiter) private readonly limiter: RateLimiter,
   ) {}
 
   /**
@@ -143,6 +146,12 @@ export class AuthService {
           'Your current password is required to set a new one.',
         );
       }
+      // D73 — metered before the hash is read, and on the same budget
+      // `DELETE /auth/totp` spends: both are reachable with a stolen
+      // session, and an unmetered check there is an oracle for the password
+      // itself. Not spent on the `mustChangePassword` path above, which
+      // checks no password to meter.
+      await spendPasswordCheck(this.limiter, userId);
       if (!(await this.passwords.verify(user.passwordHash, current))) {
         throw new AppError(401, 'invalid_credentials', 'That is not your current password.');
       }

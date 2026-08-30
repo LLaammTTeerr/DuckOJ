@@ -32,6 +32,7 @@ import {
   type ResultsInput,
 } from '../src/statements/results.js';
 import { CSV_BOM, resultsCsv } from '../src/contests/results-csv.js';
+import { selectCertified } from '../src/contests/results.service.js';
 import {
   STATEMENT_RENDERER,
   TypstStatementRenderer,
@@ -261,6 +262,49 @@ describe('standingsToTypst (D71)', () => {
 
 /* ----------------------------------------------- the certificate document */
 
+describe('who is certified (D71, tie rule D74)', () => {
+  /** A board of four, ranked in competition style: 1, 2, 3, 3. */
+  const board = [
+    row({ rank: 1, username: 'an' }),
+    row({ rank: 2, username: 'binh' }),
+    row({ rank: 3, username: 'cuong' }),
+    row({ rank: 3, username: 'dung' }),
+  ];
+
+  it('never cuts through a tie at the boundary', () => {
+    // `slice(0, 3)` printed a certificate for `cuong` and none for `dung`,
+    // decided by the order the scoreboard broke a tie it does not print.
+    // The boundary is a RANK, so both third places are certified.
+    expect(selectCertified(board, { top: 3 }).map((r) => r.username)).toEqual([
+      'an',
+      'binh',
+      'cuong',
+      'dung',
+    ]);
+  });
+
+  it('still cuts where there is no tie', () => {
+    expect(selectCertified(board, { top: 2 }).map((r) => r.username)).toEqual(['an', 'binh']);
+    expect(selectCertified(board, { top: 1 }).map((r) => r.username)).toEqual(['an']);
+  });
+
+  it('counts down the ranking AFTER the exclusions, ties and all', () => {
+    // D71: `top=N` is N certificates, not N minus the disqualified. The
+    // ranks stay the board's own — `dung` is third whoever was expelled.
+    const withGaps = [
+      row({ rank: 1, username: 'an', disqualified: true }),
+      row({ rank: 2, username: 'binh', virtual: 1 }),
+      row({ rank: 3, username: 'cuong' }),
+      row({ rank: 3, username: 'dung' }),
+    ];
+    expect(selectCertified(withGaps, { top: 1 }).map((r) => r.username)).toEqual(['cuong', 'dung']);
+  });
+
+  it('asks for more than there are and gets everybody eligible', () => {
+    expect(selectCertified(board, { top: 1000 })).toHaveLength(4);
+  });
+});
+
 describe('certificatesToTypst (D71)', () => {
   it('is one A4 landscape page per participant, bilingual, unnumbered', () => {
     const doc = certificatesToTypst(input({ rows: [row(), row({ rank: 2, username: 'binh' })] }));
@@ -315,6 +359,40 @@ describe('certificatesToTypst (D71)', () => {
   it('is a bare preamble when the selection is empty', () => {
     expect(certificatesToTypst(input({ rows: [] }))).not.toContain('#pagebreak()');
   });
+
+  /**
+   * `escapeText` covered every character typst reads as markup MID-LINE and
+   * none of the three it reads only at the start of one (`=` heading, `+`
+   * enum item, `/` term list) — on the reasoning that they can only be at a
+   * line start, which is true right up until the text carries a newline.
+   * `DisplayName` is `z.string().trim().min(1).max(100)`, and `.trim()` is
+   * ends-only: an interior newline is a display name a competitor may set
+   * for themselves. `typst query heading` returns the injected text.
+   */
+  it('cannot be given a heading by a display name carrying a newline', () => {
+    const doc = certificatesToTypst(
+      input({ rows: [row({ displayName: 'Nguyễn Văn An\n= GIẢI NHẤT\n+ và\n/ giải: nhì' })] }),
+    );
+    for (const line of doc.split('\n')) {
+      expect(line.trimStart()).not.toMatch(/^[=+/] /);
+    }
+  });
+
+  it('cannot be given one by a display name that simply BEGINS with a marker', () => {
+    // The start of a content block (`#text(24pt)[…]`, a table cell) is a
+    // line start to typst, so collapsing the newlines is only half of it.
+    const escaped: Record<string, string> = {
+      '= GIẢI NHẤT': '\\= GIẢI NHẤT',
+      '+ và': '\\+ và',
+      '/ giải: nhì': '\\/ giải: nhì',
+      '1. một': '1\\. một',
+    };
+    for (const [name, want] of Object.entries(escaped)) {
+      const doc = certificatesToTypst(input({ rows: [row({ displayName: name })] }));
+      expect(doc).not.toContain(`[${name}]`);
+      expect(doc).toContain(`[${want}]`);
+    }
+  });
 });
 
 /* --------------------------------------------------- both actually compile */
@@ -331,6 +409,13 @@ async function compileStatus(document: string): Promise<string> {
 
 /** Every character typst treats as markup, in the fields a person types. */
 const NASTY = 'Nguyễn \\ # $ * _ ` @ < > [ ] { } ~ ^ \' " - + % / = | & ; : ! ?';
+
+/**
+ * The same, with the newlines that turn three of those characters from text
+ * into structure. `DisplayName.trim()` is ends-only, so this is a name a
+ * competitor can actually set for themselves.
+ */
+const NASTY_MULTILINE = `${NASTY}\n= GIẢI NHẤT\n+ và\n/ giải: nhì\n1. một`;
 
 describe.skipIf(TYPST_BIN === null)('the results documents compile', () => {
   it('compiles a standings sheet, including a name of pure typst syntax', async () => {
@@ -358,6 +443,19 @@ describe.skipIf(TYPST_BIN === null)('the results documents compile', () => {
       }),
     );
     expect(await compileStatus(doc)).toBe('ok');
+  }, 120_000);
+
+  it('compiles a name that is markup ACROSS lines, and prints it as flat text', async () => {
+    const doc = certificatesToTypst(
+      input({ issuer: NASTY_MULTILINE, rows: [row({ displayName: NASTY_MULTILINE })] }),
+    );
+    expect(await compileStatus(doc)).toBe('ok');
+    // Nothing in the document opens a heading, an enum item or a term list:
+    // a competitor's chosen display name is a NAME on this page, and the
+    // page is an official document about them.
+    for (const line of doc.split('\n')) {
+      expect(line.trimStart()).not.toMatch(/^([=+/] |\d+\. )/);
+    }
   }, 120_000);
 });
 

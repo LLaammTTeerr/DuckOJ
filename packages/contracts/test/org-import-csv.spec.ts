@@ -6,7 +6,12 @@
  * newline inside quotes, and the header the file declared its columns with.
  */
 import { describe, expect, it } from 'vitest';
-import { importUsernames, parseCsvRecords, splitImportCsv } from '../src/org-import-csv.js';
+import {
+  importHeaderColumns,
+  importUsernames,
+  parseCsvRecords,
+  splitImportCsv,
+} from '../src/org-import-csv.js';
 
 describe('splitImportCsv', () => {
   it('carries the header into every chunk, so chunk two is not read as one', () => {
@@ -21,8 +26,30 @@ describe('splitImportCsv', () => {
     expect(chunks[1]).toBe('username,name\nhs3,C\n');
   });
 
-  it('adds no header to a file that has none', () => {
-    expect(splitImportCsv('hs1,A\nhs2,B\n', 1)).toEqual(['hs1,A\n', 'hs2,B\n']);
+  it('declares the positional columns for a file that has none', () => {
+    // A headerless chunk is read by DETECTION, and detection is per-request:
+    // whatever record happens to land first in chunk two decides that
+    // chunk's columns. Every chunk therefore states the reading the whole
+    // file was split under.
+    expect(splitImportCsv('hs1,A\nhs2,B\n', 1)).toEqual([
+      'username,displayName,email\nhs1,A\n',
+      'username,displayName,email\nhs2,B\n',
+    ]);
+  });
+
+  it('loses no pupil when a headerless chunk starts on a row that looks like a header', () => {
+    // `user` is a perfectly valid username (D8: 3–32 characters) and is also
+    // one of the header aliases. Split headerless, that pupil begins chunk
+    // two, the server reads their row as the chunk's header — and the sheet
+    // the teacher prints is one account short of the class, with a 201 and
+    // no warning anywhere.
+    const csv = 'hs1,A\nhs2,B\nuser,C\nhs4,D\n';
+    const rows = splitImportCsv(csv, 2).flatMap((chunk) => {
+      const records = parseCsvRecords(chunk);
+      const declared = importHeaderColumns(records[0]!);
+      return declared === null ? records : records.slice(1);
+    });
+    expect(rows.map((record) => record[0])).toEqual(['hs1', 'hs2', 'user', 'hs4']);
   });
 
   it('never cuts inside a quoted field', () => {
@@ -30,7 +57,10 @@ describe('splitImportCsv', () => {
     const chunks = splitImportCsv(csv, 1);
     expect(chunks).toHaveLength(2);
     // Round-trips: the re-serialised chunk parses back to the same record.
-    expect(parseCsvRecords(chunks[0]!)).toEqual([['hs1', 'Nguyễn Văn A\nlớp 9A']]);
+    expect(parseCsvRecords(chunks[0]!)).toEqual([
+      ['username', 'displayName', 'email'],
+      ['hs1', 'Nguyễn Văn A\nlớp 9A'],
+    ]);
   });
 
   it('is empty for an empty file, and for a header with no rows under it', () => {

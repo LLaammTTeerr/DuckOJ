@@ -2639,6 +2639,76 @@ sweep), no human available to consult. No migration.*
 
 
 
+## D73 — The password check is metered wherever a session re-proves it
+
+D72 closed two doors by demanding the account password, on the argument
+that **a session is the thing an intruder steals** and both routes are
+reachable with exactly the stolen thing. It then left the check that reads
+that password unmetered, which is the same argument left half-finished: an
+unmetered password check reachable from the stolen session is an unlimited
+oracle for the password itself, answering 401 or 2xx on every guess, needing
+no email, no second factor and no fresh sign-in. `POST /auth/login` has been
+metered since B1 precisely so that door is shut; `POST /auth/password/change`
+and `DELETE /auth/totp` were the way round it.
+
+- **Ten attempts per account per fifteen minutes**, 429
+  `password_check_rate_limited` with a `Retry-After` — D72's shape for the
+  same class of guess, and generous for the human case it has to survive
+  (somebody mistyping their own password before getting it right).
+- **ONE budget across both routes**, `spendPasswordCheck` in
+  `authn/password-check.ts`. Not one meter per route: a budget spent per
+  endpoint grows with the number of endpoints that check a password, which
+  is the wrong direction for it to grow in. Keyed on the user id rather than
+  the session, so a fresh sign-in does not buy a fresh ten and one account
+  cannot spend another's.
+- **Read BEFORE the hash is verified**, and `allow` rather than
+  `consumeOnce` — both verbatim from D72, for D72's reasons: a limiter the
+  correct guess walks past is a limiter the attacker's winning guess walks
+  past, and a refused attempt should burn the window it was refused by.
+- **Nothing that checks no password spends it.** An account flagged
+  `mustChangePassword` (D61) changes its password without presenting one, so
+  that path is not metered — a class of pupils replacing the credential off
+  a printed sheet must never meet this 429. Neither `resetPassword` nor
+  `AdminUsersService.resetTotp` spends it either; they prove who they are
+  another way.
+
+There is a second reason for the bound that has nothing to do with guessing.
+Every check is one argon2id verification at 19 MiB on the libuv thread pool
+this process shares with every sign-in and every roster import (D61), so a
+loop on either route is a denial of service against signing in, driven from
+one ordinary session.
+
+*Ruled by the implementer during the 2026-08-30 B-11 review loop, no human
+available to consult. No migration.*
+
+## D74 — `top=N` certificates never cut through a tie
+
+The scoreboard ranks in competition style (`packages/contest-formats/src/
+scoreboard.ts`): equal score and equal penalty share a rank, and after a
+group of k tied rows the next rank jumps by k. D71's certificate selection
+was `eligible.slice(0, top)`, which is a count — so a contest whose third
+and fourth rows both rank **3** answered `top=3` with a certificate for one
+of them and nothing for the other, decided by the order the scoreboard
+happened to break a tie it does not print. Two pupils with identical results
+stand in the same hall and one of them is handed a piece of paper.
+
+**The boundary is a rank, not a count.** `top=N` certifies everybody whose
+rank is at or above the rank held by the Nth eligible row. `top=3` over
+ranks 1, 2, 3, 3 is four certificates, and the fourth is not an error: it
+says "Hạng 3 / Rank 3", which is what the board says. An organiser who wants
+exactly N sheets of paper is asking a question the board cannot answer, and
+answering it anyway means answering it wrongly for the person left out.
+
+Everything else about D71's selection stands: the disqualified and the
+virtual replays are excluded first and `top` counts down what remains, the
+rank printed is the row's own rank from the live board, and `?username=`
+still answers 404 `contest_participant_not_found` without saying which of
+the three reasons applied. A `top` larger than the eligible field still
+certifies the whole field.
+
+*Ruled by the implementer during the 2026-08-30 B-11 review loop, no human
+available to consult. No migration.*
+
 ## D76 — The nav is two information architectures: a grouped desktop bar and a five-tab phone bar with an overflow sheet
 
 The shell rendered one flat row of links. Signed in, that row was twelve
@@ -2720,3 +2790,4 @@ for the eye, and inside `nav.notifications`' sentence for the ear.
 
 *Ruled by the implementer during the 2026-08-30 UI loop (navigation IA), no
 human available to consult. No migration; `apps/web` only.*
+

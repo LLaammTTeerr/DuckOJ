@@ -26,9 +26,38 @@
  * escaper, not two: a second copy is a second thing to forget a character
  * from, and the character it forgets is the one that makes a document fail
  * to compile — or worse, compile into something else.
+ *
+ * **Line breaks first, then the line-START markers.** The original set held
+ * every character typst reads as markup MID-line and none of the four forms
+ * it reads only at the START of one — `= ` (heading), `+ ` (enum item),
+ * `/ ` (term list), `1. ` (numbered item) — on the reasoning that they
+ * cannot be at a line start. That is true of text with no line breaks in it,
+ * and `DisplayName` is `z.string().trim().min(1).max(100)`: `.trim()` is
+ * ends-only, so an interior newline is a display name a competitor may set
+ * for themselves. `Nguyễn Văn An\n= GIẢI NHẤT` printed a real typst HEADING
+ * on their own certificate, and in the standings sheet the organiser prints
+ * for everybody else — `typst query heading` returned the injected text.
+ *
+ * Two steps, and each is needed:
+ *
+ * 1. **Every line break becomes a space.** A name is a name and not a
+ *    paragraph everywhere this is used, and the spans of one markdown line
+ *    carry no newline, so this changes nothing about a statement. With no
+ *    line breaks left, the only position that can still open markup is the
+ *    first character.
+ * 2. **A marker in that first position is escaped**, because the start of a
+ *    content block (`#text(24pt)[…]`, a table cell) is a line start to
+ *    typst. Only there: escaping `+` and `/` everywhere would put a
+ *    backslash through `GMT+7` and `Hạng 3 / Rank 3` in the generated
+ *    source, which renders the same but reads as noise to whoever debugs the
+ *    document next.
  */
 export function escapeText(text: string): string {
-  return text.replace(/[\\#$*_`@<>[\]{}~^'"-]/g, (ch) => `\\${ch}`);
+  const flat = text.replace(/\r\n?|\n/g, ' ');
+  const escaped = flat.replace(/[\\#$*_`@<>[\]{}~^'"-]/g, (ch) => `\\${ch}`);
+  // `1.` is escaped on the dot: a digit has no escape, and `\.` is a literal
+  // full stop to typst.
+  return escaped.replace(/^(\d+)\./, '$1\\.').replace(/^[=+/]/, (ch) => `\\${ch}`);
 }
 
 /**

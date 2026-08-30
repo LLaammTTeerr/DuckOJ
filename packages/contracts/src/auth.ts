@@ -249,6 +249,20 @@ registry.registerPath({
         'flagged `mustChangePassword` (`current_password_required`)',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
+    429: {
+      description:
+        'Ten password attempts have been made for this account in the last fifteen minutes ' +
+        '(`password_check_rate_limited`, D73). ONE budget is shared with `DELETE /auth/totp`, ' +
+        'keyed on the account, and it is read BEFORE the password is verified. An account ' +
+        'flagged `mustChangePassword` never spends it: that path checks no password.',
+      headers: {
+        'Retry-After': {
+          description: 'Whole seconds until another attempt will be accepted',
+          schema: { type: 'string' },
+        },
+      },
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
 

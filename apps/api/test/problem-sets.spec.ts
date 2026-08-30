@@ -25,6 +25,7 @@ import {
   submissions,
 } from '@duckoj/db/guarded';
 import { createDb, schema, type Db } from '@duckoj/db';
+import { progressCsv } from '../src/authz/problem-set.access.js';
 import { buildApp } from './app.harness.js';
 import { testDbUrl, withTestDb } from './db.harness.js';
 import {
@@ -551,8 +552,10 @@ describe('the progress grid', () => {
         expect(csv.status).toBe(200);
         expect(csv.headers['content-type']).toContain('text/csv');
         expect(csv.headers['content-disposition']).toContain('sheet-wk.csv');
-        const lines = (csv.text as string).trim().split('\n');
-        expect(lines[0]).toBe('username,displayName,aplusb,aplusb (late)');
+        // NOT `.trim()`: JS treats U+FEFF as whitespace, so trimming the
+        // response would quietly throw away the BOM this file is judged on.
+        const lines = (csv.text as string).replace(/\r\n$/, '').split('\r\n');
+        expect(lines[0]).toBe('\ufeffusername,displayName,aplusb,aplusb (late)');
         // Four members: the creating admin, the teacher, and both pupils.
         expect(lines).toHaveLength(5);
         expect(lines.find((line) => line.startsWith('anna,'))).toBe('anna,anna,,100');
@@ -660,4 +663,65 @@ describe('two teachers assigning the same slug at once', () => {
       await app.close();
     }
   }, 180_000);
+});
+
+describe("the homework sheet's bytes", () => {
+  /** The smallest grid that still has a person-typed cell in it. */
+  function grid(rows: { username: string; displayName: string }[]) {
+    return {
+      slug: 'wk',
+      name: 'W',
+      deadline: null,
+      columns: [{ code: 'aplusb', name: 'A+B', points: 100 }],
+      rows: rows.map((row) => ({ ...row, role: 'member' as const, cells: [null] })),
+      nextCursor: null,
+    };
+  }
+
+  it('opens with a BOM and ends every line with CRLF, like the results sheet (D71)', () => {
+    // Without the BOM Excel opens the file in the machine's ANSI code page,
+    // and every name in a Vietnamese class list arrives as mojibake — the
+    // whole reason D71 wrote the BOM down, for a file with strictly fewer
+    // Vietnamese names in it than this one.
+    const csv = progressCsv(grid([{ username: 'anna', displayName: 'Nguyễn Văn A' }]));
+    expect(csv.startsWith('﻿')).toBe(true);
+    expect(csv).toBe('﻿username,displayName,aplusb\r\nanna,Nguyễn Văn A,\r\n');
+  });
+
+  it('neutralises a display name a pupil set to a formula', () => {
+    // The one export whose person-typed column is chosen by the person being
+    // exported: a pupil picks their own display name, and their teacher is
+    // the one who opens the file.
+    const csv = progressCsv(grid([{ username: 'anna', displayName: '=HYPERLINK("http://evil","A")' }]));
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil"",""A"")"`);
+  });
+
+  it('leaves a generated cell alone', () => {
+    // A score cannot begin `=`, and a guard firing on one would turn every
+    // number in the sheet into text.
+    const scored = {
+      ...grid([{ username: 'anna', displayName: 'A' }]),
+      rows: [
+        {
+          username: 'anna',
+          displayName: 'A',
+          role: 'member' as const,
+          cells: [
+            { onTime: { verdict: 'AC', points: 100, solvedAt: null, submissionId: 1 }, late: null },
+          ],
+        },
+      ],
+    };
+    expect(progressCsv(scored as never)).toContain('anna,A,100');
+  });
+
+  it('keeps the truncation trailer distinguishable from a pupil called `truncated`', () => {
+    // `truncated` is a perfectly valid username (D8), so the trailer's own
+    // comment — "a value no account can hold" — was wrong. What actually
+    // tells them apart is the width: a data row carries a cell per column.
+    const cut = progressCsv(grid([{ username: 'truncated', displayName: 'T' }]), true);
+    const lines = cut.trimEnd().split('\r\n');
+    expect(lines.at(-1)).toBe('truncated,1');
+    expect(lines.at(-2)).toBe('truncated,T,');
+  });
 });

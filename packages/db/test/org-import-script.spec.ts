@@ -128,8 +128,11 @@ describe('org-import.ts', () => {
     const result = await run(['cli-a', file]);
     expect(result.code).toBe(0);
     // The sheet goes to stdout so `> accounts.csv` works, and the warning to
-    // stderr so it is not captured into that file.
-    expect(result.stdout.split('\n')[0]).toBe('username,displayName,password');
+    // stderr so it is not captured into that file. `> accounts.csv` is
+    // exactly why the BOM and the CRLF belong here too (D71's rule, now
+    // shared by every CSV this judge exports): the file that redirect
+    // produces is opened in Excel by the teacher who ran the import.
+    expect(result.stdout.split('\r\n')[0]).toBe('\ufeffusername,displayName,password');
     expect(result.stdout).toContain('hs101');
     expect(result.stderr).toContain('cannot be recovered');
 

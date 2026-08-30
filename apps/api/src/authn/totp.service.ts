@@ -7,6 +7,7 @@ import { APP_CONFIG, DB } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import { RateLimiter } from '../common/rate-limiter.js';
+import { spendPasswordCheck } from './password-check.js';
 import { PasswordService } from './password.service.js';
 import { TotpRecoveryService } from './totp-recovery.service.js';
 
@@ -226,6 +227,11 @@ export class TotpService {
       .where(eq(schema.users.id, userId))
       .limit(1);
     if (!user) throw new AppError(401, 'authentication_required', 'You must be signed in.');
+    // D73 — metered before the hash is read, on the same budget
+    // `POST /auth/password/change` spends. D72 demanded a password here
+    // because a session is what an intruder steals; an unmetered check
+    // reachable from that same stolen session is an oracle for the password.
+    await spendPasswordCheck(this.limiter, userId);
     if (!(await this.passwords.verify(user.passwordHash, password))) {
       // The same code and status `POST /auth/password/change` answers for
       // the same mistake — a client should not have to learn two.

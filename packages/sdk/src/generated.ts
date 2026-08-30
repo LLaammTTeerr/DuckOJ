@@ -2133,7 +2133,7 @@ export interface paths {
         };
         /**
          * One A4 landscape certificate per participant — the organisers only
-         * @description Vietnamese with an English subtitle ("GIẤY CHỨNG NHẬN" / "CERTIFICATE OF ACHIEVEMENT"): the contest, the participant’s display name, their rank, their total, the contest’s end date and a signature line. The issuer is the contest’s own organizations (D56), or the site itself when it is restricted to none. **A disqualified row and a virtual replay never get one** — the results sheet is a record, a certificate is an award — so `top=N` counts down the ranking after that exclusion, and a `username` naming an ineligible or unranked competitor answers 404. The date is the contest’s end, never the moment of download, so two prints are the same document. Cached for 60 s on a hash of the document.
+         * @description Vietnamese with an English subtitle ("GIẤY CHỨNG NHẬN" / "CERTIFICATE OF ACHIEVEMENT"): the contest, the participant’s display name, their rank, their total, the contest’s end date and a signature line. The issuer is the contest’s own organizations (D56), or the site itself when it is restricted to none. **A disqualified row and a virtual replay never get one** — the results sheet is a record, a certificate is an award — so `top=N` counts down the ranking after that exclusion, and a `username` naming an ineligible or unranked competitor answers 404. **`top` is a bound on the RANK, not a count of sheets** (D74): the board ranks in competition style, so `top=3` over ranks 1, 2, 3, 3 prints four certificates rather than cutting through the tie. The date is the contest’s end, never the moment of download, so two prints are the same document. Cached for 60 s on a hash of the document.
          */
         get: {
             parameters: {
@@ -3280,6 +3280,28 @@ export interface paths {
                 /** @description The body failed validation, or `currentPassword` was omitted by an account that is not flagged `mustChangePassword` (`current_password_required`) */
                 422: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Ten password attempts have been made for this account in the last fifteen minutes (`password_check_rate_limited`, D73). ONE budget is shared with `DELETE /auth/totp`, keyed on the account, and it is read BEFORE the password is verified. An account flagged `mustChangePassword` never spends it: that path checks no password. */
+                429: {
+                    headers: {
+                        /** @description Whole seconds until another attempt will be accepted */
+                        "Retry-After"?: string;
                         [name: string]: unknown;
                     };
                     content: {
@@ -7901,6 +7923,28 @@ export interface paths {
                 /** @description No password was sent */
                 422: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Ten password attempts have been made for this account in the last fifteen minutes (`password_check_rate_limited`, D73). ONE budget is shared with `POST /auth/password/change`, keyed on the account, and it is read BEFORE the password is verified — so a correct password inside a spent window is refused too. */
+                429: {
+                    headers: {
+                        /** @description Whole seconds until another attempt will be accepted */
+                        "Retry-After"?: string;
                         [name: string]: unknown;
                     };
                     content: {
