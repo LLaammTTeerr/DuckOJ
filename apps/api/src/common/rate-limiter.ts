@@ -99,6 +99,7 @@ export class RateLimiter {
     key: string,
     limit: number,
     windowMs: number,
+    options: { mark?: boolean } = {},
   ): Promise<number | null> {
     const cutoff = new Date(Date.now() - windowMs);
     const rows = await this.db
@@ -121,7 +122,16 @@ export class RateLimiter {
     // refusals slightly high during a credential-stuffing run is the
     // harmless direction, and de-duplicating would mean teaching the limiter
     // what a request is.
-    await this.markRefused(purpose, key);
+    //
+    // `mark: false` is for a caller asking about the SAME purpose and key
+    // twice — D80's submission meter asks its burst window and its sustained
+    // window, both keyed `user:<id>`, so that the `Retry-After` it answers is
+    // the longer of the two. Login's two markers are two different keys and
+    // arguably two facts; those are one request refused once, and counting it
+    // twice doubles exactly the number D95's monitor shows an organiser when
+    // somebody is running a script. So that caller asks with `mark: false`
+    // and calls {@link markRefused} once itself.
+    if (options.mark !== false) await this.markRefused(purpose, key);
     const expiresAt = rows[0]!.createdAt.getTime() + windowMs;
     return Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000));
   }
@@ -195,7 +205,7 @@ export class RateLimiter {
    * has already DECIDED to refuse by the time this runs, and a database blip
    * here is an observability gap, exactly as `touchJudgeLastSeen`'s is.
    */
-  private async markRefused(purpose: string, key: string): Promise<void> {
+  async markRefused(purpose: string, key: string): Promise<void> {
     try {
       await this.db.insert(schema.rateEvents).values({ purpose: refusalPurpose(purpose), key });
     } catch {

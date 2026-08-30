@@ -125,19 +125,36 @@ export class SubmissionAccessService {
    */
   private async submissionRetryAfter(actor: Actor): Promise<number | null> {
     const key = meterKeyFor(actor);
+    // `mark: false` on BOTH, then one marker below.
+    //
+    // `retryAfterSeconds` writes the D47 refusal marker on every non-null
+    // answer, and these two calls carry the same purpose and the same key —
+    // so a caller who has spent both windows at once, which is precisely the
+    // contestant leaning on the key, recorded TWO `refused:submission` rows
+    // for ONE refused request. That number is what D95's monitor shows an
+    // organiser as `submitRefusalsLast10Min`, the panel whose whole job is to
+    // make somebody's script visible during a contest; doubling it exactly
+    // when the room is busiest is the one time it must be right. (Login's two
+    // markers are two different KEYS — a user and an address — and stay as
+    // they are: those are two facts.)
     const burst = await this.limiter.retryAfterSeconds(
       SUBMISSION_PURPOSE,
       key,
       SUBMISSION_BURST_LIMIT,
       SUBMISSION_BURST_WINDOW_MS,
+      { mark: false },
     );
+    // Asked even when the burst window already refuses, so the `Retry-After`
+    // is the honest one — see the doc comment above.
     const sustained = await this.limiter.retryAfterSeconds(
       SUBMISSION_PURPOSE,
       key,
       SUBMISSION_SUSTAINED_LIMIT,
       SUBMISSION_SUSTAINED_WINDOW_MS,
+      { mark: false },
     );
     if (burst === null && sustained === null) return null;
+    await this.limiter.markRefused(SUBMISSION_PURPOSE, key);
     return Math.max(burst ?? 0, sustained ?? 0);
   }
 

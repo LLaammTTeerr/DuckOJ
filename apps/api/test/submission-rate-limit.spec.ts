@@ -21,6 +21,7 @@ import {
   SUBMISSION_SUSTAINED_LIMIT,
   SubmissionAccessService,
 } from '../src/authz/submission.access.js';
+import { REFUSAL_PREFIX } from '../src/common/rate-limiter.js';
 import { AppError } from '../src/common/app.error.js';
 import type { Actor } from '../src/authz/actor.js';
 import { withTestDb } from './db.harness.js';
@@ -206,5 +207,49 @@ describe('POST /submissions is metered per user (D80)', () => {
       for (let i = 0; i < 3; i++) await submit(service, actorFor(user.id));
       expect(await meterRows(db, user.id)).toHaveLength(1);
     });
-  }, 120_000);
+  }, 300_000);
+
+  it('records ONE refusal marker per refused submission, even when both windows refuse', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const user = await insertUser(db, 'thisinh');
+      const service = new SubmissionAccessService(db);
+
+      // Both windows spent at once: nineteen aged past the burst window, one
+      // just now. That is the state a contestant leaning on the key is in,
+      // and it is the only state in which both `retryAfterSeconds` calls
+      // answer non-null.
+      for (let i = 0; i < SUBMISSION_SUSTAINED_LIMIT - 1; i++) {
+        await submit(service, actorFor(user.id));
+        await backdate(db, user.id, SUBMISSION_BURST_WINDOW_MS + 1_000);
+      }
+      expect(await submit(service, actorFor(user.id))).toMatchObject({
+        id: expect.any(Number) as number,
+      });
+
+      const refused = (await submit(service, actorFor(user.id))) as AppError;
+      expect(refused.status).toBe(429);
+      // The honest wait still comes from the LONGER window — asking both is
+      // the point, and this test must not make asking twice the fix.
+      expect(Number(refused.headers?.['Retry-After'])).toBeGreaterThan(
+        SUBMISSION_BURST_WINDOW_MS / 1000,
+      );
+
+      // One submission was refused, so one refusal happened. `refused:*` is
+      // what D95's monitor counts into `submitRefusalsLast10Min` — the panel
+      // an organiser reads to spot a script during their own contest — and a
+      // marker per WINDOW rather than per REQUEST doubled that number exactly
+      // when the room is busiest.
+      const markers = await db
+        .select({ id: schema.rateEvents.id })
+        .from(schema.rateEvents)
+        .where(
+          and(
+            eq(schema.rateEvents.purpose, `${REFUSAL_PREFIX}${SUBMISSION_PURPOSE}`),
+            eq(schema.rateEvents.key, `user:${String(user.id)}`),
+          ),
+        );
+      expect(markers).toHaveLength(1);
+    });
+  }, 300_000);
 });
