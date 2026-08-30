@@ -19,8 +19,8 @@ no-diff, `vite build`. Red first, then mutated: **17 mutants, 17 killed**.
 3. **D72** (`e1705b2`·`c31fba5`·`41326c0`). Confirm: 10/user/15 min, 429 +
    `Retry-After`, meter read BEFORE the code — a limiter the winning guess
    walks past is not one. `DELETE /auth/totp` takes `{password}`, 401
-   `invalid_credentials`; the check sits in `disableWithPassword`, so an
-   admin's `resetTotp` (holding nobody's password) still works.
+   `invalid_credentials`, checked in `disableWithPassword` so an admin's
+   `resetTotp` still works.
 4. **Import capped at 500 rows** (`7a9938e`·`28a7186`·`7144c8e`·`4566aec`).
    2,000 argon2id hashes held a request ~20 s — F8's own concern. The panel
    splits the file (progress bar, merged credentials, an alert naming the
