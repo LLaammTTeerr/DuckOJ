@@ -251,3 +251,169 @@ Instantaneous container CPU, since `podman stats` cannot give it:
 podman inspect duckoj_api_1 --format '{{.State.Pid}}'   # -> /proc/<pid>/cgroup
 # then diff usage_usec in /sys/fs/cgroup/<that path>/cpu.stat over a known interval
 ```
+
+## 2026-08-30 — B12: the soak loop (read profile, judging, memory)
+
+Deployed image `f960b06…` (started 18:27), `API_WORKERS=4`,
+`JUDGED_CONCURRENCY=1`, one DMOJ judge. Same host, k6 sharing it as always.
+The image cannot be mapped to a commit from the outside, so it is named by
+id; it is **newer** than B9's `b1e98fc`, and the numbers below say by how much.
+
+### The 500-VU profile: every route improved, and the bar is met
+
+Same script, same mix, same VU count as B9's reference row — the only clean
+A/B in this file. 60 s hold after a 10 s ramp, cookieless, host load 4.3.
+
+| route | B9 (`b1e98fc`) | B12 (`f960b06…`) | change |
+| --- | --- | --- | --- |
+| `problem_stats` | 960 ms | **455 ms** | −53% |
+| `problem_detail` | 952 ms | **455 ms** | −52% |
+| `scoreboard` | 537 ms | **369 ms** | −31% |
+| `clarifications` | 500 ms | **304 ms** | −39% |
+| `problems_list` | 491 ms | **305 ms** | −38% |
+| `booklet` | 478 ms | **323 ms** | −32% |
+| `problems_filtered` | 252 ms | **159 ms** | −37% |
+| `tags_list` | 239 ms | **152 ms** | −36% |
+| **aggregate p95** | 841 ms | **428 ms** ✓ | −49% |
+| req/s | 1097 | **1716** | +56% |
+
+120,632 requests, **0 failed**, `leg_errors` 0.00%. **Every route is under the
+800 ms bar, and so is the aggregate — the first run in this file that meets
+the threshold.** Nothing regressed: the brief's "find any regression > 20%"
+found none in either direction but improvement. Migration 0025's dashboard
+indexes and D49's per-problem counter cache are deployed now and this is what
+they were worth.
+
+Unloaded medians, 20 sequential requests each, for the saturation question
+B9 raised: `tags_list` 1.7 ms, `scoreboard` 2.1 ms, `clarifications` 3.0 ms,
+`problems_filtered` 3.7 ms, `problem_detail` 3.8 ms, `problems_list` 3.9 ms,
+`problem_stats` 4.0 ms. Every route is 2–4 ms, *faster* than the 5–6 ms B9
+measured. There is no slow route left; what a p95 measures here is queueing.
+
+### The full 2000-VU profile
+
+514,105 requests over 5m30s, **0 failed**, `leg_errors` 0.00%, `vus` reached
+the full 2000.
+
+| | req/s | p95 all | problems_list | problem_detail | scoreboard | problem_stats |
+| --- | --- | --- | --- | --- | --- | --- |
+| P8, 4 workers + cache | 2391 | 1.20 s | 643 ms | 1.22 s | 1.89 s | *(no leg)* |
+| B12 | 1557 | 2.15 s | 1.68 s | 2.52 s | 1.97 s | 2.55 s |
+
+**These two rows do not compare, and saying so is the point.** P8 ran the old
+70/20/10 mix; B9 rebalanced the profile to 45/17/10/10/8/5/4/1 to cover five
+routes that did not exist when P8 ran, and never re-ran it at 2000 VUs. B12's
+iteration is 1.55 requests against P8's ~1.8, spread over eight routes rather
+than three, so both the aggregate p95 and req/s are measuring a different
+workload. The per-route columns are the only honest comparison and even they
+carry a different neighbour set on the same four workers.
+
+What settles it is the 500-VU table above plus the unloaded medians: on the
+identical profile the current build is 31–53% faster on every route, and no
+route costs more than 4 ms of work. The 2000-VU numbers are four saturated
+workers, which is this file's own long-documented ceiling with its own
+long-documented lever (`API_WORKERS=8` + `max_connections`, still not pulled).
+Host load reached 15 during the hold, k6 included.
+
+### Judging soak: 200 submissions, and the judge nearly keeps up
+
+200 valid C++ solutions to `tong-hai-so` (12 tests, 1000 ms) from five
+`bh12-soak-*` accounts, one every 1.5 s for 5 minutes — a 40/min arrival rate.
+
+| | |
+| --- | --- |
+| verdicts | **200/200 AC**, 0 rejected, 0 internal errors |
+| **measured judge throughput** | **35.3 submissions/min** |
+| time-to-verdict p50 | **24.0 s** |
+| time-to-verdict p95 | **39.3 s** |
+| time-to-verdict min / max | 2.9 s / 41.2 s |
+| queue depth (max → end) | **23 → 0** |
+| drain past the last submit | 40 s |
+
+**The single judge does not quite keep up: 35.3/min served against 40/min
+offered, a 12% deficit.** It shows as a queue that climbs roughly linearly to
+23 over the five minutes and then drains in 40 seconds, and as a
+time-to-verdict that degrades from 2.9 s (first submission, empty queue) to
+41 s (last, behind 23 others). Nothing failed, nothing was re-leased, no lease
+expired — it is a throughput deficit, not an error. A room of 2000 that
+submits more than ~35 times a minute in aggregate needs a second judge, and
+`JUDGED_CONCURRENCY` is not the knob (one judge is the bottleneck, not one
+claim loop).
+
+**Nothing refused a submission**, because nothing meters `POST /submissions` —
+see D79, which records the gap and this number as the one that should set a
+limit's threshold.
+
+Container memory across the soak, `/sys/fs/cgroup` deltas:
+
+- `judged` 54.4 MB → 67.3 MB, rising over the first ~120 grades then flat.
+  13 MB over 200 grades in a Node process under sustained new work; a warm-up
+  plateau, not a slope. Worth re-measuring at 2000.
+- `judge` **119.5 MB → 289.6 MB, but oscillating** between 119 and 302 MB the
+  whole time (122 MB at t=174 s, 265 MB at t=82 s, 142 MB at t=297 s). A
+  sawtooth of one compile + one sandbox per grade, not growth. The end-to-end
+  delta is where in the tooth the last sample landed.
+
+### Memory: no leak in the API
+
+- **Across the 2000-VU profile.** Four workers plus the primary: 614 MB
+  before, 1620 MB immediately after — and **618 MB when re-measured 20
+  minutes later**, i.e. back to baseline within 0.8%. The 1.6 GB is V8
+  working set under 1557 req/s, released afterwards, not retained.
+- **2000 WebSocket subscribe/unsubscribe cycles** on one connection
+  (2000/2000 acked, 2000/2000 unacked, 0 errors). RSS 618 MB → 654 MB, and
+  the shape is what matters: +35 MB over the first 600 cycles, then **+0.9 MB
+  across the remaining 1400**. A plateau, not a slope. `SubmissionsGateway`
+  keys its client map by the socket and deletes on `close`/`error`; the churn
+  test says the per-subscription state is released too. Note the cycle
+  re-runs `getVisible` every time — the re-ack shortcut only covers a
+  subscription still held — so this also measured 2000 × 3 authz queries.
+
+### Redis: bounded, and every key expires
+
+Scanned **during** the 2000-VU hold, not after (a 2 s scoreboard TTL is gone
+by the time a ramp-down finishes):
+
+- **0 keys without a TTL.** Every write goes through one method,
+  `RedisScoreboardCacheStore.set`, which is `SET … PX` — value and expiry in
+  one command, deliberately (D25). There is no other Redis write path in
+  `apps/api` or `apps/judged`: the realtime channel is pub/sub, which stores
+  nothing.
+- **1.30 MB used, 1.47 MB peak**, flat across the whole run.
+  `keyspace_hits` 3,009,521 against `keyspace_misses` 51,487 — a **98.3% hit
+  rate**.
+- Two observations recorded rather than fixed. **`maxmemory` is 0 with
+  `maxmemory-policy noeviction`**: nothing is capped and nothing would be
+  evicted, which is safe only because every key expires — the property above
+  is load-bearing, and a future cache key written without a TTL would have no
+  second line of defence. And the cache **drops out transiently under load**:
+  three of four workers logged `scoreboard cache unavailable … Stream isn't
+  writeable and enableOfflineQueue options is false` at the instant k6 started,
+  and four more episodes appeared during a 300-VU hold. Each is a short window
+  in which boards are folded instead of read. It is by design that this can
+  never fail a request (D25), and the 98.3% hit rate says it is rare — but it
+  is not zero, and the warm-up case is the one B9's `219b05d` already had to
+  paper over for a spec.
+
+### Postgres: no missing-index candidate at this scale
+
+`pg_stat_user_tables` diffed across the profile. The heaviest sequential
+scanners were `users` (208,881 scans, 25.7M tuples), `tags` (406,934 /
+5.17M), `contest_participations` (187,841 / 4.51M) and `organizations`
+(208,435 / 208,435).
+
+**None of them is a missing index, and no migration is justified by them.**
+Every one of those tables holds fewer than forty rows on this deployment —
+`users` 36, `contest_participations` 7, `tags` and `organizations` 0 — and a
+sequential scan of a sub-page table is the *correct* plan; an index would be
+slower and would cost a write on every insert. The counts are large because
+the requests were (208k ≈ the number of problem-route requests in the run,
+one visibility resolution each), not because the scans are.
+
+This is the same structural blindness B9 recorded when it found D49's
+regression by seeding 200,000 submissions rather than by load-testing: **a
+load test against fixture-scale data cannot answer the province-scale index
+question**, because the planner correctly refuses to use an index that would
+not help. The honest result is "cleared at this scale, and this scale is not
+the one that matters" — the province-scale version needs a seeded database,
+which is how the last two real index findings were both made.
