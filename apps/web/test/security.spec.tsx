@@ -159,24 +159,35 @@ describe('SecurityPage enrolment', () => {
   });
 });
 
-describe('SecurityPage disable', () => {
-  it('asks for confirmation and does nothing when the viewer backs out', async () => {
+describe('SecurityPage disable (D72)', () => {
+  it('will not send a disable with no password', async () => {
+    // The password IS the confirmation now: a `confirm()` dialog proves the
+    // click was deliberate, and this route needs proof of WHO clicked.
     get.mockResolvedValue(meIs(true));
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
     wrap(<SecurityPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /^Tắt xác thực hai lớp$/ }));
+    expect(await screen.findByRole('button', { name: /^Tắt xác thực hai lớp$/ })).toBeDisabled();
     expect(del).not.toHaveBeenCalled();
   });
 
-  it('deletes the credential once confirmed', async () => {
+  it('sends the account password with the delete', async () => {
     get.mockResolvedValue(meIs(true));
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     del.mockResolvedValue({ error: undefined });
     wrap(<SecurityPage />);
 
-    await userEvent.click(await screen.findByRole('button', { name: /^Tắt xác thực hai lớp$/ }));
-    expect(del).toHaveBeenCalledWith('/auth/totp');
+    await userEvent.type(await screen.findByLabelText(/Mật khẩu hiện tại/), 'a-long-password');
+    await userEvent.click(screen.getByRole('button', { name: /^Tắt xác thực hai lớp$/ }));
+    expect(del).toHaveBeenCalledWith('/auth/totp', { body: { password: 'a-long-password' } });
+  });
+
+  it('says the password was wrong rather than pretending 2FA is off', async () => {
+    get.mockResolvedValue(meIs(true));
+    del.mockResolvedValue({ error: { code: 'invalid_credentials', detail: 'Sai mật khẩu.' } });
+    wrap(<SecurityPage />);
+
+    await userEvent.type(await screen.findByLabelText(/Mật khẩu hiện tại/), 'wrong');
+    await userEvent.click(screen.getByRole('button', { name: /^Tắt xác thực hai lớp$/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Sai mật khẩu/);
   });
 });
 

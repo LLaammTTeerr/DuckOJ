@@ -54,6 +54,8 @@ export function SecurityPage() {
   const [codes, setCodes] = useState<string[] | null>(null);
   const [copied, setCopied] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  /** D72 — the account password, presented to turn the second factor off. */
+  const [disablePassword, setDisablePassword] = useState('');
   // One flag across begin/confirm/disable. `begin` in particular is
   // destructive on repeat — the endpoint upserts a FRESH secret and clears
   // `confirmedAt`, so a double click hands the viewer a QR for secret A while
@@ -147,19 +149,21 @@ export function SecurityPage() {
   }
 
   async function disable(): Promise<void> {
-    // Turning off the second factor is not undoable without re-enrolling every
-    // authenticator, so it asks — the same `confirm()` gate the admin screens
-    // use for their destructive actions.
-    if (!window.confirm(t('security.confirmDisable'))) return;
+    // D72 — the password replaces the old `confirm()` dialog rather than
+    // joining it: a dialog proves the click was deliberate, and this route
+    // needs proof of WHO is clicking. A stolen session has the click.
     setBusy(true);
     try {
-      const { error: err } = await api.DELETE('/auth/totp');
+      const { error: err } = await api.DELETE('/auth/totp', {
+        body: { password: disablePassword },
+      });
       if (err) {
         setError(err.detail ?? t('security.disableError'));
         return;
       }
       setError(null);
       setEnrolment(null);
+      setDisablePassword('');
       await client.invalidateQueries({ queryKey: ['me'] });
     } catch {
       setError(t('common.networkError'));
@@ -274,10 +278,23 @@ export function SecurityPage() {
             </p>
           )}
           <p>
-            <button type="button" disabled={busy} onClick={() => void disable()}>
+            <label htmlFor="totp-disable-password">{t('security.disablePassword')}</label>{' '}
+            <input
+              id="totp-disable-password"
+              type="password"
+              autoComplete="current-password"
+              value={disablePassword}
+              onChange={(e) => setDisablePassword(e.target.value)}
+            />{' '}
+            <button
+              type="button"
+              disabled={busy || disablePassword === ''}
+              onClick={() => void disable()}
+            >
               {t('security.disable')}
             </button>
           </p>
+          <p className="muted">{t('security.disableNote')}</p>
         </>
       ) : enrolment === null ? (
         <p>

@@ -473,8 +473,10 @@ export const vi = {
   'security.on': 'Tài khoản này đang bật xác thực hai lớp.',
   'security.off': 'Tài khoản này chưa bật xác thực hai lớp.',
   'security.enable': 'Bật',
+  'security.disablePassword': 'Mật khẩu hiện tại',
+  'security.disableNote':
+    'Tắt xác thực hai lớp cần mật khẩu tài khoản — phiên đăng nhập là thứ kẻ trộm đã có.',
   'security.disable': 'Tắt xác thực hai lớp',
-  'security.confirmDisable': 'Tắt xác thực hai lớp cho tài khoản này?',
   'security.beginError': 'Không bắt đầu được việc đăng ký.',
   'security.badCode': 'Mã này không hợp lệ.',
   'security.disableError': 'Không tắt được xác thực hai lớp.',

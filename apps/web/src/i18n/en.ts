@@ -498,8 +498,10 @@ export const en = {
   'security.on': 'Two-factor authentication is on for this account.',
   'security.off': 'Two-factor authentication is not enabled.',
   'security.enable': 'Enable',
+  'security.disablePassword': 'Current password',
+  'security.disableNote':
+    'Turning two-factor off needs the account password: a session is what an intruder already holds.',
   'security.disable': 'Disable two-factor authentication',
-  'security.confirmDisable': 'Turn off two-factor authentication for this account?',
   'security.beginError': 'Could not start enrolment.',
   'security.badCode': 'That code is not valid.',
   'security.disableError': 'Could not disable two-factor authentication.',
