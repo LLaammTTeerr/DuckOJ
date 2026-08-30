@@ -185,7 +185,7 @@ export function SubmissionPage({ id }: { id: number }) {
       {showDiff && previousId !== null ? (
         <section>
           <h2>
-            {t('submission.compareHeading', { id: previousId })}{' '}
+            {t('submission.compareHeading')}{' '}
             <Link to="/submissions/$id" params={{ id: String(previousId) }}>
               #{previousId}
             </Link>

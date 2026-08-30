@@ -336,7 +336,7 @@ export const vi = {
   // D111 — nút so sánh với lần nộp trước và khung diff.
   'submission.compare': 'So sánh với lần nộp trước',
   'submission.compareHide': 'Ẩn so sánh',
-  'submission.compareHeading': 'Thay đổi so với #{id}',
+  'submission.compareHeading': 'Thay đổi so với',
   'submission.compareError': 'Không tải được phần so sánh.',
   'submission.compareEmpty': 'Không có thay đổi — hai lần nộp giống hệt nhau.',
   'submission.compareAdded': 'dòng thêm',

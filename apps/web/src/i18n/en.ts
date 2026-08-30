@@ -355,7 +355,7 @@ export const en = {
   // D111 — the "compare with my previous attempt" toggle and its diff view.
   'submission.compare': 'Compare with previous attempt',
   'submission.compareHide': 'Hide comparison',
-  'submission.compareHeading': 'Changes since #{id}',
+  'submission.compareHeading': 'Changes since',
   'submission.compareError': 'Could not load the comparison.',
   'submission.compareEmpty': 'No changes — the two attempts are identical.',
   'submission.compareAdded': 'added line',
