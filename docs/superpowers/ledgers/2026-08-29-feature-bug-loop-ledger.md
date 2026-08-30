@@ -87,3 +87,4 @@
 - B-17 dispatched (worktree, opus): MCP/prepare/monitor/clone hunt, D96–D98.
 - F-22 DONE_WITH_CONCERNS (393fe17..b10521c): structured samples (D94; fixed the sample-detection rule D87 got wrong), statement-samples package, MCP/oj/prepare use the field; deployed + pushed.
 - F-24 dispatched (main, opus): team contests (D99, migration 0036).
+- B-16 DONE_WITH_CONCERNS, merged: harness runs configureApp + loadConfig (867 call sites re-prefixed, D91), publishedVersion (D92), draft cap lock + sweeper hold (D93), LOG_LEVEL=silent crash, forced-password UX, Redis db collision; live authoring journey AC. Deployed via deploy.sh; pushed. Full api suite (>10 min now) runs in the background.
