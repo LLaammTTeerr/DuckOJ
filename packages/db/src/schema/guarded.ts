@@ -695,3 +695,58 @@ export const problemSetItems = pgTable(
     index('problem_set_items_order_idx').on(t.setId, t.order),
   ],
 );
+
+/**
+ * One source-similarity check over one contest (D77) — the job row AND its
+ * result, in the same table.
+ *
+ * **Guarded**, and not marginally so: a row here names two competitors, a
+ * problem and two submission ids, and says they look alike. That is the most
+ * defamatory thing this database stores. Every read goes through
+ * `apps/api/src/contests/similarity.service.ts`'s `canRunContest` gate.
+ *
+ * `pairs` is a jsonb SUMMARY rather than a child table, because the whole
+ * document is written once, read whole, and replaced by the next run: there
+ * is no query that wants one pair, no foreign key anybody would follow, and
+ * a `similarity_pairs` table would be five hundred rows per run to serve a
+ * screen that renders all of them at once. Its shape is
+ * `SimilarityRunSummary` in the API, which is the authority on it.
+ *
+ * `status` is plain text on `contests.format`'s precedent rather than an
+ * enum: `running` / `finished` / `failed` is a state machine that lives in
+ * one service, and an enum would make adding a state a migration.
+ */
+export const similarityRuns = pgTable(
+  'similarity_runs',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    contestId: bigint('contest_id', { mode: 'number' })
+      .notNull()
+      .references(() => contests.id, { onDelete: 'cascade' }),
+    /** `running`, `finished` or `failed`. */
+    status: text('status').notNull(),
+    /**
+     * The containment above which a pair is reported, as it was AT THE TIME
+     * (D77). Stored per run rather than read from a setting: a report is a
+     * record of what was asked, and re-reading today's threshold would
+     * relabel a run made last month with a number nobody chose for it.
+     */
+    threshold: doublePrecision('threshold').notNull(),
+    /** The organiser who asked. `set null` — the run outlives the account. */
+    requestedBy: bigint('requested_by', { mode: 'number' }).references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    /** `null` while the run is still going. */
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    /** `SimilarityRunSummary`; `null` until the run finishes. */
+    pairs: jsonb('pairs'),
+    /** An error CODE for a failed run, never a stack trace. */
+    error: text('error'),
+  },
+  (t) => [
+    // "The latest run of this contest", which is what every read here asks
+    // for, as an index scan rather than a sort over a contest's history.
+    index('similarity_runs_contest_idx').on(t.contestId, t.startedAt),
+  ],
+);
