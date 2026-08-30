@@ -155,9 +155,9 @@ describe('historyFor resolves case-insensitively', () => {
       await seedGoldenContest(db, contestOf('case-c', '2026-03-01T14:00:00Z'));
       const rating = service(db);
       await rating.setRated(ADMIN, 'case-c', true);
-      const lower = await rating.historyFor('case-c-p0');
-      expect(lower).toHaveLength(1);
-      const upper = await rating.historyFor('CASE-C-P0');
+      const lower = await rating.historyFor('case-c-p0', { limit: 100 });
+      expect(lower.items).toHaveLength(1);
+      const upper = await rating.historyFor('CASE-C-P0', { limit: 100 });
       expect(upper).toEqual(lower);
     });
   }, 120_000);

@@ -9,12 +9,12 @@
  * corrected scoreboard propagate forward into every rating that followed it.
  */
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, or, sql } from 'drizzle-orm';
 import { contestParticipations, contests, ratingEvents } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { DEFAULT_PLAYER, rateContest } from '@duckoj/glicko2';
 import type { Player, RankedPlayer } from '@duckoj/glicko2';
-import type { RatingEventDto } from '@duckoj/contracts';
+import type { RatingHistoryPageDto, RatingHistoryQueryDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from './actor.js';
@@ -208,8 +208,21 @@ export class RatingService {
     return field;
   }
 
-  /** A user's rating history, oldest first. */
-  async historyFor(username: string): Promise<RatingEventDto[]> {
+  /**
+   * A page of a user's rating history, oldest first.
+   *
+   * Keyset on `(contests.end_time, contests.id)` — the ORDER BY itself, so
+   * the walk cannot disagree with the sort (D58's rule, applied to the one
+   * list B7 left unpaged). Spelled with drizzle's own operators rather than
+   * a raw `(a, b) > (x, y)` row comparison: the operators encode each value
+   * through the column that will be compared to it, and a hand-written tuple
+   * hands postgres.js a bare `Date` it has no column type for.
+   *
+   * The id is the tiebreaker because two divisions of one round end on the
+   * same bell; a cursor keyed on the instant alone skips the second of them
+   * or serves the first twice.
+   */
+  async historyFor(username: string, query: RatingHistoryQueryDto): Promise<RatingHistoryPageDto> {
     const [user] = await this.db
       .select({ id: schema.users.id })
       .from(schema.users)
@@ -219,8 +232,10 @@ export class RatingService {
       .limit(1);
     if (!user) throw new AppError(404, 'user_not_found', 'No such user.');
 
+    const after = parseRatingCursor(query.cursor);
     const rows = await this.db
       .select({
+        contestId: contests.id,
         contestKey: contests.key,
         contestName: contests.name,
         endTime: contests.endTime,
@@ -230,17 +245,51 @@ export class RatingService {
       })
       .from(ratingEvents)
       .innerJoin(contests, eq(contests.id, ratingEvents.contestId))
-      .where(eq(ratingEvents.userId, user.id))
-      .orderBy(asc(contests.endTime), asc(contests.id));
+      .where(
+        after === null
+          ? eq(ratingEvents.userId, user.id)
+          : and(
+              eq(ratingEvents.userId, user.id),
+              or(
+                gt(contests.endTime, after.endTime),
+                and(eq(contests.endTime, after.endTime), gt(contests.id, after.contestId)),
+              ),
+            ),
+      )
+      .orderBy(asc(contests.endTime), asc(contests.id))
+      .limit(query.limit + 1);
 
-    return rows.map((row) => ({
-      contestKey: row.contestKey,
-      contestName: row.contestName,
-      endTime: row.endTime.toISOString(),
-      rank: row.rank,
-      ratingBefore: row.ratingBefore,
-      ratingAfter: row.ratingAfter,
-      delta: row.ratingAfter - row.ratingBefore,
-    }));
+    const kept = rows.slice(0, query.limit);
+    const last = kept.at(-1);
+    return {
+      items: kept.map((row) => ({
+        contestKey: row.contestKey,
+        contestName: row.contestName,
+        endTime: row.endTime.toISOString(),
+        rank: row.rank,
+        ratingBefore: row.ratingBefore,
+        ratingAfter: row.ratingAfter,
+        delta: row.ratingAfter - row.ratingBefore,
+      })),
+      nextCursor:
+        rows.length > query.limit && last !== undefined
+          ? `${String(last.endTime.getTime())}:${String(last.contestId)}`
+          : null,
+    };
   }
+}
+
+/**
+ * `<end-time-in-millis>:<contest-id>`, the two columns the walk orders on.
+ *
+ * Millis rather than an ISO string so the cursor cannot carry a timezone or
+ * a precision the column does not have. Anything else is 422 `invalid_cursor`
+ * — the same refusal every sibling list makes, rather than a silent scan
+ * from the beginning that would look like a working page.
+ */
+function parseRatingCursor(cursor: string | undefined): { endTime: Date; contestId: number } | null {
+  if (cursor === undefined) return null;
+  const match = /^(\d{1,15}):(\d{1,15})$/.exec(cursor);
+  if (!match) throw new AppError(422, 'invalid_cursor', 'That page cursor is not valid.');
+  return { endTime: new Date(Number(match[1])), contestId: Number(match[2]) };
 }

@@ -277,11 +277,12 @@ describe('the HTTP surface', () => {
 
         const history = await request(app.getHttpServer()).get('/users/rh-p0/rating');
         expect(history.status).toBe(200);
-        expect(history.body).toHaveLength(1);
-        expect(history.body[0].delta).toBe(
-          history.body[0].ratingAfter - history.body[0].ratingBefore,
+        expect(history.body.items).toHaveLength(1);
+        expect(history.body.nextCursor).toBeNull();
+        expect(history.body.items[0].delta).toBe(
+          history.body.items[0].ratingAfter - history.body.items[0].ratingBefore,
         );
-        expect(history.body[0].delta).toBeGreaterThan(0);
+        expect(history.body.items[0].delta).toBeGreaterThan(0);
 
         // The cached rating on the user follows the events.
         const [cached] = await db
@@ -293,7 +294,7 @@ describe('the HTTP surface', () => {
 
         // An unrated contest leaves no history behind.
         expect((await admin.post('/admin/contests/rh/unrate')).status).toBe(200);
-        expect((await request(app.getHttpServer()).get('/users/rh-p0/rating')).body).toHaveLength(0);
+        expect((await request(app.getHttpServer()).get('/users/rh-p0/rating')).body.items).toHaveLength(0);
 
         // …and the cache goes back to "never rated", rather than keeping a
         // number from a contest that no longer counts. This is the case the

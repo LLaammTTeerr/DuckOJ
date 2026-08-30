@@ -5,7 +5,9 @@ import {
   type UpdateMeRequestDto,
   type UserListQueryDto,
   type UserPageDto,
-  type RatingHistoryDto,
+  RatingHistoryQuery,
+  type RatingHistoryPageDto,
+  type RatingHistoryQueryDto,
   type UserProfileDto,
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
@@ -71,7 +73,10 @@ export class UsersController {
   @Get(':username/rating')
   @Public()
   @RequireScope('users:read')
-  rating(@Param('username') username: string): Promise<RatingHistoryDto> {
-    return this.ratings.historyFor(username);
+  rating(
+    @Param('username') username: string,
+    @Query(new ZodValidationPipe(RatingHistoryQuery)) query: RatingHistoryQueryDto,
+  ): Promise<RatingHistoryPageDto> {
+    return this.ratings.historyFor(username, query);
   }
 }

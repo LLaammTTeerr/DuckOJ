@@ -1746,6 +1746,14 @@ it; this closes it.
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B7 brief),
 no human available to consult. No migration.*
 
+**Amended 2026-08-30 (F13 owed sweep):** `GET /users/{username}/rating` — the
+one collection B7 named as still unpaged — now takes the same shape: a
+hundred a page, keyset on `(contests.end_time, contests.id)`, 422
+`invalid_cursor` for anything the ordering could not have issued. The id is
+the tiebreaker because two divisions of one round end on the same bell, and
+a cursor keyed on the instant alone would skip the second or serve the first
+twice. The profile appends pages behind "Tải thêm".
+
 ## D59 — A truncated broadcast is ordered, and it says so
 
 `broadcast` capped its recipient list with `.limit(NOTIFY_CAP)` and no
