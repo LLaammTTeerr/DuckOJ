@@ -480,7 +480,9 @@ organization page); an admin with no browser does it here:
 `roster.csv` is one line per pupil — `username,displayName,email` — with an
 optional header row (`username`/`tên đăng nhập`, `name`/`họ tên`, `email` are
 recognised, in any column order) and an optional third column; comma,
-semicolon and tab all separate. At most 2,000 rows per run.
+semicolon and tab all separate. At most 500 rows per run (D61 as amended):
+split a larger roster into several files, or use the web panel, which splits
+it for you.
 
     username,họ tên
     hs2026001,Nguyễn Văn A
