@@ -1198,3 +1198,55 @@ re-authentication D33 already names as the missing piece.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F3 recovery
 codes brief), no human available to consult. Migration 0019.*
+
+## D43 — An editorial is a spoiler, so it is withheld from the room still solving it
+
+Problems carry an editorial (`problems.editorial` plus
+`editorial_published_at`, migration 0021): the setter's write-up, Markdown in
+the same Vietnamese-then-English shape as a statement (D10). It is the one
+part of a problem page that can destroy the thing the page is for, so who
+reads it is a ruling and not a permission bit.
+
+- **Published, then visible to almost everyone.** A published editorial is
+  served to any viewer who may see the problem at all, anonymous included. It
+  is teaching material; withholding it from readers who are not competing
+  costs the province a textbook to protect nothing.
+- **Withheld from a live contest, exactly as D35 withholds a tag.** A viewer
+  holding a participation in a contest running *now* that uses this problem
+  does not get it — the same `contestHiddenProblemIds` set, the same database
+  clock, the same exemptions (the contest's `created_by`, any global admin).
+  One query answers "is this person in the room" for both rules, because two
+  would eventually disagree.
+- **Unless they have already solved it.** An AC on the problem restores the
+  editorial mid-contest: someone who has solved it cannot be spoiled by the
+  solution, and the alternative makes the room's best readers the last to
+  learn anything. Keyed on `verdict = 'AC'` existing, not on the `me`
+  lateral's best verdict — that is a `points` ordering with its own null
+  handling, and this question is not about points.
+- **Never a leak of existence.** `GET /problems/{code}` carries `editorial`
+  and `editorialAvailable`, and for anyone who cannot edit the problem
+  `null`/`false` is ONE answer to three questions: there is no editorial,
+  there is an unpublished draft, there is one you may not read yet.
+  Distinguishing them would leak a setter's work in progress and, during a
+  contest, the fact that a solution is sitting there to be waited for. The
+  dedicated `GET /problems/{code}/editorial` route 404s
+  `editorial_not_found` for all three, after the problem's own
+  `problem_not_found` has had its say first.
+- **An editor sees their own draft.** An author, curator or admin gets
+  `editorial` populated whatever its publish state, because the edit form
+  seeds its textarea from that field and a form that cannot load what it is
+  about to overwrite is a way to lose an editorial. This is the only case
+  where a non-null `editorial` comes back with `editorialAvailable: false` —
+  which is what the publish toggle seeds from. A third
+  `editorialPublishedAt` field would have said it more plainly; it would also
+  have had to be masked for everyone else, so two fields it is.
+- **Publishing is a claim there is something to read.** `editorialPublished:
+  true` against absent or whitespace-only text is 422
+  `problem_editorial_empty`, and `editorial: null` clears the publish date in
+  the same UPDATE. The database holds the same rule as
+  `problems_editorial_published_ck`, so an importer or a psql session cannot
+  create the state either. Re-publishing does not move the date: that would
+  rewrite when readers were first let in.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F4
+editorials brief), no human available to consult. Migration 0021.*
