@@ -33,6 +33,16 @@ export class EventWriter {
    */
   async apply(job: ClaimedJob, event: GradingEvent): Promise<boolean> {
     if (!(await this.jobs.isCurrentAttempt(job.id, job.attempt))) return false;
+
+    // Before the `submissionId === null` bail below, on purpose: the judge
+    // that ran a job is a fact about the GRADING JOB, not about the
+    // submission, and a future job kind with no submission still deserves
+    // the join (D68). A driver that does not name a node (every in-process
+    // double) writes nothing, rather than a guess.
+    if (event.type === 'dispatched' && event.node !== undefined) {
+      await this.jobs.recordJudgeNode(job.id, job.attempt, event.node);
+    }
+
     if (job.submissionId === null) return true;
 
     const submissionId = job.submissionId;

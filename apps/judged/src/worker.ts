@@ -1,4 +1,4 @@
-import type { JudgeDriver } from '@duckoj/judge-protocol';
+import { NoCapableJudgeError, type JudgeDriver } from '@duckoj/judge-protocol';
 import { describeError } from '@duckoj/observability';
 import type { EventWriter } from './event-writer.js';
 import type { ClaimedJob, JobStore } from './job-store.js';
@@ -33,6 +33,16 @@ export function gradingCeilingMs(job: { testCount: number | null; timeMs: number
   return Math.min(Math.max(MAX_GRADING_MS, budget), ABSOLUTE_MAX_GRADING_MS);
 }
 const POLL_MS = 500;
+/**
+ * How often one claim loop may reconcile `blocked_reason` over the queue
+ * (`JobStore.markBlocked`).
+ *
+ * The scan runs when a claim comes back empty, which on an idle stack is
+ * every `POLL_MS` — a full-queue UPDATE twice a second, per loop, to change
+ * nothing. This makes it one every five seconds instead. Nothing depends on
+ * it being prompt: it decides only what an operator reads, never what runs.
+ */
+export const BLOCKED_SCAN_MS = 5_000;
 
 /**
  * Why the abandonment path is not just another `job failed`.
@@ -71,6 +81,8 @@ export class Worker {
   /** The job currently in flight, so `heartbeatOnce` has something to act on. */
   private current: ClaimedJob | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  /** Throttle clock for `markBlocked`. Per loop, deliberately: the scan is idempotent. */
+  private lastBlockedScanAt = 0;
 
   constructor(
     private readonly jobs: JobStore,
@@ -104,9 +116,16 @@ export class Worker {
       }
 
       try {
+        // What the connected judge fleet can grade, asked fresh on every
+        // turn: a judge that just connected changes the answer, and a stale
+        // list would either skip work that is now runnable or claim work
+        // that is not. `undefined` (a driver that declares nothing — every
+        // in-process double) means no filter at all, exactly as before.
+        const languages = this.driver.supportedLanguages?.();
+
         let claimed: ClaimedJob | null;
         try {
-          claimed = await this.jobs.claim(this.workerId);
+          claimed = await this.jobs.claim(this.workerId, languages);
         } catch (error: unknown) {
           // A transient database error here (a dropped connection, Postgres
           // restarting) must not end the loop: `claim()` used to sit outside
@@ -125,6 +144,11 @@ export class Worker {
           continue;
         }
         if (!claimed) {
+          // An empty claim with judges connected is the one moment worth
+          // asking whether the queue is stuck on a language nobody speaks —
+          // and the only moment we can answer it cheaply, since `claim`
+          // filtered exactly those rows out and said nothing about them.
+          await this.scanBlocked(languages);
           await new Promise((r) => setTimeout(r, POLL_MS));
           continue;
         }
@@ -244,12 +268,16 @@ export class Worker {
               }),
             );
           }
-          // Only for an abandoned attempt — see `JobAbandoned`. Requeueing
+          // Abandoned, or dispatched at a fleet that turned out to have
+          // nobody who speaks the language (`NoCapableJudgeError`, D68 — the
+          // capable judge disconnected between the claim and the dispatch).
+          // Both are facts the loop already holds, so holding the lease for
+          // another minute to rediscover them helps nobody. Requeueing
           // here is what turns "the judge container restarted" from a
           // multi-minute stall into a re-dispatch as soon as some judge is
           // free. A failed release is logged and ignored: the lease lapse is
           // still behind it, so the worst case is the old behaviour.
-          if (error instanceof JobAbandoned) {
+          if (error instanceof JobAbandoned || error instanceof NoCapableJudgeError) {
             try {
               await this.jobs.release(claimed.id, claimed.attempt);
             } catch (releaseError: unknown) {
@@ -276,6 +304,40 @@ export class Worker {
         // process's life.
         releaseSlot?.();
       }
+    }
+  }
+
+  /**
+   * Reconciles `blocked_reason` over the queued jobs, at most once per
+   * `BLOCKED_SCAN_MS` (D68).
+   *
+   * Skipped entirely when the driver declares no languages (`undefined` — an
+   * in-process double, which grades anything) or declares none at all (`[]`
+   * — no judge connected, so "blocked on capability" would be the wrong
+   * diagnosis for a queue whose real problem is that the fleet is down).
+   *
+   * Failures are logged and swallowed: this writes a diagnostic column and
+   * nothing reads it to decide what runs, so a database blip here must not
+   * be allowed to end a claim loop the way an unguarded `claim` once did.
+   */
+  private async scanBlocked(languages: string[] | undefined): Promise<void> {
+    if (languages === undefined || languages.length === 0) return;
+    const now = Date.now();
+    if (now - this.lastBlockedScanAt < BLOCKED_SCAN_MS) return;
+    this.lastBlockedScanAt = now;
+    try {
+      const changed = await this.jobs.markBlocked(languages);
+      if (changed.length > 0) {
+        console.warn(
+          JSON.stringify({
+            msg: 'queue blocked_reason reconciled',
+            jobIds: changed,
+            supportedLanguages: languages,
+          }),
+        );
+      }
+    } catch (error: unknown) {
+      console.error(JSON.stringify({ msg: 'blocked scan failed', error: describeError(error) }));
     }
   }
 

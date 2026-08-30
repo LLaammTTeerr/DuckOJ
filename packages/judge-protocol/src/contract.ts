@@ -19,7 +19,14 @@ export interface GradingJob {
 }
 
 export type GradingEvent =
-  | { type: 'dispatched' }
+  /**
+   * `node` names the judge the job actually went to — the `judge_nodes.name`
+   * the bridge connection authenticated as. Optional, and absent means "this
+   * driver does not know", which is the honest answer for every in-process
+   * double: the alternative, inventing a name, would write a join row
+   * claiming a judge graded something it never saw.
+   */
+  | { type: 'dispatched'; node?: string }
   | { type: 'compiling' }
   | { type: 'compileError'; message: string }
   | { type: 'compileMessage'; message: string }
@@ -72,6 +79,31 @@ export type EmitEvent = (event: GradingEvent) => Promise<void>;
  */
 export type AbandonJob = (reason: string) => void;
 
+/**
+ * `dispatch` rejected because no connected judge can run this job's language
+ * at all — as distinct from "every judge that can is busy", which waits.
+ *
+ * Part of the contract rather than of one driver, because the caller's
+ * response is different in kind: waiting is normal and ends when a judge
+ * frees up, whereas this ends only when a *different* judge connects, which
+ * may be never. A caller should hand the lease straight back and leave the
+ * job queued (see `grading_jobs.blocked_reason`, D68) instead of holding it
+ * for the lease window over a fact it already has.
+ *
+ * A caller that does not know this class still behaves correctly — it is an
+ * `Error` like any other dispatch rejection, and the only cost is a minute
+ * of lease.
+ */
+export class NoCapableJudgeError extends Error {
+  constructor(
+    readonly language: string,
+    readonly jobId: string,
+  ) {
+    super(`no connected judge supports language ${language} (job ${jobId})`);
+    this.name = 'NoCapableJudgeError';
+  }
+}
+
 export interface DriverCapabilities {
   languages: string[];
   concurrency: number;
@@ -111,4 +143,21 @@ export interface JudgeDriver {
    * every in-process test double wants.
    */
   tryAcquireSlot?(): (() => void) | null;
+  /**
+   * The language keys the fleet can grade **right now** — the union over
+   * every connected judge, not a static declaration.
+   *
+   * A claim loop passes this to `JobStore.claim` so a job no connected judge
+   * can run is never claimed in the first place. That ordering is the whole
+   * point: claiming such a job and then refusing to dispatch it would leave
+   * the oldest-first queue permanently stuck on it, since the same loop
+   * would re-claim the same row on the next turn forever (D68).
+   *
+   * Optional, like `tryAcquireSlot`, and for the same reason: a driver that
+   * omits it is treated as able to run anything, which is what every
+   * in-process test double wants. An empty array is NOT the same as
+   * omitting — it means "connected judges exist that can run nothing", and
+   * a caller must claim nothing.
+   */
+  supportedLanguages?(): string[];
 }

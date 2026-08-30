@@ -55,8 +55,35 @@ export class JobStore {
    * Takes the oldest job that is queued, or leased with an expired lease.
    * `FOR UPDATE SKIP LOCKED` lets several workers claim concurrently without
    * blocking each other or handing out the same row twice.
+   *
+   * `languages`, when given, restricts the pick to jobs the caller's judge
+   * fleet can actually grade (`JudgeDriver.supportedLanguages`). This is a
+   * filter on the *pick*, not a check after it, and that ordering is the
+   * whole of D68's answer to a heterogeneous fleet: a job claimed and then
+   * refused would be re-claimed by the same oldest-first query on the very
+   * next turn, forever, starving every job behind it. Filtered out, it
+   * simply stays `queued` — claimable the instant a capable judge connects
+   * — and `markBlocked` is what makes that visible rather than silent.
+   *
+   * `undefined` means "no filter", which keeps every caller with a driver
+   * that declares nothing (each in-process double) behaving exactly as
+   * before. An empty array is a real answer — "the connected judges can run
+   * nothing" — and claims nothing but language-less jobs.
+   *
+   * A job with no language at all (`submission_id` null, or a submission
+   * whose language row vanished) is always claimable: `ClaimedJob` falls
+   * back to `cpp17` for it, and refusing to claim a job on the strength of a
+   * language nobody recorded would hide it from the queue with no way to
+   * ever get it back.
    */
-  async claim(workerId: string): Promise<ClaimedJob | null> {
+  async claim(workerId: string, languages?: string[]): Promise<ClaimedJob | null> {
+    // `sql.raw('true')` rather than an omitted clause: the predicate has to
+    // be one expression either way, and a boolean literal is not a parameter
+    // an injection could reach.
+    const languageFilter =
+      languages === undefined
+        ? sql`true`
+        : sql`(languages.key is null or languages.key = any(${sql.param(languages)}::text[]))`;
     const rows = await this.db.execute<{
       id: number;
       attempt: number;
@@ -74,17 +101,33 @@ export class JobStore {
            set state       = 'leased',
                attempt     = attempt + 1,
                worker_id   = ${workerId},
+               -- Being claimed disproves whatever this said: the row was only
+               -- ever marked because no connected judge could run it, and the
+               -- language filter above means the claimant can (D68). Cleared
+               -- here rather than by a second statement so the flag and the
+               -- state can never disagree.
+               blocked_reason = null,
                lease_until = now() + interval '${sql.raw(String(LEASE_SECONDS))} seconds'
          where id = (
-           select id from grading_jobs
-            where state = 'queued'
-               or (state = 'leased' and lease_until < now())
-            order by created_at
+           select grading_jobs.id from grading_jobs
+            -- LEFT, both of them: a job with no submission (a future
+            -- invocation kind) and a submission whose language row is gone
+            -- must still be claimable, so neither join may drop a row.
+            left join submissions on submissions.id = grading_jobs.submission_id
+            left join languages   on languages.id   = submissions.language_id
+            where (grading_jobs.state = 'queued'
+               or (grading_jobs.state = 'leased' and grading_jobs.lease_until < now()))
+              and ${languageFilter}
+            order by grading_jobs.created_at
             limit 1
-            -- Throughput only: removing this clause was checked empirically
+            -- "of grading_jobs", not a bare FOR UPDATE: Postgres refuses to
+            -- lock the nullable side of an outer join, and the rows worth
+            -- locking are the ones being updated anyway.
+            --
+            -- Throughput only: removing SKIP LOCKED was checked empirically
             -- and left every asserted outcome unchanged (a blocked claimant
             -- just waits, then gets the next row). Not covered by any test.
-            for update skip locked
+            for update of grading_jobs skip locked
          )
         returning id, attempt, submission_id, revision_id, package_hash
       )
@@ -116,6 +159,70 @@ export class JobStore {
       memoryKb: row.revision_memory_kb === null ? 65536 : Number(row.revision_memory_kb),
       testCount: row.revision_test_count === null ? null : Number(row.revision_test_count),
     };
+  }
+
+  /**
+   * Records which judge node this attempt went to — the node↔job join
+   * `judge_nodes` never had (D47's report: "no column relates them").
+   *
+   * Fenced on `(id, attempt)` like every other write here, so a `dispatched`
+   * event from a superseded attempt cannot relabel the retry's row with the
+   * judge that dropped it.
+   *
+   * A name matching no `judge_nodes` row leaves the column alone rather than
+   * nulling it: the only way that happens is an operator deleting a node
+   * mid-grade, and forgetting which judge is running the job is strictly
+   * worse than remembering a stale one. Returns whether anything was written.
+   */
+  async recordJudgeNode(jobId: number, attempt: number, nodeName: string): Promise<boolean> {
+    const rows = await this.db.execute<{ id: number }>(sql`
+      update grading_jobs
+         set judge_node_id = (select id from judge_nodes where name = ${nodeName})
+       where id = ${jobId}
+         and attempt = ${attempt}
+         and exists (select 1 from judge_nodes where name = ${nodeName})
+      returning id
+    `);
+    return rows.length > 0;
+  }
+
+  /**
+   * Reconciles `blocked_reason` across the queue against what the fleet can
+   * currently grade: a queued job in a language no connected judge speaks is
+   * marked with the reason, and one that becomes runnable is unmarked. Both
+   * directions in one idempotent statement, because a flag that is only ever
+   * set is a flag that lies as soon as the missing judge arrives.
+   *
+   * Returns the ids whose value actually changed — nothing on a steady
+   * queue, so a caller may log every result without producing a heartbeat of
+   * noise.
+   *
+   * Deliberately NOT a claim-time check (D68): `claim` filters these rows out
+   * of the pick, so nothing here affects what runs. This exists purely so an
+   * operator watching a stuck queue is told *why* instead of seeing jobs sit
+   * at `queued` with a healthy judge connected.
+   */
+  async markBlocked(languages: string[]): Promise<number[]> {
+    const rows = await this.db.execute<{ id: number }>(sql`
+      update grading_jobs
+         set blocked_reason = want.reason
+        from (
+          select grading_jobs.id as id,
+                 case when languages.key = any(${sql.param(languages)}::text[]) then null
+                      else 'no connected judge supports language ' || languages.key
+                 end as reason
+            from grading_jobs
+            join submissions on submissions.id = grading_jobs.submission_id
+            join languages   on languages.id   = submissions.language_id
+           where grading_jobs.state = 'queued'
+        ) as want
+       where want.id = grading_jobs.id
+         -- "is distinct from", not "<>": both sides are nullable, and the
+         -- whole point is to touch only the rows whose answer changed.
+         and grading_jobs.blocked_reason is distinct from want.reason
+      returning grading_jobs.id
+    `);
+    return rows.map((row) => Number(row.id));
   }
 
   /** Extends the lease. Returns false when this attempt has been superseded. */

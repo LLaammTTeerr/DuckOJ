@@ -1,6 +1,7 @@
 import {
   DMOJ_FLAG,
   interpretFlags,
+  NoCapableJudgeError,
   type AbandonJob,
   type DriverCapabilities,
   type EmitEvent,
@@ -174,7 +175,28 @@ export class DmojDriver implements JudgeDriver {
     // One grade per connection, so the fleet's ceiling is the number of
     // connected judges — 0 when none is connected, which is honest: nothing
     // can run. `idleCapacity()` is the live, moment-to-moment version.
-    return { languages: ['cpp17'], concurrency: this.bridge.judgeCount() };
+    //
+    // `languages` was the hardcoded `['cpp17']` and was therefore a lie the
+    // moment a second, differently-configured judge joined — it described
+    // the deployment rather than the fleet. It is now the union of what the
+    // connected judges actually announced (D68).
+    return { languages: this.supportedLanguages(), concurrency: this.bridge.judgeCount() };
+  }
+
+  /**
+   * `JudgeDriver.supportedLanguages`: what the connected fleet can grade
+   * right now. The claim loop passes this to `JobStore.claim`, so a job in a
+   * language nobody speaks is never claimed — it stays `queued` and visible
+   * instead of being leased by a worker that cannot run it (D68).
+   */
+  supportedLanguages(): string[] {
+    return this.bridge.supportedLanguages();
+  }
+
+  /** The connections that could run `language`, connected right now, busy or not. */
+  private capableConnections(language: string): string[] {
+    const executor = this.bridge.options.languageToExecutor(language);
+    return this.bridge.connectionIds().filter((id) => this.bridge.executorsFor(id).has(executor));
   }
 
   /**
@@ -220,18 +242,30 @@ export class DmojDriver implements JudgeDriver {
   }
 
   /**
-   * Parks until some connection has no submission on it, then takes it.
+   * Parks until some connection that can run this job's language has no
+   * submission on it, then takes it.
    *
    * The take is synchronous with the check, so two woken dispatches cannot
    * claim the same connection: the first sets `assignments` before the second
    * resumes, and the second falls back into the queue.
+   *
+   * Capability is re-checked on every turn of the loop, not once on entry:
+   * the only judge that could run this language may disconnect while this
+   * dispatch is parked behind it, and parking on for a connection that will
+   * never come back is exactly the silent hang the grading ceiling was left
+   * to clean up. An empty capable set therefore throws
+   * `NoCapableJudgeError` immediately — including after a wake (D68).
    */
   private async acquireConnection(entry: LiveJob, submissionId: number): Promise<string> {
     for (;;) {
       if (entry.cancelled) {
         throw new Error(`submission ${submissionId} was cancelled before any judge took it`);
       }
-      const free = this.bridge.connectionIds().find((id) => !this.assignments.has(id));
+      const capable = this.capableConnections(entry.job.language);
+      if (capable.length === 0) {
+        throw new NoCapableJudgeError(entry.job.language, entry.job.id);
+      }
+      const free = capable.find((id) => !this.assignments.has(id));
       if (free !== undefined) {
         this.assignments.set(free, { submissionId, sent: false });
         entry.connection = free;
@@ -333,7 +367,13 @@ export class DmojDriver implements JudgeDriver {
       // `dispatched`, putting the lifecycle out of order for the caller. This
       // also means a failed emit never leaves an already-sent request
       // orphaned at the judge.
-      await emit({ type: 'dispatched' });
+      // `node` names the connection, which IS the `judge_nodes.name` the
+      // judge authenticated as — that is what makes `grading_jobs
+      // .judge_node_id` a fact about which machine ran the code rather than
+      // a guess (D68). Emitted here, before the request goes out, for the
+      // same reason `dispatched` itself is: the write must not be able to
+      // land after the judge's first reply.
+      await emit({ type: 'dispatched', node: connectionId });
       if (entry.cancelled) {
         throw new Error(`submission ${submissionId} was cancelled before any judge took it`);
       }

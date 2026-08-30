@@ -1,7 +1,7 @@
 import { createServer, type Server, type Socket } from 'node:net';
 import { describeError } from '@duckoj/observability';
 import { createPacketDecoder, encodePacket } from '@duckoj/judge-protocol';
-import type { BridgeToJudgePacket, JudgeToBridgePacket } from '@duckoj/judge-protocol';
+import type { BridgeToJudgePacket, HandshakePacket, JudgeToBridgePacket } from '@duckoj/judge-protocol';
 
 // judge-server sets a 300s read timeout on its end of this socket
 // (dmoj/packet.py:104) and expects *us* to send `ping` so it has traffic to
@@ -15,9 +15,53 @@ export const PING_INTERVAL_MS = 30_000;
 // side's liveness check racing the other's.
 const MISSED_PING_LIMIT = 3;
 
+/**
+ * How often a judge's liveness may be written back to `judge_nodes`.
+ *
+ * `recordLastSeen` used to fire on the handshake and on `ping-response`
+ * only — the two signals the design named (§8) — which meant a judge deep in
+ * a 30-minute grade wrote nothing for a whole ping interval even though it
+ * was demonstrably alive and talking. Every decoded packet is now proof of
+ * life (it already was, for the in-memory `lastSeenAt`), but a chatty
+ * grading session emits packets per test case, and one UPDATE per test case
+ * is a write amplification nobody asked for. So: any packet may refresh it,
+ * at most once per window.
+ *
+ * 15 s is chosen against the reader, not the writer: the admin dashboard
+ * calls a judge offline after 90 s of silence (D47), so the freshest value
+ * this can be stale by is a sixth of that threshold.
+ */
+export const LAST_SEEN_THROTTLE_MS = 15_000;
+
 export interface BridgeOptions {
   /** Our language key → judge-server executor key. */
   languageToExecutor(languageKey: string): string;
+  /**
+   * judge-server executor key → our language key, the inverse of
+   * `languageToExecutor`. Used to turn what a judge announces in its
+   * handshake (`executors`, keyed by DMOJ's names) back into the keys our
+   * `languages` table uses, so dispatch can ask "can this judge run cpp17"
+   * rather than trusting that every judge runs everything.
+   *
+   * Defaults to lowercasing, which is exactly the inverse of production's
+   * `key.toUpperCase()` mapping — see `main.ts`, where the two directions
+   * are written as one pair for that reason. A future language whose
+   * executor name is not simply its key uppercased must supply both halves
+   * there, not lean on this default.
+   */
+  executorToLanguage?(executorKey: string): string;
+  /**
+   * Records what a judge said it can do, from its `handshake` — production
+   * wires this to `@duckoj/db`'s `recordJudgeCapabilities`, which writes
+   * `judge_nodes.capabilities`. That column existed and was written by
+   * nothing (D47's report says so), so an operator could not see which judge
+   * ran which language without reading a container's logs.
+   *
+   * Optional and fire-and-forget on exactly the same terms as
+   * `recordLastSeen`: a failure here is an observability gap, never a
+   * reason to reject a judge that has already authenticated.
+   */
+  recordCapabilities?(id: string, capabilities: JudgeCapabilities): Promise<void>;
   /**
    * Verifies the `(id, key)` pair a judge presents in its `handshake` packet
    * against `judge_nodes` — see `@duckoj/db`'s `verifyJudgeCredential`, which
@@ -30,10 +74,13 @@ export interface BridgeOptions {
    * Records that judge `id` is alive — production wires this to
    * `@duckoj/db`'s `touchJudgeLastSeen`, so `judge_nodes.last_seen` reflects
    * what this class's own in-memory `lastSeenAt` map already knows.
-   * Called on a successful handshake and on every `ping-response`, the
-   * design's two specified signals (design §8) — never on every packet,
-   * unlike `lastSeenAt`, so a chatty grading session cannot turn liveness
-   * tracking into a write on every packet.
+   *
+   * Called on a successful handshake and thereafter on ANY decoded packet,
+   * throttled to one write per `LAST_SEEN_THROTTLE_MS` per judge (D68). It
+   * used to fire on the handshake and `ping-response` alone (design §8),
+   * which under-reported a judge that was mid-grade and talking constantly;
+   * the throttle is what keeps "any packet" from meaning "a write per test
+   * case".
    *
    * Optional: every test double that builds `BridgeOptions` without caring
    * about liveness keeps compiling. A rejection or a synchronous throw from
@@ -44,6 +91,28 @@ export interface BridgeOptions {
   recordLastSeen?(id: string): Promise<void>;
   /** Overrides `PING_INTERVAL_MS`. Tests inject a short value; production uses the default. */
   pingIntervalMs?: number;
+  /** Overrides `LAST_SEEN_THROTTLE_MS`. Tests inject 0 to observe every write. */
+  lastSeenThrottleMs?: number;
+}
+
+/**
+ * What one judge told us it can do, as stored in `judge_nodes.capabilities`.
+ *
+ * `concurrency` is 1 and is not read off the wire, because the wire does not
+ * carry it: a DMOJ handshake announces executors and problems, and nothing
+ * else. One grade per connection is D29's ruling, arrived at from the
+ * protocol's own shape, so 1 is what a judge's capacity IS — recorded here
+ * as a number an operator can read rather than a fact they have to know.
+ */
+export interface JudgeCapabilities {
+  /** Our language keys, mapped back from the judge's executor names. */
+  languages: string[];
+  /** The judge's own names for them, unmapped — what it actually said. */
+  executors: string[];
+  /** Always 1 (D29). See above. */
+  concurrency: number;
+  /** How many problems it announced. A count, not the list: the list is large and changes constantly. */
+  problems: number;
 }
 
 export interface JudgeConnection {
@@ -86,13 +155,34 @@ export class BridgeServer {
    * trusting it.
    */
   private readonly problemSets = new Map<string, Set<string>>();
+  /**
+   * The executor set each judge announced in its `handshake` — DMOJ's own
+   * names (`CPP17`, …), not ours. This is what makes a heterogeneous fleet
+   * possible: `DmojDriver` dispatches a job only to a connection whose set
+   * contains the executor its language maps to.
+   *
+   * Handshake-only, unlike `problemSets`: judge-server announces problems
+   * again whenever they change (`supported-problems`) but never re-announces
+   * executors, so a judge that gains one has to reconnect for us to know —
+   * which it does anyway, since executors are configured at startup.
+   */
+  private readonly executorSets = new Map<string, Set<string>>();
+  /** When `recordLastSeen` last fired for each judge — the throttle's clock. */
+  private readonly lastRecordedAt = new Map<string, number>();
   private handler: PacketHandler = () => {};
   private disconnectHandler: DisconnectHandler = () => {};
   private pingTimer: ReturnType<typeof setInterval> | undefined;
   private readonly pingIntervalMs: number;
+  private readonly lastSeenThrottleMs: number;
 
   constructor(readonly options: BridgeOptions) {
     this.pingIntervalMs = options.pingIntervalMs ?? PING_INTERVAL_MS;
+    this.lastSeenThrottleMs = options.lastSeenThrottleMs ?? LAST_SEEN_THROTTLE_MS;
+  }
+
+  /** Our language key for one of the judge's executor names. */
+  private toLanguage(executorKey: string): string {
+    return this.options.executorToLanguage?.(executorKey) ?? executorKey.toLowerCase();
   }
 
   onPacket(handler: PacketHandler): void {
@@ -123,6 +213,11 @@ export class BridgeServer {
     this.connections.delete(id);
     this.lastSeenAt.delete(id);
     this.problemSets.delete(id);
+    this.executorSets.delete(id);
+    // Not carried across a reconnect: the fresh handshake must be free to
+    // write `last_seen` immediately, or a judge that flapped inside the
+    // throttle window would look silent for another window.
+    this.lastRecordedAt.delete(id);
     this.disconnectHandler(id);
   }
 
@@ -136,6 +231,29 @@ export class BridgeServer {
   }
 
   /**
+   * The executor set the given judge announced at handshake — DMOJ's names.
+   * Empty for an unknown judge, which is the safe answer: a connection we
+   * know nothing about supports nothing, so nothing is dispatched to it.
+   */
+  executorsFor(id: string): ReadonlySet<string> {
+    return this.executorSets.get(id) ?? new Set();
+  }
+
+  /**
+   * Every language key the connected fleet can grade right now, deduplicated
+   * — the union of each judge's executors mapped back through
+   * `executorToLanguage`. Empty when no judge is connected, which is
+   * literally true and is what stops a claim loop taking work nothing can run.
+   */
+  supportedLanguages(): string[] {
+    const languages = new Set<string>();
+    for (const id of this.connections.keys()) {
+      for (const executor of this.executorsFor(id)) languages.add(this.toLanguage(executor));
+    }
+    return [...languages];
+  }
+
+  /**
    * Fires `options.recordLastSeen` for `id`, if the caller supplied one,
    * without ever letting it affect the caller. `Promise.resolve().then(...)`
    * catches a synchronous throw from a test double the same way it would
@@ -146,10 +264,47 @@ export class BridgeServer {
   private touchLastSeen(id: string): void {
     const record = this.options.recordLastSeen;
     if (!record) return;
+    this.lastRecordedAt.set(id, Date.now());
     void Promise.resolve()
       .then(() => record(id))
       .catch(() => {
         // Observability only. Never rejects a handshake or drops a heartbeat.
+      });
+  }
+
+  /**
+   * `touchLastSeen`, but at most once per `lastSeenThrottleMs` for this
+   * judge. The clock is stamped by `touchLastSeen` itself, so the handshake's
+   * unthrottled write also opens the window rather than being immediately
+   * followed by a second one.
+   */
+  private touchLastSeenThrottled(id: string): void {
+    const last = this.lastRecordedAt.get(id);
+    if (last !== undefined && Date.now() - last < this.lastSeenThrottleMs) return;
+    this.touchLastSeen(id);
+  }
+
+  /**
+   * Records a judge's announced capabilities, fire-and-forget on exactly the
+   * terms `touchLastSeen` uses — a synchronous throw from a double and an
+   * async rejection from the real implementation land in the same empty
+   * `catch`, and neither can affect the handshake.
+   */
+  private recordCapabilities(id: string, handshake: HandshakePacket): void {
+    const record = this.options.recordCapabilities;
+    if (!record) return;
+    const executors = Object.keys(handshake.executors);
+    const capabilities: JudgeCapabilities = {
+      languages: [...new Set(executors.map((executor) => this.toLanguage(executor)))],
+      executors,
+      // D29: one grade per connection. The handshake carries no such field.
+      concurrency: 1,
+      problems: handshake.problems.length,
+    };
+    void Promise.resolve()
+      .then(() => record(id, capabilities))
+      .catch(() => {
+        // Observability only. See the doc comment on `recordCapabilities`.
       });
   }
 
@@ -304,6 +459,11 @@ export class BridgeServer {
             }
             id = handshake.id;
             this.problemSets.set(id, new Set(handshake.problems.map(([problemId]) => problemId)));
+            // Set before `handshake-success` goes out, because the driver's
+            // own handshake branch wakes parked dispatches — one of which may
+            // pick this connection, and it must not be able to observe a
+            // connection with no executors and rule it out.
+            this.executorSets.set(id, new Set(Object.keys(handshake.executors)));
             // A judge reconnecting with an id already in the map (e.g. it
             // dropped the old socket and redialed before we noticed) must not
             // silently evict the live connection: `set()` alone leaves the old
@@ -329,6 +489,7 @@ export class BridgeServer {
             connection.send({ name: 'handshake-success' });
             this.lastSeenAt.set(id, Date.now());
             this.touchLastSeen(id);
+            this.recordCapabilities(id, handshake);
             this.handler(connection, packet);
           })();
           return;
@@ -344,13 +505,13 @@ export class BridgeServer {
         // Any decoded packet is proof the judge on the other end is still
         // reading and writing — not just `ping-response`.
         this.lastSeenAt.set(id, Date.now());
-        // Unlike `lastSeenAt` above, the durable `judge_nodes.last_seen`
-        // write only fires on `ping-response` — the actual heartbeat the
-        // design specifies (§8) — not on every packet a busy grading
-        // session produces.
-        if (packet.name === 'ping-response') {
-          this.touchLastSeen(id);
-        }
+        // The durable `judge_nodes.last_seen` write now follows `lastSeenAt`
+        // rather than only `ping-response`: a judge two minutes into a grade
+        // is streaming test-case packets and is obviously alive, and there
+        // was no reason for the dashboard to be told otherwise. The throttle
+        // (D68) is what keeps "any packet" from becoming a write per test
+        // case.
+        this.touchLastSeenThrottled(id);
         if (packet.name === 'supported-problems') {
           this.problemSets.set(id, new Set(packet.problems.map(([problemId]) => problemId)));
         }
@@ -386,6 +547,8 @@ export class BridgeServer {
     this.connections.clear();
     this.lastSeenAt.clear();
     this.problemSets.clear();
+    this.executorSets.clear();
+    this.lastRecordedAt.clear();
     await new Promise<void>((resolve) => {
       if (!this.server) return resolve();
       this.server.close(() => resolve());
