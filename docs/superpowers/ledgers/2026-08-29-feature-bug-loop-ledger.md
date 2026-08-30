@@ -61,3 +61,4 @@
 - B-12 DONE_WITH_CONCERNS, merged (7134632): 500 VU p95 428 ms (first pass under 800), 2000 VU 1557 req/s 0 errors, judge 35.3 subs/min (single-judge ceiling), no leaks, sweeper bounded+indexed (0029, D78), D79 submissions rate-limit owed. Migrated 0028+0029; api rebuilt from clean export; pushed.
 - B-13 dispatched (worktree, opus): submissions rate limit D80, typst bounds, judge revoke drop D81, cross-chunk emails, Redis warnings, CSRF origin guard D82 (migration 0030 reserved).
 - F-15 DONE_WITH_CONCERNS (423ad13..6347b24): packages/similarity (winnowing), similarity runs (0028, D77), organiser report + side-by-side; Dockerfile deps stage + worktree-walking spec fixed. Deployed + pushed. Owed: stuck-'running' reaper.
+- F-16 dispatched (main, opus): similarity run reaper + student progress page (D83). PROVINCE-READINESS.md gained a loop summary section.

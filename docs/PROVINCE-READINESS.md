@@ -54,6 +54,30 @@ corepack pnpm bootstrap:admin <you>   # first admin (D19)
 # import problems: content/README.md
 ```
 
+## Added by the feature/bug loop (2026-08-29 → 2026-08-30)
+
+Features: contest clarifications + announcements (D31) · problem tags,
+difficulty and filters (D35) · TOTP recovery codes (D39) · editorials (D43)
+· admin operations dashboard + lease reclaim (D47) · real rank names (D46)
+· contest PDF booklet (D48) · problem statistics (D49) · org-restricted
+contests (D56) · account settings + localised mails (D57) · bulk student
+accounts with forced password change (D61) · classroom problem sets (D66)
+· Liquid Glass UI (D67) + phone tab bar (D76) · multi-judge scaling and
+`judge:node` (D68) · results CSV/PDF + certificates (D71) · Vietnamese
+guides at `/help` · contest source-similarity report (D77).
+
+Hardening: 13 bug-hunt passes (auth, contests, judging, web, API/ops,
+orgs/import, rating/realtime, whole-diff review, perf, security, newest
+features, soak), ~80 fixed defects incl. checker-based problems always
+IE'ing (D40), a double-join bricking scoreboards (D36), a booklet statement
+leak (D62), CSV injection in three exports, CSP/HSTS at the edge (D69).
+
+Measured (B-12, one 16-core host): 500 VUs → **p95 428 ms, 1716 req/s, 0
+errors**; 2000 VUs → 1557 req/s, 0 errors; **one judge grades ≈35
+submissions/min** (TTV p95 39 s under a 40/min storm) — add judges via
+`corepack pnpm judge:node add` + the `scale` compose profile before a
+province-wide contest.
+
 ## Known gaps, in priority order
 
 1. The first real `restore.sh` against the live stack has not been
