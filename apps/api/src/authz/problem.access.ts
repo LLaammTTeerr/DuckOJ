@@ -658,12 +658,13 @@ export class ProblemAccessService {
    * than a sequential one; nothing keeps it from being an index scan over
    * every submission the problem has ever had.
    *
-   * **A cold page now runs N single-problem aggregates where it used to run
-   * one grouped one.** That is deliberate and it is not a regression: the
-   * same index rows are read either way, `GROUP BY` was never what made it
-   * cheap, and the entries a cold page writes are what make every later page
-   * containing any of those problems free. Do not "optimize" this back into
-   * one query — that is the version with no cache.
+   * **The statement count did not go up — it went down.** Caching a page by
+   * calling a read-through helper once per row would turn D49's single
+   * grouped aggregate into one round trip per problem, which is precisely
+   * the N+1 the catalogue endpoints exist to avoid and which
+   * `problem-me-verdict.spec.ts` pins against. So `throughMany` gathers the
+   * misses and computes them TOGETHER: one aggregate on a cold page, none on
+   * a warm one, never one per row.
    *
    * **No `X-…-Cache` header**, unlike D25's precedent and `getStats`. A page
    * mixes hits and misses per problem, so a single boolean would have to lie
@@ -675,45 +676,48 @@ export class ProblemAccessService {
    * and the reason a masked answer can never be cached for everybody.
    */
   private async loadCountsByProblem(problemIds: number[]): Promise<Map<number, ProblemCounts>> {
-    const byProblem = new Map<number, ProblemCounts>();
-    if (problemIds.length === 0) return byProblem;
+    if (problemIds.length === 0) return new Map();
     // ONE clock for the page, for `computeStats`'s reason: two problems on
     // the same screen asking "is that window still open" of two different
     // instants could disagree at a boundary.
     const now = new Date();
-    const counted = await Promise.all(
-      problemIds.map(async (id) => {
-        const { value } = await this.cache.through(
-          `${COUNTS_CACHE_PREFIX}:${String(id)}`,
-          () => this.computeCounts(id, now),
-          COUNTS_CACHE_TTL_MS,
-        );
-        return [id, value] as const;
-      }),
+    return this.cache.throughMany(
+      problemIds,
+      (id) => `${COUNTS_CACHE_PREFIX}:${String(id)}`,
+      (missing) => this.computeCounts(missing, now),
+      COUNTS_CACHE_TTL_MS,
     );
-    for (const [id, counts] of counted) byProblem.set(id, counts);
-    return byProblem;
   }
 
   /**
-   * D49's two counters for one problem, filtered by the same predicate the
-   * statistics use: a submission counts only once its contest participation
-   * window has closed.
+   * D49's two counters for a set of problems, in one grouped aggregate,
+   * filtered by the same predicate the statistics use: a submission counts
+   * only once its contest participation window has closed.
    *
-   * A problem nobody has ever attempted returns zeros rather than nothing,
-   * so it is CACHED as zeros. Returning "no row" would leave a brand-new
-   * problem — the one every setter reloads while writing it — permanently
-   * missing its entry and recomputing on every read.
+   * **Every id asked about gets a row, including the ones with no
+   * submissions at all.** The aggregate cannot return a group for a problem
+   * with no rows, and an absent id would never be cached — so the one
+   * problem a setter reloads constantly, the empty one they are still
+   * writing, would be the only problem in the catalogue that recomputes on
+   * every read. Zeros are an answer, and they are cached like any other.
    */
-  private async computeCounts(problemId: number, now: Date): Promise<ProblemCounts> {
-    const [row] = await this.db
+  private async computeCounts(problemIds: number[], now: Date): Promise<Map<number, ProblemCounts>> {
+    const rows = await this.db
       .select({
+        problemId: submissions.problemId,
         attempted: sql<number>`count(distinct ${submissions.userId})::int`,
         solved: sql<number>`count(distinct ${submissions.userId}) filter (where ${submissions.verdict} = 'AC')::int`,
       })
       .from(submissions)
-      .where(and(eq(submissions.problemId, problemId), sql`not ${contestWindowOpenWhere(now)}`));
-    return { attemptedCount: row?.attempted ?? 0, solvedCount: row?.solved ?? 0 };
+      .where(and(inArray(submissions.problemId, problemIds), sql`not ${contestWindowOpenWhere(now)}`))
+      .groupBy(submissions.problemId);
+    const counted = new Map<number, ProblemCounts>(
+      problemIds.map((id) => [id, { attemptedCount: 0, solvedCount: 0 }]),
+    );
+    for (const row of rows) {
+      counted.set(row.problemId, { attemptedCount: row.attempted, solvedCount: row.solved });
+    }
+    return counted;
   }
 
   /**

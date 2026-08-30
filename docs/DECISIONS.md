@@ -1620,12 +1620,16 @@ counters are correct at every size and slow at exactly one.
   statistics beside it, for the same reason: these two numbers are a
   difficulty hint on a catalogue page, not a live board. A solve appears
   within half a minute.
-- **A cold page now runs N single-problem aggregates where it ran one grouped
-  one.** Deliberate, and not the N+1 this entry warned about: the same index
-  rows are read either way, `GROUP BY` was never what made it cheap, and the
-  entries a cold page writes are what make every later page free. The comment
-  in the code says not to fold it back, because the folded version is the one
-  with no cache.
+- **The statement count went DOWN, not up**, and getting this wrong was the
+  first attempt: caching a page by calling the read-through helper once per
+  row turns D49's single grouped aggregate into one round trip per problem —
+  the exact N+1 the catalogue endpoints exist to avoid, and
+  `problem-me-verdict.spec.ts`'s "a fixed number of statements for a page,
+  regardless of how many rows are on it" caught it immediately. So
+  `ScoreboardCache` grew `throughMany`: read every key, then compute only the
+  misses, together. **One aggregate on a cold page, none on a warm one, never
+  one per row.** That test is the reason this entry describes an improvement
+  rather than a trade.
 - **No `X-…-Cache` header**, deviating from D25 and from `getStats`. A page
   mixes hits and misses per problem, so one boolean would have to lie about
   one of them, and a header per problem is not a thing HTTP offers.

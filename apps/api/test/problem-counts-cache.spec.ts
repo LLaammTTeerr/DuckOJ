@@ -22,7 +22,7 @@
  * threshold measures the CI box. "The second request did not recompute"
  * measures the thing that changed.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { Redis } from 'ioredis';
 import { type Db } from '@duckoj/db';
@@ -83,21 +83,26 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db, { configOverrides: { redisUrl: await freshRedis() } });
       try {
-        await seedAttempts(db, 3);
+        const problemId = await seedAttempts(db, 3);
 
         const first = await request(app.getHttpServer()).get('/problems/aplusb');
         expect(first.status).toBe(200);
         expect(first.body.attemptedCount).toBe(4);
         expect(first.body.solvedCount).toBe(3);
 
-        // The aggregate is the thing being avoided, so the assertion watches
-        // the database rather than the clock. A `spy` on the service would
-        // pass just as happily against a method that still ran the query.
-        const spy = vi.spyOn(db, 'select');
+        // The entry exists, under a key named for the PROBLEM — which is the
+        // whole ruling. A key over the page's id set is the one D49 rejected,
+        // correctly, as a cache that would miss almost always.
+        const redis = new Redis(await ensureRedisUrl(REDIS_DB));
+        try {
+          expect(await redis.exists(`duckoj:pcounts:v1:${String(problemId)}`)).toBe(1);
+        } finally {
+          redis.disconnect();
+        }
+
         const second = await request(app.getHttpServer()).get('/problems/aplusb');
         expect(second.body.attemptedCount).toBe(4);
         expect(second.body.solvedCount).toBe(3);
-        spy.mockRestore();
 
         // And the LIST route reads the same per-problem entry the detail
         // route wrote — which is the whole point of keying on a problem
