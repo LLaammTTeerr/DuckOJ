@@ -973,10 +973,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A user's rating history, oldest first */
+        /**
+         * A page of a user's rating history, oldest first
+         * @description Keyset-paged on the contest end instant, a hundred a page. `nextCursor` is opaque; a cursor the ordering could never have produced is 422 `invalid_cursor`, like every other list here.
+         */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                };
                 header?: never;
                 path: {
                     username: string;
@@ -985,26 +991,49 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description The history; empty for a user who has never been rated */
+                /** @description A page of the history; empty for a user who has never been rated */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
-                            contestKey: string;
-                            contestName: string;
-                            /** Format: date-time */
-                            endTime: string;
-                            rank: number;
-                            ratingBefore: number;
-                            ratingAfter: number;
-                            delta: number;
-                        }[];
+                            items: {
+                                contestKey: string;
+                                contestName: string;
+                                /** Format: date-time */
+                                endTime: string;
+                                rank: number;
+                                ratingBefore: number;
+                                ratingAfter: number;
+                                delta: number;
+                            }[];
+                            nextCursor: string | null;
+                        };
                     };
                 };
                 /** @description No such user */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The cursor is not one this list could have issued (`invalid_cursor`) */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };

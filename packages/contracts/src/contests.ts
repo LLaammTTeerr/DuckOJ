@@ -528,21 +528,50 @@ export const RatingEvent = z.object({
 });
 export type RatingEventDto = z.infer<typeof RatingEvent>;
 
-export const RatingHistory = z.array(RatingEvent);
-export type RatingHistoryDto = z.infer<typeof RatingHistory>;
+/**
+ * A page of them, oldest first.
+ *
+ * B7 left this the one collection in the API with no bound: a rating history
+ * grows by a row per rated contest and never shrinks, so a weekly round
+ * hands a four-year-old account two hundred rows on every profile view. The
+ * cursor is keyset on `(contests.end_time, contests.id)` — the sort key
+ * itself, tiebroken on the id because two divisions of the same round end on
+ * the same bell, and a cursor keyed on the instant alone would either skip
+ * the second or serve the first twice.
+ */
+export const RatingHistoryPage = cursorPage(RatingEvent);
+export type RatingHistoryPageDto = z.infer<typeof RatingHistoryPage>;
+
+/**
+ * A hundred a page, not `PaginationQuery`'s twenty-five: the page is drawn as
+ * one table AND is the series behind a rating graph, and a graph that starts
+ * a quarter drawn is worse than a slower first paint. The 100 ceiling is the
+ * shared one.
+ */
+export const RatingHistoryQuery = PaginationQuery.extend({
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+});
+export type RatingHistoryQueryDto = z.infer<typeof RatingHistoryQuery>;
 
 registry.registerPath({
   method: 'get',
   path: '/users/{username}/rating',
   tags: ['Contests'],
-  summary: "A user's rating history, oldest first",
-  request: { params: z.object({ username: z.string() }) },
+  summary: "A page of a user's rating history, oldest first",
+  description:
+    'Keyset-paged on the contest end instant, a hundred a page. `nextCursor` is opaque; a cursor ' +
+    'the ordering could never have produced is 422 `invalid_cursor`, like every other list here.',
+  request: { params: z.object({ username: z.string() }), query: RatingHistoryQuery },
   responses: {
     200: {
-      description: 'The history; empty for a user who has never been rated',
-      content: { 'application/json': { schema: RatingHistory } },
+      description: 'A page of the history; empty for a user who has never been rated',
+      content: { 'application/json': { schema: RatingHistoryPage } },
     },
     404: { description: 'No such user', content: { 'application/problem+json': { schema: ProblemDetails } } },
+    422: {
+      description: 'The cursor is not one this list could have issued (`invalid_cursor`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
 

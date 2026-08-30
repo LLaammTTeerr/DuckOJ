@@ -2230,7 +2230,8 @@
         "tags": [
           "Contests"
         ],
-        "summary": "A user's rating history, oldest first",
+        "summary": "A page of a user's rating history, oldest first",
+        "description": "Keyset-paged on the contest end instant, a hundred a page. `nextCursor` is opaque; a cursor the ordering could never have produced is 422 `invalid_cursor`, like every other list here.",
         "parameters": [
           {
             "schema": {
@@ -2239,57 +2240,136 @@
             "required": true,
             "name": "username",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "The history; empty for a user who has never been rated",
+            "description": "A page of the history; empty for a user who has never been rated",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "contestKey": {
-                        "type": "string"
-                      },
-                      "contestName": {
-                        "type": "string"
-                      },
-                      "endTime": {
-                        "type": "string",
-                        "format": "date-time"
-                      },
-                      "rank": {
-                        "type": "integer"
-                      },
-                      "ratingBefore": {
-                        "type": "integer"
-                      },
-                      "ratingAfter": {
-                        "type": "integer"
-                      },
-                      "delta": {
-                        "type": "integer"
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "contestKey": {
+                            "type": "string"
+                          },
+                          "contestName": {
+                            "type": "string"
+                          },
+                          "endTime": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "rank": {
+                            "type": "integer"
+                          },
+                          "ratingBefore": {
+                            "type": "integer"
+                          },
+                          "ratingAfter": {
+                            "type": "integer"
+                          },
+                          "delta": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "contestKey",
+                          "contestName",
+                          "endTime",
+                          "rank",
+                          "ratingBefore",
+                          "ratingAfter",
+                          "delta"
+                        ]
                       }
                     },
-                    "required": [
-                      "contestKey",
-                      "contestName",
-                      "endTime",
-                      "rank",
-                      "ratingBefore",
-                      "ratingAfter",
-                      "delta"
-                    ]
-                  }
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
                 }
               }
             }
           },
           "404": {
             "description": "No such user",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The cursor is not one this list could have issued (`invalid_cursor`)",
             "content": {
               "application/problem+json": {
                 "schema": {
