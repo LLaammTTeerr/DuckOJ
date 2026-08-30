@@ -42,6 +42,7 @@ export function LoginForm(props: {
       <label htmlFor="identifier">{t('auth.usernameOrEmail')}</label>
       <input
         id="identifier"
+        autoComplete="username"
         value={usernameOrEmail}
         onChange={(e) => setUsernameOrEmail(e.target.value)}
       />
@@ -49,6 +50,7 @@ export function LoginForm(props: {
       <input
         id="password"
         type="password"
+        autoComplete="current-password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
       />
@@ -76,6 +78,7 @@ export function LoginForm(props: {
             <input
               id="totp"
               inputMode="numeric"
+              autoComplete="one-time-code"
               value={totpCode}
               onChange={(e) => setTotpCode(e.target.value)}
             />

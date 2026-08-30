@@ -128,6 +128,7 @@ export const vi = {
   'auth.errDisplayName': 'Từ 1 đến 64 ký tự.',
   'auth.errPasswordLength': 'Ít nhất 10 ký tự.',
   'auth.errPasswordMismatch': 'Hai mật khẩu không khớp nhau.',
+  'auth.errorSummaryTitle': 'Vui lòng sửa các lỗi sau',
 
   // ── home ──────────────────────────────────────────────────────────────
   'home.intro':
@@ -886,6 +887,8 @@ export const vi = {
   'testData.colNo': '#',
   'testData.colInput': 'Đầu vào',
   'testData.colAnswer': 'Đáp án',
+  'testData.uploadInputFor': 'Tải tệp đầu vào cho test {n}',
+  'testData.uploadAnswerFor': 'Tải tệp đáp án cho test {n}',
   'testData.colPoints': 'Điểm',
   'testData.colGroup': 'Nhóm',
   'testData.colSample': 'Ví dụ',

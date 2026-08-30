@@ -206,7 +206,17 @@ export function SecurityPage() {
             <button type="button" onClick={() => void copyCodes()}>
               {t('security.recoveryCopy')}
             </button>{' '}
-            {copied ? <span className="muted">{t('security.recoveryCopied')}</span> : null}
+            {/* A live region so a screen reader announces the copy worked;
+                without it the confirmation was a silent visual-only change
+                (WCAG 4.1.3). Rendered on copy rather than always-present so
+                it does not add a second empty status to the codes screen —
+                a role="status" subtree inserted with its text is announced.
+                (loop-b20 a11y) */}
+            {copied ? (
+              <span role="status" className="muted">
+                {t('security.recoveryCopied')}
+              </span>
+            ) : null}
           </p>
           <p>
             <button

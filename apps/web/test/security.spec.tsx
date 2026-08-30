@@ -276,7 +276,11 @@ describe('SecurityPage recovery codes (D39)', () => {
     await userEvent.click(screen.getByRole('button', { name: /^Sao chép$/ }));
 
     expect(writeText).toHaveBeenCalledWith(CODES.join('\n'));
-    expect(await screen.findByText(/Đã sao chép/)).toBeInTheDocument();
+    // The "copied" confirmation must be a live region, or a screen-reader
+    // user who pressed Copy is never told it worked (WCAG 4.1.3). It is
+    // announced from a region that is always in the DOM so the insertion is
+    // what changes, not the region itself.
+    expect(await screen.findByText(/Đã sao chép/)).toHaveAttribute('role', 'status');
   });
 
   it('reports how many are left, and says so plainly when none are', async () => {

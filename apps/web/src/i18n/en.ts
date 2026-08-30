@@ -139,6 +139,7 @@ export const en = {
   'auth.errDisplayName': 'Between 1 and 64 characters.',
   'auth.errPasswordLength': 'At least 10 characters.',
   'auth.errPasswordMismatch': 'The two passwords do not match.',
+  'auth.errorSummaryTitle': 'Please fix the following',
 
   // ── home ──────────────────────────────────────────────────────────────
   'home.intro':
@@ -919,6 +920,8 @@ export const en = {
   'testData.colNo': '#',
   'testData.colInput': 'Input',
   'testData.colAnswer': 'Expected output',
+  'testData.uploadInputFor': 'Upload input file for case {n}',
+  'testData.uploadAnswerFor': 'Upload answer file for case {n}',
   'testData.colPoints': 'Points',
   'testData.colGroup': 'Batch',
   'testData.colSample': 'Sample',

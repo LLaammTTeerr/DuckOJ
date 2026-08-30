@@ -328,8 +328,16 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
 
   return (
     <section>
-      <p>{t('submit.status', { state: stateLabel })}</p>
-      {submission.frozen ? (
+      {/* The state and the verdict arrive asynchronously — polled and
+          streamed in after the reader has stopped touching the page — so
+          they live in one `role="status"` region (polite, atomic) that a
+          screen reader speaks the moment either lands. The dense case grid
+          below is deliberately OUTSIDE it: re-announcing every cell on every
+          poll would bury the one sentence that matters ("Verdict: AC") in
+          noise. (loop-b20 a11y) */}
+      <div role="status">
+        <p>{t('submit.status', { state: stateLabel })}</p>
+        {submission.frozen ? (
         // D23. Checked BEFORE the verdict branches, not after: a frozen
         // submission arrives with `verdict: null`, so without this it would
         // render as nothing at all and read as "not graded yet".
@@ -363,7 +371,8 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
             </small>
           ) : null}
         </p>
-      ) : null}
+        ) : null}
+      </div>
       {submission.compileOutput ? (
         // Rendered whenever there's compiler/judge output at all — including
         // a warning on an otherwise-passing submission, where it must sit

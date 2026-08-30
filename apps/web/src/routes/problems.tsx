@@ -303,7 +303,10 @@ export function ProblemsPage(props: {
           </tbody>
         </table>
       ) : !query.isLoading && !query.isError ? (
-        <p>{t('problems.empty')}</p>
+        // A live region: the list re-runs as the reader types in the search
+        // box, so a query that filters everything away must be announced
+        // rather than silently swapping the table for this line. (loop-b20)
+        <p role="status">{t('problems.empty')}</p>
       ) : null}
 
       {query.hasNextPage ? (

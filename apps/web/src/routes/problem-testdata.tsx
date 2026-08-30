@@ -427,7 +427,11 @@ export function ProblemTestDataTab(props: { code: string }) {
                     value={c.input}
                     onChange={(e) => patchCase(c.id, { input: e.target.value })}
                   />
-                  <input type="file" onChange={(e) => void handleOne(c.id, 'input', e.target.files?.[0])} />
+                  <input
+                    type="file"
+                    aria-label={t('testData.uploadInputFor', { n: i + 1 })}
+                    onChange={(e) => void handleOne(c.id, 'input', e.target.files?.[0])}
+                  />
                 </td>
                 <td>
                   <label htmlFor={`${uid}-out-${c.id}`}>{t('testData.colAnswer')}</label>
@@ -436,7 +440,11 @@ export function ProblemTestDataTab(props: { code: string }) {
                     value={c.answer}
                     onChange={(e) => patchCase(c.id, { answer: e.target.value })}
                   />
-                  <input type="file" onChange={(e) => void handleOne(c.id, 'answer', e.target.files?.[0])} />
+                  <input
+                    type="file"
+                    aria-label={t('testData.uploadAnswerFor', { n: i + 1 })}
+                    onChange={(e) => void handleOne(c.id, 'answer', e.target.files?.[0])}
+                  />
                 </td>
                 <td className="num">
                   {/* A sample is worth nothing by definition, so the points
