@@ -111,7 +111,14 @@ function transitiveClosure(registry: Map<string, WorkspacePackage>, rootName: st
 }
 
 function findDockerfiles(): string[] {
-  const skip = new Set(['node_modules', '.git', 'dist']);
+  // `.claude` holds the campaign's git WORKTREES (gitignored, see
+  // `.gitignore`), each a checkout of another branch at another commit.
+  // Their Dockerfiles were being asserted against THIS tree's dependency
+  // graph, so the moment a package was added on main every stale worktree
+  // failed — 26 red tests about files that are not part of this repo's
+  // source and do not exist on CI. A worktree is somebody else's working
+  // copy; this check is about ours.
+  const skip = new Set(['node_modules', '.git', '.claude', 'dist']);
   const results: string[] = [];
   const walk = (abs: string): void => {
     for (const entry of readdirSync(abs, { withFileTypes: true })) {

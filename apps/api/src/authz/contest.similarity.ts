@@ -32,7 +32,7 @@
  * no longer have to know which two to open.
  */
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import {
   contestParticipations,
   contestProblems,
@@ -191,6 +191,13 @@ export class ContestSimilarityService {
       return inserted[0]!.id;
     });
 
+    // Read the row back BEFORE the work is started, and by its own id
+    // rather than as "the latest": `execute` can finish a small contest
+    // between the two statements, and a response that said `finished` to the
+    // organiser who just pressed the button would be true and useless — the
+    // web polls on `running`, and would never poll.
+    const created = await this.loadRun(eq(similarityRuns.id, runId));
+
     const job = this.execute(runId, contest.id, threshold)
       .catch(async (error: unknown) => {
         // A failed run is a FINISHED row that says so, never a row left
@@ -207,7 +214,7 @@ export class ContestSimilarityService {
       });
     this.running.set(contest.id, job);
 
-    return (await this.latest(actor, key)).run!;
+    return created!;
   }
 
   /**
@@ -450,6 +457,17 @@ export class ContestSimilarityService {
 
   /** The newest run of a contest, as the contract shapes it. */
   private async loadLatestRun(contestId: number): Promise<SimilarityRunDto | null> {
+    return this.loadRun(eq(similarityRuns.contestId, contestId));
+  }
+
+  /**
+   * One run, as the contract shapes it — the newest matching the condition.
+   *
+   * One query for both callers ("the latest of this contest" and "the one I
+   * just inserted") rather than two: the mapping below is the shape of the
+   * response, and a second copy of it is a second thing to keep in step.
+   */
+  private async loadRun(where: SQL): Promise<SimilarityRunDto | null> {
     const rows = await this.db
       .select({
         id: similarityRuns.id,
@@ -463,7 +481,7 @@ export class ContestSimilarityService {
       })
       .from(similarityRuns)
       .leftJoin(schema.users, eq(schema.users.id, similarityRuns.requestedBy))
-      .where(eq(similarityRuns.contestId, contestId))
+      .where(where)
       .orderBy(desc(similarityRuns.startedAt), desc(similarityRuns.id))
       .limit(1);
     const row = rows[0];

@@ -12,6 +12,7 @@ COPY packages/contracts/package.json packages/contracts/
 COPY packages/observability/package.json packages/observability/
 COPY packages/package-format/package.json packages/package-format/
 COPY packages/realtime/package.json packages/realtime/
+COPY packages/similarity/package.json packages/similarity/
 COPY apps/api/package.json apps/api/
 RUN pnpm install --frozen-lockfile
 
