@@ -55,3 +55,50 @@ export function apiError(result: FailedRequest, fallback: string): ApiError {
     result.error?.code,
   );
 }
+
+/**
+ * A response `openapi-fetch` has resolved: the body on success, the RFC 7807
+ * body on failure, or neither for a 204.
+ */
+export interface Fetched<T> extends FailedRequest {
+  data?: T | undefined;
+}
+
+/**
+ * `read(result, fallback, absent)` — the reading half of `apiError`, and the
+ * one way a query function in this app turns a response into data.
+ *
+ * **The bug it exists to kill.** `openapi-fetch` RESOLVES on an HTTP error
+ * rather than rejecting, so `const { data } = await api.GET(...)` is a
+ * perfectly clean-looking line that turns every 500 into `undefined` — and
+ * `?? []` / `?? null` a line later turn that into "you belong to no
+ * organization", "this school runs no contests", "you have no notifications".
+ * The reader is told a fact about the world; the truth was that the question
+ * was never answered. B-4 replaced these once and B-8 found nine survivors,
+ * which is why the shape is a function now rather than a convention.
+ *
+ * **`absent` is the whole design.** Some of these reads have a failure that
+ * genuinely IS an answer: `GET /auth/me` is 401 to a signed-out visitor, and
+ * `GET /contests/{key}/me` is 404 to somebody who has not joined. Those are
+ * states, not errors, and blanket-throwing would put a red error page under
+ * the most public screens in the app. So a call site names the statuses that
+ * mean "nothing here" and everything else propagates — which is exactly the
+ * distinction the swallow could not express, and the reason it swallowed
+ * everything instead.
+ *
+ * The thrown `ApiError` keeps its status, so `src/query.ts`'s retry policy
+ * still declines to re-ask a question the server has already answered.
+ */
+export function read<T>(result: Fetched<T>, fallback: string, absent: readonly number[] = []): T | null {
+  // Both halves are load-bearing. `error` is what openapi-fetch sets for a
+  // failure whose body it could decode; a 4xx with an empty body leaves it
+  // undefined, and then only the response's own status still says the
+  // request failed. Checking one without the other lets a failure through as
+  // `null`, which is the bug this function is named after.
+  const status = result.response?.status;
+  const failed = result.error !== undefined || (status !== undefined && status >= 400);
+  if (!failed) return result.data ?? null;
+  const error = apiError(result, fallback);
+  if (absent.includes(error.status)) return null;
+  throw error;
+}

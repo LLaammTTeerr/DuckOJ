@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { read } from '../api-error.js';
 import {
   formatRelative,
   formatTimestamp,
@@ -25,9 +26,11 @@ export const notificationsQueryOptions = {
   queryKey: ['notifications'] as const,
   queryFn: async (): Promise<Feed | null> => {
     // 401/403 (signed out, or a token session) is an ordinary state here,
-    // not an error — the bell simply has nothing to show.
-    const { data } = await api.GET('/notifications');
-    return data ?? null;
+    // not an error — the bell simply has nothing to show. Every OTHER status
+    // was folded into that same silence, so a 500 rendered as an empty inbox
+    // and a bell reading zero: the two failures a reader is least able to
+    // distinguish from "nothing has happened".
+    return read(await api.GET('/notifications'), 'notifications', [401, 403]);
   },
 };
 

@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { SCOPES } from '@duckoj/contracts';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { read } from '../api-error.js';
 import { formatDate, useLocale, useT } from '../i18n/index.js';
 
 type TokenRow = paths['/auth/tokens']['get']['responses'][200]['content']['application/json'][number];
@@ -32,8 +33,11 @@ export function TokensPage() {
   const tokens = useQuery({
     queryKey: ['tokens'],
     queryFn: async (): Promise<TokenRow[] | null> => {
-      const { data } = await api.GET('/auth/tokens');
-      return data ?? null;
+      // No `absent` list, and 401 in particular is NOT absent here: this page
+      // renders "sign in with a session, not a token" for a null list, so a
+      // swallowed failure impersonated that message and told a session-authed
+      // reader to go and do what they had already done.
+      return read(await api.GET('/auth/tokens'), t('tokens.loadError'));
     },
   });
 
@@ -82,6 +86,11 @@ export function TokensPage() {
   }
 
   if (tokens.isPending) return <p className="muted">{t('common.loading')}</p>;
+  // Before the error branch existed, `tokens.gate` below caught this too —
+  // and it reads "sign in with a session, not an access token", which is
+  // advice, not a failure. A session-authed reader hitting a 500 was told to
+  // go and do the thing they had already done.
+  if (tokens.isError) return <p role="alert">{t('tokens.loadError')}</p>;
   if (tokens.data == null) return <p>{t('tokens.gate')}</p>;
   const rows = tokens.data;
 

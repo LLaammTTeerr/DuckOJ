@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { ApiError, read } from '../api-error.js';
 import { formatPoints } from '../format.js';
 import { useT, verdictName, type MsgKey, type TFunction } from '../i18n/index.js';
 
@@ -451,12 +452,27 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
   const terminalRef = useRef(false);
   terminalRef.current = submission ? TERMINAL_STATES.has(submission.state) : false;
 
-  const fetchSubmission = useCallback(async (id: number) => {
-    const { data } = await api.GET('/submissions/{id}', { params: { path: { id } } });
-    if (data && submissionIdRef.current === id) {
-      setSubmission(data);
-    }
-  }, []);
+  // Not a query function — the WebSocket effect calls this, so a throw here
+  // would be an unhandled rejection with nothing to catch it and no
+  // `isError` to render from. `read` still does the work of noticing the
+  // failure; the failure lands in the page's own error line instead, beside
+  // the one `useSubmissionSocket` already uses to say the live feed is down.
+  // Swallowed, this was the worst of the nine: the verdict panel simply stops
+  // updating, which is exactly what a still-grading submission looks like.
+  const fetchSubmission = useCallback(
+    async (id: number) => {
+      try {
+        const data = read(await api.GET('/submissions/{id}', { params: { path: { id } } }), t('submission.notFound'));
+        if (data && submissionIdRef.current === id) {
+          setSubmission(data);
+        }
+      } catch (error) {
+        if (submissionIdRef.current !== id) return;
+        setSubmitError(error instanceof ApiError ? error.message : t('submission.notFound'));
+      }
+    },
+    [t],
+  );
 
   const handleSubscriptionError = useCallback(
     (code: string) => {
