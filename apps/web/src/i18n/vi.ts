@@ -693,6 +693,7 @@ export const vi = {
   'password.mismatch': 'Hai ô không khớp nhau.',
   'password.save': 'Đổi mật khẩu',
   'password.done': 'Đã đổi mật khẩu. Mọi thiết bị khác đã bị đăng xuất.',
+  'password.dismiss': 'Đóng',
   'password.error': 'Không đổi được mật khẩu.',
   'password.signedOut': 'Hãy đăng nhập để đổi mật khẩu.',
   'nav.password': 'Mật khẩu',

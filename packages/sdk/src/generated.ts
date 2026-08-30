@@ -6921,6 +6921,7 @@ export interface paths {
                                 explanation: string | null;
                                 truncated: boolean;
                             }[];
+                            publishedVersion: number | null;
                         };
                     };
                 };
@@ -7082,6 +7083,7 @@ export interface paths {
                                 explanation: string | null;
                                 truncated: boolean;
                             }[];
+                            publishedVersion: number | null;
                         };
                     };
                 };
@@ -7196,6 +7198,7 @@ export interface paths {
                                 explanation: string | null;
                                 truncated: boolean;
                             }[];
+                            publishedVersion: number | null;
                         };
                     };
                 };
@@ -7463,6 +7466,7 @@ export interface paths {
                                 explanation: string | null;
                                 truncated: boolean;
                             }[];
+                            publishedVersion: number | null;
                         };
                     };
                 };

@@ -32,6 +32,7 @@ import {
   ProblemSetAccessService,
 } from './problem-set.access.js';
 import { RatingService } from './rating.service.js';
+import { TeamAccessService } from './team.access.js';
 import { RejudgeService } from './rejudge.access.js';
 import {
   RedisScoreboardCacheStore,
@@ -94,6 +95,11 @@ import {
     ProgressService,
     RatingService,
     RejudgeService,
+    // D99's teams. Its own provider rather than more methods on
+    // `OrgAccessService`, on `ProblemSetAccessService`'s precedent: it asks
+    // that service who may act, and reads two tables that service never
+    // touches.
+    TeamAccessService,
     // The admin operations dashboard (D47). It lives here, not in
     // `AdminModule`, because two of its panels read guarded tables — the
     // same rule that put `RejudgeService` here. Its Redis probe opens no
@@ -142,6 +148,7 @@ import {
     ProgressService,
     RatingService,
     RejudgeService,
+    TeamAccessService,
   ],
 })
 export class AuthzModule {}

@@ -260,7 +260,7 @@ describe('GET /users/{username}/progress and /users/me/progress (D83)', () => {
         // And a public one they have never got right: attempted is not solved.
         await handIn(db, world, world.unratedProblemId, 'WA', day);
 
-        const pub = await agent.get('/users/prog-bars/progress');
+        const pub = await agent.get('/api/v1/users/prog-bars/progress');
         expect(pub.status).toBe(200);
         expect(pub.body.byTag).toEqual([
           { slug: 'quy-hoach-dong', nameVi: 'Quy hoạch động', nameEn: 'Dynamic programming', attempted: 1, solved: 1 },
@@ -275,7 +275,7 @@ describe('GET /users/{username}/progress and /users/me/progress (D83)', () => {
         // The private problem's tag would announce that it exists.
         expect(JSON.stringify(pub.body)).not.toContain('do-thi');
 
-        const mine = await agent.get('/users/me/progress').set('Cookie', cookie);
+        const mine = await agent.get('/api/v1/users/me/progress').set('Cookie', cookie);
         expect(mine.status).toBe(200);
         expect(mine.body.byTag.map((bar: { slug: string }) => bar.slug)).toEqual([
           'do-thi',
@@ -304,7 +304,7 @@ describe('GET /users/{username}/progress and /users/me/progress (D83)', () => {
         const inContest = await handIn(db, world, world.contestProblemId, 'AC', new Date());
         await seedLiveContest(db, world, 'progressive', owner, inContest);
 
-        const mine = await agent.get('/users/me/progress').set('Cookie', cookie);
+        const mine = await agent.get('/api/v1/users/me/progress').set('Cookie', cookie);
         expect(mine.status).toBe(200);
         // D49's window exclusion — on the reader's OWN page, because a
         // per-viewer rule could not be cached and D23 never masks a
@@ -340,7 +340,7 @@ describe('GET /users/{username}/progress and /users/me/progress (D83)', () => {
         const yesterdayUtc = addDays(todayIn('UTC', new Date()), -1);
         await handIn(db, world, world.publicProblemId, 'AC', new Date(`${yesterdayUtc}T20:00:00Z`));
 
-        const mine = await agent.get('/users/me/progress').set('Cookie', cookie);
+        const mine = await agent.get('/api/v1/users/me/progress').set('Cookie', cookie);
         expect(mine.body.heatmap.timezone).toBe('Asia/Ho_Chi_Minh');
         expect(mine.body.heatmap.days).toEqual([
           { date: addDays(yesterdayUtc, 1), count: 1 },
@@ -352,7 +352,7 @@ describe('GET /users/{username}/progress and /users/me/progress (D83)', () => {
           .update(schema.users)
           .set({ timezone: 'America/New_York' })
           .where(eq(schema.users.id, world.studentId));
-        const shifted = await agent.get('/users/me/progress').set('Cookie', cookie);
+        const shifted = await agent.get('/api/v1/users/me/progress').set('Cookie', cookie);
         expect(shifted.body.heatmap.days).toEqual([{ date: yesterdayUtc, count: 1 }]);
       } finally {
         await app.close();
@@ -425,7 +425,7 @@ describe('GET /users/{username}/progress and /users/me/progress (D83)', () => {
         // completion count that read "attempted" would say 2 of 2.
         await handIn(db, world, world.privateProblemId, 'WA', new Date(Date.now() - HOUR));
 
-        const mine = await agent.get('/users/me/progress').set('Cookie', cookie);
+        const mine = await agent.get('/api/v1/users/me/progress').set('Cookie', cookie);
         expect(mine.body.upcomingContests.map((c: { key: string }) => c.key)).toEqual(['progdue']);
         expect(mine.body.homework).toHaveLength(1);
         expect(mine.body.homework[0]).toMatchObject({
@@ -448,12 +448,12 @@ describe('GET /users/{username}/progress and /users/me/progress (D83)', () => {
         await registerAndLogin(agent, 'prog-gate');
         await seedWorld(db, 'gate', 'prog-gate');
         const server = request(app.getHttpServer());
-        expect((await server.get('/users/me/progress')).status).toBe(401);
-        const anon = await server.get('/users/prog-gate/progress');
+        expect((await server.get('/api/v1/users/me/progress')).status).toBe(401);
+        const anon = await server.get('/api/v1/users/prog-gate/progress');
         expect(anon.status).toBe(200);
         // The public shape carries nothing the owner's page adds.
         expect(Object.keys(anon.body).sort()).toEqual(['byDifficulty', 'byTag', 'heatmap']);
-        const missing = await server.get('/users/nobody-at-all/progress');
+        const missing = await server.get('/api/v1/users/nobody-at-all/progress');
         expect(missing.status).toBe(404);
         expect(missing.body.code).toBe('user_not_found');
       } finally {
@@ -478,7 +478,7 @@ describe('GET /users/{username}/progress and /users/me/progress (D83)', () => {
         expect(progress.byTag).toEqual([]);
         expect(progress.heatmap.days).toEqual([]);
         expect(progress.homework).toEqual([]);
-        const over = await agent.get('/users/me/progress').set('Cookie', cookie);
+        const over = await agent.get('/api/v1/users/me/progress').set('Cookie', cookie);
         expect(over.status).toBe(200);
         expect(over.body.recent).toEqual([]);
       } finally {

@@ -220,7 +220,7 @@ describe("a submission inside its contest's freeze window", () => {
       try {
         const viewer = await curatorAgent(app, db, 'sf1-curator', seeded.problemId);
 
-        const detail = await viewer.get(`/submissions/${late}`);
+        const detail = await viewer.get(`/api/v1/submissions/${late}`);
         expect(detail.status).toBe(200);
         expect(detail.body.frozen).toBe(true);
         expect(detail.body.verdict).toBeNull();
@@ -234,7 +234,7 @@ describe("a submission inside its contest's freeze window", () => {
         expect(detail.body.state).toBe('done');
         expect(() => SubmissionDetail.parse(detail.body)).not.toThrow();
 
-        const list = await viewer.get('/submissions');
+        const list = await viewer.get('/api/v1/submissions');
         expect(list.status).toBe(200);
         const rows = list.body.items as { id: number; frozen: boolean; verdict: string | null }[];
         expect(rows.map((r) => r.id).sort((a, b) => a - b)).toEqual([early, late]);
@@ -319,7 +319,7 @@ describe("a submission inside its contest's freeze window", () => {
       try {
         const viewer = await curatorAgent(app, db, 'sf5-curator', seeded.problemId);
 
-        const detail = await viewer.get(`/submissions/${late}`);
+        const detail = await viewer.get(`/api/v1/submissions/${late}`);
 
         expect(detail.status).toBe(200);
         expect(detail.body.frozen).toBe(false);

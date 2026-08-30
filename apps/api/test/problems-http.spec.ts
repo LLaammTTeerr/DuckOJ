@@ -56,7 +56,7 @@ describe('GET /problems, GET /problems/:code over HTTP', () => {
         await seedProblem(db, { code: 'pub-http', name: 'Public HTTP', visibility: 'public', createdBy: owner.id });
         await seedProblem(db, { code: 'priv-http', name: 'Private HTTP', visibility: 'private', createdBy: owner.id });
 
-        const list = await request(app.getHttpServer()).get('/problems');
+        const list = await request(app.getHttpServer()).get('/api/v1/problems');
         expect(list.status).toBe(200);
         const page = ProblemPage.parse(list.body);
         expect(page.items.map((p) => p.code)).toContain('pub-http');
@@ -65,7 +65,7 @@ describe('GET /problems, GET /problems/:code over HTTP', () => {
         // Same 404 for "absent" and "invisible" — organizations §3 item 2:
         // a problem the actor may not see returns `problem_not_found`, never
         // a distinct signal that would let existence be probed for.
-        const hidden = await request(app.getHttpServer()).get('/problems/priv-http');
+        const hidden = await request(app.getHttpServer()).get('/api/v1/problems/priv-http');
         expect(hidden.status).toBe(404);
         expect(hidden.headers['content-type']).toContain('application/problem+json');
         expect(hidden.body.code).toBe('problem_not_found');
@@ -82,7 +82,7 @@ describe('POST /problems over HTTP', () => {
       const app = await buildApp(db);
       try {
         const res = await request(app.getHttpServer())
-          .post('/problems')
+          .post('/api/v1/problems')
           .send({ code: 'anon-create', name: 'Anon Create', statement: 'x' });
         expect(res.status).toBe(401);
         expect(res.body.code).toBe('authentication_required');
@@ -99,7 +99,7 @@ describe('POST /problems over HTTP', () => {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'plain-http-creator');
 
-        const res = await agent.post('/problems').send({ code: 'plain-create', name: 'Plain Create', statement: 'x' });
+        const res = await agent.post('/api/v1/problems').send({ code: 'plain-create', name: 'Plain Create', statement: 'x' });
         expect(res.status).toBe(403);
         expect(res.body.code).toBe('problem_forbidden');
       } finally {
@@ -116,7 +116,7 @@ describe('POST /problems over HTTP', () => {
         await registerAndLogin(agent, 'setter-http-creator');
         await db.update(schema.users).set({ globalRole: 'setter' }).where(eq(schema.users.username, 'setter-http-creator'));
 
-        const res = await agent.post('/problems').send({ code: 'setter-create', name: 'Setter Create', statement: 'A statement.' });
+        const res = await agent.post('/api/v1/problems').send({ code: 'setter-create', name: 'Setter Create', statement: 'A statement.' });
         expect(res.status).toBe(201);
         const detail = ProblemDetail.parse(res.body);
         expect(detail.code).toBe('setter-create');
@@ -140,7 +140,7 @@ describe('PATCH /problems/:code over HTTP', () => {
         await db.update(schema.users).set({ globalRole: 'setter' }).where(eq(schema.users.username, 'patch-http-author'));
 
         const created = await agent
-          .post('/problems')
+          .post('/api/v1/problems')
           .send({ code: 'patch-immutable', name: 'Before', statement: 'x' });
         expect(created.status).toBe(201);
 
@@ -150,7 +150,7 @@ describe('PATCH /problems/:code over HTTP', () => {
         // `UpdateProblemBodyPipe` is what turns it specifically into 400
         // `problem_code_immutable` rather than the pipe's ordinary 422
         // `validation_failed`.
-        const patched = await agent.patch('/problems/patch-immutable').send({ code: 'stolen-code' });
+        const patched = await agent.patch('/api/v1/problems/patch-immutable').send({ code: 'stolen-code' });
         expect(patched.status).toBe(400);
         expect(patched.body.code).toBe('problem_code_immutable');
 

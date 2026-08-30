@@ -424,3 +424,122 @@ describe('likeEscape', () => {
     expect(likeEscape('100\\%')).toBe('100\\\\\\%');
   });
 });
+
+/**
+ * `ProblemDetail.publishedVersion` — WHICH revision is live, not merely
+ * whether one is (D92).
+ *
+ * F-21's live probe read `publishedVersion` off `GET /problems/{code}` and
+ * reported it `null` for every problem on the stack. It was: the field did
+ * not exist, so the projection printed `null` for a key that was never
+ * there. The detail could say `hasPublishedRevision: true` and nothing about
+ * which version that was, while the number itself sat one join away in the
+ * row already being selected.
+ */
+describe('ProblemAccessService.getVisible — publishedVersion', () => {
+  /** A problem with `count` revisions, the LAST of them published. */
+  async function seedRevisions(db: Db, code: string, createdBy: number, count: number): Promise<void> {
+    const [problem] = await db
+      .insert(problems)
+      .values({ code, name: code, statement: 's', visibility: 'public', createdBy })
+      .returning();
+    let currentId: number | null = null;
+    for (let version = 1; version <= count; version += 1) {
+      const hash = `hash-${code}-${String(version)}`;
+      await db.insert(schema.packages).values({ hash, sizeBytes: 1, fileCount: 1 });
+      const [revision] = await db
+        .insert(problemRevisions)
+        .values({
+          problemId: problem!.id,
+          version,
+          packageHash: hash,
+          state: version === count ? 'published' : 'archived',
+          createdBy,
+          timeMs: 1000,
+          memoryKb: 256_000,
+          testCount: 5,
+          totalPoints: 100,
+          checkerKind: 'wcmp',
+        })
+        .returning();
+      if (version === count) currentId = revision!.id;
+    }
+    await db.update(problems).set({ currentRevisionId: currentId }).where(eq(problems.id, problem!.id));
+  }
+
+  it("answers the live revision's version, not the first one", async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'pv-owner');
+      await seedRevisions(db, 'pv-three', owner.id, 3);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
+
+      const detail = await service.getVisible(null, 'pv-three');
+      expect(detail.hasPublishedRevision).toBe(true);
+      // 3, never 1: the archived revisions are numbered from 1 deliberately
+      // and the published one is last, so a mapping that read the problem's
+      // FIRST revision answers 1 and fails here.
+      expect(detail.publishedVersion).toBe(3);
+    });
+  }, 120_000);
+
+  it('answers null for a problem whose only revision is a draft', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'pv-draft-owner');
+      await seedProblem(db, { code: 'pv-draft', name: 'Draft only', createdBy: owner.id, publish: false });
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
+
+      const detail = await service.getVisible(null, 'pv-draft');
+      expect(detail.hasPublishedRevision).toBe(false);
+      expect(detail.publishedVersion).toBeNull();
+    });
+  }, 120_000);
+
+  /**
+   * The case this file's `testCount` test named and could not build: a
+   * problem whose `currentRevisionId` points at a revision that is NOT
+   * published.
+   *
+   * `publishRevision` never leaves that state and no constraint forbids it,
+   * so this is written by hand — which is exactly the point. The
+   * `state = 'published'` term on the revision join is what makes the answer
+   * honest here, and every revision-derived field must degrade together:
+   * reporting `publishedVersion: 2` beside `hasPublishedRevision: false`
+   * would be a worse answer than either.
+   */
+  it('degrades every revision-derived field together when the pointer is not on a published revision', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'pv-stale-owner');
+      const [problem] = await db
+        .insert(problems)
+        .values({ code: 'pv-stale', name: 'Stale', statement: 's', visibility: 'public', createdBy: owner.id })
+        .returning();
+      await db.insert(schema.packages).values({ hash: 'hash-pv-stale', sizeBytes: 1, fileCount: 1 });
+      const [revision] = await db
+        .insert(problemRevisions)
+        .values({
+          problemId: problem!.id,
+          version: 2,
+          packageHash: 'hash-pv-stale',
+          state: 'archived',
+          createdBy: owner.id,
+          timeMs: 1000,
+          memoryKb: 256_000,
+          testCount: 5,
+          totalPoints: 100,
+          checkerKind: 'wcmp',
+        })
+        .returning();
+      await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problem!.id));
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
+
+      const detail = await service.getVisible(null, 'pv-stale');
+      expect(detail.hasPublishedRevision).toBe(false);
+      expect(detail.publishedVersion).toBeNull();
+      expect(detail.testCount).toBeNull();
+      expect(detail.totalPoints).toBeNull();
+      expect(detail.timeMs).toBeNull();
+      expect(detail.memoryKb).toBeNull();
+      expect(detail.checkerKind).toBeNull();
+    });
+  }, 120_000);
+});

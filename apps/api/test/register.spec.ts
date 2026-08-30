@@ -51,7 +51,7 @@ describe('POST /auth/register', () => {
   it('creates a user and returns the profile without the password', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
-      const res = await request(app.getHttpServer()).post('/auth/register').send({
+      const res = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
         username: 'dave',
         email: 'dave@example.com',
         password: 'a-long-enough-password',
@@ -74,9 +74,9 @@ describe('POST /auth/register', () => {
         password: 'a-long-enough-password',
         displayName: 'Erin',
       };
-      await request(app.getHttpServer()).post('/auth/register').send(body);
+      await request(app.getHttpServer()).post('/api/v1/auth/register').send(body);
       const res = await request(app.getHttpServer())
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({ ...body, email: 'erin2@example.com' });
       expect(res.status).toBe(409);
       expect(res.body.code).toBe('username_taken');
@@ -87,7 +87,7 @@ describe('POST /auth/register', () => {
   it('rejects a short password with 422 and a field message', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
-      const res = await request(app.getHttpServer()).post('/auth/register').send({
+      const res = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
         username: 'frank',
         email: 'frank@example.com',
         password: 'short',
@@ -126,7 +126,7 @@ describe('POST /auth/register', () => {
         passwordHash: 'not-a-real-hash-this-row-is-only-here-to-collide',
       });
 
-      const res = await request(app.getHttpServer()).post('/auth/register').send({
+      const res = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
         username: 'gina',
         email: 'gina-two@example.com',
         password: 'a-long-enough-password',
@@ -164,11 +164,11 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
       const app = await buildApp(db);
       try {
         const first = await request(app.getHttpServer())
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .send({ ...BODY, username: 'incumbent' });
         expect(first.status).toBe(201);
 
-        const second = await request(app.getHttpServer()).post('/auth/register').send(BODY);
+        const second = await request(app.getHttpServer()).post('/api/v1/auth/register').send(BODY);
         // Same status, same body SHAPE, and the submitted values echoed back
         // — anything that differed would be the oracle all over again.
         expect(second.status).toBe(201);
@@ -215,7 +215,7 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
           passwordHash: 'not-a-real-hash-this-row-is-only-here-to-collide',
         });
 
-        const res = await request(app.getHttpServer()).post('/auth/register').send(BODY);
+        const res = await request(app.getHttpServer()).post('/api/v1/auth/register').send(BODY);
         expect(res.status).toBe(201);
         expect(res.body.username).toBe('newcomer');
         expect(res.body.email).toBe('taken@example.com');
@@ -238,14 +238,14 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
       try {
         for (let i = 0; i < 30; i++) {
           const res = await request(app.getHttpServer())
-            .post('/auth/register')
+            .post('/api/v1/auth/register')
             .set('X-Forwarded-For', '203.0.113.7')
             .send({ ...BODY, username: `member${String(i)}`, email: `member${String(i)}@x.test` });
           expect(res.status).toBe(201);
         }
 
         const refused = await request(app.getHttpServer())
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .set('X-Forwarded-For', '203.0.113.7')
           .send({ ...BODY, username: 'member30', email: 'member30@x.test' });
         expect(refused.status).toBe(429);
@@ -258,7 +258,7 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
         // A different IP has its own window, and the refusal recorded
         // nothing — the same shape D16 gives login.
         const other = await request(app.getHttpServer())
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .set('X-Forwarded-For', '198.51.100.4')
           .send({ ...BODY, username: 'elsewhere', email: 'elsewhere@x.test' });
         expect(other.status).toBe(201);
@@ -278,7 +278,7 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
       const app = await buildApp(db);
       try {
         await request(app.getHttpServer())
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .set('X-Forwarded-For', '203.0.113.9')
           .send({ ...BODY, username: 'incumbent' });
         // Twenty-nine more attempts, all on the SAME (now taken) address:
@@ -286,12 +286,12 @@ describe('POST /auth/register — enumeration and metering (D26)', () => {
         // would not cover the enumeration it exists to make expensive.
         for (let i = 0; i < 29; i++) {
           await request(app.getHttpServer())
-            .post('/auth/register')
+            .post('/api/v1/auth/register')
             .set('X-Forwarded-For', '203.0.113.9')
             .send({ ...BODY, username: `probe${String(i)}` });
         }
         const refused = await request(app.getHttpServer())
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .set('X-Forwarded-For', '203.0.113.9')
           .send({ ...BODY, username: 'probe99' });
         expect(refused.status).toBe(429);

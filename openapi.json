@@ -14360,6 +14360,13 @@
                           "truncated"
                         ]
                       }
+                    },
+                    "publishedVersion": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
                     }
                   },
                   "required": [
@@ -14385,7 +14392,8 @@
                     "orgSlugs",
                     "editorial",
                     "editorialAvailable",
-                    "samples"
+                    "samples",
+                    "publishedVersion"
                   ]
                 }
               }
@@ -14804,6 +14812,13 @@
                           "truncated"
                         ]
                       }
+                    },
+                    "publishedVersion": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
                     }
                   },
                   "required": [
@@ -14829,7 +14844,8 @@
                     "orgSlugs",
                     "editorial",
                     "editorialAvailable",
-                    "samples"
+                    "samples",
+                    "publishedVersion"
                   ]
                 }
               }
@@ -15202,6 +15218,13 @@
                           "truncated"
                         ]
                       }
+                    },
+                    "publishedVersion": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
                     }
                   },
                   "required": [
@@ -15227,7 +15250,8 @@
                     "orgSlugs",
                     "editorial",
                     "editorialAvailable",
-                    "samples"
+                    "samples",
+                    "publishedVersion"
                   ]
                 }
               }
@@ -15836,6 +15860,13 @@
                           "truncated"
                         ]
                       }
+                    },
+                    "publishedVersion": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
                     }
                   },
                   "required": [
@@ -15861,7 +15892,8 @@
                     "orgSlugs",
                     "editorial",
                     "editorialAvailable",
-                    "samples"
+                    "samples",
+                    "publishedVersion"
                   ]
                 }
               }

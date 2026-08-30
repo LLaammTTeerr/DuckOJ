@@ -20,9 +20,9 @@ const PASSWORD = 'a-long-enough-password';
 async function signedIn(app: Awaited<ReturnType<typeof buildApp>>, username: string) {
   const agent = request.agent(app.getHttpServer());
   await agent
-    .post('/auth/register')
+    .post('/api/v1/auth/register')
     .send({ username, email: `${username}@example.com`, password: PASSWORD, displayName: username });
-  await agent.post('/auth/login').send({ usernameOrEmail: username, password: PASSWORD });
+  await agent.post('/api/v1/auth/login').send({ usernameOrEmail: username, password: PASSWORD });
   return agent;
 }
 
@@ -32,15 +32,15 @@ describe('POST /auth/totp/confirm is metered (D72)', () => {
       const app = await buildApp(db);
       try {
         const agent = await signedIn(app, 'tess');
-        const secret = (await agent.post('/auth/totp/begin')).body.secret as string;
+        const secret = (await agent.post('/api/v1/auth/totp/begin')).body.secret as string;
 
         for (let attempt = 0; attempt < 10; attempt += 1) {
-          const wrong = await agent.post('/auth/totp/confirm').send({ code: '000000' });
+          const wrong = await agent.post('/api/v1/auth/totp/confirm').send({ code: '000000' });
           expect(wrong.status).toBe(422);
           expect(wrong.body.code).toBe('invalid_totp_enrolment_code');
         }
 
-        const refused = await agent.post('/auth/totp/confirm').send({ code: '000000' });
+        const refused = await agent.post('/api/v1/auth/totp/confirm').send({ code: '000000' });
         expect(refused.status).toBe(429);
         expect(refused.body.code).toBe('totp_confirm_rate_limited');
         expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
@@ -49,10 +49,10 @@ describe('POST /auth/totp/confirm is metered (D72)', () => {
         // code walks past is a limiter an attacker walks past on the guess
         // that happens to be right, which is the only guess that matters.
         const correct = await agent
-          .post('/auth/totp/confirm')
+          .post('/api/v1/auth/totp/confirm')
           .send({ code: authenticator.generate(secret) });
         expect(correct.status).toBe(429);
-        expect((await agent.get('/auth/me')).body.totpEnabled).toBe(false);
+        expect((await agent.get('/api/v1/auth/me')).body.totpEnabled).toBe(false);
       } finally {
         await app.close();
       }
@@ -64,15 +64,15 @@ describe('POST /auth/totp/confirm is metered (D72)', () => {
       const app = await buildApp(db);
       try {
         const noisy = await signedIn(app, 'uma');
-        await noisy.post('/auth/totp/begin');
+        await noisy.post('/api/v1/auth/totp/begin');
         for (let attempt = 0; attempt < 11; attempt += 1) {
-          await noisy.post('/auth/totp/confirm').send({ code: '000000' });
+          await noisy.post('/api/v1/auth/totp/confirm').send({ code: '000000' });
         }
 
         const quiet = await signedIn(app, 'vlad');
-        const secret = (await quiet.post('/auth/totp/begin')).body.secret as string;
+        const secret = (await quiet.post('/api/v1/auth/totp/begin')).body.secret as string;
         const confirm = await quiet
-          .post('/auth/totp/confirm')
+          .post('/api/v1/auth/totp/confirm')
           .send({ code: authenticator.generate(secret) });
         expect(confirm.status).toBe(200);
       } finally {
@@ -88,26 +88,26 @@ describe('DELETE /auth/totp re-authenticates (D72)', () => {
       const app = await buildApp(db);
       try {
         const agent = await signedIn(app, 'wren');
-        const secret = (await agent.post('/auth/totp/begin')).body.secret as string;
+        const secret = (await agent.post('/api/v1/auth/totp/begin')).body.secret as string;
         expect(
-          (await agent.post('/auth/totp/confirm').send({ code: authenticator.generate(secret) }))
+          (await agent.post('/api/v1/auth/totp/confirm').send({ code: authenticator.generate(secret) }))
             .status,
         ).toBe(200);
 
-        const bare = await agent.delete('/auth/totp').send({});
+        const bare = await agent.delete('/api/v1/auth/totp').send({});
         expect(bare.status).toBe(422);
-        expect((await agent.get('/auth/me')).body.totpEnabled).toBe(true);
+        expect((await agent.get('/api/v1/auth/me')).body.totpEnabled).toBe(true);
 
-        const wrong = await agent.delete('/auth/totp').send({ password: 'not-the-password' });
+        const wrong = await agent.delete('/api/v1/auth/totp').send({ password: 'not-the-password' });
         expect(wrong.status).toBe(401);
         expect(wrong.body.code).toBe('invalid_credentials');
-        expect((await agent.get('/auth/me')).body.totpEnabled).toBe(true);
+        expect((await agent.get('/api/v1/auth/me')).body.totpEnabled).toBe(true);
 
-        const right = await agent.delete('/auth/totp').send({ password: PASSWORD });
+        const right = await agent.delete('/api/v1/auth/totp').send({ password: PASSWORD });
         expect(right.status).toBe(204);
-        expect((await agent.get('/auth/me')).body.totpEnabled).toBe(false);
+        expect((await agent.get('/api/v1/auth/me')).body.totpEnabled).toBe(false);
         // The recovery codes go with the credential, as they always did.
-        expect((await agent.get('/auth/me')).body.recoveryCodesRemaining).toBe(0);
+        expect((await agent.get('/api/v1/auth/me')).body.recoveryCodesRemaining).toBe(0);
       } finally {
         await app.close();
       }
@@ -131,24 +131,24 @@ describe('the password check is metered (D73)', () => {
       const app = await buildApp(db);
       try {
         const agent = await signedIn(app, 'yara');
-        const secret = (await agent.post('/auth/totp/begin')).body.secret as string;
-        await agent.post('/auth/totp/confirm').send({ code: authenticator.generate(secret) });
+        const secret = (await agent.post('/api/v1/auth/totp/begin')).body.secret as string;
+        await agent.post('/api/v1/auth/totp/confirm').send({ code: authenticator.generate(secret) });
 
         for (let attempt = 0; attempt < 10; attempt += 1) {
-          const wrong = await agent.delete('/auth/totp').send({ password: `guess-${String(attempt)}` });
+          const wrong = await agent.delete('/api/v1/auth/totp').send({ password: `guess-${String(attempt)}` });
           expect(wrong.status).toBe(401);
         }
 
-        const refused = await agent.delete('/auth/totp').send({ password: 'guess-10' });
+        const refused = await agent.delete('/api/v1/auth/totp').send({ password: 'guess-10' });
         expect(refused.status).toBe(429);
         expect(refused.body.code).toBe('password_check_rate_limited');
         expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
 
         // The meter is read BEFORE the password is verified, for D72's own
         // reason: the guess that matters is the one that is right.
-        const correct = await agent.delete('/auth/totp').send({ password: PASSWORD });
+        const correct = await agent.delete('/api/v1/auth/totp').send({ password: PASSWORD });
         expect(correct.status).toBe(429);
-        expect((await agent.get('/auth/me')).body.totpEnabled).toBe(true);
+        expect((await agent.get('/api/v1/auth/me')).body.totpEnabled).toBe(true);
       } finally {
         await app.close();
       }
@@ -162,14 +162,14 @@ describe('the password check is metered (D73)', () => {
         const agent = await signedIn(app, 'zeno');
         for (let attempt = 0; attempt < 10; attempt += 1) {
           const wrong = await agent
-            .post('/auth/password/change')
+            .post('/api/v1/auth/password/change')
             .send({ currentPassword: `guess-${String(attempt)}`, newPassword: 'another-long-password' });
           expect(wrong.status).toBe(401);
         }
 
         // Same account, other route: an attacker who can spend ten guesses
         // per endpoint has a limiter that scales with the endpoint count.
-        const refused = await agent.delete('/auth/totp').send({ password: 'guess-10' });
+        const refused = await agent.delete('/api/v1/auth/totp').send({ password: 'guess-10' });
         expect(refused.status).toBe(429);
         expect(refused.body.code).toBe('password_check_rate_limited');
       } finally {
@@ -184,12 +184,12 @@ describe('the password check is metered (D73)', () => {
       try {
         const noisy = await signedIn(app, 'aiko');
         for (let attempt = 0; attempt < 12; attempt += 1) {
-          await noisy.delete('/auth/totp').send({ password: `guess-${String(attempt)}` });
+          await noisy.delete('/api/v1/auth/totp').send({ password: `guess-${String(attempt)}` });
         }
 
         const quiet = await signedIn(app, 'bruno');
         const changed = await quiet
-          .post('/auth/password/change')
+          .post('/api/v1/auth/password/change')
           .send({ currentPassword: PASSWORD, newPassword: 'yet-another-long-password' });
         expect(changed.status).toBe(204);
       } finally {

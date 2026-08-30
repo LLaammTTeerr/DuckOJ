@@ -23,18 +23,18 @@ describe('credential management requires an interactive session', () => {
       const app = await buildApp(db);
       try {
         const agent = request.agent(app.getHttpServer());
-        await agent.post('/auth/register').send({
+        await agent.post('/api/v1/auth/register').send({
           username: 'xena',
           email: 'xena@example.com',
           password: 'a-long-enough-password',
           displayName: 'Xena',
         });
         await agent
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'xena', password: 'a-long-enough-password' });
 
         const created = await agent
-          .post('/auth/tokens')
+          .post('/api/v1/auth/tokens')
           .send({ name: 'cli', scopes: ['submissions:write'] });
         expect(created.status).toBe(201);
         const { token } = created.body as { token: string };
@@ -44,7 +44,7 @@ describe('credential management requires an interactive session', () => {
         // identity — proof this is a working credential, distinct from the
         // 401 `invalid_token` an unrecognized token would get.
         const me = await request(app.getHttpServer())
-          .get('/auth/me')
+          .get('/api/v1/auth/me')
           .set('Authorization', `Bearer ${token}`);
         expect(me.status).toBe(200);
         expect(me.body.username).toBe('xena');
@@ -52,26 +52,26 @@ describe('credential management requires an interactive session', () => {
         const bearer = (path: string) =>
           request(app.getHttpServer()).post(path).set('Authorization', `Bearer ${token}`);
 
-        const mintByToken = await bearer('/auth/tokens').send({ name: 'replacement', scopes: [] });
+        const mintByToken = await bearer('/api/v1/auth/tokens').send({ name: 'replacement', scopes: [] });
         expect(mintByToken.status).toBe(403);
         expect(mintByToken.body.code).toBe('session_required');
 
-        const totpByToken = await bearer('/auth/totp/begin');
+        const totpByToken = await bearer('/api/v1/auth/totp/begin');
         expect(totpByToken.status).toBe(403);
         expect(totpByToken.body.code).toBe('session_required');
 
         // The whole controller is covered, not just the two routes above.
         const listByToken = await request(app.getHttpServer())
-          .get('/auth/tokens')
+          .get('/api/v1/auth/tokens')
           .set('Authorization', `Bearer ${token}`);
         expect(listByToken.status).toBe(403);
 
         // ...and the session half still works, so the guard is not simply
         // rejecting everything.
-        const mintBySession = await agent.post('/auth/tokens').send({ name: 'second', scopes: [] });
+        const mintBySession = await agent.post('/api/v1/auth/tokens').send({ name: 'second', scopes: [] });
         expect(mintBySession.status).toBe(201);
 
-        const totpBySession = await agent.post('/auth/totp/begin');
+        const totpBySession = await agent.post('/api/v1/auth/totp/begin');
         expect(totpBySession.status).toBe(200);
         expect(typeof totpBySession.body.secret).toBe('string');
       } finally {

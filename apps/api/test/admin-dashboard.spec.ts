@@ -446,7 +446,7 @@ describe('the admin dashboard over HTTP', () => {
         await registerAndLogin(adminAgent, 'dash-admin');
         await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'dash-admin'));
 
-        const res = await adminAgent.get('/admin/dashboard');
+        const res = await adminAgent.get('/api/v1/admin/dashboard');
         expect(res.status).toBe(200);
         expect(res.body).toMatchObject({
           queue: { queued: 0, running: 0, expiredLeases: 0, failed: 0, oldestQueuedSeconds: null },
@@ -458,18 +458,18 @@ describe('the admin dashboard over HTTP', () => {
         });
         expect(typeof res.body.generatedAt).toBe('string');
 
-        const reclaimed = await adminAgent.post('/admin/grading/reclaim');
+        const reclaimed = await adminAgent.post('/api/v1/admin/grading/reclaim');
         expect(reclaimed.status).toBe(200);
         expect(reclaimed.body).toEqual({ reclaimed: 0, jobIds: [] });
 
         const plain = request.agent(app.getHttpServer());
         await registerAndLogin(plain, 'dash-plain');
-        expect((await plain.get('/admin/dashboard')).status).toBe(403);
-        expect((await plain.post('/admin/grading/reclaim')).status).toBe(403);
+        expect((await plain.get('/api/v1/admin/dashboard')).status).toBe(403);
+        expect((await plain.post('/api/v1/admin/grading/reclaim')).status).toBe(403);
 
         // Anonymous never gets as far as the admin check.
-        expect((await request(app.getHttpServer()).get('/admin/dashboard')).status).toBe(401);
-        expect((await request(app.getHttpServer()).post('/admin/grading/reclaim')).status).toBe(401);
+        expect((await request(app.getHttpServer()).get('/api/v1/admin/dashboard')).status).toBe(401);
+        expect((await request(app.getHttpServer()).post('/api/v1/admin/grading/reclaim')).status).toBe(401);
       } finally {
         await app.close();
       }

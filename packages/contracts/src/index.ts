@@ -22,3 +22,4 @@ export * from './notifications.js';
 // emitted document's path order follows it, so appending here keeps a new
 // module's routes out of the middle of `openapi.json`'s diff.
 export * from './problem-sets.js';
+export * from './teams.js';

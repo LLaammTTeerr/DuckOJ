@@ -205,9 +205,21 @@ export class ProblemDraftsService {
     }
   }
 
+  /**
+   * The caps below are read-modify-write over the filesystem, so the whole
+   * decision runs under the draft's lock (D93).
+   *
+   * Authorization stays OUTSIDE it: `resolve` is a database read that can
+   * refuse, and a caller who may not touch this draft must not be able to
+   * make its owner's uploads queue behind them.
+   */
   async putFile(actor: Actor, code: string, draftId: string, name: string, bytes: Buffer): Promise<DraftFileResponseDto> {
     await this.resolve(actor, code, draftId);
+    return this.drafts.withLock(draftId, () => this.placeFile(draftId, name, bytes));
+  }
 
+  /** `putFile`'s body, run with the draft held. */
+  private async placeFile(draftId: string, name: string, bytes: Buffer): Promise<DraftFileResponseDto> {
     const before = await this.drafts.stats(draftId);
     // Read the file's own size off disk BEFORE deciding, so re-PUTting a
     // name is measured as a replacement and not as a second copy: a setter
@@ -275,7 +287,15 @@ export class ProblemDraftsService {
 
     let built: Awaited<ReturnType<typeof buildPackage>>;
     try {
-      built = await buildPackage(dir);
+      // Under the draft's lock, for the same reason `putFile` takes it
+      // (D93): `buildPackage` reads the directory listing and then the files
+      // in it, so a PUT landing between those two steps decides what the
+      // package contains — and therefore its hash — without the setter who
+      // asked for the build having any say. Only the READ is held: the
+      // upload, the attach and the publish that follow touch the database
+      // and the package store, not the draft, and holding a lock across them
+      // would let a slow judge-visible write block the next upload.
+      built = await this.drafts.withLock(draftId, () => buildPackage(dir));
     } catch (error) {
       // `buildPackage` throws plain `Error`s — the manifest's own zod detail
       // ("tests.0.input: must be relative"), or the list of files it names

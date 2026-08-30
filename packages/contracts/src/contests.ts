@@ -13,6 +13,37 @@ export const ContestVisibility = z.enum(['private', 'org', 'public']);
 export type ContestVisibilityDto = z.infer<typeof ContestVisibility>;
 
 /**
+ * Whether a contest is entered by a person or by a team — "thi đồng đội",
+ * the ICPC shape (D99).
+ *
+ * A real enum, unlike `ContestFormatName`: these two are the whole of it.
+ * A team participation is ONE participation with one row on the board, so
+ * nothing downstream of `lower()` has to learn what a team is — the
+ * scoreboard just prints a different name.
+ *
+ * Settable only before the contest starts (D38's rule, D99's application):
+ * it decides what a participation IS, and flipping it under rows that
+ * already exist would leave every one of them describing a competitor the
+ * contest no longer has.
+ */
+export const ContestParticipationMode = z.enum(['individual', 'team']);
+export type ContestParticipationModeDto = z.infer<typeof ContestParticipationMode>;
+
+/**
+ * The ceiling on a team's roster, and therefore on a contest's own
+ * `maxTeamSize`.
+ *
+ * Declared here rather than in `teams.ts`, which imports it: `registerPath`
+ * runs as an import side effect and `openapi.json`'s path order follows it,
+ * so the dependency has to point from the module registered LATER to the one
+ * registered first (`index.ts`'s note).
+ */
+export const TEAM_MAX_MEMBERS = 12;
+
+/** The default `maxTeamSize`: three, which is the ICPC roster (D99). */
+export const DEFAULT_MAX_TEAM_SIZE = 3;
+
+/**
  * Deliberately a free string, not a `z.enum`.
  *
  * Formats are pluggable (foundation spec) and `CONTEST_FORMATS` in
@@ -63,6 +94,19 @@ export const CreateContestRequest = z
     timeLimitSeconds: z.number().int().positive().nullable().default(null),
     visibility: ContestVisibility.default('private'),
     /**
+     * Individual or team (D99). A `team` contest requires at least one
+     * organization — teams are org-scoped, so a team contest with no school
+     * attached is one nobody could name a team for (422
+     * `contest_team_orgs_required`).
+     */
+    participationMode: ContestParticipationMode.default('individual'),
+    /**
+     * How many members a team entering this contest may have. Ignored in
+     * `individual` mode, and never a reason to refuse the request there:
+     * the column has a default and a mode change is a separate edit.
+     */
+    maxTeamSize: z.number().int().min(1).max(TEAM_MAX_MEMBERS).default(DEFAULT_MAX_TEAM_SIZE),
+    /**
      * The organizations this contest belongs to — **who may join it**, and
      * (when `visibility` is `org`) who may see it at all. D56.
      *
@@ -108,6 +152,15 @@ export const UpdateContestRequest = z
     frozenLastMinutes: z.number().int().min(0).optional(),
     timeLimitSeconds: z.number().int().positive().nullable().optional(),
     visibility: ContestVisibility.optional(),
+    /**
+     * Both refused once the contest has started (409 `contest_started`),
+     * D38's rule: the mode decides what a participation is and the size cap
+     * decides who was allowed to make one, and neither can be restated over
+     * rows that already exist. Compared by VALUE, not by presence, so a form
+     * that PATCHes the whole body back is a no-op — D38 again.
+     */
+    participationMode: ContestParticipationMode.optional(),
+    maxTeamSize: z.number().int().min(1).max(TEAM_MAX_MEMBERS).optional(),
     /**
      * Editable since D56 — it used to be absent here, which left an
      * org-restricted contest's roster of organizations unchangeable for the
@@ -182,6 +235,14 @@ export const ContestSummary = z.object({
   timeLimitSeconds: z.number().int().nullable(),
   /** Whether this contest feeds ratings — set by an admin after the fact. */
   isRated: z.boolean(),
+  /**
+   * Individual or team (D99). On the SUMMARY, not only the detail: the join
+   * button has to know whether to ask for a team before it is pressed, and
+   * the contest list is where a competitor decides to open the page.
+   */
+  participationMode: ContestParticipationMode,
+  /** The roster size a team may bring. Meaningless in `individual` mode. */
+  maxTeamSize: z.number().int(),
   /**
    * The organizations that may join this contest (D56). Empty means anyone
    * who can see it may join.
@@ -297,6 +358,38 @@ export const Scoreboard = z.object({
   frozen: z.boolean(),
   /** `endTime − frozenLastMinutes` whenever there is a freeze window; else null. */
   frozenAt: Timestamp.nullable(),
+  /**
+   * Who each team row on this board actually is (D99) — **absent entirely
+   * for an individual contest**, and keyed by `ranking[].participant`, which
+   * in team mode IS the team's name.
+   *
+   * A sidecar rather than fields on the ranking row, for D36's reason
+   * restated: the row's shape is the goldens' shape, pinned byte for byte by
+   * 23 replays, and the formats package has no idea what a team is. It is
+   * built by the API from the same participation rows the board was folded
+   * from, so it rides D25's cache and cannot describe a different board than
+   * the one beside it.
+   *
+   * `captain` is the member whose account holds the participation — the
+   * username `PATCH /contests/{key}/participants/{username}` takes, which is
+   * how a team is disqualified without a route of its own (D99).
+   *
+   * The key is a NAME, so two teams called the same thing in one contest
+   * would share an entry; `join` refuses the second of them for exactly that
+   * reason (409 `contest_team_name_taken`).
+   */
+  teams: z
+    .record(
+      z.string(),
+      z.object({
+        slug: z.string(),
+        name: z.string(),
+        orgSlug: z.string(),
+        captain: z.string(),
+        members: z.array(z.string()),
+      }),
+    )
+    .optional(),
 });
 export type ScoreboardDto = z.infer<typeof Scoreboard>;
 
@@ -523,15 +616,59 @@ export const ContestParticipation = z.object({
   /** The instant after which submissions are refused, already derived. */
   endTime: z.string(),
   isDisqualified: z.boolean(),
+  /**
+   * The team this participation competes as (D99), or `null` in an
+   * individual contest.
+   *
+   * `members` is what the submit page needs in order to say "your teammates'
+   * submissions count for this row too", and it is the caller's own team, so
+   * it discloses nothing they could not already read from
+   * `GET /orgs/{slug}/teams/{teamSlug}`.
+   */
+  team: z
+    .object({
+      slug: z.string(),
+      name: z.string(),
+      orgSlug: z.string(),
+      members: z.array(z.string()),
+    })
+    .nullable(),
 });
 export type ContestParticipationDto = z.infer<typeof ContestParticipation>;
+
+/**
+ * The body of `POST /contests/{key}/join`.
+ *
+ * Every field optional, and the whole body optional too: an individual
+ * contest is joined with no body at all, which is what every client written
+ * before D99 sends.
+ *
+ * `teamSlug` names a team of one of the contest's organizations. It is
+ * REQUIRED in team mode (422 `contest_team_required`) and REFUSED in
+ * individual mode (422 `contest_team_unexpected`) — ignoring it would let a
+ * competitor believe they had entered as a team when they had entered alone.
+ */
+export const JoinContestRequest = z
+  .object({ teamSlug: z.string().min(1).max(64).optional() })
+  .strict()
+  .default({});
+export type JoinContestRequestDto = z.infer<typeof JoinContestRequest>;
 
 registry.registerPath({
   method: 'post',
   path: '/contests/{key}/join',
   tags: ['Contests'],
   summary: 'Join a contest — live while it runs, virtually once it has ended',
-  request: { params: ContestKeyParam },
+  description:
+    'In a **team** contest (D99) the body names a `teamSlug` and the caller must be on that ' +
+    'team. A team holds exactly ONE participation, so the first member to press the button ' +
+    'enters the whole team and every other member’s submissions land on that row; a second ' +
+    'member joining reads it back only if they are the account that made it, and otherwise ' +
+    'gets 409 `contest_team_joined`. There are no virtual replays for teams.',
+  request: {
+    params: ContestKeyParam,
+    body: { content: { 'application/json': { schema: JoinContestRequest } } },
+  },
   responses: {
     201: {
       description: 'The participation. Idempotent: joining twice returns the existing one.',
@@ -549,7 +686,20 @@ registry.registerPath({
     },
     404: CONTEST_NOT_FOUND,
     409: {
-      description: 'The contest has not started yet (`contest_not_started`)',
+      description:
+        'The contest has not started yet (`contest_not_started`); another member already ' +
+        'entered this team (`contest_team_joined`); the caller already competes in this ' +
+        'contest under another identity (`contest_already_joined`); a different team of the ' +
+        'same name is already on the board (`contest_team_name_taken`); or the team is larger ' +
+        'than this contest admits (`contest_team_too_large`).',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: {
+      description:
+        'A team contest joined with no `teamSlug` (`contest_team_required`), an individual ' +
+        'contest joined with one (`contest_team_unexpected`), a slug naming no team of any of ' +
+        'this contest’s organizations (`contest_team_unknown`), or a team the caller is not on ' +
+        '(`contest_team_not_member`).',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },

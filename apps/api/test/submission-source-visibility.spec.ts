@@ -36,12 +36,12 @@ describe('submission source visibility (design §2)', () => {
         await registerAndLogin(stranger, 'src-stranger');
 
         const created = await mine
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}' });
         expect(created.status).toBe(201);
         const id = (created.body as { id: number }).id;
 
-        const own = await mine.get(`/submissions/${id}`);
+        const own = await mine.get(`/api/v1/submissions/${id}`);
         expect(own.status).toBe(200);
         // The whole point of the change: before it, this field did not exist
         // on the wire and nobody could ever read back what they submitted.
@@ -49,7 +49,7 @@ describe('submission source visibility (design §2)', () => {
 
         // 404, not a 200 with the source elided — the submission itself is
         // what is invisible (§2.1), not one field of it.
-        expect((await stranger.get(`/submissions/${id}`)).status).toBe(404);
+        expect((await stranger.get(`/api/v1/submissions/${id}`)).status).toBe(404);
       } finally {
         await app.close();
       }
@@ -79,7 +79,7 @@ describe('submission source visibility (design §2)', () => {
         await insertGradedSubmission(db, { userId: solverId, problemId: problem.id, verdict: 'AC' });
         const theirs = await insertGradedSubmission(db, { userId: otherId, problemId: problem.id });
 
-        expect((await solver.get(`/submissions/${theirs}`)).status).toBe(404);
+        expect((await solver.get(`/api/v1/submissions/${theirs}`)).status).toBe(404);
       } finally {
         await app.close();
       }
@@ -101,12 +101,12 @@ describe('submission source visibility (design §2)', () => {
         const theirs = await insertGradedSubmission(db, { userId: otherId, problemId: problem.id });
 
         // Closed…
-        expect((await solver.get(`/submissions/${theirs}`)).status).toBe(404);
+        expect((await solver.get(`/api/v1/submissions/${theirs}`)).status).toBe(404);
         await db.update(problems).set({ sourceAccess: 'solved' }).where(eq(problems.id, problem.id));
         // …and open, with nothing else about the corpus changed. That
         // before/after pair is what rules out the 200 below coming from some
         // other grant the fixture happened to give this user.
-        const after = await solver.get(`/submissions/${theirs}`);
+        const after = await solver.get(`/api/v1/submissions/${theirs}`);
         expect(after.status).toBe(200);
         expect(typeof after.body.source).toBe('string');
       } finally {
@@ -134,18 +134,18 @@ describe('submission source visibility (design §2)', () => {
         const theirs = await insertGradedSubmission(db, { userId: otherId, problemId: problem.id });
 
         // Open, because the problem is public and opted in.
-        expect((await solver.get(`/submissions/${theirs}`)).status).toBe(200);
+        expect((await solver.get(`/api/v1/submissions/${theirs}`)).status).toBe(200);
 
         // `source_access` is untouched — only `visibility` moves. Before this
         // rule the predicate never read `visibility` at all, so this stayed
         // 200: a problem withdrawn from view went on serving its source to
         // everyone who had ever solved it.
         await db.update(problems).set({ visibility: 'private' }).where(eq(problems.id, problem.id));
-        expect((await solver.get(`/submissions/${theirs}`)).status).toBe(404);
+        expect((await solver.get(`/api/v1/submissions/${theirs}`)).status).toBe(404);
 
         // …and the solver's OWN submission survives it. Losing sight of the
         // problem must not lose you your own work (§2.1).
-        const own = await solver.get('/submissions');
+        const own = await solver.get('/api/v1/submissions');
         expect(own.status).toBe(200);
         expect((own.body as { items: { id: number }[] }).items.length).toBeGreaterThan(0);
       } finally {
@@ -169,7 +169,7 @@ describe('submission source visibility (design §2)', () => {
         const theirs = await insertGradedSubmission(db, { userId: otherId, problemId: problem.id });
 
         // Having submitted is not having solved: `solved` means an AC.
-        expect((await attempter.get(`/submissions/${theirs}`)).status).toBe(404);
+        expect((await attempter.get(`/api/v1/submissions/${theirs}`)).status).toBe(404);
       } finally {
         await app.close();
       }
@@ -205,7 +205,7 @@ describe('submission source visibility (design §2)', () => {
           revisionId: v2,
         });
 
-        const res = await solver.get(`/submissions/${theirs}`);
+        const res = await solver.get(`/api/v1/submissions/${theirs}`);
         expect(res.status).toBe(200);
         expect(typeof res.body.source).toBe('string');
       } finally {
@@ -234,7 +234,7 @@ describe('submission source visibility (design §2)', () => {
         const theirs = await insertGradedSubmission(db, { userId: otherId, problemId: problem.id });
 
         for (const role of ['author', 'curator'] as const) {
-          const res = await agents[role].get(`/submissions/${theirs}`);
+          const res = await agents[role].get(`/api/v1/submissions/${theirs}`);
           expect(res.status, `a ${role} must see submissions to their problem`).toBe(200);
           expect(typeof res.body.source).toBe('string');
         }
@@ -242,7 +242,7 @@ describe('submission source visibility (design §2)', () => {
         // That is not a reason to read other people's *solutions* to it —
         // and widening to testers later is one line, while un-widening after
         // testers have read submissions is not.
-        expect((await agents.tester.get(`/submissions/${theirs}`)).status).toBe(404);
+        expect((await agents.tester.get(`/api/v1/submissions/${theirs}`)).status).toBe(404);
       } finally {
         await app.close();
       }
@@ -259,15 +259,15 @@ describe('submission source visibility (design §2)', () => {
         await registerAndLogin(author, 'patch-author');
         await grantProblemRole(db, problem.id, await userIdOf(db, 'patch-author'), 'author');
 
-        const before = await author.get('/problems/patchable');
+        const before = await author.get('/api/v1/problems/patchable');
         expect(before.status).toBe(200);
         expect(before.body.sourceAccess).toBe('private');
 
-        const patched = await author.patch('/problems/patchable').send({ sourceAccess: 'solved' });
+        const patched = await author.patch('/api/v1/problems/patchable').send({ sourceAccess: 'solved' });
         expect(patched.status).toBe(200);
         expect(patched.body.sourceAccess).toBe('solved');
         // The write must have landed, not merely echoed back.
-        expect((await author.get('/problems/patchable')).body.sourceAccess).toBe('solved');
+        expect((await author.get('/api/v1/problems/patchable')).body.sourceAccess).toBe('solved');
 
         const [row] = await db
           .select({ sourceAccess: problems.sourceAccess })
@@ -295,8 +295,8 @@ describe('submission source visibility (design §2)', () => {
         // problem write does. A problem the caller cannot SEE answers 404
         // (a 403 would confirm it exists); a visible one she merely may not
         // EDIT answers 403.
-        expect((await outsider.patch('/problems/not-even-visible').send({ sourceAccess: 'solved' })).status).toBe(404);
-        expect((await outsider.patch('/problems/not-yours').send({ sourceAccess: 'solved' })).status).toBe(403);
+        expect((await outsider.patch('/api/v1/problems/not-even-visible').send({ sourceAccess: 'solved' })).status).toBe(404);
+        expect((await outsider.patch('/api/v1/problems/not-yours').send({ sourceAccess: 'solved' })).status).toBe(403);
 
         // Neither refusal may have written anything.
         const rows = await db

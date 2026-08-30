@@ -46,7 +46,7 @@ import {
  * two cache specs land in one fork and wipe each other between a write and
  * the read that asserts on it.
  */
-const REDIS_DB = 4;
+const REDIS_DB = 5;
 
 async function freshRedis(): Promise<string> {
   const url = await ensureRedisUrl(REDIS_DB);
@@ -76,7 +76,7 @@ async function flushDb(url: string): Promise<void> {
  * warms up the same way, for the same reason.
  */
 async function warmCache(server: Parameters<typeof request>[0], url: string): Promise<void> {
-  await request(server).get('/problems/aplusb');
+  await request(server).get('/api/v1/problems/aplusb');
   await flushDb(url);
 }
 
@@ -108,7 +108,7 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
         const problemId = await seedAttempts(db, 3);
         await warmCache(app.getHttpServer(), url);
 
-        const first = await request(app.getHttpServer()).get('/problems/aplusb');
+        const first = await request(app.getHttpServer()).get('/api/v1/problems/aplusb');
         expect(first.status).toBe(200);
         expect(first.body.attemptedCount).toBe(4);
         expect(first.body.solvedCount).toBe(3);
@@ -123,7 +123,7 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
           redis.disconnect();
         }
 
-        const second = await request(app.getHttpServer()).get('/problems/aplusb');
+        const second = await request(app.getHttpServer()).get('/api/v1/problems/aplusb');
         expect(second.body.attemptedCount).toBe(4);
         expect(second.body.solvedCount).toBe(3);
 
@@ -131,7 +131,7 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
         // route wrote — which is the whole point of keying on a problem
         // rather than on a page's id set. A page whose ids have never been
         // seen together before is still a page of hits.
-        const list = await request(app.getHttpServer()).get('/problems');
+        const list = await request(app.getHttpServer()).get('/api/v1/problems');
         const row = (list.body.items as { code: string; attemptedCount: number; solvedCount: number }[]).find(
           (item) => item.code === 'aplusb',
         );
@@ -150,7 +150,7 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
         const problemId = await seedAttempts(db, 2);
         await warmCache(app.getHttpServer(), url);
 
-        const cached = await request(app.getHttpServer()).get('/problems/aplusb');
+        const cached = await request(app.getHttpServer()).get('/api/v1/problems/aplusb');
 
         // D49's aggregate, run here as the oracle. A cache that is fast and
         // wrong is worse than the scan it replaced, and "3 and 2" hardcoded
@@ -179,7 +179,7 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
         const problemId = await seedAttempts(db, 1);
         await warmCache(app.getHttpServer(), url);
 
-        const before = await request(app.getHttpServer()).get('/problems/aplusb');
+        const before = await request(app.getHttpServer()).get('/api/v1/problems/aplusb');
         expect(before.body.solvedCount).toBe(1);
 
         const late = await insertUser(db, 'counts-latecomer');
@@ -194,7 +194,7 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
         // Within the TTL the reader sees the entry, which is the trade D49
         // already accepts for `GET /problems/{code}/stats`: a problem page is
         // not a live board, and nobody is watching an acceptance rate tick.
-        const during = await request(app.getHttpServer()).get('/problems/aplusb');
+        const during = await request(app.getHttpServer()).get('/api/v1/problems/aplusb');
         expect(during.body.solvedCount).toBe(1);
 
         // Evicting the entry is what a TTL does thirty seconds later; doing
@@ -206,7 +206,7 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
           redis.disconnect();
         }
 
-        const after = await request(app.getHttpServer()).get('/problems/aplusb');
+        const after = await request(app.getHttpServer()).get('/api/v1/problems/aplusb');
         expect(after.body.solvedCount).toBe(2);
         expect(after.body.attemptedCount).toBe(3);
       } finally {
@@ -228,7 +228,7 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
         // gets stored for everybody. This asserts the unmasked path still
         // reports real numbers after caching, which is the half a mistake
         // here would break silently.
-        const res = await request(app.getHttpServer()).get('/problems/aplusb');
+        const res = await request(app.getHttpServer()).get('/api/v1/problems/aplusb');
         expect(res.body.attemptedCount).toBeGreaterThan(0);
       } finally {
         await app.close();

@@ -10,33 +10,33 @@ describe('login gate: totp', () => {
       const app = await buildApp(db);
       try {
         const setupAgent = request.agent(app.getHttpServer());
-        await setupAgent.post('/auth/register').send({
+        await setupAgent.post('/api/v1/auth/register').send({
           username: 'quinn',
           email: 'quinn@example.com',
           password: 'a-long-enough-password',
           displayName: 'Quinn',
         });
         await setupAgent
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'quinn', password: 'a-long-enough-password' });
 
-        const begin = await setupAgent.post('/auth/totp/begin');
+        const begin = await setupAgent.post('/api/v1/auth/totp/begin');
         expect(begin.status).toBe(200);
         const secret = begin.body.secret as string;
 
         const confirm = await setupAgent
-          .post('/auth/totp/confirm')
+          .post('/api/v1/auth/totp/confirm')
           .send({ code: authenticator.generate(secret) });
         expect(confirm.status).toBe(200);
 
         const noCode = await request(app.getHttpServer())
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'quinn', password: 'a-long-enough-password' });
         expect(noCode.status).toBe(401);
         expect(noCode.body.code).toBe('totp_required');
 
         const wrongCode = await request(app.getHttpServer())
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({
             usernameOrEmail: 'quinn',
             password: 'a-long-enough-password',
@@ -46,7 +46,7 @@ describe('login gate: totp', () => {
         expect(wrongCode.body.code).toBe('invalid_totp_code');
 
         const rightCode = await request(app.getHttpServer())
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({
             usernameOrEmail: 'quinn',
             password: 'a-long-enough-password',
@@ -83,17 +83,17 @@ describe('a TOTP code is single-use (D34)', () => {
       const app = await buildApp(db);
       try {
         const agent = request.agent(app.getHttpServer());
-        await agent.post('/auth/register').send({
+        await agent.post('/api/v1/auth/register').send({
           username: 'seren',
           email: 'seren@example.com',
           password: 'a-long-enough-password',
           displayName: 'Seren',
         });
         await agent
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'seren', password: 'a-long-enough-password' });
-        const secret = (await agent.post('/auth/totp/begin')).body.secret as string;
-        await agent.post('/auth/totp/confirm').send({ code: authenticator.generate(secret) });
+        const secret = (await agent.post('/api/v1/auth/totp/begin')).body.secret as string;
+        await agent.post('/api/v1/auth/totp/confirm').send({ code: authenticator.generate(secret) });
 
         await settleInsideAStep();
         // Two codes that are both valid right now: the current step and the
@@ -107,7 +107,7 @@ describe('a TOTP code is single-use (D34)', () => {
 
         const login = (totpCode: string) =>
           request(app.getHttpServer())
-            .post('/auth/login')
+            .post('/api/v1/auth/login')
             .send({ usernameOrEmail: 'seren', password: 'a-long-enough-password', totpCode });
 
         expect((await login(previous)).status).toBe(200);
@@ -136,37 +136,37 @@ describe('POST /auth/totp/begin against an already-confirmed credential (D33)', 
       const app = await buildApp(db);
       try {
         const agent = request.agent(app.getHttpServer());
-        await agent.post('/auth/register').send({
+        await agent.post('/api/v1/auth/register').send({
           username: 'rhea',
           email: 'rhea@example.com',
           password: 'a-long-enough-password',
           displayName: 'Rhea',
         });
         await agent
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'rhea', password: 'a-long-enough-password' });
-        const secret = (await agent.post('/auth/totp/begin')).body.secret as string;
-        await agent.post('/auth/totp/confirm').send({ code: authenticator.generate(secret) });
-        expect((await agent.get('/auth/me')).body.totpEnabled).toBe(true);
+        const secret = (await agent.post('/api/v1/auth/totp/begin')).body.secret as string;
+        await agent.post('/api/v1/auth/totp/confirm').send({ code: authenticator.generate(secret) });
+        expect((await agent.get('/api/v1/auth/me')).body.totpEnabled).toBe(true);
 
         // The upsert used to replace the secret and null `confirmedAt`, so
         // one unauthenticated-by-code POST turned the second factor off.
-        const again = await agent.post('/auth/totp/begin');
+        const again = await agent.post('/api/v1/auth/totp/begin');
         expect(again.status).toBe(409);
         expect(again.body.code).toBe('totp_already_enabled');
 
         // Still on, and still the SAME secret: a refusal that had already
         // overwritten the credential would pass the assertion above and
         // still have locked the user's authenticator out.
-        expect((await agent.get('/auth/me')).body.totpEnabled).toBe(true);
+        expect((await agent.get('/api/v1/auth/me')).body.totpEnabled).toBe(true);
         const passwordOnly = await request(app.getHttpServer())
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'rhea', password: 'a-long-enough-password' });
         expect(passwordOnly.status).toBe(401);
         expect(passwordOnly.body.code).toBe('totp_required');
         expect(
           (
-            await request(app.getHttpServer()).post('/auth/login').send({
+            await request(app.getHttpServer()).post('/api/v1/auth/login').send({
               usernameOrEmail: 'rhea',
               password: 'a-long-enough-password',
               totpCode: authenticator.generate(secret),
@@ -177,9 +177,9 @@ describe('POST /auth/totp/begin against an already-confirmed credential (D33)', 
         // Re-enrolling is still possible; it just has to say so out loud —
         // and, since D72, present the account password.
         expect(
-          (await agent.delete('/auth/totp').send({ password: 'a-long-enough-password' })).status,
+          (await agent.delete('/api/v1/auth/totp').send({ password: 'a-long-enough-password' })).status,
         ).toBe(204);
-        expect((await agent.post('/auth/totp/begin')).status).toBe(200);
+        expect((await agent.post('/api/v1/auth/totp/begin')).status).toBe(200);
       } finally {
         await app.close();
       }

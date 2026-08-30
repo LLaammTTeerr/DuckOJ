@@ -511,21 +511,21 @@ describe('GET /problems/{code}/editorial over HTTP', () => {
       try {
         // No credentials at all: the route is `@Public()`, and an editorial
         // outside any contest is published content.
-        const published = await request(app.getHttpServer()).get('/problems/ed-http-pub/editorial');
+        const published = await request(app.getHttpServer()).get('/api/v1/problems/ed-http-pub/editorial');
         expect(published.status).toBe(200);
         expect(published.body).toEqual({ markdown: EDITORIAL });
 
-        const draft = await request(app.getHttpServer()).get('/problems/ed-http-draft/editorial');
+        const draft = await request(app.getHttpServer()).get('/api/v1/problems/ed-http-draft/editorial');
         expect(draft.status).toBe(404);
         expect(draft.body.code).toBe('editorial_not_found');
         // Not `problem_not_found` — the problem itself is plainly visible,
         // and pretending otherwise would be a different lie, not a smaller one.
-        const missing = await request(app.getHttpServer()).get('/problems/ed-http-absent/editorial');
+        const missing = await request(app.getHttpServer()).get('/api/v1/problems/ed-http-absent/editorial');
         expect(missing.status).toBe(404);
         expect(missing.body.code).toBe('problem_not_found');
 
         // The detail route carries the same answer, both fields agreeing.
-        const detail = await request(app.getHttpServer()).get('/problems/ed-http-draft');
+        const detail = await request(app.getHttpServer()).get('/api/v1/problems/ed-http-draft');
         expect(detail.body.editorial).toBeNull();
         expect(detail.body.editorialAvailable).toBe(false);
       } finally {

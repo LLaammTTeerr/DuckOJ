@@ -560,13 +560,13 @@ describe('the edit route', () => {
           endsInMs: 120 * MINUTE,
         });
 
-        const ok = await agent.patch('/contests/ce9').send({ name: 'Edited over HTTP' });
+        const ok = await agent.patch('/api/v1/contests/ce9').send({ name: 'Edited over HTTP' });
         expect(ok.status).toBe(200);
         expect(ok.body.name).toBe('Edited over HTTP');
         expect(ok.body.canEdit).toBe(true);
 
         // A contest's key is its URL; renaming it is a different contest.
-        const renamed = await agent.patch('/contests/ce9').send({ key: 'ce9-renamed' });
+        const renamed = await agent.patch('/api/v1/contests/ce9').send({ key: 'ce9-renamed' });
         expect(renamed.status).toBe(422);
       } finally {
         await app.close();

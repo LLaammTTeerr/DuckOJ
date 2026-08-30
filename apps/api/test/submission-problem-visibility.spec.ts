@@ -80,13 +80,13 @@ describe('submission create honours problem visibility', () => {
         await db.insert(orgMembers).values({ orgId, userId: memberId, role: 'member' });
 
         // Path 1: the read side sees it.
-        const detail = await agent.get('/problems/ac4org');
+        const detail = await agent.get('/api/v1/problems/ac4org');
         expect(detail.status).toBe(200);
         expect(detail.body.code).toBe('ac4org');
 
         // Path 2: the same session submits to it.
         const created = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'ac4org', languageKey: 'cpp17', source: 'int main(){}' });
         expect(created.status).toBe(201);
       } finally {
@@ -108,7 +108,7 @@ describe('submission create honours problem visibility', () => {
         await db.insert(orgMembers).values({ orgId, userId: memberId, role: 'member' });
 
         const res = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'orgvis1', languageKey: 'cpp17', source: 'int main(){}' });
 
         expect(res.status).toBe(201);
@@ -129,7 +129,7 @@ describe('submission create honours problem visibility', () => {
         await registerAndLogin(agent, 'org-vis-stranger');
 
         const res = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'orgvis2', languageKey: 'cpp17', source: 'int main(){}' });
 
         expect(res.status).toBe(404);
@@ -153,7 +153,7 @@ describe('submission create honours problem visibility', () => {
         await db.insert(problemMembers).values({ problemId: problem!.id, userId: testerId, role: 'tester' });
 
         const res = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'hidden', languageKey: 'cpp17', source: 'int main(){}' });
 
         expect(res.status).toBe(201);
@@ -173,7 +173,7 @@ describe('submission create honours problem visibility', () => {
         await registerAndLogin(agent, 'private-vis-stranger');
 
         const res = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'hidden', languageKey: 'cpp17', source: 'int main(){}' });
 
         expect(res.status).toBe(404);

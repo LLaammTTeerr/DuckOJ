@@ -401,7 +401,7 @@ async function runAndSettle(
   contestId: number,
   body: Record<string, unknown> = {},
 ): Promise<request.Response> {
-  const started = await agent.post(`/contests/${key}/similarity`).set('Cookie', cookie).send(body);
+  const started = await agent.post(`/api/v1/contests/${key}/similarity`).set('Cookie', cookie).send(body);
   if (started.status === 201) {
     const { ContestSimilarityService } = await import('../src/authz/contest.similarity.js');
     await app.get(ContestSimilarityService).settle(contestId);
@@ -417,9 +417,9 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
         const owner = await insertUser(db, 'sim-anon-owner');
         await seedSimilarityContest(db, 'simanon', owner.id);
         const server = request(app.getHttpServer());
-        expect((await server.post('/contests/simanon/similarity').send({})).status).toBe(401);
-        expect((await server.get('/contests/simanon/similarity')).status).toBe(401);
-        expect((await server.get('/contests/simanon/similarity/a/b')).status).toBe(401);
+        expect((await server.post('/api/v1/contests/simanon/similarity').send({})).status).toBe(401);
+        expect((await server.get('/api/v1/contests/simanon/similarity')).status).toBe(401);
+        expect((await server.get('/api/v1/contests/simanon/similarity/a/b')).status).toBe(401);
       } finally {
         await app.close();
       }
@@ -436,22 +436,22 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
         await seedSimilarityContest(db, 'simhidden', owner.id, { visibility: 'private' });
         await seedSimilarityContest(db, 'simshown', owner.id);
 
-        const hidden = await agent.get('/contests/simhidden/similarity').set('Cookie', cookie);
+        const hidden = await agent.get('/api/v1/contests/simhidden/similarity').set('Cookie', cookie);
         expect(hidden.status).toBe(404);
         expect(hidden.body.code).toBe('contest_not_found');
 
-        const shown = await agent.get('/contests/simshown/similarity').set('Cookie', cookie);
+        const shown = await agent.get('/api/v1/contests/simshown/similarity').set('Cookie', cookie);
         expect(shown.status).toBe(403);
         expect(shown.body.code).toBe('contest_forbidden');
 
         const started = await agent
-          .post('/contests/simshown/similarity')
+          .post('/api/v1/contests/simshown/similarity')
           .set('Cookie', cookie)
           .send({});
         expect(started.status).toBe(403);
 
         const pair = await agent
-          .get('/contests/simshown/similarity/simshown-an/simshown-binh')
+          .get('/api/v1/contests/simshown/similarity/simshown-an/simshown-binh')
           .set('Cookie', cookie);
         expect(pair.status).toBe(403);
       } finally {
@@ -468,7 +468,7 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
         const cookie = await registerAndLogin(agent, 'sim-fresh');
         const ownerId = await userIdOf(db, 'sim-fresh');
         await seedSimilarityContest(db, 'simfresh', ownerId);
-        const res = await agent.get('/contests/simfresh/similarity').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/simfresh/similarity').set('Cookie', cookie);
         expect(res.status).toBe(200);
         // Never 404: that is indistinguishable from "no such contest".
         expect(res.body).toEqual({ run: null });
@@ -493,7 +493,7 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
         expect(started.body.threshold).toBe(0.6);
         expect(started.body.requestedBy).toBe('sim-owner');
 
-        const res = await agent.get('/contests/simrun/similarity').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/simrun/similarity').set('Cookie', cookie);
         expect(res.status).toBe(200);
         const run = res.body.run;
         expect(run.status).toBe('finished');
@@ -545,14 +545,14 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
         const ownerId = await userIdOf(db, 'sim-strict');
         const seeded = await seedSimilarityContest(db, 'simstrict', ownerId);
         await runAndSettle(app, agent, cookie, 'simstrict', seeded.contestId, { threshold: 1 });
-        const res = await agent.get('/contests/simstrict/similarity').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/simstrict/similarity').set('Cookie', cookie);
         expect(res.body.run.threshold).toBe(1);
         // The renamed copy is a hair under 1.0, and a threshold of exactly 1
         // asks for identical fingerprint sets.
         expect(res.body.run.pairs.length).toBeLessThanOrEqual(1);
 
         const loose = await agent
-          .post('/contests/simstrict/similarity')
+          .post('/api/v1/contests/simstrict/similarity')
           .set('Cookie', cookie)
           .send({ threshold: 0.35 });
         // A second run of a contest whose first one has finished is fine —
@@ -573,7 +573,7 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
         const ownerId = await userIdOf(db, 'sim-noisy');
         await seedSimilarityContest(db, 'simnoisy', ownerId);
         const res = await agent
-          .post('/contests/simnoisy/similarity')
+          .post('/api/v1/contests/simnoisy/similarity')
           .set('Cookie', cookie)
           .send({ threshold: 0.01 });
         expect(res.status).toBe(422);
@@ -597,7 +597,7 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
           .insert(similarityRuns)
           .values({ contestId: seeded.contestId, status: 'running', threshold: 0.6 });
         const res = await agent
-          .post('/contests/simbusy/similarity')
+          .post('/api/v1/contests/simbusy/similarity')
           .set('Cookie', cookie)
           .send({});
         expect(res.status).toBe(409);
@@ -625,7 +625,7 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
           startedAt: new Date(Date.now() - 20 * MINUTE),
         });
         const stuck = await agent
-          .post('/contests/simreaped/similarity')
+          .post('/api/v1/contests/simreaped/similarity')
           .set('Cookie', cookie)
           .send({});
         expect(stuck.status).toBe(409);
@@ -634,7 +634,7 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
         expect(await app.get(SimilarityRunReaper).reap()).toBe(1);
 
         const again = await agent
-          .post('/contests/simreaped/similarity')
+          .post('/api/v1/contests/simreaped/similarity')
           .set('Cookie', cookie)
           .send({});
         expect(again.status).toBe(201);
@@ -657,7 +657,7 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
         const cookie = await registerAndLogin(agent, 'sim-huge');
         const ownerId = await userIdOf(db, 'sim-huge');
         await seedSimilarityContest(db, 'simhuge', ownerId);
-        const res = await agent.post('/contests/simhuge/similarity').set('Cookie', cookie).send({});
+        const res = await agent.post('/api/v1/contests/simhuge/similarity').set('Cookie', cookie).send({});
         expect(res.status).toBe(422);
         expect(res.body.code).toBe('similarity_too_large');
         // The hint names the actual number, or it is a refusal nobody can act on.
@@ -687,7 +687,7 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
           .where(eq(submissions.id, seeded.submissionIds.cuong!));
 
         await runAndSettle(app, agent, cookie, 'simcap', seeded.contestId);
-        const res = await agent.get('/contests/simcap/similarity').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/simcap/similarity').set('Cookie', cookie);
         const a = res.body.run.problems[0];
         expect(a.reported).toBe(3);
         expect(a.truncated).toBe(true);
@@ -711,7 +711,7 @@ describe('GET /contests/{key}/similarity/{a}/{b} (D77)', () => {
         await runAndSettle(app, agent, cookie, 'simview', seeded.contestId);
 
         const res = await agent
-          .get('/contests/simview/similarity/simview-an/simview-binh')
+          .get('/api/v1/contests/simview/similarity/simview-an/simview-binh')
           .set('Cookie', cookie);
         expect(res.status).toBe(200);
         expect(res.body.problemCode).toBe('simview-a');
@@ -728,7 +728,7 @@ describe('GET /contests/{key}/similarity/{a}/{b} (D77)', () => {
 
         // The pair is a pair, not an ordered one.
         const reversed = await agent
-          .get('/contests/simview/similarity/simview-binh/simview-an')
+          .get('/api/v1/contests/simview/similarity/simview-binh/simview-an')
           .set('Cookie', cookie);
         expect(reversed.status).toBe(200);
         expect(reversed.body.a.username).toBe(res.body.a.username);
@@ -750,14 +750,14 @@ describe('GET /contests/{key}/similarity/{a}/{b} (D77)', () => {
 
         // Two real competitors of this contest whose sources are unrelated.
         const res = await agent
-          .get('/contests/simfish/similarity/simfish-an/simfish-cuong')
+          .get('/api/v1/contests/simfish/similarity/simfish-an/simfish-cuong')
           .set('Cookie', cookie);
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('similarity_pair_not_found');
 
         // And a problem the pair does not match on.
         const wrongProblem = await agent
-          .get('/contests/simfish/similarity/simfish-an/simfish-binh?problem=simfish-b')
+          .get('/api/v1/contests/simfish/similarity/simfish-an/simfish-binh?problem=simfish-b')
           .set('Cookie', cookie);
         expect(wrongProblem.status).toBe(404);
       } finally {
@@ -775,7 +775,7 @@ describe('GET /contests/{key}/similarity/{a}/{b} (D77)', () => {
         const ownerId = await userIdOf(db, 'sim-early');
         await seedSimilarityContest(db, 'simearly', ownerId);
         const res = await agent
-          .get('/contests/simearly/similarity/simearly-an/simearly-binh')
+          .get('/api/v1/contests/simearly/similarity/simearly-an/simearly-binh')
           .set('Cookie', cookie);
         expect(res.status).toBe(404);
       } finally {
@@ -798,7 +798,7 @@ describe('GET /contests/{key}/similarity/{a}/{b} (D77)', () => {
         const seeded = await seedSimilarityContest(db, 'simadmin', owner.id);
         const started = await runAndSettle(app, agent, cookie, 'simadmin', seeded.contestId);
         expect(started.status).toBe(201);
-        const res = await agent.get('/contests/simadmin/similarity').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/simadmin/similarity').set('Cookie', cookie);
         expect(res.status).toBe(200);
         expect(res.body.run.pairs).toHaveLength(1);
       } finally {

@@ -153,7 +153,7 @@ describe('PATCH /contests/:key/participants/:username', () => {
 
         // The contest has ended, so every join is a virtual attempt — and a
         // virtual join is deliberately not idempotent.
-        const first = await cheat.post('/contests/dq2-open/join');
+        const first = await cheat.post('/api/v1/contests/dq2-open/join');
         expect(first.body.virtual).toBe(1);
 
         const service = new ContestAccessService(db, uncachedScoreboards());
@@ -162,15 +162,15 @@ describe('PATCH /contests/:key/participants/:username', () => {
         // One more join must not hand the expelled competitor a clean row:
         // "disqualification is a judgement about the person in this contest,
         // not about one attempt", and the person has not changed.
-        const second = await cheat.post('/contests/dq2-open/join');
+        const second = await cheat.post('/api/v1/contests/dq2-open/join');
         expect(second.status).toBe(201);
         expect(second.body.virtual).toBe(2);
         expect(second.body.isDisqualified).toBe(true);
-        expect((await cheat.get('/contests/dq2-open/me')).body.isDisqualified).toBe(true);
+        expect((await cheat.get('/api/v1/contests/dq2-open/me')).body.isDisqualified).toBe(true);
 
         // Reinstating still clears every row, the new one included.
         await service.setDisqualified(actorFor(owner.id), 'dq2-open', 'dq2-cheat', false);
-        const third = await cheat.post('/contests/dq2-open/join');
+        const third = await cheat.post('/api/v1/contests/dq2-open/join');
         expect(third.body.isDisqualified).toBe(false);
       } finally {
         await app.close();
@@ -262,19 +262,19 @@ describe('PATCH /contests/:key/participants/:username', () => {
         );
         await join(db, contestId, await userIdOf(db, 'dq5-other'), 0);
 
-        const asOwner = await ownerAgent.get('/contests/dq5-open');
+        const asOwner = await ownerAgent.get('/api/v1/contests/dq5-open');
         expect(asOwner.body.canEdit).toBe(true);
-        const asOther = await otherAgent.get('/contests/dq5-open');
+        const asOther = await otherAgent.get('/api/v1/contests/dq5-open');
         expect(asOther.body.canEdit).toBe(false);
 
         const ok = await ownerAgent
-          .patch('/contests/dq5-open/participants/dq5-other')
+          .patch('/api/v1/contests/dq5-open/participants/dq5-other')
           .send({ disqualified: true });
         expect(ok.status).toBe(200);
         expect(ok.body.isDisqualified).toBe(true);
 
         const denied = await otherAgent
-          .patch('/contests/dq5-open/participants/dq5-other')
+          .patch('/api/v1/contests/dq5-open/participants/dq5-other')
           .send({ disqualified: false });
         expect([denied.status, denied.body.code]).toEqual([403, 'contest_forbidden']);
       } finally {

@@ -174,7 +174,7 @@ describe('a scoreboard inside its freeze window', () => {
       const { key } = await seedGoldenContest(db, freezeContest('fz6', 10 * MINUTE));
       const app = await buildApp(db);
       try {
-        const res = await request(app.getHttpServer()).get(`/contests/${key}/scoreboard`);
+        const res = await request(app.getHttpServer()).get(`/api/v1/contests/${key}/scoreboard`);
 
         expect(res.status).toBe(200);
         expect(res.body.frozen).toBe(true);
@@ -207,7 +207,7 @@ describe('writing a freeze window', () => {
       const app = await buildApp(db);
       try {
         const agent = await setterAgent(app, db, 'fzw-setter');
-        const res = await agent.post('/contests').send({ ...VALID, frozenLastMinutes: 15 });
+        const res = await agent.post('/api/v1/contests').send({ ...VALID, frozenLastMinutes: 15 });
 
         expect(res.status).toBe(201);
         expect(res.body.frozenLastMinutes).toBe(15);
@@ -225,7 +225,7 @@ describe('writing a freeze window', () => {
       try {
         const agent = await setterAgent(app, db, 'fzw2-setter');
         // The contest runs 60 minutes; a 60-minute freeze hides all of it.
-        const res = await agent.post('/contests').send({ ...VALID, frozenLastMinutes: 60 });
+        const res = await agent.post('/api/v1/contests').send({ ...VALID, frozenLastMinutes: 60 });
 
         expect(res.status).toBe(422);
         expect(res.body.code).toBe('contest_freeze_too_long');
@@ -241,13 +241,13 @@ describe('writing a freeze window', () => {
       const app = await buildApp(db);
       try {
         const agent = await setterAgent(app, db, 'fzw3-setter');
-        const created = await agent.post('/contests').send({ ...VALID, frozenLastMinutes: 45 });
+        const created = await agent.post('/api/v1/contests').send({ ...VALID, frozenLastMinutes: 45 });
         expect(created.status).toBe(201);
 
         // The body says nothing about the freeze; the stored 45 minutes is
         // what makes this 30-minute contest impossible.
         const res = await agent
-          .patch(`/contests/${VALID.key}`)
+          .patch(`/api/v1/contests/${VALID.key}`)
           .send({ endTime: '2026-03-01T09:30:00.000Z' });
 
         expect(res.status).toBe(422);
@@ -265,9 +265,9 @@ describe('writing a freeze window', () => {
       const app = await buildApp(db);
       try {
         const agent = await setterAgent(app, db, 'fzw4-setter');
-        await agent.post('/contests').send(VALID);
+        await agent.post('/api/v1/contests').send(VALID);
 
-        const res = await agent.patch(`/contests/${VALID.key}`).send({ frozenLastMinutes: 30 });
+        const res = await agent.patch(`/api/v1/contests/${VALID.key}`).send({ frozenLastMinutes: 30 });
 
         expect(res.status).toBe(200);
         expect(res.body.frozenLastMinutes).toBe(30);

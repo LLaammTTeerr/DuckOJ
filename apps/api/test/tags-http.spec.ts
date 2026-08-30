@@ -24,7 +24,7 @@ describe('GET /tags', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
-        const res = await request(app.getHttpServer()).get('/tags');
+        const res = await request(app.getHttpServer()).get('/api/v1/tags');
         expect(res.status).toBe(200);
         expect(res.body.items).toHaveLength(25);
         // Ordered by slug, so the filter bar and a problem's chip row agree.
@@ -48,15 +48,15 @@ describe('GET /problems?tag=', () => {
         // Express hands a single `?tag=` over as a bare string and a repeated
         // one as an array; `ProblemListQueryParse` normalises both, which is
         // the whole reason it exists beside `ProblemListQuery`.
-        const single = await request(app.getHttpServer()).get('/problems?tag=do-thi');
+        const single = await request(app.getHttpServer()).get('/api/v1/problems?tag=do-thi');
         expect(single.status).toBe(200);
         expect(single.body.items.map((p: { code: string }) => p.code).sort()).toEqual(['both', 'one']);
 
-        const paired = await request(app.getHttpServer()).get('/problems?tag=do-thi&tag=quy-hoach-dong');
+        const paired = await request(app.getHttpServer()).get('/api/v1/problems?tag=do-thi&tag=quy-hoach-dong');
         expect(paired.status).toBe(200);
         expect(paired.body.items.map((p: { code: string }) => p.code)).toEqual(['both']);
 
-        const ranged = await request(app.getHttpServer()).get('/problems?difficultyMin=3&difficultyMax=8');
+        const ranged = await request(app.getHttpServer()).get('/api/v1/problems?difficultyMin=3&difficultyMax=8');
         expect(ranged.body.items.map((p: { code: string }) => p.code)).toEqual(['both']);
       } finally {
         await app.close();
@@ -68,7 +68,7 @@ describe('GET /problems?tag=', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
-        const res = await request(app.getHttpServer()).get('/problems?difficultyMin=0');
+        const res = await request(app.getHttpServer()).get('/api/v1/problems?difficultyMin=0');
         expect(res.status).toBe(422);
         expect(res.body.code).toBe('validation_failed');
       } finally {

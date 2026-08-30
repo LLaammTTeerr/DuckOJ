@@ -112,7 +112,7 @@ describe('login / logout / me', () => {
       try {
         const agent = request.agent(app.getHttpServer());
 
-        await agent.post('/auth/register').send({
+        await agent.post('/api/v1/auth/register').send({
           username: 'kim',
           email: 'kim@example.com',
           password: 'a-long-enough-password',
@@ -120,7 +120,7 @@ describe('login / logout / me', () => {
         });
 
         const login = await agent
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'kim', password: 'a-long-enough-password' });
         expect(login.status).toBe(200);
         const loginCookie = firstSetCookie(login);
@@ -129,18 +129,18 @@ describe('login / logout / me', () => {
         expect(loginCookie).toContain('Path=/');
         expect(loginCookie).toMatch(/Expires=/);
 
-        const me = await agent.get('/auth/me');
+        const me = await agent.get('/api/v1/auth/me');
         expect(me.status).toBe(200);
         expect(me.body.username).toBe('kim');
 
-        const logout = await agent.post('/auth/logout');
+        const logout = await agent.post('/api/v1/auth/logout');
         expect(logout.status).toBe(204);
         const logoutCookie = firstSetCookie(logout);
         expect(logoutCookie).toMatch(new RegExp(`^${TEST_CONFIG.sessionCookieName}=;`));
         expect(logoutCookie).toContain('Path=/');
         expect(logoutCookie).toMatch(/Expires=Thu, 01 Jan 1970/);
 
-        expect((await agent.get('/auth/me')).status).toBe(401);
+        expect((await agent.get('/api/v1/auth/me')).status).toBe(401);
       } finally {
         await app.close();
       }
@@ -152,14 +152,14 @@ describe('login / logout / me', () => {
       const app = await buildApp(db);
       try {
         const agent = request.agent(app.getHttpServer());
-        await agent.post('/auth/register').send({
+        await agent.post('/api/v1/auth/register').send({
           username: 'lee',
           email: 'lee@example.com',
           password: 'a-long-enough-password',
           displayName: 'Lee',
         });
         const res = await agent
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'lee', password: 'wrong-password-here' });
         expect(res.status).toBe(401);
         expect(res.body.code).toBe('invalid_credentials');
@@ -174,7 +174,7 @@ describe('login / logout / me', () => {
       const app = await buildApp(db);
       try {
         const agent = request.agent(app.getHttpServer());
-        await agent.post('/auth/register').send({
+        await agent.post('/api/v1/auth/register').send({
           username: 'audited',
           email: 'audited@example.com',
           password: 'a-long-enough-password',
@@ -183,7 +183,7 @@ describe('login / logout / me', () => {
         // What Caddy sends upstream: it strips whatever the client claimed
         // and writes the connecting address itself (see `clientIp`).
         await agent
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .set('x-forwarded-for', '203.0.113.9')
           .set('user-agent', 'bh1-probe/1.0')
           .send({ usernameOrEmail: 'audited', password: 'a-long-enough-password' });
@@ -211,7 +211,7 @@ describe('login / logout / me', () => {
       const app = await buildApp(db);
       try {
         const res = await request(app.getHttpServer())
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'nobody', password: 'whatever-password' });
         expect(res.status).toBe(401);
         expect(res.body.code).toBe('invalid_credentials');

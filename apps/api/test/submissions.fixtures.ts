@@ -54,7 +54,7 @@ export async function seedProblemAndLanguage(db: Db): Promise<void> {
  */
 export async function registerAndLogin(agent: SupertestAgent, username: string): Promise<string> {
   await agent
-    .post('/auth/register')
+    .post('/api/v1/auth/register')
     // D26 meters registration at 5 per client IP per hour, and every request
     // in these tests comes off the same loopback socket — so a spec that
     // seeds six users would have its sixth refused 429 and its login then
@@ -70,7 +70,7 @@ export async function registerAndLogin(agent: SupertestAgent, username: string):
       password: PASSWORD,
       displayName: username,
     });
-  const res = await agent.post('/auth/login').send({ usernameOrEmail: username, password: PASSWORD });
+  const res = await agent.post('/api/v1/auth/login').send({ usernameOrEmail: username, password: PASSWORD });
   const setCookie: unknown = res.headers['set-cookie'];
   const raw = Array.isArray(setCookie) ? (setCookie[0] as string | undefined) : (setCookie as string | undefined);
   if (!raw) throw new Error(`login for ${username} did not set a session cookie`);

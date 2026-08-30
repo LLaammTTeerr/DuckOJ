@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import cookieParser from 'cookie-parser';
 import { Redis } from 'ioredis';
 import type { DestinationStream } from 'pino';
 import type { Db } from '@duckoj/db';
@@ -25,46 +24,59 @@ import { UsersModule } from '../src/users/users.module.js';
 import { RedisSubscriber } from '../src/realtime/redis-subscriber.js';
 import { SubmissionsGateway } from '../src/realtime/submissions.gateway.js';
 import { APP_CONFIG, DB } from '../src/config/config.module.js';
-import { ProblemFilter } from '../src/common/problem.filter.js';
-import { requestLogger } from '../src/common/logger.js';
-import type { AppConfig } from '../src/config/config.schema.js';
+import { configureApp } from '../src/app.setup.js';
+import { type AppConfig, loadConfig } from '../src/config/config.schema.js';
 import { ensureRedisUrl } from './redis.harness.js';
 
-export const TEST_CONFIG: AppConfig = {
-  // No SMTP: tests use `LogMailer`, and a test that wants to read what was
-  // sent injects the mailer and reads `sent`. A suite must never need a mail
-  // server to register a user.
-  smtp: null,
-  mailFrom: 'DuckOJ <test@duckoj.local>',
-  // No typst binary either: the PDF route answers 501 unless a test
-  // injects a renderer, mirroring the LogMailer reasoning above.
-  typstBin: null,
-  nodeEnv: 'test',
-  port: 0,
-  databaseUrl: 'postgres://unused',
-  // `AppModule` (only instantiated whole by `app.smoke.spec.ts`) now includes
-  // `RealtimeModule`, whose `RedisSubscriber` dials this address. It is
-  // deliberately unreachable rather than a real container: `buildApp` never
-  // awaits the subscription, so a refused connection just logs and retries
-  // in the background exactly as it would against a real, temporarily-down
-  // Redis — it must never block `app.init()`. Tests that need a live
-  // subscriber use `buildAppWithRealtime`, which overrides this with a real
-  // container's URL.
-  redisUrl: 'redis://127.0.0.1:1',
-  sessionCookieName: 'duckoj_session',
-  sessionTtlHours: 720,
-  totpEncKey: Buffer.alloc(32, 1),
-  publicOrigin: 'http://localhost:5173',
-  wsAllowedOrigins: ['http://localhost:5173'],
-  logLevel: 'silent',
-  // `buildApp` overrides this with a fresh temp directory per call (mirrors
-  // how `buildAppWithRealtime` overrides `redisUrl`), so tests that actually
-  // upload get an isolated store. This default only backs callers — like
+/**
+ * The environment a test API runs under — the same variable names
+ * `docker-compose.yml` sets, parsed by the same `loadConfig` the container's
+ * `main.ts` calls (D91).
+ *
+ * `TEST_CONFIG` used to be a hand-written `AppConfig` object literal, and that
+ * was the only reason `loadConfig` had a single caller in the whole suite:
+ * ~900 specs ran against a config shape assembled by hand, so a schema that
+ * disagreed with the object (a renamed key, a new required field, a default
+ * that moved) was invisible until a real bring-up. Going through the parser
+ * makes the suite's config the parser's output by construction.
+ *
+ * The values are the old literal's, restated as env strings — see the
+ * comments below for the two that are load-bearing.
+ */
+export const TEST_ENV: NodeJS.ProcessEnv = {
+  NODE_ENV: 'test',
+  // Never listened on: `buildApp` dispatches in memory and
+  // `buildAppWithRealtime` calls `app.listen(0)`. The old literal said `0`,
+  // which `EnvSchema` refuses (`PORT` is `min(1)`) — itself a small proof
+  // that the hand-written object was not a config the schema would accept.
+  PORT: '3000',
+  DATABASE_URL: 'postgres://unused',
+  // Deliberately unreachable rather than a real container: `buildApp` never
+  // awaits the subscription, so a refused connection just logs and retries in
+  // the background exactly as it would against a real, temporarily-down Redis
+  // — it must never block `app.init()`. Tests that need a live subscriber use
+  // `buildAppWithRealtime`, which overrides this with a real container's URL.
+  REDIS_URL: 'redis://127.0.0.1:1',
+  TOTP_ENC_KEY: '01'.repeat(32),
+  PUBLIC_ORIGIN: 'http://localhost:5173',
+  // `configureApp` installs `requestLogger(config.logLevel)` on every app the
+  // harness builds, so this is what keeps the suite silent. `silent` is a
+  // pino level; `LOG_LEVEL` accepts it (see `config.schema.ts`).
+  LOG_LEVEL: 'silent',
+  MAIL_FROM: 'DuckOJ <test@duckoj.local>',
+  // No `SMTP_HOST`: tests use `LogMailer`, and a test that wants to read what
+  // was sent injects the mailer and reads `sent`. A suite must never need a
+  // mail server to register a user. No `TYPST_BIN` either: the PDF route
+  // answers 501 unless a test injects a renderer.
+  //
+  // `buildApp` overrides `PACKAGE_STORE_DIR`'s result with a fresh temp
+  // directory per call, so this default only backs callers — like
   // `app.smoke.spec.ts` — that use `TEST_CONFIG` as-is and never touch the
-  // package store, so it never needs to exist on disk.
-  packageStoreDir: join(tmpdir(), 'duckoj-test-packages-unused'),
-  packageUploadMaxBytes: 256 * 1024 * 1024,
+  // package store; it never needs to exist on disk.
+  PACKAGE_STORE_DIR: join(tmpdir(), 'duckoj-test-packages-unused'),
 };
+
+export const TEST_CONFIG: AppConfig = loadConfig(TEST_ENV);
 
 export interface BuildAppOptions {
   /**
@@ -133,6 +145,20 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
   // state leak into another's.
   const packageStoreDir = await mkdtemp(join(tmpdir(), 'duckoj-test-packages-'));
 
+  // One config object, injected AND handed to `configureApp` — production
+  // reads one `loadConfig` result in both places, and a harness that gave the
+  // providers one object and the middleware another would be able to disagree
+  // with itself about the public origin or the log level.
+  const config: AppConfig = {
+    ...TEST_CONFIG,
+    packageStoreDir,
+    ...options.configOverrides,
+    // `options.logging` is the one setting that is not a config override:
+    // it exists so a spec can READ the log, so it must beat `TEST_ENV`'s
+    // `silent`.
+    ...(options.logging === undefined ? {} : { logLevel: options.logging.level }),
+  };
+
   let builder = Test.createTestingModule({
     // Deliberately NOT `AppModule`'s list, and deliberately not shared with it:
     // this omits `ConfigModule` (which would build its own database pool
@@ -158,7 +184,7 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
     .overrideProvider(DB)
     .useValue(db)
     .overrideProvider(APP_CONFIG)
-    .useValue({ ...TEST_CONFIG, packageStoreDir, ...options.configOverrides });
+    .useValue(config);
 
   for (const override of options.overrides ?? []) {
     builder = builder.overrideProvider(override.provide).useValue(override.useValue);
@@ -167,14 +193,20 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
   const moduleRef = await builder.compile();
 
   const app = moduleRef.createNestApplication();
-  if (options.logging) {
-    app.use(requestLogger(options.logging.level, options.logging.destination));
-  }
+  // BEFORE `configureApp`, so the stamp is in place by the time anything the
+  // production wiring installs (the logger, the body parsers) sees the
+  // request — and, more importantly, by the time `CsrfOriginGuard` runs.
   if (!options.rawOrigin) {
-    app.use(browserOrigin((options.configOverrides?.publicOrigin ?? TEST_CONFIG.publicOrigin)));
+    app.use(browserOrigin(config.publicOrigin));
   }
-  app.use(cookieParser());
-  app.useGlobalFilters(new ProblemFilter());
+  // The production wiring itself (D91), not a hand-rolled subset of it: the
+  // `/api/v1` prefix, CORS with its exposed-header list, the two body
+  // parsers and their limits, `cookieParser`, `ProblemFilter`, the keep-alive
+  // timeouts and `x-powered-by` off. Before this, `buildApp` applied
+  // `cookieParser` and `ProblemFilter` by hand and nothing else, so ~900
+  // specs ran unprefixed against an app that shared only two lines with the
+  // one the container serves.
+  configureApp(app, config, options.logging?.destination);
   await app.init();
   return app;
 }
@@ -229,8 +261,10 @@ export async function buildAppWithRealtime(
   const app = moduleRef.createNestApplication();
   // Realtime tests POST submissions through an agent too — see `browserOrigin`.
   app.use(browserOrigin(TEST_CONFIG.publicOrigin));
-  app.use(cookieParser());
-  app.useGlobalFilters(new ProblemFilter());
+  // Same production wiring as `buildApp` (D91) — and here it matters twice
+  // over: this app actually `listen`s, so the keep-alive timeouts
+  // `configureApp` sets are the ones a real socket gets.
+  configureApp(app, { ...TEST_CONFIG, redisUrl });
   await app.init();
 
   // Wait for the dedicated subscriber connection to actually be subscribed

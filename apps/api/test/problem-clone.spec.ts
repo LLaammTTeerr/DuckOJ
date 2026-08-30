@@ -52,9 +52,9 @@ async function packageFixture(): Promise<{ hash: string; archive: Buffer }> {
 
 /** A published problem with a statement, an editorial, tags and a revision. */
 async function seedSource(agent: ReturnType<typeof request.agent>, code: string): Promise<string> {
-  const created = await agent.post('/problems').send({ code, name: 'Bài gốc', statement: 'Đề bài gốc' });
+  const created = await agent.post('/api/v1/problems').send({ code, name: 'Bài gốc', statement: 'Đề bài gốc' });
   expect(created.status).toBe(201);
-  const patched = await agent.patch(`/problems/${code}`).send({
+  const patched = await agent.patch(`/api/v1/problems/${code}`).send({
     visibility: 'public',
     difficulty: 7,
     tags: ['do-thi'],
@@ -65,14 +65,14 @@ async function seedSource(agent: ReturnType<typeof request.agent>, code: string)
 
   const fixture = await packageFixture();
   const uploaded = await agent
-    .post('/packages')
+    .post('/api/v1/packages')
     .query({ hash: fixture.hash })
     .set('Content-Type', 'application/octet-stream')
     .send(fixture.archive);
   expect(uploaded.status).toBe(201);
-  const attached = await agent.post(`/problems/${code}/revisions`).send({ packageHash: fixture.hash });
+  const attached = await agent.post(`/api/v1/problems/${code}/revisions`).send({ packageHash: fixture.hash });
   expect(attached.status).toBe(201);
-  const published = await agent.post(`/problems/${code}/revisions/1/publish`).send();
+  const published = await agent.post(`/api/v1/problems/${code}/revisions/1/publish`).send();
   expect(published.status).toBe(200);
   return fixture.hash;
 }
@@ -93,7 +93,7 @@ describe('cloning a problem (D88)', () => {
         const agent = await setter(db, app, 'clone-author');
         const hash = await seedSource(agent, 'clone-src');
 
-        const cloned = await agent.post('/problems/clone-src/clone').send({ newCode: 'clone-dst', newName: 'Bản sao' });
+        const cloned = await agent.post('/api/v1/problems/clone-src/clone').send({ newCode: 'clone-dst', newName: 'Bản sao' });
         expect(cloned.status).toBe(201);
         expect(cloned.body).toMatchObject({
           code: 'clone-dst',
@@ -134,7 +134,7 @@ describe('cloning a problem (D88)', () => {
         });
 
         // The source is untouched.
-        const source = await agent.get('/problems/clone-src');
+        const source = await agent.get('/api/v1/problems/clone-src');
         expect(source.body).toMatchObject({ visibility: 'public', name: 'Bài gốc' });
       });
     });
@@ -144,9 +144,9 @@ describe('cloning a problem (D88)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const agent = await setter(db, app, 'clone-bare');
-        await agent.post('/problems').send({ code: 'bare-src', name: 'Chưa có test', statement: 's' });
+        await agent.post('/api/v1/problems').send({ code: 'bare-src', name: 'Chưa có test', statement: 's' });
 
-        const cloned = await agent.post('/problems/bare-src/clone').send({ newCode: 'bare-dst' });
+        const cloned = await agent.post('/api/v1/problems/bare-src/clone').send({ newCode: 'bare-dst' });
         expect(cloned.status).toBe(201);
         expect(cloned.body.name).toBe('Chưa có test');
 
@@ -160,15 +160,15 @@ describe('cloning a problem (D88)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const agent = await setter(db, app, 'clone-taken');
-        await agent.post('/problems').send({ code: 'taken-src', name: 'A', statement: 's' });
-        await agent.post('/problems').send({ code: 'taken-dst', name: 'B', statement: 's' });
+        await agent.post('/api/v1/problems').send({ code: 'taken-src', name: 'A', statement: 's' });
+        await agent.post('/api/v1/problems').send({ code: 'taken-dst', name: 'B', statement: 's' });
 
-        const clash = await agent.post('/problems/taken-src/clone').send({ newCode: 'taken-dst' });
+        const clash = await agent.post('/api/v1/problems/taken-src/clone').send({ newCode: 'taken-dst' });
         expect(clash.status).toBe(409);
         expect(clash.body.code).toBe('problem_code_taken');
 
         // Nothing half-written: the existing problem is as it was.
-        const existing = await agent.get('/problems/taken-dst');
+        const existing = await agent.get('/api/v1/problems/taken-dst');
         expect(existing.body.name).toBe('B');
       });
     });
@@ -184,20 +184,20 @@ describe('cloning a problem (D88)', () => {
         // a clone carries the unpublished editorial and the whole test set,
         // neither of which a reader may see.
         const stranger = await setter(db, app, 'clone-stranger');
-        const refused = await stranger.post('/problems/authz-src/clone').send({ newCode: 'authz-a' });
+        const refused = await stranger.post('/api/v1/problems/authz-src/clone').send({ newCode: 'authz-a' });
         expect(refused.status).toBe(403);
         expect(refused.body.code).toBe('problem_forbidden');
 
         // A private problem does not even admit to existing.
-        await owner.patch('/problems/authz-src').send({ visibility: 'private' });
-        const hidden = await stranger.post('/problems/authz-src/clone').send({ newCode: 'authz-b' });
+        await owner.patch('/api/v1/problems/authz-src').send({ visibility: 'private' });
+        const hidden = await stranger.post('/api/v1/problems/authz-src/clone').send({ newCode: 'authz-b' });
         expect(hidden.status).toBe(404);
         expect(hidden.body.code).toBe('problem_not_found');
 
         // Its own author, demoted: they may still edit the problem, and may
         // no longer mint one.
         await db.update(schema.users).set({ globalRole: 'user' }).where(eq(schema.users.username, 'clone-owner'));
-        const demoted = await owner.post('/problems/authz-src/clone').send({ newCode: 'authz-c' });
+        const demoted = await owner.post('/api/v1/problems/authz-src/clone').send({ newCode: 'authz-c' });
         expect(demoted.status).toBe(403);
         expect(demoted.body.code).toBe('problem_forbidden');
       });

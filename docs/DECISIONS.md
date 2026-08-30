@@ -3818,6 +3818,147 @@ human available to consult. No migration.*
 
 
 
+## D91 — The test harness serves the application the container serves
+
+B-15's audit recorded it and did not fix it: `apps/api/test/app.harness.ts`'s
+`buildApp` applied `cookieParser` and a `ProblemFilter` **by hand** and nothing
+else, and `TEST_CONFIG` was a hand-written `AppConfig` object literal. So the
+~900 API specs ran against an app that shared two lines with the one `main.ts`
+boots — **no `/api/v1` prefix, no CORS, no body limits, no keep-alive tuning**
+— and `loadConfig` had exactly one caller in the whole suite.
+
+- **`buildApp` (and `buildAppWithRealtime`) now call `configureApp`**, the same
+  function `main.ts` calls, with no subset and no copy. The `browserOrigin`
+  stamp stays, installed first: it is a *browser simulation* supertest lacks,
+  not application wiring.
+- **Every spec path gained the prefix, mechanically** (867 call sites, 68
+  files). The exceptions are deliberate and small: `/healthz` and `/readyz`
+  (`configureApp` excludes them — they are infrastructure contracts, not API
+  surface), `app.smoke.spec.ts`'s two *off*-the-prefix negative tests, and the
+  seven specs that build a bare `Test.createTestingModule` app of their own to
+  exercise one guard or one filter, which never had a prefix to begin with.
+- **`TEST_CONFIG = loadConfig(TEST_ENV)`**, where `TEST_ENV` names the same
+  variables `docker-compose.yml` sets. The old literal was demonstrably *not* a
+  config `loadConfig` would produce — `port: 0` (`PORT` is `min(1)`) and
+  `logLevel: 'silent'` (absent from the `LOG_LEVEL` enum) — and nothing could
+  notice, because the two were never run against each other.
+- **`LOG_LEVEL` now admits `silent`.** It is one of pino's own levels and the
+  only one the enum omitted, so `LOG_LEVEL=silent` in a `.env` crashed the API
+  at boot with `Invalid environment configuration`. Admitted so the harness can
+  go through the parser at all, and so an operator who wants a quiet container
+  gets one instead of a boot loop.
+- **`test/harness-realism.spec.ts` is the guard**, asserting the prefix, the
+  CORS exposed-header list, the 100 KB body limit's 413, `x-powered-by` off and
+  the keep-alive pair — against an app from `buildApp`, deliberately not one
+  the file wires itself, because what is under test is what the other 900
+  specs are handed.
+
+The cost is that a harness app now carries CORS and body limits that most
+specs do not care about; that is the point. The benefit is that a route which
+works in every spec and 404s behind Caddy is no longer a shape the suite
+cannot see — the same class of gap the 2026-08-30 boot outage came out of.
+
+*Ruled by the implementer during the 2026-08-30 bug-hunt loop (B-16 brief), no
+human available to consult. No migration.*
+
+## D92 — `GET /problems/{code}` says WHICH revision is live, not merely that one is
+
+F-21's live probe reported `publishedVersion: null` for every problem on the
+deployment and the loop ledger carried it forward as a bug. It was not a
+mapping fault, a stale column or a cache: **the field did not exist**. `jq`
+prints `null` for a key that is not in the object, so a missing field and a
+null field are one string on the wire, and the projection that "found" the bug
+was asking for something no contract had ever declared.
+
+The gap it pointed at is real, though. `ProblemDetail` carried
+`hasPublishedRevision: boolean` and nothing else about the live revision; the
+number lived only behind `GET /problems/{code}/revisions`, which
+`canViewRevisions` restricts to members and admins. A setter's own tooling —
+`packages/prepare`'s idempotency check, the authoring tab's "open a draft from
+revision N" (D88) — has to ask "which one is live" and had to be a problem
+member to get an answer.
+
+- **`publishedVersion: number | null` on the DETAIL, not the summary.** No list
+  row renders it, so putting it on `ProblemSummary` would be payload on every
+  page of every search to answer a question only the problem's own page asks.
+- **`hasPublishedRevision` stays**, and is not re-derived from it: it is the
+  boolean a list row does render, and collapsing the two would make every
+  caller write `publishedVersion !== null` instead.
+- **It nulls with the other four revision-derived fields.** `timeMs`,
+  `memoryKb`, `testCount`, `totalPoints`, `checkerKind` and now
+  `publishedVersion` all come from the same left join, whose `state =
+  'published'` term is what makes them honest — a problem whose
+  `currentRevisionId` were parked on an archived revision reads as one that has
+  never shipped rather than reporting a stale version number as live. That
+  state is unreachable through `publishRevision` today and is written by hand in
+  `problem-reads.spec.ts`, which is the test the file's own `testCount` comment
+  said no fixture could build.
+- **Both detail builders**: `getVisible` and `loadDetailById` (which backs
+  `POST /problems` and `PATCH /problems/{code}`) each carry it, so a create or
+  a patch answers what the next `GET` will say.
+
+Not a leak: a version number says how many times a setter re-published, which
+is not a hint about the problem's content, so it is not on D35's mask.
+
+*Ruled by the implementer during the 2026-08-30 bug-hunt loop (B-16 brief), no
+human available to consult. No migration.*
+
+## D93 — A draft's caps are read-modify-write, so a draft is locked while one is decided
+
+D87 bounds a draft at 500 files and 512 MiB, and both are checked the same
+way: `stats()` the directory, decide, then write. Two PUTs in flight against
+one draft both measure the state BEFORE either wrote, so both are admitted —
+the caps bound a one-file-at-a-time client and nothing else. Nothing noticed
+because the authoring tab uploads one file at a time; the API is a public one,
+four `API_WORKERS` share the volume, and a scripted bulk upload is exactly the
+caller a cap on shared disk exists for. Measured: two concurrent PUTs at the
+499-file boundary both answer 200 and leave 501 files.
+
+- **The lock is a directory (`.lock`) beside `meta.json`**, taken with a bare
+  `mkdir` — one syscall that both tests and takes it, with no window between
+  the two — and it lives outside `files/` for the reason the `.tmp-…` file
+  does: `buildPackage` tars everything it is given and `stats` counts
+  everything it sees, so a lock inside `files/` would change the package's
+  content-addressed hash. It is on the shared volume, so it holds ACROSS
+  workers, which an in-process mutex would not.
+- **A lock older than two minutes is taken over, not waited on.** The holder
+  can die — a killed worker, a restart mid-PUT — with nothing left to release
+  it, and a frozen-for-24-hours draft is the one state nothing recovers from
+  on its own. Same reasoning `read()` applies to an unreadable `meta.json`.
+  The age is the directory's own `mtime`, set by the `mkdir`, so there is no
+  second write that could be missing when a waiter looks.
+- **Authorization stays outside the lock.** `resolve` is a database read that
+  can refuse, and a caller who may not touch this draft must not be able to
+  make its owner's uploads queue behind them.
+- **The build holds it only across `buildPackage`.** That step reads the
+  directory listing and then the files in it, so a PUT landing between the two
+  decides what the package contains — and therefore its hash — without the
+  setter who asked for the build having any say. The upload, the attach and
+  the publish that follow touch the database and the package store, not the
+  draft, and holding a lock across them would let a slow write block the next
+  upload.
+
+- **The sweeper skips a held draft rather than waiting for it.** `sweep` is `rm -r` of the
+  whole directory, lock and all, so a draft crossing its 24 hours while a build reads it was
+  yanked out from under `buildPackage` — and the setter got the raw `ENOENT` quoted verbatim
+  into a 422, for a build that had already passed the expiry check when it started. Skipped
+  rather than waited on: the sweep runs hourly over every draft on the volume, and blocking
+  each one for the lock's timeout would let a single held draft stall the whole pass. The
+  next tick reclaims it, an hour is nothing against a 24-hour TTL, and a lock held past
+  `DRAFT_LOCK_STALE_MS` is not held by anything alive. Expiry is unaffected: the draft stays
+  unreachable through the API the instant it expires — the skip is about the disk.
+
+**Two rulings recorded rather than changed.** A build whose package hash equals
+the current revision's still attaches a NEW revision: `attachRevision` is a
+version allocator, not a deduplicator, `submissions.revisionId` pins history
+per revision rather than per hash, and a caller that wants idempotency compares
+hashes against the revision list — which is what `packages/prepare` does (D90).
+And a draft whose problem is deleted needs no rule: nothing in this API deletes
+a problem.
+
+*Ruled by the implementer during the 2026-08-30 bug-hunt loop (B-16 brief), no
+human available to consult. No migration.*
+
 ## D94 — Samples are a field on the problem, read out of the package; a statement's table is hidden only when it is provably a duplicate
 
 `GET /problems/{code}` modelled no samples at all. The input and the output
@@ -4025,4 +4166,5 @@ page every competitor has open. The link on the contest page is gated on
 
 *Ruled by the implementer during the 2026-08-30 F-23 loop, no human available
 to consult. Migration 0035.*
+
 

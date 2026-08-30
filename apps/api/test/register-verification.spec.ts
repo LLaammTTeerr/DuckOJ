@@ -27,7 +27,7 @@ describe('POST /auth/register sends the verification mail', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
-        const res = await request(app.getHttpServer()).post('/auth/register').send(REGISTRATION);
+        const res = await request(app.getHttpServer()).post('/api/v1/auth/register').send(REGISTRATION);
         expect(res.status).toBe(201);
 
         const sent = mailerOf(app).sent;
@@ -45,20 +45,20 @@ describe('POST /auth/register sends the verification mail', () => {
       const app = await buildApp(db);
       try {
         const agent = request.agent(app.getHttpServer());
-        await agent.post('/auth/register').send(REGISTRATION).expect(201);
+        await agent.post('/api/v1/auth/register').send(REGISTRATION).expect(201);
         await agent
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'newbie', password: REGISTRATION.password })
           .expect(200);
-        expect((await agent.get('/auth/me')).body.emailVerified).toBe(false);
+        expect((await agent.get('/api/v1/auth/me')).body.emailVerified).toBe(false);
 
         const mail = mailerOf(app).sent.at(0);
         if (!mail) throw new Error('registration sent no mail');
         const token = /token=([A-Za-z0-9_-]+)/.exec(mail.text)?.[1];
         if (!token) throw new Error(`no token in mail: ${mail.text}`);
 
-        await request(app.getHttpServer()).post('/auth/email/verify').send({ token }).expect(200);
-        expect((await agent.get('/auth/me')).body.emailVerified).toBe(true);
+        await request(app.getHttpServer()).post('/api/v1/auth/email/verify').send({ token }).expect(200);
+        expect((await agent.get('/api/v1/auth/me')).body.emailVerified).toBe(true);
       } finally {
         await app.close();
       }
@@ -77,12 +77,12 @@ describe('POST /auth/register sends the verification mail', () => {
         overrides: [{ provide: MAILER, useValue: brokenMailer }],
       });
       try {
-        const res = await request(app.getHttpServer()).post('/auth/register').send(REGISTRATION);
+        const res = await request(app.getHttpServer()).post('/api/v1/auth/register').send(REGISTRATION);
         expect(res.status).toBe(201);
         expect(res.body.username).toBe('newbie');
         // …and the account is genuinely usable, not half-created.
         await request(app.getHttpServer())
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'newbie', password: REGISTRATION.password })
           .expect(200);
       } finally {

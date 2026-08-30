@@ -38,19 +38,19 @@ async function signIn(app: INestApplication, db: Db, name: string, admin = false
 async function seedClass(app: INestApplication, db: Db, slug: string, pupils: string[]) {
   const admin = await signIn(app, db, `${slug}-root`, true);
   expect(
-    (await admin.post('/orgs').send({ slug, name: slug, visibility: 'public', joinPolicy: 'invite' }))
+    (await admin.post('/api/v1/orgs').send({ slug, name: slug, visibility: 'public', joinPolicy: 'invite' }))
       .status,
   ).toBe(201);
   const teacher = await signIn(app, db, `${slug}-teacher`);
-  await admin.post(`/orgs/${slug}/members`).send({ username: `${slug}-teacher`, role: 'owner' });
+  await admin.post(`/api/v1/orgs/${slug}/members`).send({ username: `${slug}-teacher`, role: 'owner' });
   for (const pupil of pupils) {
     await signIn(app, db, pupil);
-    await admin.post(`/orgs/${slug}/members`).send({ username: pupil, role: 'member' });
+    await admin.post(`/api/v1/orgs/${slug}/members`).send({ username: pupil, role: 'member' });
   }
   expect(
     (
       await teacher
-        .post(`/orgs/${slug}/sets`)
+        .post(`/api/v1/orgs/${slug}/sets`)
         .send({ slug: 'wk', name: 'Week 1', problems: [{ code: 'aplusb', points: 100 }] })
     ).status,
   ).toBe(201);
@@ -73,7 +73,7 @@ describe('the progress CSV walks the roster and stops at a stated cap', () => {
       try {
         await seedProblemAndLanguage(db);
         const teacher = await seedClass(app, db, 'wide', ['ann', 'ben', 'cyd', 'dia', 'eve']);
-        const csv = await teacher.get('/orgs/wide/sets/wk/progress?format=csv');
+        const csv = await teacher.get('/api/v1/orgs/wide/sets/wk/progress?format=csv');
         expect(csv.status).toBe(200);
         const lines = bodyLines(csv.text as string);
         // Five pupils, the teacher and the admin who created the school.
@@ -95,7 +95,7 @@ describe('the progress CSV walks the roster and stops at a stated cap', () => {
       try {
         await seedProblemAndLanguage(db);
         const teacher = await seedClass(app, db, 'capped', ['ann', 'ben', 'cyd', 'dia', 'eve']);
-        const csv = await teacher.get('/orgs/capped/sets/wk/progress?format=csv');
+        const csv = await teacher.get('/api/v1/orgs/capped/sets/wk/progress?format=csv');
         expect(csv.status).toBe(200);
         const lines = bodyLines(csv.text as string);
         // Three rows, then one line that is not a pupil.
@@ -113,12 +113,11 @@ describe('the progress CSV walks the roster and stops at a stated cap', () => {
       try {
         await seedProblemAndLanguage(db);
         const teacher = await seedClass(app, db, 'json', ['ann', 'ben', 'cyd']);
-        const first = await teacher.get('/orgs/json/sets/wk/progress?limit=2');
+        const first = await teacher.get('/api/v1/orgs/json/sets/wk/progress?limit=2');
         expect(first.status).toBe(200);
         expect(first.body.rows).toHaveLength(2);
         expect(first.body.nextCursor).not.toBeNull();
-        const second = await teacher.get(
-          `/orgs/json/sets/wk/progress?limit=2&cursor=${encodeURIComponent(String(first.body.nextCursor))}`,
+        const second = await teacher.get(`/api/v1/orgs/json/sets/wk/progress?limit=2&cursor=${encodeURIComponent(String(first.body.nextCursor))}`,
         );
         const seen = [...first.body.rows, ...second.body.rows].map(
           (row: { username: string }) => row.username,

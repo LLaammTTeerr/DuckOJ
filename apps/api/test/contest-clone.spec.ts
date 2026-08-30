@@ -62,12 +62,12 @@ async function seedSource(
   key: string,
 ): Promise<void> {
   for (const code of ['clone-p1', 'clone-p2']) {
-    const created = await agent.post('/problems').send({ code, name: code, statement: 's' });
+    const created = await agent.post('/api/v1/problems').send({ code, name: code, statement: 's' });
     expect(created.status).toBe(201);
   }
   const start = new Date(Date.now() - 5 * HOUR);
   const end = new Date(Date.now() - 4 * HOUR);
-  const created = await agent.post('/contests').send({
+  const created = await agent.post('/api/v1/contests').send({
     key,
     name: 'Vòng tỉnh 2026',
     startTime: start.toISOString(),
@@ -112,7 +112,7 @@ describe('cloning a contest (D88)', () => {
 
         const start = new Date(Date.now() + 24 * HOUR);
         const end = new Date(Date.now() + 26 * HOUR);
-        const cloned = await agent.post('/contests/tinh-2026/clone').send({
+        const cloned = await agent.post('/api/v1/contests/tinh-2026/clone').send({
           newKey: 'tinh-2027',
           newName: 'Vòng tỉnh 2027',
           startTime: start.toISOString(),
@@ -170,7 +170,7 @@ describe('cloning a contest (D88)', () => {
         await seedOwnedOrg(db, 'truong-a', 'clone-organiser');
         await seedSource(agent, db, 'tinh-win');
 
-        const backwards = await agent.post('/contests/tinh-win/clone').send({
+        const backwards = await agent.post('/api/v1/contests/tinh-win/clone').send({
           newKey: 'tinh-back',
           newName: 'Ngược',
           startTime: new Date(Date.now() + 26 * HOUR).toISOString(),
@@ -182,7 +182,7 @@ describe('cloning a contest (D88)', () => {
         // The source's 15-minute freeze is longer than a 10-minute contest,
         // and nothing in the request says so — the same merged-state rule
         // `update` applies.
-        const squeezed = await agent.post('/contests/tinh-win/clone').send({
+        const squeezed = await agent.post('/api/v1/contests/tinh-win/clone').send({
           newKey: 'tinh-short',
           newName: 'Ngắn',
           startTime: new Date(Date.now() + 24 * HOUR).toISOString(),
@@ -209,7 +209,7 @@ describe('cloning a contest (D88)', () => {
         };
 
         const taken = await agent
-          .post('/contests/tinh-authz/clone')
+          .post('/api/v1/contests/tinh-authz/clone')
           .send({ newKey: 'tinh-authz', newName: 'Trùng', ...window });
         expect(taken.status).toBe(409);
         expect(taken.body.code).toBe('contest_key_taken');
@@ -218,7 +218,7 @@ describe('cloning a contest (D88)', () => {
         // 404, the same answer `PATCH /contests/{key}` gives them.
         const other = await setterAgent(app, db, 'clone-outsider');
         const refused = await other
-          .post('/contests/tinh-authz/clone')
+          .post('/api/v1/contests/tinh-authz/clone')
           .send({ newKey: 'tinh-other', newName: 'Của người khác', ...window });
         expect(refused.status).toBe(404);
 
@@ -229,7 +229,7 @@ describe('cloning a contest (D88)', () => {
           .set({ globalRole: 'user' })
           .where(eq(schema.users.username, 'clone-organiser'));
         const demoted = await agent
-          .post('/contests/tinh-authz/clone')
+          .post('/api/v1/contests/tinh-authz/clone')
           .send({ newKey: 'tinh-demoted', newName: 'Bị hạ quyền', ...window });
         expect(demoted.status).toBe(403);
         expect(demoted.body.code).toBe('contest_forbidden');

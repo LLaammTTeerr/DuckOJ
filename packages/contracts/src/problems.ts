@@ -320,6 +320,31 @@ export const ProblemDetail = ProblemSummary.extend({
    * exactly who needs it.
    */
   samples: z.array(ProblemSample),
+  /**
+   * The `version` of the revision that is currently published — the one every
+   * new submission is graded against — or `null` when none is (D92).
+   *
+   * On the detail rather than the summary, unlike `testCount`/`tags`: no list
+   * row renders it, so it would be payload on every page of every search to
+   * answer a question only the problem's own page asks. `hasPublishedRevision`
+   * stays exactly what it was and is not derived from this: it is the boolean
+   * a list row does render, and removing it would make every caller compute
+   * `publishedVersion !== null` instead.
+   *
+   * Nullable on the same rule as `timeMs`/`memoryKb`/`testCount`/`totalPoints`
+   * — all five come from the join onto the PUBLISHED revision, so they are
+   * `null` together or populated together, and a problem whose pointer is not
+   * on a published revision reads as one that has never shipped rather than
+   * quietly reporting an archived revision's number as live.
+   *
+   * The field's absence is what F-21's live probe reported as
+   * `publishedVersion: null` for every problem on the stack: `jq` prints
+   * `null` for a key that is not there, so a missing field and a null field
+   * are one string on the wire. The detail genuinely could not answer "which
+   * version is live" — only `GET /problems/{code}/revisions` could, and that
+   * route is members-and-admins only.
+   */
+  publishedVersion: z.number().int().positive().nullable(),
 });
 export type ProblemDetailDto = z.infer<typeof ProblemDetail>;
 

@@ -178,7 +178,7 @@ describe('GET /problems/{code}/statement.pdf', () => {
         await seedProblem(db, { code: 'hidden-pdf', visibility: 'private' });
         // Visibility first: anonymous gets the same 404 the JSON route gives,
         // never the 501 that would say "this problem exists".
-        const res = await request(app.getHttpServer()).get('/problems/hidden-pdf/statement.pdf');
+        const res = await request(app.getHttpServer()).get('/api/v1/problems/hidden-pdf/statement.pdf');
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('problem_not_found');
       } finally {
@@ -192,7 +192,7 @@ describe('GET /problems/{code}/statement.pdf', () => {
       const app = await buildApp(db);
       try {
         await seedProblem(db, { code: 'public-pdf', visibility: 'public' });
-        const res = await request(app.getHttpServer()).get('/problems/public-pdf/statement.pdf');
+        const res = await request(app.getHttpServer()).get('/api/v1/problems/public-pdf/statement.pdf');
         expect(res.status).toBe(501);
         expect(res.body.code).toBe('statement_pdf_unavailable');
       } finally {
@@ -207,7 +207,7 @@ describe('GET /problems/{code}/statement.pdf', () => {
       try {
         await seedProblem(db, { code: 'real-pdf', visibility: 'public' });
         const res = await request(app.getHttpServer())
-          .get('/problems/real-pdf/statement.pdf')
+          .get('/api/v1/problems/real-pdf/statement.pdf')
           .buffer(true)
           .parse((response, callback) => {
             const chunks: Buffer[] = [];
