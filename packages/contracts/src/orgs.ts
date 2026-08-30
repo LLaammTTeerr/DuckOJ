@@ -20,6 +20,23 @@ export const OrgSummary = z.object({
   about: z.string().nullable(),
   visibility: OrgVisibility,
   joinPolicy: OrgJoinPolicy,
+  /**
+   * THIS caller's role in this organization, or `null` for a non-member and
+   * for an anonymous reader.
+   *
+   * Served rather than derived, for the reason `ContestDetail.canEdit`
+   * documents: the alternative is a client that fetches `/orgs/{slug}/members`
+   * for every row of a list and searches it for its own username, which is one
+   * request per organization to answer a question the server already knows.
+   * The contest forms need it — only an owner or an admin may restrict a
+   * contest to an organization (D56) — and the list can only offer the right
+   * organizations if it is told which they are.
+   *
+   * A global admin is still `null` where they hold no membership: this is a
+   * membership fact, not a permission. What a global admin may do is decided
+   * by `globalRole`, which the caller already has from `GET /auth/me`.
+   */
+  myRole: OrgRole.nullable(),
   createdAt: Timestamp,
 });
 export type OrgSummaryDto = z.infer<typeof OrgSummary>;

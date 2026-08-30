@@ -14,7 +14,11 @@ export interface paths {
         /** Contests visible to the caller */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                    org?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -43,6 +47,10 @@ export interface paths {
                                 frozenLastMinutes: number;
                                 timeLimitSeconds: number | null;
                                 isRated: boolean;
+                                orgs: {
+                                    slug: string;
+                                    name: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
@@ -121,6 +129,10 @@ export interface paths {
                             frozenLastMinutes: number;
                             timeLimitSeconds: number | null;
                             isRated: boolean;
+                            orgs: {
+                                slug: string;
+                                name: string;
+                            }[];
                             /** Format: date-time */
                             createdAt: string;
                             formatConfig: {
@@ -138,7 +150,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description An unknown format (`unknown_contest_format`), an end before the start, or an unknown problem */
+                /** @description An unknown format (`unknown_contest_format`), an end before the start, an unknown problem, an organization the caller does not own or administer (`contest_org_unknown`), or an `org`-visible contest with no organization at all (`contest_org_missing`) */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -286,6 +298,10 @@ export interface paths {
                             frozenLastMinutes: number;
                             timeLimitSeconds: number | null;
                             isRated: boolean;
+                            orgs: {
+                                slug: string;
+                                name: string;
+                            }[];
                             /** Format: date-time */
                             createdAt: string;
                             formatConfig: {
@@ -360,6 +376,7 @@ export interface paths {
                         timeLimitSeconds?: number | null;
                         /** @enum {string} */
                         visibility?: "private" | "org" | "public";
+                        orgSlugs?: string[];
                         problems?: {
                             code: string;
                             points: number;
@@ -392,6 +409,10 @@ export interface paths {
                             frozenLastMinutes: number;
                             timeLimitSeconds: number | null;
                             isRated: boolean;
+                            orgs: {
+                                slug: string;
+                                name: string;
+                            }[];
                             /** Format: date-time */
                             createdAt: string;
                             formatConfig: {
@@ -409,7 +430,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description An unknown format (`unknown_contest_format`), an end before the start, or an unknown problem */
+                /** @description An unknown format (`unknown_contest_format`), an end before the start, an unknown problem, an organization the caller does not own or administer (`contest_org_unknown`), or an `org`-visible contest with no organization at all (`contest_org_missing`) */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -774,6 +795,26 @@ export interface paths {
                 };
                 /** @description Not signed in */
                 401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This contest is restricted to organizations the caller does not belong to (`contest_org_required`). **403, not 404**, and deliberately: a contest that names its organizations in every response it serves is a contest whose existence the caller already knows — there is nothing left to conceal, and a 404 here would read as "that contest is gone" to a competitor looking at it (D56). */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2533,8 +2574,8 @@ export interface paths {
                             displayName: string;
                             /** @enum {string} */
                             globalRole: "user" | "setter" | "admin";
-                            locale: string;
-                            timezone: string;
+                            locale: string | null;
+                            timezone: string | null;
                             totpEnabled: boolean;
                             recoveryCodesRemaining: number;
                             emailVerified: boolean;
@@ -2658,8 +2699,8 @@ export interface paths {
                                 displayName: string;
                                 /** @enum {string} */
                                 globalRole: "user" | "setter" | "admin";
-                                locale: string;
-                                timezone: string;
+                                locale: string | null;
+                                timezone: string | null;
                                 totpEnabled: boolean;
                                 recoveryCodesRemaining: number;
                                 emailVerified: boolean;
@@ -2786,8 +2827,8 @@ export interface paths {
                             displayName: string;
                             /** @enum {string} */
                             globalRole: "user" | "setter" | "admin";
-                            locale: string;
-                            timezone: string;
+                            locale: string | null;
+                            timezone: string | null;
                             totpEnabled: boolean;
                             recoveryCodesRemaining: number;
                             emailVerified: boolean;
@@ -3241,6 +3282,8 @@ export interface paths {
                                 visibility: "public" | "private";
                                 /** @enum {string} */
                                 joinPolicy: "open" | "request" | "invite";
+                                /** @enum {string|null} */
+                                myRole: "owner" | "admin" | "member" | null;
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
@@ -3294,6 +3337,8 @@ export interface paths {
                             visibility: "public" | "private";
                             /** @enum {string} */
                             joinPolicy: "open" | "request" | "invite";
+                            /** @enum {string|null} */
+                            myRole: "owner" | "admin" | "member" | null;
                             /** Format: date-time */
                             createdAt: string;
                         };
@@ -3421,6 +3466,8 @@ export interface paths {
                             visibility: "public" | "private";
                             /** @enum {string} */
                             joinPolicy: "open" | "request" | "invite";
+                            /** @enum {string|null} */
+                            myRole: "owner" | "admin" | "member" | null;
                             /** Format: date-time */
                             createdAt: string;
                         };
@@ -3492,6 +3539,8 @@ export interface paths {
                             visibility: "public" | "private";
                             /** @enum {string} */
                             joinPolicy: "open" | "request" | "invite";
+                            /** @enum {string|null} */
+                            myRole: "owner" | "admin" | "member" | null;
                             /** Format: date-time */
                             createdAt: string;
                         };
@@ -6369,8 +6418,8 @@ export interface paths {
                         displayName?: string;
                         about?: string | null;
                         country?: string | null;
-                        timezone?: string;
-                        locale?: string;
+                        timezone?: string | null;
+                        locale?: string | null;
                     };
                 };
             };

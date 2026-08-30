@@ -40,8 +40,15 @@ export const MeResponse = z.object({
   email: z.string(),
   displayName: z.string(),
   globalRole: z.enum(['user', 'setter', 'admin']),
-  locale: z.string(),
-  timezone: z.string(),
+  /**
+   * The reader's own preferences, or `null` where they have never chosen
+   * one (D57). `null` is not "vi" and not the server's zone: it means the
+   * client keeps doing what it did before anybody had a setting — resolve
+   * the locale from `navigator.language` (D18) and render times in the
+   * browser's own zone. A non-null value beats both.
+   */
+  locale: z.string().nullable(),
+  timezone: z.string().nullable(),
   totpEnabled: z.boolean(),
   /**
    * How many unused TOTP recovery codes the account still holds (D39). Zero

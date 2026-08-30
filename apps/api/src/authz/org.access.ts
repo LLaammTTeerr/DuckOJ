@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import { organizations, orgJoinRequests, orgMembers } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
@@ -71,13 +71,36 @@ export class OrgAccessService {
       .orderBy(asc(organizations.id))
       .limit(page.limit + 1);
 
-    const items = rows.slice(0, page.limit).map(toOrgSummary);
+    const kept = rows.slice(0, page.limit);
+    // ONE query for the whole page. A role per row would be 26 round trips
+    // to render 25 organizations, and the contest forms need every row's.
+    const roles = await this.rolesIn(
+      actor,
+      kept.map((row) => row.id),
+    );
+    const items = kept.map((row) => toOrgSummary(row, roles.get(row.id) ?? null));
     const nextCursor = rows.length > page.limit ? String(items.at(-1)!.id) : null;
     return { items, nextCursor };
   }
 
+  /** This actor's role in each of `orgIds`, for the rows where they hold one. */
+  private async rolesIn(
+    actor: Actor | null,
+    orgIds: number[],
+  ): Promise<Map<number, OrgRoleDto>> {
+    const byOrg = new Map<number, OrgRoleDto>();
+    if (!actor || orgIds.length === 0) return byOrg;
+    const rows = await this.db
+      .select({ orgId: orgMembers.orgId, role: orgMembers.role })
+      .from(orgMembers)
+      .where(and(eq(orgMembers.userId, actor.userId), inArray(orgMembers.orgId, orgIds)));
+    for (const row of rows) byOrg.set(row.orgId, row.role as OrgRoleDto);
+    return byOrg;
+  }
+
   async getVisible(actor: Actor | null, slug: string): Promise<OrgSummaryDto> {
-    return toOrgSummary(await this.findVisibleOrgRow(actor, slug));
+    const row = await this.findVisibleOrgRow(actor, slug);
+    return toOrgSummary(row, await this.roleIn(actor, row.id));
   }
 
   async roleIn(actor: Actor | null, orgId: number): Promise<'owner' | 'admin' | 'member' | null> {
@@ -149,7 +172,8 @@ export class OrgAccessService {
       throw toOrgConflict(error);
     }
 
-    return toOrgSummary((await this.findRowById(orgId))!);
+    // `owner`, not a fresh query: the transaction above seeded exactly that.
+    return toOrgSummary((await this.findRowById(orgId))!, 'owner');
   }
 
   /**
@@ -186,7 +210,7 @@ export class OrgAccessService {
       }
     }
 
-    return toOrgSummary((await this.findRowById(row.id))!);
+    return toOrgSummary((await this.findRowById(row.id))!, await this.roleIn(actor, row.id));
   }
 
   /**
@@ -633,7 +657,19 @@ function parseCursor(cursor: string | undefined): number {
   return after;
 }
 
-function toOrgSummary(row: typeof organizations.$inferSelect): OrgSummaryDto {
+/**
+ * `myRole` is a REQUIRED second argument, never one defaulting to `null`.
+ *
+ * `null` reads as "not a member", and a caller that forgot to load the role
+ * would quietly tell every owner they are a stranger to their own
+ * organization — which the contest forms read as "you may not restrict a
+ * contest to this school" (D56). A forgotten argument has to be a compile
+ * error, not a silently narrower answer.
+ */
+function toOrgSummary(
+  row: typeof organizations.$inferSelect,
+  myRole: OrgRoleDto | null,
+): OrgSummaryDto {
   return {
     id: row.id,
     slug: row.slug,
@@ -641,6 +677,7 @@ function toOrgSummary(row: typeof organizations.$inferSelect): OrgSummaryDto {
     about: row.about,
     visibility: row.visibility,
     joinPolicy: row.joinPolicy,
+    myRole,
     createdAt: row.createdAt.toISOString(),
   };
 }

@@ -18,6 +18,7 @@ import type { Scoreboard } from '@duckoj/contest-formats';
 import type {
   ContestParticipationDto,
   ContestDetailDto,
+  ContestOrgDto,
   ContestPageDto,
   ContestProblemInputDto,
   ContestSummaryDto,
@@ -40,7 +41,7 @@ import {
   type ContestWindowRow,
   type ParticipationRow,
 } from './participation.js';
-import { loadOrgMembership } from './org.visibility.js';
+import { loadOrgAdminships } from './org.visibility.js';
 import {
   ScoreboardCache,
   scoreboardCacheKey,
@@ -74,6 +75,8 @@ export interface UpdateContestInput {
   frozenLastMinutes?: number | undefined;
   timeLimitSeconds?: number | null | undefined;
   visibility?: ContestVisibilityDto | undefined;
+  /** Present replaces the whole set; absent keeps it (D56). */
+  orgSlugs?: string[] | undefined;
   problems?: ContestProblemInputDto[] | undefined;
 }
 
@@ -116,19 +119,65 @@ export class ContestAccessService {
 
   async listVisible(
     actor: Actor | null,
-    page: Pick<PaginationQueryDto, 'limit'> & { cursor?: string | undefined },
+    page: Pick<PaginationQueryDto, 'limit'> & { cursor?: string | undefined; org?: string | undefined },
   ): Promise<ContestPageDto> {
     const after = parseCursor(page.cursor);
+    // `?org=` (D56). A slug naming nothing — or an organization this caller
+    // may not see — answers an EMPTY page rather than 404: the filter must
+    // not become the existence oracle `GET /orgs/{slug}` is careful not to
+    // be. Visibility is unchanged by it, so the page still shows only
+    // contests the caller could have reached without the filter.
+    const restrictedTo =
+      page.org === undefined
+        ? undefined
+        : inArray(
+            contests.id,
+            this.db
+              .select({ contestId: contestOrgs.contestId })
+              .from(contestOrgs)
+              .innerJoin(organizations, eq(organizations.id, contestOrgs.orgId))
+              .where(sql`lower(${organizations.slug}) = lower(${page.org})`),
+          );
     const rows = await this.db
       .select()
       .from(contests)
-      .where(and(visibleContestsWhere(this.db, actor), gt(contests.id, after)))
+      .where(and(visibleContestsWhere(this.db, actor), gt(contests.id, after), restrictedTo))
       .orderBy(asc(contests.id))
       .limit(page.limit + 1);
 
-    const items = rows.slice(0, page.limit).map(toSummary);
+    const kept = rows.slice(0, page.limit);
+    // ONE query for the whole page, never one per row: a 50-contest page
+    // would otherwise be 51 round trips to render a badge.
+    const orgsByContest = await this.loadOrgs(kept.map((row) => row.id));
+    const items = kept.map((row) => toSummary(row, orgsByContest.get(row.id) ?? []));
     const nextCursor = rows.length > page.limit ? String(items.at(-1)!.id) : null;
     return { items, nextCursor };
+  }
+
+  /**
+   * Which organizations each of these contests is restricted to, slug and
+   * name, ordered by slug so two reads of the same contest print the badges
+   * in the same order.
+   */
+  private async loadOrgs(contestIds: number[]): Promise<Map<number, ContestOrgDto[]>> {
+    const byContest = new Map<number, ContestOrgDto[]>();
+    if (contestIds.length === 0) return byContest;
+    const rows = await this.db
+      .select({
+        contestId: contestOrgs.contestId,
+        slug: organizations.slug,
+        name: organizations.name,
+      })
+      .from(contestOrgs)
+      .innerJoin(organizations, eq(organizations.id, contestOrgs.orgId))
+      .where(inArray(contestOrgs.contestId, contestIds))
+      .orderBy(asc(organizations.slug));
+    for (const row of rows) {
+      const list = byContest.get(row.contestId) ?? [];
+      list.push({ slug: row.slug, name: row.name });
+      byContest.set(row.contestId, list);
+    }
+    return byContest;
   }
 
   async getVisible(actor: Actor | null, key: string): Promise<ContestDetailDto> {
@@ -148,9 +197,13 @@ export class ContestAccessService {
     // prefills from this response, so a creator editing an unstarted contest
     // was shown an empty problem list and would have saved it back over the
     // real one.
+    // The restriction is NOT concealed pre-start, unlike the problem list:
+    // "only these schools may enter" is the fact a reader needs BEFORE the
+    // contest opens, and it names organizations, never problems.
+    const orgs = (await this.loadOrgs([contest.id])).get(contest.id) ?? [];
     if (new Date() < contest.startTime && !canRunContest(actor, contest)) {
       return {
-        ...toSummary(contest),
+        ...toSummary(contest, orgs),
         formatConfig: contest.formatConfig as Record<string, unknown> | null,
         canEdit: canRunContest(actor, contest),
         problems: [],
@@ -158,7 +211,7 @@ export class ContestAccessService {
     }
     const problemRows = await this.loadProblemRows(contest.id);
     return {
-      ...toSummary(contest),
+      ...toSummary(contest, orgs),
       formatConfig: contest.formatConfig as Record<string, unknown> | null,
       canEdit: canRunContest(actor, contest),
       problems: problemRows.map((row) => ({
@@ -430,10 +483,15 @@ export class ContestAccessService {
 
     const visibility = body.visibility ?? 'private';
     const orgSlugs = body.orgSlugs ?? [];
+    // `contest_org_missing`, renamed from `contest_org_required` in D56:
+    // that name now belongs to the 403 `join` answers a non-member, and one
+    // code meaning both "you forgot to name an organization" (400, to a
+    // setter) and "you are not in one" (403, to a competitor) is a code that
+    // tells a client nothing.
     if (visibility === 'org' && orgSlugs.length === 0) {
       throw new AppError(
         400,
-        'contest_org_required',
+        'contest_org_missing',
         'An org-visible contest needs at least one organization.',
       );
     }
@@ -523,24 +581,33 @@ export class ContestAccessService {
     assertFreezeFits(frozenLastMinutes, startTime, endTime);
 
     const visibility = body.visibility ?? contest.visibility;
-    if (visibility === 'org') {
-      // `orgSlugs` is not editable here, so this can only be satisfied by a
-      // contest that was already shared with an organization. Refusing is the
-      // honest answer: the alternative is an org-visible contest attached to
-      // no org, which is visible to nobody at all — including its creator's
-      // own list.
-      const [share] = await this.db
+    // The stored set, needed twice: to decide the merged state below, and as
+    // `resolveOrgIds`' already-attached exemption.
+    const storedOrgIds = (
+      await this.db
         .select({ orgId: contestOrgs.orgId })
         .from(contestOrgs)
         .where(eq(contestOrgs.contestId, contest.id))
-        .limit(1);
-      if (!share) {
-        throw new AppError(
-          400,
-          'contest_org_required',
-          'An org-visible contest needs at least one organization.',
-        );
-      }
+    ).map((row) => row.orgId);
+    // Resolved before the transaction opens, exactly as the problem list is:
+    // an organization the actor may not bind must refuse the whole edit
+    // having written nothing.
+    const nextOrgIds =
+      body.orgSlugs === undefined
+        ? storedOrgIds
+        : await this.resolveOrgIds(actor, body.orgSlugs, new Set(storedOrgIds));
+    // On the MERGED state, like every other check here: `{ visibility: 'org' }`
+    // alone is legal against a contest that already names an organization, and
+    // `{ orgSlugs: [] }` alone is refused on one that is already org-visible.
+    // The alternative either way is an org-visible contest attached to no
+    // organization, which is visible to nobody at all — its creator's own list
+    // included.
+    if (visibility === 'org' && nextOrgIds.length === 0) {
+      throw new AppError(
+        400,
+        'contest_org_missing',
+        'An org-visible contest needs at least one organization.',
+      );
     }
 
     // Started is `startTime <= now`, the same instant `join` and `getVisible`
@@ -622,6 +689,29 @@ export class ContestAccessService {
           visibility,
         })
         .where(eq(contests.id, contest.id));
+
+      if (body.orgSlugs !== undefined) {
+        // DIFFED, not delete-and-reinsert. `contest_orgs` has no dependent
+        // rows today, so a wholesale replace would be harmless *now* — and
+        // that is exactly the reasoning B1 punished on `contest_problems`,
+        // where a cascade nobody re-read deleted a running contest's
+        // submissions. The diff costs three lines and cannot acquire that
+        // failure later.
+        const kept = new Set(nextOrgIds);
+        const removed = storedOrgIds.filter((id) => !kept.has(id));
+        if (removed.length > 0) {
+          await tx
+            .delete(contestOrgs)
+            .where(and(eq(contestOrgs.contestId, contest.id), inArray(contestOrgs.orgId, removed)));
+        }
+        const present = new Set(storedOrgIds);
+        const added = nextOrgIds.filter((id) => !present.has(id));
+        if (added.length > 0) {
+          await tx
+            .insert(contestOrgs)
+            .values(added.map((orgId) => ({ contestId: contest.id, orgId })));
+        }
+      }
 
       if (problemInputs !== undefined) {
         // DIFFED by problem id, never replaced wholesale (B1/D28).
@@ -717,6 +807,15 @@ export class ContestAccessService {
       const live = existing.find((participation) => participation.virtual === LIVE_VIRTUAL);
       if (live) return this.participationDto(contest, live);
     }
+
+    // D56. The gate sits HERE — after the idempotent live short-circuit and
+    // before any row is minted — so a competitor who already holds a
+    // participation still reads it back on a retry, whatever the roster says
+    // today. Only the CREATION of a new attempt is refused: a school that
+    // removes a pupil mid-contest does not thereby delete the contest from
+    // under them, and an organiser who seeded a guest does not have to
+    // enrol them in a school to keep them.
+    await this.assertMayJoin(actor, contest);
 
     // Live joins take `0`; a virtual attempt takes one past the highest the
     // caller already holds, so a second attempt is `2` even if the first was
@@ -1004,11 +1103,60 @@ export class ContestAccessService {
   }
 
   /**
-   * Mirrors `ProblemAccessService.resolveOrgIds`: an unknown slug and one the
-   * actor may not share with are deliberately indistinguishable, so a slug
-   * cannot probe for a private organization's existence.
+   * Refuses `join` when the contest is restricted to organizations the actor
+   * does not belong to (D56).
+   *
+   * **403, not 404**, and it is the one place in this service that answers
+   * 403 to a read-shaped refusal. The 404-over-403 rule protects EXISTENCE,
+   * and there is no existence left to protect: `loadVisible` has already let
+   * this caller see the contest, and every contest response names the
+   * organizations restricting it. A 404 here would tell a competitor staring
+   * at the contest page that the contest had vanished. Same reasoning
+   * `setDisqualified` already uses for the same status.
+   *
+   * A global admin is exempt, as they are from every visibility decision in
+   * this codebase. The contest's CREATOR is not: running a contest is not
+   * competing in it, and a setter who wants a row on their own school's
+   * board can be a member of their own school.
    */
-  private async resolveOrgIds(actor: Actor, slugs: string[]): Promise<number[]> {
+  private async assertMayJoin(actor: Actor, contest: ContestRow): Promise<void> {
+    if (isAdmin(actor)) return;
+    // `loadContestContext` already computes exactly this pair — the contest's
+    // organizations, and the INTERSECTION with the actor's — for
+    // `canViewContest`. Asking it again here is what keeps "restricted to"
+    // and "shared with" from becoming two different queries that disagree.
+    const ctx = await loadContestContext(this.db, actor, contest);
+    if (ctx.sharedOrgIds.length === 0) return;
+    if (ctx.actorOrgIds.length > 0) return;
+    throw new AppError(
+      403,
+      'contest_org_required',
+      'This contest is restricted to members of its organizations.',
+    );
+  }
+
+  /**
+   * Mirrors `ProblemAccessService.resolveOrgIds`: an unknown slug and one the
+   * actor may not attach are deliberately indistinguishable, so a slug cannot
+   * probe for a private organization's existence.
+   *
+   * **Owner or admin, not merely a member** (D56). Attaching an organization
+   * to a contest now decides who may COMPETE in it, which is a claim to speak
+   * for that school; a pupil on its roster does not get to make it, and could
+   * before this — plain membership was the whole check. Problems keep the
+   * looser rule on purpose: sharing a problem with your own school is
+   * publishing to a room you are in, not conscripting it.
+   *
+   * `alreadyAttachedIds` is exempt, the same exemption `problem.access.ts`
+   * carries and for the same reason: the edit form resubmits the stored list
+   * on every save, so a creator who is only a member of an organization an
+   * admin attached must still be able to change the contest's NAME.
+   */
+  private async resolveOrgIds(
+    actor: Actor,
+    slugs: string[],
+    alreadyAttachedIds: ReadonlySet<number> = new Set(),
+  ): Promise<number[]> {
     if (slugs.length === 0) return [];
     const ids: number[] = [];
     for (const slug of [...new Set(slugs)]) {
@@ -1024,9 +1172,10 @@ export class ContestAccessService {
     }
     const uniqueIds = [...new Set(ids)];
     if (!isAdmin(actor)) {
-      const membership = await loadOrgMembership(this.db, actor, uniqueIds);
-      for (const id of uniqueIds) {
-        if (!membership.has(id)) throw new AppError(400, 'contest_org_unknown', 'No such organization.');
+      const addedIds = uniqueIds.filter((id) => !alreadyAttachedIds.has(id));
+      const adminships = await loadOrgAdminships(this.db, actor, addedIds);
+      for (const id of addedIds) {
+        if (!adminships.has(id)) throw new AppError(400, 'contest_org_unknown', 'No such organization.');
       }
     }
     return uniqueIds;
@@ -1116,20 +1265,30 @@ function hasKey<T extends object>(body: T, key: keyof T): boolean {
   return Object.prototype.hasOwnProperty.call(body, key);
 }
 
-function toSummary(row: {
-  id: number;
-  key: string;
-  name: string;
-  startTime: Date;
-  endTime: Date;
-  format: string;
-  visibility: ContestVisibilityDto;
-  pointsPrecision: number;
-  frozenLastMinutes: number;
-  timeLimitSeconds: number | null;
-  isRated: boolean;
-  createdAt: Date;
-}): ContestSummaryDto {
+/**
+ * `orgs` is a REQUIRED second argument rather than one defaulting to `[]`.
+ *
+ * A default would make "this contest is open to everyone" the answer a caller
+ * gets by forgetting to load the restriction — the failure mode D56 cannot
+ * afford, because that shape is what the join button on the web reads.
+ */
+function toSummary(
+  row: {
+    id: number;
+    key: string;
+    name: string;
+    startTime: Date;
+    endTime: Date;
+    format: string;
+    visibility: ContestVisibilityDto;
+    pointsPrecision: number;
+    frozenLastMinutes: number;
+    timeLimitSeconds: number | null;
+    isRated: boolean;
+    createdAt: Date;
+  },
+  orgs: ContestOrgDto[],
+): ContestSummaryDto {
   return {
     id: row.id,
     key: row.key,
@@ -1142,6 +1301,7 @@ function toSummary(row: {
     pointsPrecision: row.pointsPrecision,
     frozenLastMinutes: row.frozenLastMinutes,
     timeLimitSeconds: row.timeLimitSeconds,
+    orgs,
     createdAt: row.createdAt.toISOString(),
   };
 }

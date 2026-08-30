@@ -131,7 +131,7 @@ describe('editing a contest', () => {
       // everyone, its own creator included.
       await expect(
         service.update(actorFor(owner.id), 'ce2', { visibility: 'org' }),
-      ).rejects.toMatchObject({ status: 400, code: 'contest_org_required' });
+      ).rejects.toMatchObject({ status: 400, code: 'contest_org_missing' });
     });
   }, 120_000);
 

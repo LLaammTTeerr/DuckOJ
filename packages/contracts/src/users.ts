@@ -110,17 +110,26 @@ export const UpdateMeRequest = z
     displayName: z.string().min(1).max(100).optional(),
     about: z.string().max(4000).nullable().optional(),
     country: z.string().min(2).max(64).nullable().optional(),
+    /**
+     * `null` is a real value for both, and a different one from absent: it
+     * CLEARS the preference, putting the reader back on their browser's own
+     * zone and language (D57). Absent still means "leave it alone" — the
+     * settings screen sends both on every save, so it needs a way to say
+     * "no preference" that is not a value.
+     */
     timezone: z
       .string()
       .min(1)
       .max(64)
       .refine(isResolvableTimeZone, 'must be an IANA time zone name, such as Asia/Ho_Chi_Minh')
+      .nullable()
       .optional(),
     locale: z
       .string()
       .min(2)
       .max(16)
       .refine(isWellFormedLocale, 'must be a BCP-47 language tag, such as vi or en')
+      .nullable()
       .optional(),
   })
   .strict();

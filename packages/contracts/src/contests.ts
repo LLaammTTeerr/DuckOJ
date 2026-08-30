@@ -62,6 +62,14 @@ export const CreateContestRequest = z
     frozenLastMinutes: z.number().int().min(0).default(0),
     timeLimitSeconds: z.number().int().positive().nullable().default(null),
     visibility: ContestVisibility.default('private'),
+    /**
+     * The organizations this contest belongs to — **who may join it**, and
+     * (when `visibility` is `org`) who may see it at all. D56.
+     *
+     * Only slugs the caller OWNS or ADMINISTERS are accepted, unless they are
+     * a global admin; anything else is `contest_org_unknown`, the same answer
+     * an unknown slug gets, so this cannot probe for a private organization.
+     */
     orgSlugs: z.array(z.string()).default([]),
     problems: z.array(ContestProblemInput).default([]),
   })
@@ -82,9 +90,7 @@ export type CreateContestRequestDto = z.infer<typeof CreateContestRequest>;
  * `key` is not on this schema and the object is `.strict()`, so sending one
  * is a 422 rather than a silently ignored field: a contest's key is its URL,
  * every link to it, and the value `POST /submissions` takes — renaming it is
- * not an edit, it is a different contest. `orgSlugs` is absent for the same
- * reason it is absent from the brief's field list: re-sharing a contest is
- * its own operation and this task does not build it.
+ * not an edit, it is a different contest.
  */
 export const UpdateContestRequest = z
   .object({
@@ -102,6 +108,17 @@ export const UpdateContestRequest = z
     frozenLastMinutes: z.number().int().min(0).optional(),
     timeLimitSeconds: z.number().int().positive().nullable().optional(),
     visibility: ContestVisibility.optional(),
+    /**
+     * Editable since D56 — it used to be absent here, which left an
+     * org-restricted contest's roster of organizations unchangeable for the
+     * life of the contest (a school could not fix a slug it typed wrong).
+     *
+     * Present means REPLACE the whole set, exactly as `problems` does; absent
+     * means keep. `[]` is therefore a real instruction — drop every
+     * restriction — and is refused only when the merged `visibility` is
+     * `org`, which would leave the contest visible to nobody.
+     */
+    orgSlugs: z.array(z.string()).optional(),
     problems: z.array(ContestProblemInput).optional(),
   })
   .strict();
@@ -117,6 +134,18 @@ export const ContestProblemSummary = z.object({
 });
 export type ContestProblemSummaryDto = z.infer<typeof ContestProblemSummary>;
 
+/**
+ * One organization a contest is restricted to, as every contest response
+ * carries it: enough to render a link, and nothing more.
+ *
+ * Shown to **everyone who can see the contest**, a private organization
+ * included. Attaching an organization to a contest publishes its slug and
+ * name — the refusal a non-member gets on `join` is unreadable otherwise,
+ * and "you may not join, and I will not say why" is the worse answer (D56).
+ */
+export const ContestOrg = z.object({ slug: z.string(), name: z.string() });
+export type ContestOrgDto = z.infer<typeof ContestOrg>;
+
 export const ContestSummary = z.object({
   id: z.number().int(),
   key: z.string(),
@@ -130,6 +159,11 @@ export const ContestSummary = z.object({
   timeLimitSeconds: z.number().int().nullable(),
   /** Whether this contest feeds ratings — set by an admin after the fact. */
   isRated: z.boolean(),
+  /**
+   * The organizations that may join this contest (D56). Empty means anyone
+   * who can see it may join.
+   */
+  orgs: z.array(ContestOrg),
   createdAt: Timestamp,
 });
 export type ContestSummaryDto = z.infer<typeof ContestSummary>;
@@ -259,7 +293,9 @@ const FORBIDDEN = {
 };
 const BAD_REQUEST = {
   description:
-    'An unknown format (`unknown_contest_format`), an end before the start, or an unknown problem',
+    'An unknown format (`unknown_contest_format`), an end before the start, an unknown problem, ' +
+    'an organization the caller does not own or administer (`contest_org_unknown`), or an ' +
+    '`org`-visible contest with no organization at all (`contest_org_missing`)',
   content: { 'application/problem+json': { schema: ProblemDetails } },
 };
 const VALIDATION_FAILED = {
@@ -269,11 +305,24 @@ const VALIDATION_FAILED = {
   content: { 'application/problem+json': { schema: ProblemDetails } },
 };
 
+export const ContestListQuery = PaginationQuery.extend({
+  /**
+   * An organization's slug: only contests restricted to it (D56).
+   *
+   * A slug that names nothing, or an organization the caller may not see,
+   * answers an EMPTY page — never 404. The filter must not become the
+   * existence oracle `GET /orgs/{slug}` is careful not to be.
+   */
+  org: z.string().min(1).max(64).optional(),
+});
+export type ContestListQueryDto = z.infer<typeof ContestListQuery>;
+
 registry.registerPath({
   method: 'get',
   path: '/contests',
   tags: ['Contests'],
   summary: 'Contests visible to the caller',
+  request: { query: ContestListQuery },
   responses: {
     200: { description: 'A page of contests', content: { 'application/json': { schema: ContestPage } } },
   },
@@ -433,6 +482,15 @@ registry.registerPath({
       content: { 'application/json': { schema: ContestParticipation } },
     },
     401: NOT_SIGNED_IN,
+    403: {
+      description:
+        'This contest is restricted to organizations the caller does not belong to ' +
+        '(`contest_org_required`). **403, not 404**, and deliberately: a contest that names ' +
+        'its organizations in every response it serves is a contest whose existence the caller ' +
+        'already knows — there is nothing left to conceal, and a 404 here would read as "that ' +
+        'contest is gone" to a competitor looking at it (D56).',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
     404: CONTEST_NOT_FOUND,
     409: {
       description: 'The contest has not started yet (`contest_not_started`)',
@@ -564,9 +622,6 @@ registry.registerPath({
     422: VALIDATION_FAILED,
   },
 });
-
-export const ContestListQuery = PaginationQuery;
-export type ContestListQueryDto = z.infer<typeof ContestListQuery>;
 
 /**
  * Contest clarifications and announcements (D31) — the Q&A a provincial

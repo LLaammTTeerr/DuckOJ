@@ -76,7 +76,11 @@ export class ContestsController {
     @MaybeActor() actor: Actor | null,
     @Query(new ZodValidationPipe(ContestListQuery)) query: ContestListQueryDto,
   ): Promise<ContestPageDto> {
-    return this.contests.listVisible(actor, { cursor: query.cursor, limit: query.limit });
+    return this.contests.listVisible(actor, {
+      cursor: query.cursor,
+      limit: query.limit,
+      org: query.org,
+    });
   }
 
   @Get(':key')

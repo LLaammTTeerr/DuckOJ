@@ -32,6 +32,36 @@ export function visibleOrgsWhere(db: Db, actor: Actor | null): SQL {
  * require membership, not merely that the organization exists and is
  * nameable. An anonymous actor, or an empty `orgIds`, belongs to nothing.
  */
+/**
+ * The subset of `orgIds` in which `actor` is an **owner or an admin** —
+ * membership that carries authority, not merely presence.
+ *
+ * Separate from `loadOrgMembership` rather than a flag on it, because the two
+ * answer different questions and the wrong one is silently permissive:
+ * membership decides what a person may SEE (`canViewVisible`), and this
+ * decides what they may bind an organization to (D56 — restricting a contest
+ * to a school is a claim to speak for that school, which a pupil on its
+ * roster does not get to make).
+ */
+export async function loadOrgAdminships(
+  db: Db,
+  actor: Actor | null,
+  orgIds: number[],
+): Promise<Set<number>> {
+  if (!actor || orgIds.length === 0) return new Set();
+  const rows = await db
+    .select({ orgId: orgMembers.orgId })
+    .from(orgMembers)
+    .where(
+      and(
+        eq(orgMembers.userId, actor.userId),
+        inArray(orgMembers.orgId, orgIds),
+        inArray(orgMembers.role, ['owner', 'admin']),
+      ),
+    );
+  return new Set(rows.map((r) => r.orgId));
+}
+
 export async function loadOrgMembership(
   db: Db,
   actor: Actor | null,
