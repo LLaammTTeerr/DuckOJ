@@ -78,3 +78,4 @@
 - B-15 DONE, merged: app.boot.spec against dist (esbuild drops decorator metadata — the outage class is now caught), crash-loop breaker (D85), worker-aware healthcheck (D86), scripts/deploy.sh with rollback (first live run: see line above). Pushed.
 - deploy.sh first live run rolled back on its :8443 probe (TLS reset on this host); default probe now :8080; second run: see line above.
 - F-21 DONE, merged (0fe45e7): packages/prepare + `pnpm prepare` gate/publisher (D90), guide chuan-bi-de.md; live e2e published prep-20260830-222437. Finding → next hunt: GET /problems/{code} publishedVersion null for every problem.
+- B-16 dispatched (worktree, opus): publishedVersion null, F-18 drafts edge cases, harness realism (configureApp + loadConfig, D91), forced-password UX, browser authoring probe.
