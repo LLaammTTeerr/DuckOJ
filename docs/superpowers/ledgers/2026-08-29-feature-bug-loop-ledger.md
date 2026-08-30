@@ -107,3 +107,4 @@
 - C-1 DONE, merged: CI now test:ci (serial, one container at a time) + test:boot (dist DI check) D106; re-baseline D107 (500 VU p95 397 ms, judge 39.4/min, fresh-DB 33 migrations clean, goldens 27/27); standing-limitations index D108. 20 c1-soak accounts locked. Pushed.
 - Consolidation done. Resumed F+B with small features (advisor): F-26 problem comments (main, D109, migration 0039), B-20 a11y+i18n hunt (worktree, D110–D111). CI polling on the serial-test HEAD d024558 (held pushes to let it complete).
 - CI GREEN on ee2854bc with the serial test:ci command (the prior c0056614 failure was the old parallel run). CI flake fixed. Main pushed (0d48820).
+- B-20 DONE, merged (3f6dcd1..ee8d836): 7 a11y fixes (file-input labels, verdict/search/copy live regions, register error summary D110, autocomplete, similarity mark underline), axe sweep clean 8×3; web rebuilt, pushed.
