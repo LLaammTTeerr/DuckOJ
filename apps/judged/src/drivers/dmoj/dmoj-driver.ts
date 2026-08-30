@@ -251,10 +251,10 @@ export class DmojDriver implements JudgeDriver {
    *
    * Capability is re-checked on every turn of the loop, not once on entry:
    * the only judge that could run this language may disconnect while this
-   * dispatch is parked behind it, and parking on for a connection that will
-   * never come back is exactly the silent hang the grading ceiling was left
-   * to clean up. An empty capable set therefore throws
-   * `NoCapableJudgeError` immediately — including after a wake (D68).
+   * dispatch is parked behind it, and parking on a connection that will never
+   * come back is exactly the silent hang the grading ceiling was left to
+   * clean up. A connected fleet with no capable member therefore throws
+   * `NoCapableJudgeError` — including after a wake (D68).
    */
   private async acquireConnection(entry: LiveJob, submissionId: number): Promise<string> {
     for (;;) {
@@ -262,7 +262,19 @@ export class DmojDriver implements JudgeDriver {
         throw new Error(`submission ${submissionId} was cancelled before any judge took it`);
       }
       const capable = this.capableConnections(entry.job.language);
-      if (capable.length === 0) {
+      // Judges are connected and not one of them can run this: a capability
+      // gap, which waiting cannot close — only a differently-configured judge
+      // can, and that may never arrive.
+      //
+      // The `judgeCount() > 0` guard is what keeps that distinct from an
+      // EMPTY fleet, which is transient by nature: a judge restarting leaves
+      // the bridge with no connections for a second or two, and a dispatch
+      // that gave up there would fail every job in flight across a routine
+      // `podman restart judge` — including the reconnect path
+      // `judge-affinity.spec.ts` pins. An empty fleet parks, exactly as it
+      // did before D68, and the callers that must not park are held off by
+      // `tryAcquireSlot`, which hands out no slot when no judge is connected.
+      if (capable.length === 0 && this.bridge.judgeCount() > 0) {
         throw new NoCapableJudgeError(entry.job.language, entry.job.id);
       }
       const free = capable.find((id) => !this.assignments.has(id));

@@ -458,12 +458,6 @@ export class BridgeServer {
               return;
             }
             id = handshake.id;
-            this.problemSets.set(id, new Set(handshake.problems.map(([problemId]) => problemId)));
-            // Set before `handshake-success` goes out, because the driver's
-            // own handshake branch wakes parked dispatches — one of which may
-            // pick this connection, and it must not be able to observe a
-            // connection with no executors and rule it out.
-            this.executorSets.set(id, new Set(Object.keys(handshake.executors)));
             // A judge reconnecting with an id already in the map (e.g. it
             // dropped the old socket and redialed before we noticed) must not
             // silently evict the live connection: `set()` alone leaves the old
@@ -486,6 +480,20 @@ export class BridgeServer {
               this.retire(id);
             }
             this.connections.set(id, connection);
+            // AFTER the displacement above, never before it: `retire` clears
+            // both of these maps for `id`, so announcing this connection's
+            // problems and executors first meant a redialling judge wiped its
+            // OWN freshly-recorded sets and came back looking like a judge
+            // that can run nothing. Harmless while `problemSets` fed nothing;
+            // fatal for `executorSets`, which dispatch reads (D68) — a
+            // reconnected judge would never be sent another job.
+            //
+            // Still before `handshake-success` and before `this.handler`,
+            // which is what wakes parked dispatches: one of them may pick
+            // this connection the moment it is woken, and must not observe it
+            // as having no executors.
+            this.problemSets.set(id, new Set(handshake.problems.map(([problemId]) => problemId)));
+            this.executorSets.set(id, new Set(Object.keys(handshake.executors)));
             connection.send({ name: 'handshake-success' });
             this.lastSeenAt.set(id, Date.now());
             this.touchLastSeen(id);

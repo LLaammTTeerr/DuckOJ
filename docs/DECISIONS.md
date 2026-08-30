@@ -1976,3 +1976,87 @@ is a lie a reader cannot detect.
 *Ruled by the reviewer during the 2026-08-29 feature/bug loop (B8 whole-diff
 review), no human available to consult. No migration.*
 
+## D68 — A judge is dispatched to by what it can run, and a job nobody can run stays queued and says so
+
+Scaling to a second judge was documented (docs/runbook.md, "Adding a second
+judge container") and untested: the steps ended "not built — these are the
+exact steps, not a tested procedure", the second node had to be inserted with
+a hand-typed `insert ... encode(sha256(...))`, and `DmojDriver` picked a
+connection by **idleness alone**. Idleness is the right rule for a fleet whose
+members are identical and the wrong one the moment they are not — the first
+judge configured differently gets sent a language it has no executor for and
+answers `internal-error`, which reaches the student as a permanent IE.
+
+**The ruling: capability is part of scheduling, and the queue is honest about
+what it cannot run.** Four parts.
+
+- **A judge's capabilities come off its own handshake.** DMOJ's handshake
+  carries `executors`; `BridgeServer` now keeps that set per connection and
+  writes it to `judge_nodes.capabilities` — a column that had existed since
+  the first schema draft and was written by **nothing** (D47's report says so
+  in as many words). `concurrency` is recorded as **1**, not read from the
+  wire, because the wire does not carry it: one grade per connection is D29's
+  ruling, and recording it makes an operator able to read the number instead
+  of having to know it. Executors are handshake-only — judge-server
+  re-announces problems (`supported-problems`) but never executors — so a
+  judge that gains one must reconnect, which it does anyway.
+- **Dispatch routes; the claim loop filters.** `DmojDriver` picks an idle
+  connection *that can run the job's language*, waits while every capable one
+  is busy, and rejects with `NoCapableJudgeError` when judges are connected
+  and not one of them can run it — re-checked on every wake, so the only
+  capable judge disconnecting wakes the parked dispatch instead of leaving it
+  to the grading ceiling. An **empty** fleet still parks, deliberately: a
+  judge restarting empties the bridge for a second or two, and failing every
+  in-flight job over a routine `podman restart judge` is worse than the wait
+  `tryAcquireSlot` already prevents callers from entering. Above
+  it, `Worker` passes `driver.supportedLanguages()` into `JobStore.claim`,
+  which filters **inside the oldest-first pick**. That ordering is the whole
+  design: claiming a job and then refusing it would have the same query
+  re-claim the same row on the next turn, forever, starving everything behind
+  it. Filtered out, it simply stays `queued`.
+- **`blocked_reason` is a nullable text column, not a new state.** A blocked
+  job IS queued — it becomes runnable the instant a capable judge connects —
+  so a `grading_job_state` value would need a sweeper to undo, and would make
+  every existing query that reasons about `queued` wrong. `JobStore.claim`
+  clears it in the same UPDATE that claims (being claimed disproves it), and
+  `markBlocked` reconciles it in **both** directions when a claim comes back
+  empty, at most once per five seconds per loop. It is skipped entirely when
+  no judge is connected: "nobody speaks your language" is the wrong diagnosis
+  for a queue whose real problem is that the fleet is down.
+- **`grading_jobs.judge_node_id`, written on dispatch** (migration 0027,
+  `on delete set null`), from the bridge connection the request actually went
+  to — carried to the writer on the `dispatched` event, which now names its
+  node. D47 declined this join for a deployment running one judge of each
+  kind; a second judge is exactly the condition it named. A driver that cannot
+  name a node (every in-process double) writes nothing rather than a guess.
+
+**`revoke` burns the token, it does not delete the row.** `scripts/judge-node.ts`
+(`add` / `list` / `revoke`) replaces the runbook's hand-typed SQL, and `add`
+generates the token itself — no `--token` flag, because an operator-chosen
+judge token is the one credential nobody ever rotates and argv is shell
+history. Revoking overwrites `token_hash` with `revoked:<old hash>`: not valid
+hex, so `verifyJudgeCredential`'s length check fails it closed before
+`timingSafeEqual` ever runs, still unique under `judge_nodes_token_idx`, and —
+the actual point — the row survives, so the `judge_node_id` join above keeps
+naming the machine that graded each submission.
+
+**`last_seen` now follows any packet, throttled.** The design specified
+handshake and `ping-response` (§8), which under-reported a judge two minutes
+into a grade and streaming test-case packets. Any decoded packet may refresh
+it, at most once per 15 s per judge — a sixth of D47's 90 s offline threshold,
+and far short of one UPDATE per test case.
+
+**Left open, deliberately.** `tryAcquireSlot` counts judges, not per-language
+slots, so on a heterogeneous fleet a claimed job can be one only a *busy* judge
+can run while an idle incapable judge holds no work. That is a parked dispatch,
+safe since D29 (a cancel while parked rejects), but it weakens D29's "a claimed
+job is always immediately runnable" to "always runnable by some connected
+judge". Per-language slots need the driver to know the claim's language before
+the claim, which is a bigger change than this bought. Also: the executor↔language
+map is a bijection only because every key today is its executor lowercased
+(`cpp17` ↔ `CPP17`); both directions are written as one pair in
+`apps/judged/src/main.ts` so a language like `python3` → `PY3` has one place to
+extend, not two to drift.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F11 brief),
+no human available to consult. Migration 0027.*
