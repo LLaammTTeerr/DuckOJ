@@ -13,15 +13,14 @@ no diff, `vite build`.
    read the manifest's `language`. `Problem.checker()` (`dmoj/problem.py:495-515`)
    reads any dotted name as a **Python module path** and `exec(compile(...))`s it —
    proven on the reference: `load_module_from_file` on a `check.cpp` raises
-   `SyntaxError`, caught by neither the `except IOError` nor the `except
-   AttributeError` around it. Re-resolved both forms through judge-server's own
-   `ConfigNode` branch: only `bridged` + `args {files, lang, type: testlib}` runs.
-   Every Polygon import plans a source checker (`parse.ts:177`) → only ever IE.
+   `SyntaxError`, caught by neither `except` around it. Re-resolved both forms
+   through judge-server's `ConfigNode` branch: only `bridged` + `args {files, lang,
+   type: testlib}` runs. Every Polygon import plans one (`parse.ts:177`) → only IE.
 2. **`4f4f1c4` — `batch-end` was in the packet union and handled by nothing**, so
    `entry.batch` only counted up while judge-server yields loose cases outside any
-   begin/end pair (`dmoj/judge.py:479-533`). Over the real wire `batch(20)` +
-   `loose(5)` scored **5/20, not 25/25**. `batchCount` is separate from `batch`, so
-   the naive one-counter fix (it merges batch 2 onto batch 1) dies by its own test.
+   pair (`dmoj/judge.py:479-533`): over the real wire `batch(20)` + `loose(5)` scored
+   **5/20, not 25/25**. `batchCount` is separate from `batch`, so the naive
+   one-counter fix (it merges batch 2 onto batch 1) dies by its own test.
 3. **`ef297d6` — the compile log reached students raw:** gcc's colour escapes
    verbatim, addressed to the problem's 64-hex **package hash** (judged sends it as
    the `problem-id`; the judge names the compile unit `{problem_id}.{ext}`), which
@@ -34,8 +33,8 @@ no diff, `vite build`.
    unreachable. Only 4xx **and** `expose: true` now, status alone.
 5. **`558fc4f` — final review's m7 closed.** The `submission_cases` INSERT was
    check-then-act while every `submissions` UPDATE was fenced, so a stale insert
-   after `requeueAll`'s delete re-created rows `max(attempt)` then picked — old
-   verdicts beside a `queued` submission. Fence folded into the statement.
+   after `requeueAll`'s delete re-created rows `max(attempt)` picked — old verdicts
+   beside a `queued` submission. Fence folded into the statement.
 6. **`ff5d04f` — `NaN <= 0` is false.** `time-limit` used `Number.isInteger`,
    `memory-limit` did not: garbage walked past its only guard and left
    `memoryKb: NaN` → `null` on disk, failing two steps later at upload.
@@ -53,7 +52,7 @@ no diff, `vite build`.
 - **Rejudge against a NEWER revision is correct:** `rejudgeProblem` takes the current
   *published* revision, `rejudgeSubmission` the pinned one, both moving
   `submissions.revision_id` **and** the job's `revision_id`/`package_hash` together.
-  Live rejudge of #73: 202, same job row, fresh cases, AC, D21 honoured.
+  Live rejudge of #73: same job row, fresh cases, AC, D21's keys honoured.
 
 ## Concerns
 
@@ -61,9 +60,8 @@ no diff, `vite build`.
   there, and oversized pastes log operator-facing 500s.
 - **Judge disconnect mid-grade is slow, not wrong.** `bridge-server`'s
   `socket.on('close')` tells the driver nothing, so a crash pins the submission for
-  `gradingCeilingMs` (300 s–30 min) before the lease-lapse regrade. A prompt fix
-  needs a driver→worker abandonment channel (`dispatch` has already resolved);
-  architectural, left with this pointer.
+  `gradingCeilingMs` (300 s–30 min) before the lease-lapse regrade; a prompt fix
+  needs a driver→worker abandonment channel (`dispatch` has already resolved).
 - `JobStore.reclaimExpired()` is called by nothing outside tests; `rejudgeProblem`
   requeues a problem's every submission in one unbounded transaction; `GET
   /packages/{hash}` answered 200 to a plain session despite its `packages:read`
