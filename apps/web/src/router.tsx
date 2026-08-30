@@ -31,6 +31,7 @@ import { ContestEditPage } from './routes/contest-edit.js';
 import { TokensPage } from './routes/tokens.js';
 import { SecurityPage } from './routes/security.js';
 import { SettingsPage } from './routes/settings.js';
+import { MyProgressPage } from './routes/progress.js';
 import { ChangePasswordPage, PasswordGate } from './routes/password.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
@@ -557,6 +558,11 @@ const passwordRoute = createRoute({
   path: '/account/password',
   component: ChangePasswordPage,
 });
+const myProgressRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/me/progress',
+  component: MyProgressPage,
+});
 const notificationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/notifications',
@@ -630,6 +636,7 @@ const routeTree = rootRoute.addChildren([
   securityRoute,
   settingsRoute,
   passwordRoute,
+  myProgressRoute,
   notificationsRoute,
   adminRoute,
   helpRoute,

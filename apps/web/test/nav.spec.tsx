@@ -128,7 +128,9 @@ describe('the desktop bar groups what used to be one flat row', () => {
     // visible with no interaction at all.
     expect(within(account).getByRole('button', { name: 'Đăng xuất' })).toBeInTheDocument();
     expect(within(account).getByRole('link', { name: 'Hoc Sinh 1' })).toBeInTheDocument();
-    for (const label of ['Cài đặt', 'Bảo mật', 'Mã truy cập', 'Mật khẩu']) {
+    // 'Tiến độ' (D83) belongs here rather than in the main cluster: it is a
+    // page about the reader, not a place the work lives.
+    for (const label of ['Tiến độ', 'Cài đặt', 'Bảo mật', 'Mã truy cập', 'Mật khẩu']) {
       expect(within(account).getByRole('link', { name: label })).toBeInTheDocument();
     }
     // And the bell, named with its count as a sentence rather than a glyph.
@@ -210,6 +212,7 @@ describe('the phone bar is a real tab bar', () => {
     for (const label of [
       'Tổ chức',
       'Quan Tri',
+      'Tiến độ',
       'Cài đặt',
       'Bảo mật',
       'Mã truy cập',

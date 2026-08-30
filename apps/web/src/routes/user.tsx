@@ -6,6 +6,7 @@ import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { formatPoints } from '../format.js';
 import { formatDate, rankTitle, useLocale, useT } from '../i18n/index.js';
+import { PublicProgressPanel } from './progress.js';
 
 type Profile = paths['/users/{username}']['get']['responses'][200]['content']['application/json'];
 type RatingPage =
@@ -159,6 +160,13 @@ export function UserPage({ username }: { username: string }) {
           </button>
         </p>
       ) : null}
+
+      {/* The public third of the progress page (D83): the bars and the
+          calendar, over public problems only. Nothing the owner's own
+          `/me/progress` adds — no streak, no homework, no contests they are
+          sitting — reaches this screen, because none of it is anybody
+          else's business. */}
+      <PublicProgressPanel username={username} />
 
       <p>
         <Link to="/submissions" search={{ user: username }}>

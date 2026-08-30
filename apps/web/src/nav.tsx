@@ -313,6 +313,7 @@ function DesktopNav({ viewer, unread }: { viewer: Viewer | null; unread: number 
               >
                 {viewer.displayName}
               </Link>
+              <Link to="/me/progress">{t('nav.progress')}</Link>
               <Link to="/account/settings">{t('nav.settings')}</Link>
               <Link to="/account/security">{t('nav.security')}</Link>
               <Link to="/account/tokens">{t('nav.tokens')}</Link>
@@ -521,6 +522,9 @@ function PhoneNav({ viewer, unread }: { viewer: Viewer | null; unread: number })
                 onClick={close}
               >
                 {viewer.displayName}
+              </Link>
+              <Link to="/me/progress" onClick={close}>
+                {t('nav.progress')}
               </Link>
               <Link to="/account/settings" onClick={close}>
                 {t('nav.settings')}

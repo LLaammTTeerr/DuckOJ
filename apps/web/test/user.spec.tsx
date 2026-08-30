@@ -33,6 +33,13 @@ const PROFILE = {
   stats: { solvedCount: 3, points: 250, submissionCount: 9 },
 };
 
+/** An account with nothing counted yet — the panel's own empty state. */
+const NO_PROGRESS = {
+  byTag: [],
+  byDifficulty: [],
+  heatmap: { timezone: 'Asia/Ho_Chi_Minh', from: '2026-01-01', to: '2026-01-07', days: [] },
+};
+
 afterEach(() => get.mockReset());
 
 describe('UserPage', () => {
@@ -196,6 +203,8 @@ describe('UserPage — the rating history is paged', () => {
   it('appends the next page and stops offering more when the walk is over', async () => {
     get.mockImplementation((path: string, options?: { params?: { query?: { cursor?: string } } }) => {
       if (path === '/users/{username}') return Promise.resolve({ data: PROFILE });
+      // The progress panel (D83) shares this page; it reads its own route.
+      if (path === '/users/{username}/progress') return Promise.resolve({ data: NO_PROGRESS });
       const cursor = options?.params?.query?.cursor;
       return cursor === undefined
         ? Promise.resolve({ data: { items: [EVENT('alpha', 10)], nextCursor: 'c1' } })
@@ -217,6 +226,8 @@ describe('UserPage — the rating history is paged', () => {
   it('asks for the cursor the server issued, not a page number', async () => {
     get.mockImplementation((path: string, options?: { params?: { query?: { cursor?: string } } }) => {
       if (path === '/users/{username}') return Promise.resolve({ data: PROFILE });
+      // The progress panel (D83) shares this page; it reads its own route.
+      if (path === '/users/{username}/progress') return Promise.resolve({ data: NO_PROGRESS });
       const cursor = options?.params?.query?.cursor;
       return cursor === undefined
         ? Promise.resolve({ data: { items: [EVENT('alpha', 10)], nextCursor: '1770000000000:42' } })
