@@ -3576,3 +3576,82 @@ without reopening the door the 7a ruling (2026-08-22) shut.
 human available to consult. No migration — the filesystem is the whole
 record.*
 
+
+## D88 — Reuse copies the WORK, never the history: an authoring round trip, a problem clone, a contest clone
+
+D87 gave a provincial setter a browser to write test data in and no way to
+read any back, so their second problem — and next year's contest — started
+from an empty form. Three copies close that, and they share one rule:
+**what is copied is the artefact; what is not is everything that happened to
+it.**
+
+- **`POST /problems/{code}/drafts/from-revision/{version}`** unpacks a
+  revision's package and fills a fresh draft with it. Two losses are
+  deliberate. **Names are flattened**: a package says `tests/01.in`, a draft
+  is flat (D87), so every file is copied under the canonical name the
+  authoring tab itself generates — `draftCaseStem`,
+  `DRAFT_CHECKER_FILE_NAME`, both moved into `@duckoj/contracts` so the two
+  sides cannot drift. Keeping the original paths would make every re-PUT
+  from the browser land *beside* the old file instead of replacing it, and
+  `buildPackage` tars whatever it finds. The cost is that even a no-edit
+  round trip produces a NEW hash. **Only what the manifest names is
+  copied**: a generator, a validator or a statement riding in a Polygon
+  package is left behind, because a draft is the test data a problem grades
+  against, not an archive of how it was made, and this endpoint's caller can
+  edit only the former. A sample is inferred as `points === 0 && group === 0`
+  — the exact mirror of what the tab writes — so a deliberately zero-point
+  ungrouped case comes back marked as a sample; it grades identically either
+  way. The caps are D87's, checked before the draft is created.
+- **`GET /problems/{code}/drafts/{draftId}/files/{name}`** answers raw bytes
+  under the PUT's authorization: a draft's files are a private problem's
+  test data. The browser uses it to fill the table, then **discards the
+  draft** and builds through a fresh one — everything on that screen lives
+  in memory until the build, so keeping the read draft would leave a second,
+  diverging copy on the server for 24 hours. An API client, which does not
+  hold the bytes, may instead PUT one corrected file into the pre-filled
+  draft and build it in place. A file over the browser's 1 MiB ceiling is
+  refused by name with nothing loaded, so a CLI-built set with huge tests
+  cannot be round-tripped through a textarea — stated, not fixed.
+- **`POST /problems/{code}/clone`** copies the statement, the editorial, the
+  tags, the difficulty and the current published revision's package as
+  revision 1 (a `draft`, pointing at the same content-addressed bytes — no
+  re-upload, no re-verification). Not copied: submissions, statistics,
+  members, organization shares, `sourceAccess`, and every publication
+  decision — the copy is private and its editorial unpublished whatever the
+  source's was. **Two permissions.** The caller must be able to EDIT the
+  source, because a clone hands them its unpublished editorial and its whole
+  test set and a reader of a public problem may see neither; and they must
+  be able to create problems, so a demoted setter keeps no side door.
+  `problems:publish`, not `problems:write`, for the same reason.
+- **`POST /contests/{key}/clone`** copies the format and its config, the
+  points precision, the freeze, the time limit, the problems with their
+  labels, points, partial flags and order, and the organizations that may
+  enter (D56). Not copied: participations, submissions, clarifications,
+  similarity runs, `isRated`, and the visibility — the copy is private, so a
+  contest nobody has scheduled does not appear on the public list the
+  instant it exists. Guards mirror `update`: `canRunContest` → **404** (not
+  403, exactly as `PATCH /contests/{key}` answers a caller who can see the
+  contest), then `canCreateContest` → 403. D38 does not apply — the clone
+  has not started — but the NEW window is validated as an edit would be, so
+  a freeze the source stores that no longer fits is `contest_freeze_too_long`
+  rather than an unreadable scoreboard later. Problems and organizations are
+  copied **by id**, never re-resolved: the codes are already on the source's
+  page in front of this organiser, and a problem whose visibility narrowed
+  since it was attached would otherwise make last year's round uncopyable —
+  the same exemption `resolveOrgIds` already grants an already-attached
+  organization. `order` is renumbered from the read order, because a
+  format uses the sequence and an edited list can have gaps.
+- Both clones answer **409** on a taken code/key, from the unique violation
+  their `create` neighbour already turns into one, never a pre-check.
+- The web offers each as a link rather than a redirect where there is
+  unsaved work to lose: "Nhân bản" on the problem edit screen links to the
+  copy, and "Nhân bản kỳ thi" on a contest page goes to `/contests/new
+  ?cloneFrom=` — which asks for the four things a copy cannot inherit (key,
+  name, start, end) and shows the rest read-only. That screen cannot express
+  `pointsPrecision`, `timeLimitSeconds`, `formatConfig` or a problem's
+  LABEL, so a "prefilled create form" would silently drop all four on every
+  clone; the server copies them instead.
+
+*Ruled by the implementer during the 2026-08-30 feature loop (F19 brief), no
+human available to consult. No migration — every copy is rows and files in
+tables that already exist.*
