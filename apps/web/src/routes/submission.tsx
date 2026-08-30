@@ -8,11 +8,14 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { VerdictPanel, type SubmissionDetail } from './submit.js';
 import { formatTimestamp, useLocale, useT } from '../i18n/index.js';
+
+type SubmissionDiff = paths['/submissions/{id}/diff']['get']['responses'][200]['content']['application/json'];
 
 export function SubmissionPage({ id }: { id: number }) {
   const client = useQueryClient();
@@ -27,6 +30,9 @@ export function SubmissionPage({ id }: { id: number }) {
   // the request settles — the same busy-flag shape every write on this app
   // uses.
   const [rejudgeBusy, setRejudgeBusy] = useState(false);
+  // D111: the "So sánh với lần nộp trước" toggle. The diff is only fetched
+  // once the reader asks for it.
+  const [showDiff, setShowDiff] = useState(false);
 
   const t = useT();
   const { locale, timeZone } = useLocale();
@@ -46,6 +52,35 @@ export function SubmissionPage({ id }: { id: number }) {
       // `apiError`, not `new Error`: the status has to survive so the query
       // client can tell a 404 (final) from a 503 (worth asking again).
       if (result.error) throw apiError(result, t('submission.notFound'));
+      return result.data;
+    },
+  });
+
+  // D111: does the viewer have an earlier own attempt to this problem? Only
+  // the id — the diff itself is fetched on demand below. Gated on the source
+  // being readable at all: comparing against a submission whose source is
+  // withheld (D27) could never render, so the toggle is not offered.
+  const sourceVisible = query.data !== undefined && !query.data.sourceHidden && query.data.source !== null;
+  const previous = useQuery({
+    queryKey: ['submission-previous', id],
+    enabled: idIsUsable && sourceVisible,
+    queryFn: async (): Promise<number | null> => {
+      const result = await api.GET('/submissions/{id}/previous', { params: { path: { id } } });
+      if (result.error) throw apiError(result, t('submission.compareError'));
+      // `?? null`, never bare: React Query rejects an `undefined` result, and
+      // the id is the one field this query exists to read.
+      return result.data.previousId ?? null;
+    },
+  });
+  const previousId = previous.data ?? null;
+  const diff = useQuery({
+    queryKey: ['submission-diff', id, previousId],
+    enabled: showDiff && previousId !== null,
+    queryFn: async (): Promise<SubmissionDiff> => {
+      const result = await api.GET('/submissions/{id}/diff', {
+        params: { path: { id }, query: { against: previousId! } },
+      });
+      if (result.error) throw apiError(result, t('submission.compareError'));
       return result.data;
     },
   });
@@ -138,9 +173,79 @@ export function SubmissionPage({ id }: { id: number }) {
           <code>{s.source}</code>
         </pre>
       )}
+      {/* D111: offered only when the viewer can read this source AND has an
+          earlier own attempt to the same problem. */}
+      {sourceVisible && previousId !== null ? (
+        <p>
+          <button type="button" onClick={() => setShowDiff((v) => !v)}>
+            {showDiff ? t('submission.compareHide') : t('submission.compare')}
+          </button>
+        </p>
+      ) : null}
+      {showDiff && previousId !== null ? (
+        <section>
+          <h2>
+            {t('submission.compareHeading', { id: previousId })}{' '}
+            <Link to="/submissions/$id" params={{ id: String(previousId) }}>
+              #{previousId}
+            </Link>
+          </h2>
+          {diff.isPending ? <p className="muted">{t('common.loading')}</p> : null}
+          {diff.error ? <p role="alert">{diff.error.message}</p> : null}
+          {diff.data ? <DiffView diff={diff.data} /> : null}
+        </section>
+      ) : null}
       <p>
         <Link to="/submissions">{t('common.allSubmissions')}</Link>
       </p>
     </section>
+  );
+}
+
+/**
+ * The server-computed unified diff (D111), rendered as one monospace column.
+ * Added/removed lines carry a +/− glyph as real text — never colour alone
+ * (B-20/D77) — plus a `.sr-only` label, and a tint derived from the verdict
+ * palette in `app.css`.
+ */
+function DiffView({ diff }: { diff: SubmissionDiff }) {
+  const t = useT();
+  if (diff.hunks.length === 0) {
+    return <p className="muted">{t('submission.compareEmpty')}</p>;
+  }
+  return (
+    <pre className="diff">
+      {diff.hunks.map((hunk, hunkIndex) => (
+        // The hunk index is the identity: hunks are an ordered partition of
+        // one immutable diff, and nothing is inserted between two of them.
+        <span key={hunkIndex}>
+          <span className="diff-hunk-header">
+            {`@@ -${String(hunk.oldStart)},${String(hunk.oldLines)} +${String(hunk.newStart)},${String(hunk.newLines)} @@`}
+            {'\n'}
+          </span>
+          {hunk.lines.map((line, lineIndex) => {
+            const cls =
+              line.op === 'added' ? 'diff-line diff-added' : line.op === 'removed' ? 'diff-line diff-removed' : 'diff-line';
+            const glyph = line.op === 'added' ? '+' : line.op === 'removed' ? '−' : ' ';
+            const label =
+              line.op === 'added'
+                ? t('submission.compareAdded')
+                : line.op === 'removed'
+                  ? t('submission.compareRemoved')
+                  : '';
+            return (
+              <span className={cls} key={lineIndex}>
+                <span className="diff-glyph" aria-hidden="true">
+                  {glyph}
+                </span>
+                {label ? <span className="sr-only">{label}: </span> : null}
+                {line.text}
+                {'\n'}
+              </span>
+            );
+          })}
+        </span>
+      ))}
+    </pre>
   );
 }

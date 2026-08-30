@@ -352,6 +352,14 @@ export const en = {
   'submission.sourceHidden':
     'The source is hidden while this contest is still running. It becomes readable when the window closes.',
   'submission.contest': 'Contest',
+  // D111 — the "compare with my previous attempt" toggle and its diff view.
+  'submission.compare': 'Compare with previous attempt',
+  'submission.compareHide': 'Hide comparison',
+  'submission.compareHeading': 'Changes since #{id}',
+  'submission.compareError': 'Could not load the comparison.',
+  'submission.compareEmpty': 'No changes — the two attempts are identical.',
+  'submission.compareAdded': 'added line',
+  'submission.compareRemoved': 'removed line',
 
   // ── contests ──────────────────────────────────────────────────────────
   'contests.title': 'Contests',

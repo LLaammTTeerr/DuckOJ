@@ -333,6 +333,14 @@ export const vi = {
   'submission.sourceHidden':
     'Mã nguồn được ẩn trong khi kỳ thi còn diễn ra. Mã sẽ hiện ra khi hết thời gian thi.',
   'submission.contest': 'Kỳ thi',
+  // D111 — nút so sánh với lần nộp trước và khung diff.
+  'submission.compare': 'So sánh với lần nộp trước',
+  'submission.compareHide': 'Ẩn so sánh',
+  'submission.compareHeading': 'Thay đổi so với #{id}',
+  'submission.compareError': 'Không tải được phần so sánh.',
+  'submission.compareEmpty': 'Không có thay đổi — hai lần nộp giống hệt nhau.',
+  'submission.compareAdded': 'dòng thêm',
+  'submission.compareRemoved': 'dòng xóa',
 
   // ── contests ──────────────────────────────────────────────────────────
   'contests.title': 'Kỳ thi',

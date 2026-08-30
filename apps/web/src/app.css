@@ -868,6 +868,46 @@ pre {
   }
 }
 
+/* The unified line diff of a submission against the viewer's own earlier
+ * attempt (D111). One monospace column that scrolls sideways rather than
+ * pushing the page.
+ *
+ * Colour is NOT the only cue (WCAG 1.4.1, B-20/D77): every added and removed
+ * line carries a leading +/− glyph as real text, and the tint is derived from
+ * the verdict green/red with `color-mix`, so it follows the theme the way the
+ * `--ac`/`--wa` tokens it is mixed from do. The glyph is what a reader who
+ * cannot see the tint reads by, and a `.sr-only` label spells it out. */
+.diff {
+  overflow-x: auto;
+  margin: 0;
+}
+.diff-hunk-header {
+  color: var(--faint);
+  padding: var(--sp-1) 0;
+  user-select: none;
+}
+.diff-line {
+  display: block;
+  white-space: pre;
+}
+.diff-glyph {
+  display: inline-block;
+  width: 2ch;
+  user-select: none;
+}
+.diff-added {
+  background: color-mix(in srgb, var(--ac) 14%, transparent);
+}
+.diff-added .diff-glyph {
+  color: var(--ac);
+}
+.diff-removed {
+  background: color-mix(in srgb, var(--wa) 14%, transparent);
+}
+.diff-removed .diff-glyph {
+  color: var(--wa);
+}
+
 /* --- the statement: the one surface that is NOT dense ---------------------
  * Scoped to `main > section > div` — the problem page's
  * `dangerouslySetInnerHTML` container, one level below the page's own
