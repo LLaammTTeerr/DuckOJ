@@ -23,3 +23,4 @@
 - F-6 dispatched (main, opus): contest PDF booklet (D48), problem statistics (D49).
 - B-4 DONE_WITH_CONCERNS, merged: 6 web bugs (global input width → checkboxes as bars; 404 retry spin; NaN id; translate fallbacks; mark-all-read busy; e2e name). Web rebuilt + pushed. Follow-ups → B-5: /submissions/NaN 502, /packages/{hash} session access, table tabindex wrapper.
 - B-5 dispatched (worktree, opus): API contracts/guard/ops incl. judge-disconnect abandonment, D50–D52 reserved.
+- B-5 DONE on `worktree-agent-a63e7273f1335258b` (7504842..0c93bc2): Caddy lb retry (redeploy 502s), keep-alive pin, D50 sessions hold scopes (design), judge-disconnect abandon → requeue <15 s, e2e scripts COMPOSE_PROJECT_NAME, migration journal proven from zero, readyz deadline, 72-route fuzz clean, CORS expose headers. Merge blocked by F-6 dirty tree → after F-6.
