@@ -43,3 +43,4 @@
 - F-9 DONE_WITH_CONCERNS (e2fb81e..566f5c3): classroom problem sets (D66), migration 0026; deployed + pushed. Owed: grid load-more, CSV bound.
 - F-13 dispatched (main, opus): owed-items sweep (grid load-more, CSV bound, rating pagination, TOTP confirm limiter + password on disable D72, import chunking, freeze warning, dashboard polish).
 - Host restart killed all seven agents (B-9 had 8 commits; others uncommitted work); all resumed from transcripts.
+- F-10 DONE_WITH_CONCERNS, merged (211e7ad): guides + /help; web rebuilt, pushed. Owed: guide refresh for problem sets (F-9) and exports (F-12) once merged; admin.totpNote stale since D39; orphan key problem.editorialShow.
