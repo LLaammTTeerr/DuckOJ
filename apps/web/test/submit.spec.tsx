@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
@@ -62,6 +62,24 @@ describe('VerdictPanel', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(3);
     // A skipped case never ran, so it must not display a verdict of its own.
     expect(screen.getByText(/bỏ qua/)).toBeInTheDocument();
+  });
+
+  it('announces the state and verdict in a live region (WCAG 4.1.3)', () => {
+    render(
+      <VerdictPanel
+        submission={
+          { state: 'done', verdict: 'AC', points: 3, maxPoints: 3, cases: [] } as never
+        }
+      />,
+    );
+    // The verdict arrives asynchronously (polled/streamed) after the reader
+    // has stopped touching the page, so it must land in a live region or a
+    // screen-reader user is never told the outcome. The dense case grid is
+    // deliberately kept OUT of the region: re-announcing every cell on every
+    // poll would be noise, not information.
+    const live = screen.getByRole('status');
+    expect(within(live).getByText('AC', { selector: 'strong' })).toBeInTheDocument();
+    expect(within(live).queryByRole('list')).not.toBeInTheDocument();
   });
 });
 
