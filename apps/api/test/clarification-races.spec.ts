@@ -19,8 +19,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { createDb } from '@duckoj/db';
-import { schema } from '@duckoj/db';
+import { createDb, schema } from '@duckoj/db';
 import { contestClarifications, contestParticipations, contests } from '@duckoj/db/guarded';
 import { ContestAccessService } from '../src/authz/contest.access.js';
 import { ContestClarificationsService } from '../src/authz/contest.clarifications.js';
