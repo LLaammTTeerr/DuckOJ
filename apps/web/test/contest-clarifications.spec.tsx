@@ -78,6 +78,7 @@ function routeGet(opts: {
   canEdit?: boolean;
   joined?: boolean;
   items?: unknown[];
+  truncated?: boolean;
   contest?: Record<string, unknown>;
 }): void {
   get.mockImplementation((path: string) => {
@@ -88,7 +89,9 @@ function routeGet(opts: {
       return Promise.resolve({ data: opts.joined === true ? { id: 1, virtual: 0, endTime: '2400-01-01T00:00:00.000Z' } : undefined });
     }
     if (path === '/contests/{key}/clarifications') {
-      return Promise.resolve({ data: { items: opts.items ?? [] } });
+      return Promise.resolve({
+        data: { items: opts.items ?? [], truncated: opts.truncated === true },
+      });
     }
     return Promise.resolve({ data: { username: 'student', globalRole: 'user' } });
   });
@@ -112,6 +115,18 @@ describe('the Q&A panel', () => {
     // one, which is the only question they actually have about their own row.
     expect(screen.getByText(/chỉ bạn và ban tổ chức thấy/)).toBeInTheDocument();
     expect(screen.getByText('Đang chờ trả lời.')).toBeInTheDocument();
+  });
+
+  it('says so when the feed was capped, and stays quiet when it was not (D63)', async () => {
+    routeGet({ joined: true, items: [ANNOUNCEMENT], truncated: true });
+    const view = wrap(<ContestPage contestKey="spring" />);
+    expect(await screen.findByText(/200 mục mới nhất/)).toBeInTheDocument();
+    view.unmount();
+
+    routeGet({ joined: true, items: [ANNOUNCEMENT], truncated: false });
+    wrap(<ContestPage contestKey="spring" />);
+    await screen.findByText('Problem A has been rejudged.');
+    expect(screen.queryByText(/200 mục mới nhất/)).not.toBeInTheDocument();
   });
 
   it('lets a joined participant ask, and sends the problem they chose', async () => {

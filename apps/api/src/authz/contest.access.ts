@@ -49,7 +49,7 @@ import {
   type ScoreboardCacheContest,
   type ScoreboardCacheState,
 } from './scoreboard.cache.js';
-import { canViewProblem, loadProblemContext } from './problem.visibility.js';
+import { canViewProblem, loadProblemContext, visibleProblemsWhere } from './problem.visibility.js';
 import {
   bookletToTypst,
   statementSection,
@@ -304,7 +304,7 @@ export class ContestAccessService {
   ): Promise<{ contestId: number; document: string }> {
     const contest = await this.loadVisible(actor, key);
     if (new Date() < contest.startTime && !canRunContest(actor, contest)) throw NOT_FOUND;
-    const rows = await this.loadBookletRows(contest.id);
+    const rows = await this.loadBookletRows(actor, contest.id);
     return {
       contestId: contest.id,
       document: bookletToTypst({
@@ -332,8 +332,21 @@ export class ContestAccessService {
    * D25 exists to keep cheap, and dragging a statement per problem through
    * the hot path of the most-hit endpoint in the app to serve a PDF nobody
    * asked for is the regression that cache was built against.
+   *
+   * **Narrowed to the problems this actor may read (D62).** A statement is
+   * governed by `canViewProblem`, whose contest clause is `inJoinedContest`
+   * — a PARTICIPATION, not merely being able to see the contest — which is
+   * why `GET /problems/{code}` and `GET /problems/{code}/statement.pdf` both
+   * 404 a private problem for a spectator. Without this clause the booklet
+   * published the same text to anyone who could see a started contest, and
+   * D56 turns that from an inconsistency into a leak: an org-restricted
+   * contest REFUSES `join`, so the rival school that may not enter cannot be
+   * said to have "the same access by a longer route" — there is no longer
+   * route. `visibleProblemsWhere` rather than a fresh predicate, so the two
+   * surfaces cannot drift; the cache key hashes the finished document, so a
+   * filtered booklet and a full one are different keys by construction.
    */
-  private async loadBookletRows(contestId: number) {
+  private async loadBookletRows(actor: Actor | null, contestId: number) {
     return this.db
       .select({
         name: problems.name,
@@ -352,7 +365,7 @@ export class ContestAccessService {
           eq(problemRevisions.state, 'published'),
         ),
       )
-      .where(eq(contestProblems.contestId, contestId))
+      .where(and(eq(contestProblems.contestId, contestId), visibleProblemsWhere(this.db, actor)))
       .orderBy(asc(contestProblems.order), asc(contestProblems.id));
   }
 

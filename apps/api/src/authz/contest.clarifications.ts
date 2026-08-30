@@ -56,6 +56,26 @@ const ASK_PURPOSE = 'clarification_ask';
 export const NOTIFY_CAP = 10_000;
 
 /**
+ * How many rows one read of the feed carries (D63).
+ *
+ * `list` had no bound at all — "not paginated: a contest's Q&A is read whole,
+ * on one screen", which is true of the screen and not of the table behind it.
+ * `ask` admits 20 questions per user per contest per hour, so a 2000-seat
+ * provincial room can write 40 000 rows of up to 2 000 characters in the first
+ * hour, and every one of them is serialised to the organiser on a poll the web
+ * repeats **every 30 seconds while the contest runs** — for every reader at
+ * once. That is a self-inflicted outage on exactly the day the product exists
+ * for.
+ *
+ * 200 because the panel is a reverse-chronological feed nobody scrolls to the
+ * bottom of, and because it is an order of magnitude past the busiest real
+ * contest-day Q&A. The cap drops the OLDEST rows, never the announcement that
+ * just landed, and `truncated` says out loud that it happened — the same
+ * shape, and the same reasoning, as D59's broadcast cap.
+ */
+export const FEED_CAP = 200;
+
+/**
  * The recipients of one broadcast: every distinct participant of the contest
  * except `excludeUserId`, in **user-id order**, and whether the cap cut the
  * room short.
@@ -348,11 +368,20 @@ export class ContestClarificationsService {
     const scope = eq(contestClarifications.contestId, contest.id);
     const rows = await this.rowsWith(this.db)
       .where(runsIt ? scope : and(scope, mine))
-      .orderBy(desc(contestClarifications.id));
+      .orderBy(desc(contestClarifications.id))
+      // One past the cap, so "was anything left out" is answered by this
+      // query rather than by a second COUNT that could disagree with it —
+      // `broadcastRecipientsQuery`'s trick, for the same reason.
+      .limit(FEED_CAP + 1);
     // "Runs it", not "is an admin", and one clock for the whole response —
     // the same two choices `getVisible` makes for the same concealment.
     const conceal = !runsIt && new Date() < contest.startTime;
-    return { items: rows.map((row) => toDto(conceal ? { ...row, problemCode: null } : row)) };
+    return {
+      items: rows
+        .slice(0, FEED_CAP)
+        .map((row) => toDto(conceal ? { ...row, problemCode: null } : row)),
+      truncated: rows.length > FEED_CAP,
+    };
   }
 
   /**

@@ -100,6 +100,33 @@ describe('the organization picker', () => {
     expect(screen.queryByLabelText(/Somewhere Else/)).not.toBeInTheDocument();
   });
 
+  /**
+   * A failed `GET /orgs` says so, instead of claiming the setter belongs to
+   * nothing.
+   *
+   * `openapi-fetch` does not throw on an HTTP error — it resolves with
+   * `{ error, response }` — so a query function that reads only `data` never
+   * rejects, `useQuery` never sees an error, and the picker's own error line
+   * (which the file carries, with a comment explaining it) can never render.
+   * What renders instead is `orgsNone`: "you do not own or administer any
+   * organization", a false statement about the reader's own account, on the
+   * one screen where acting on it means shipping a contest with no
+   * restriction at all.
+   */
+  it('reports a failed organization load rather than an empty roster', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/orgs') {
+        return Promise.resolve({ error: { detail: 'boom' }, response: { status: 500 } });
+      }
+      if (path === '/auth/me') return Promise.resolve({ data: SETTER });
+      return Promise.resolve({ data: null });
+    });
+    wrap(<ContestNewPage />);
+
+    expect(await screen.findByText(/Không tải được danh sách tổ chức/)).toBeInTheDocument();
+    expect(screen.queryByText(/không sở hữu hay quản trị tổ chức nào/)).not.toBeInTheDocument();
+  });
+
   it('offers every visible organization to a global admin', async () => {
     routeGet({ ...SETTER, globalRole: 'admin' });
     wrap(<ContestNewPage />);

@@ -389,10 +389,12 @@ describe('GET /problems/{code}/stats', () => {
 
   it('serves the statistics and caches them for 30 s', async () => {
     await withTestDb(async (db) => {
-      const url = await ensureRedisUrl();
+      // This file's own logical database, emptied with `flushdb` — see
+      // `redis.harness.ts` for why a `flushall` here reddened the ritual.
+      const url = await ensureRedisUrl(2);
       const redis = new Redis(url);
       try {
-        await redis.flushall();
+        await redis.flushdb();
       } finally {
         redis.disconnect();
       }

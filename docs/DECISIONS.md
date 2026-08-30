@@ -1899,3 +1899,80 @@ implementer with nobody available to ask:
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F8 brief),
 no human available to consult. Migration 0024.*
+
+## D62 — A contest booklet carries the problems the reader may read, not the contest's whole list
+
+`GET /contests/{key}/booklet.pdf` (D48) read `problems.statement` for every
+row of `contest_problems`, gated only on "may this caller see the contest"
+and "has it started". Every other statement surface in the product is gated
+on `canViewProblem`, whose contest clause is `inJoinedContest` — a
+**participation**, not merely being able to see the contest — which is why
+`GET /problems/{code}` and `GET /problems/{code}/statement.pdf` 404 a private
+problem for a spectator. So the booklet published, in full, the text those
+two routes withhold.
+
+**The ruling: `loadBookletRows` is narrowed by `visibleProblemsWhere`, for
+every caller including the contest's own creator.** A booklet is a bundle of
+statements, and a bundle may not carry what its parts may not.
+
+- **D56 is what makes this a leak rather than an inconsistency.** A public
+  contest restricted to one school refuses `join` with 403
+  `contest_org_required`, so a rival school's pupil has no route to a
+  participation at all: "the same access by a longer route", the argument
+  that excuses the post-start problem LIST being public, does not hold for
+  them. At the bell they could download every statement.
+- **Filtered, not refused.** A caller who may read three of five problems
+  gets a three-problem booklet rather than a 404 — the same shape
+  `getVisible` already takes, where the problem list is served and the
+  statements behind it are not. A booklet with nothing in it renders as a
+  cover page, which the lowering already supports.
+- **No exemption for the organiser.** `canRunContest` is not a problem-level
+  permission, and `resolveProblemIds` already required the creator to be able
+  to see every problem they attached — an author or curator, or an admin —
+  so in practice the creator passes `visibleProblemsWhere` on their own
+  problems. A setter who was a *tester* and has since been removed loses the
+  booklet with the statement, which is the same answer `GET /problems/{code}`
+  gives them, and one predicate that answers the same everywhere is worth
+  more than an exemption that only this route would carry.
+- **The cache needs nothing.** `bookletCacheKey` hashes the finished
+  document, so a filtered booklet and a full one are different keys by
+  construction — there is no privileged/public split to add and no way for
+  one viewer's entry to answer another's request.
+
+*Ruled by the reviewer during the 2026-08-29 feature/bug loop (B8 whole-diff
+review), no human available to consult. No migration.*
+
+## D63 — The clarification feed is capped at 200, and says when it cut
+
+`GET /contests/{key}/clarifications` had no bound: "not paginated — a
+contest's Q&A is read whole, on one screen", which is a true statement about
+the screen and says nothing about the table behind it. `POST
+/contests/{key}/clarifications` admits **20 questions per user per contest per
+hour**, so a 2000-seat provincial room can write 40 000 rows of up to 2 000
+characters in the contest's first hour. Every one of them was serialised into
+every read — and `ClarificationsPanel` repolls this route **every 30 seconds
+for every reader while the contest runs**. Two thousand browsers × a
+multi-megabyte body × every half minute is an outage the product inflicts on
+itself on precisely the day it exists for.
+
+**The ruling: 200 rows, newest first, plus `truncated: boolean`.** The same
+shape as D59's broadcast cap, and for the same reason — a silent `.limit()`
+is a lie a reader cannot detect.
+
+- **Capped, not paginated.** A cursor would be the "right" answer and the
+  wrong change: the panel is a reverse-chronological feed nobody scrolls to
+  the bottom of, a cursor is a second contract plus infinite-scroll UI, and
+  neither buys anything the cap does not. If a real room ever wants the older
+  rows, pagination is an additive change on top of this.
+- **The cap drops the OLDEST.** `order by id desc` already sorted newest
+  first, so the announcement posted thirty seconds ago is never the row cut —
+  which is the only property a contest-day feed genuinely has to hold.
+- **`limit(FEED_CAP + 1)`, not a second COUNT.** "Was anything left out" is
+  answered by the same query that fetched the page, so the flag and the body
+  cannot disagree. `broadcastRecipientsQuery` already does exactly this.
+- **The web says it out loud** (`clar.truncated`, vi + en). A reader who
+  cannot see the whole conversation must not believe they can.
+
+*Ruled by the reviewer during the 2026-08-29 feature/bug loop (B8 whole-diff
+review), no human available to consult. No migration.*
+

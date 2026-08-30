@@ -63,7 +63,16 @@ function splitInline(line: string): Span[] {
   let rest = line;
   const RULES: Array<{ re: RegExp; kind: Span['kind']; afterWord?: false }> = [
     { re: /^`([^`\n]+)`/, kind: 'code' },
-    { re: /^\$([^$\n]+)\$/, kind: 'math' },
+    // A backtick is excluded from the span, not merely assumed absent from
+    // it. `renderInline` emits the captured LaTeX into a typst raw literal
+    // delimited by SINGLE backticks, so one backtick inside closes that
+    // literal early and the rest of the document is a syntax error — and
+    // `renderDocument` compiles a whole contest booklet at once, so a single
+    // `$a`b$` in one statement 500s the PDF of every problem beside it. The
+    // span rule is the only place that can make "backticks cannot appear in
+    // inline math" true rather than hopeful; what such a span degrades to is
+    // literal text, which is this file's stated worst allowed outcome.
+    { re: /^\$([^$`\n]+)\$/, kind: 'math' },
     { re: /^\*\*([^*\n]+)\*\*/, kind: 'bold' },
     { re: /^\*([^*\n]+)\*/, kind: 'italic' },
     { re: UNDERSCORE_ITALIC, kind: 'italic', afterWord: false },
@@ -103,8 +112,10 @@ function renderInline(line: string): { typst: string; usedMath: boolean } {
           return `\`${span.content}\``;
         case 'math':
           usedMath = true;
-          // mitex wants the LaTeX in a raw literal; backticks cannot appear
-          // in inline math ($...$ spans exclude them by construction).
+          // mitex wants the LaTeX in a raw literal, which is delimited by a
+          // single backtick and therefore cannot contain one. The `math`
+          // rule excludes backticks from the span for exactly that reason —
+          // read the two together; neither is safe alone.
           return `#mi(\`${span.content}\`)`;
         case 'bold':
           // `#strong[...]` / `#emph[...]`, never the bare `*...*` / `_..._`

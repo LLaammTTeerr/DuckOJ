@@ -14,6 +14,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api.js';
+import { apiError } from './api-error.js';
 import { meQueryOptions } from './me.js';
 import { useT } from './i18n/index.js';
 
@@ -32,8 +33,19 @@ interface PickableOrg {
 export const orgsQueryOptions = {
   queryKey: ['orgs', 'picker'] as const,
   queryFn: async (): Promise<PickableOrg[]> => {
-    const { data } = await api.GET('/orgs', { params: { query: { limit: 100 } } });
-    return data?.items ?? [];
+    const result = await api.GET('/orgs', { params: { query: { limit: 100 } } });
+    // `throw`, never `?? []`. `openapi-fetch` resolves rather than rejects on
+    // an HTTP error, so reading only `data` made every failure — a 500, an
+    // expired session, a proxy hiccup — indistinguishable from an empty
+    // roster: `useQuery` saw no error, the picker's own error line could
+    // never render, and what the setter read instead was `orgsNone`, "you do
+    // not own or administer any organization". That is a false statement
+    // about their own account on the one screen where believing it means
+    // shipping a provincial contest with no restriction at all. `apiError`
+    // also carries the status, so `retryTransientOnly` retries a 500 and
+    // leaves a 403 alone.
+    if (result.error) throw apiError(result, 'orgs');
+    return result.data?.items ?? [];
   },
 };
 

@@ -126,11 +126,25 @@ function configureBodyParsers(app: INestApplication): void {
  * - `x-request-id` is stamped on every response by `requestLogger` and
  *   appears on every log line; it is the one value worth quoting in a bug
  *   report, and a front end that cannot read it cannot show it.
+ * - `X-Stats-Cache` (D49) and `X-Booklet-Cache` (D48) are the same choice
+ *   `X-Scoreboard-Cache` made, for the same reason, on two routes shipped
+ *   after this list was written — and they were left off it, so a browser
+ *   on another origin could not read either. **Anything added to this list
+ *   must be a header some controller actually sets, and anything a
+ *   controller sets must be here**: `test/cors-exposed-headers.spec.ts`
+ *   derives the second half from the source rather than trusting the next
+ *   author to remember this paragraph.
  *
  * Same-origin traffic through Caddy never needed any of this, which is
  * exactly why its absence went unnoticed.
  */
-const EXPOSED_HEADERS = ['Retry-After', 'X-Scoreboard-Cache', 'X-Request-Id'];
+const EXPOSED_HEADERS = [
+  'Retry-After',
+  'X-Scoreboard-Cache',
+  'X-Stats-Cache',
+  'X-Booklet-Cache',
+  'X-Request-Id',
+];
 
 /**
  * How long an idle connection is kept open, in milliseconds.
