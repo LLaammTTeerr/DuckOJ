@@ -306,7 +306,17 @@ export class SubmissionsGateway implements OnModuleDestroy {
       // `unsubscribe`'s rule, for `unsubscribe`'s reason: never authorized
       // and never an error, so releasing a watch you do not hold cannot be
       // used to tell an existing contest from one that never existed.
-      client.contests.delete(message.key);
+      //
+      // Matched case-insensitively, because `watchContest` deliberately is:
+      // it accepts any spelling and stores the CANONICAL key, so a raw
+      // `delete` of what the client sent releases nothing whenever the two
+      // differ — and the client's own `watch-contest` frame is exactly the
+      // spelling it would send back. The socket then kept the activity
+      // frames and kept a slot against `maxContestWatches`, from a frame the
+      // server had just acknowledged.
+      for (const held of client.contests) {
+        if (held.toLowerCase() === message.key.toLowerCase()) client.contests.delete(held);
+      }
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'contest-unwatched', key: message.key }));
       }

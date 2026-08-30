@@ -303,4 +303,46 @@ describe('contest-activity over the WebSocket (D95)', () => {
       }
     });
   }, 120_000);
+
+  it('releases a watch taken under a differently-cased key', async () => {
+    // `watch-contest` goes out of its way to match a key case-insensitively
+    // (D8's `contests_key_lower_idx`) and stores the CANONICAL spelling, so a
+    // client that re-watches on every reconnect pays for it once. Its pair
+    // deleted the raw string the client sent, which is a different string —
+    // so `unwatch-contest` spelled the way the client had spelled its own
+    // `watch-contest` silently did nothing, and the socket kept both the
+    // activity frames and its slot against the eight-watch cap.
+    await withTestDb(async (db) => {
+      const { app, url, publish } = await buildAppWithRealtime(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        const cookie = await registerAndLogin(agent, 'wscaseowner');
+        const ownerId = await userIdOf(db, 'wscaseowner');
+        const competitor = request.agent(app.getHttpServer());
+        await registerAndLogin(competitor, 'wscaseplayer');
+        const competitorId = await userIdOf(db, 'wscaseplayer');
+        const { submissionId } = await seed(db, 'wscase', ownerId, competitorId);
+
+        const socket = await open(`${url}/ws`, { cookie });
+        try {
+          socket.send(JSON.stringify({ type: 'watch-contest', key: 'WsCase' }));
+          // The ack carries the canonical spelling — the watch is real.
+          expect(await nextFrame(socket)).toEqual({ type: 'contest-watched', key: 'wscase' });
+
+          socket.send(JSON.stringify({ type: 'unwatch-contest', key: 'WsCase' }));
+          // Echoed as sent, `unsubscribe`'s shape: the client hears about the
+          // frame it wrote.
+          expect(await nextFrame(socket)).toEqual({ type: 'contest-unwatched', key: 'WsCase' });
+
+          const frames = collect(socket, 600);
+          await publish(submissionId);
+          expect(await frames).toEqual([]);
+        } finally {
+          socket.close();
+        }
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
 });
