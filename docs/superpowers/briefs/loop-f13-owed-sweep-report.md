@@ -45,7 +45,6 @@ no-diff, `vite build`. Red first, then mutated: **17 mutants, 17 killed**.
   half-created sequence. Accepted, not fixed.
 - B-9's `poll-visibility.spec.tsx` landed mid-session covering the hidden-tab
   rule generically; mine pins `AdminPage`. Overlap kept deliberately.
-- Under `-r test` contention `packages/db` failed 13/13 once (the container
-  race) and `contest-booklet` / `contest-scoreboard-cache` (TTL-timed) once;
-  all pass alone, none of mine.
+- Under `-r test` contention `packages/db` failed 13/13 once (container race)
+  and `contest-booklet`/`contest-scoreboard-cache` once; all pass alone.
 - Live stack untouched, nothing pushed.
