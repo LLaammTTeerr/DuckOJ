@@ -14,6 +14,30 @@ import { and, asc, count, eq, gt, lte, sql } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import { DB } from '../config/config.module.js';
 
+/**
+ * The prefix a refusal is recorded under (D47).
+ *
+ * `rate_events` holds one row per ATTEMPT, admitted or not — which is right
+ * for counting a window and useless for the operator question "how many
+ * callers did the limiter turn away in the last hour". So a refusal writes a
+ * SECOND row, under `refused:<purpose>`, against the same key.
+ *
+ * A prefixed purpose rather than a `refused boolean` column because
+ * `purpose` is plain text by design ("a new limited action must not require
+ * a migration" — the column's own doc comment), and because it keeps the two
+ * populations disjoint for free: every existing count filters on an exact
+ * purpose, so no marker can ever be mistaken for an attempt, and the
+ * limiter cannot end up rate-limiting its own bookkeeping. The expired-rows
+ * sweeper already deletes `rate_events` by age alone, so markers stay
+ * bounded with no new cleanup.
+ */
+export const REFUSAL_PREFIX = 'refused:';
+
+/** The purpose a refusal of `purpose` is recorded under. */
+export function refusalPurpose(purpose: string): string {
+  return `${REFUSAL_PREFIX}${purpose}`;
+}
+
 @Injectable()
 export class RateLimiter {
   constructor(@Inject(DB) private readonly db: Db) {}
@@ -47,7 +71,9 @@ export class RateLimiter {
         ),
       );
     await this.db.insert(schema.rateEvents).values({ purpose, key });
-    return (row?.n ?? 0) < limit;
+    const admitted = (row?.n ?? 0) < limit;
+    if (!admitted) await this.markRefused(purpose, key);
+    return admitted;
   }
 
   /**
@@ -88,6 +114,14 @@ export class RateLimiter {
       .orderBy(asc(schema.rateEvents.createdAt))
       .limit(limit);
     if (rows.length < limit) return null;
+    // Refusing is the caller's only reason to ask, and every caller does
+    // refuse on a non-null answer — so this branch IS the refusal, and it is
+    // where the marker belongs. The wart: login asks twice, once per key
+    // (user and IP), so one refused sign-in can leave two markers. Counting
+    // refusals slightly high during a credential-stuffing run is the
+    // harmless direction, and de-duplicating would mean teaching the limiter
+    // what a request is.
+    await this.markRefused(purpose, key);
     const expiresAt = rows[0]!.createdAt.getTime() + windowMs;
     return Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000));
   }
@@ -125,7 +159,12 @@ export class RateLimiter {
             gt(schema.rateEvents.createdAt, new Date(Date.now() - windowMs)),
           ),
         );
-      if ((row?.n ?? 0) > 0) return false;
+      if ((row?.n ?? 0) > 0) {
+        // Inside the transaction, so a refusal and its marker land together
+        // or not at all.
+        await tx.insert(schema.rateEvents).values({ purpose: refusalPurpose(purpose), key });
+        return false;
+      }
       await tx.insert(schema.rateEvents).values({ purpose, key });
       return true;
     });
@@ -147,5 +186,20 @@ export class RateLimiter {
         ),
       );
     await this.db.insert(schema.rateEvents).values({ purpose, key });
+  }
+
+  /**
+   * Writes the refusal marker (D47), never throwing.
+   *
+   * Bookkeeping must not be able to turn a refusal into a 500: the caller
+   * has already DECIDED to refuse by the time this runs, and a database blip
+   * here is an observability gap, exactly as `touchJudgeLastSeen`'s is.
+   */
+  private async markRefused(purpose: string, key: string): Promise<void> {
+    try {
+      await this.db.insert(schema.rateEvents).values({ purpose: refusalPurpose(purpose), key });
+    } catch {
+      // Swallow — see doc comment above.
+    }
   }
 }

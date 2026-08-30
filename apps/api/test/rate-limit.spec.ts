@@ -16,7 +16,7 @@ import { buildApp } from './app.harness.js';
 import { testDbUrl, withTestDb } from './db.harness.js';
 import { registerAndLogin } from './submissions.fixtures.js';
 import { MAILER, type LogMailer } from '../src/mail/mailer.js';
-import { RateLimiter } from '../src/common/rate-limiter.js';
+import { RateLimiter, refusalPurpose } from '../src/common/rate-limiter.js';
 
 function mailerOf(app: INestApplication): LogMailer {
   return app.get<LogMailer>(MAILER);
@@ -188,6 +188,78 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
       } finally {
         await app.close();
       }
+    });
+  }, 60_000);
+});
+
+/**
+ * D47 — a refusal is recorded, so the admin dashboard can show one.
+ *
+ * `rate_events` holds one row per ATTEMPT, admitted or not, which means the
+ * table alone cannot answer "how many callers did the limiter actually turn
+ * away in the last hour" — the question an operator asks during an incident.
+ * A refusal therefore writes a second row under a `refused:`-prefixed
+ * purpose. `purpose` is plain text precisely so a new one costs no migration
+ * (the column's own doc comment), the marker can never be confused with a
+ * real window (different purpose string), and the expired-rows sweeper
+ * already bounds the table by age.
+ */
+describe('refusals are counted (D47)', () => {
+  async function refusalRows(db: Db, purpose: string): Promise<number> {
+    const rows = await db
+      .select({ id: schema.rateEvents.id })
+      .from(schema.rateEvents)
+      .where(eq(schema.rateEvents.purpose, refusalPurpose(purpose)));
+    return rows.length;
+  }
+
+  it('marks an `allow` refusal and leaves an admitted attempt unmarked', async () => {
+    await withTestDb(async (db) => {
+      const limiter = new RateLimiter(db);
+      expect(await limiter.allow('mark_a', 'k', 2, 60_000)).toBe(true);
+      expect(await limiter.allow('mark_a', 'k', 2, 60_000)).toBe(true);
+      expect(await refusalRows(db, 'mark_a')).toBe(0);
+
+      expect(await limiter.allow('mark_a', 'k', 2, 60_000)).toBe(false);
+      expect(await limiter.allow('mark_a', 'k', 2, 60_000)).toBe(false);
+      expect(await refusalRows(db, 'mark_a')).toBe(2);
+    });
+  }, 60_000);
+
+  it('marks a `retryAfterSeconds` refusal, which is how login refuses', async () => {
+    await withTestDb(async (db) => {
+      const limiter = new RateLimiter(db);
+      expect(await limiter.retryAfterSeconds('mark_b', 'k', 1, 60_000)).toBeNull();
+      expect(await refusalRows(db, 'mark_b')).toBe(0);
+
+      await limiter.record('mark_b', 'k', 60_000);
+      expect(await limiter.retryAfterSeconds('mark_b', 'k', 1, 60_000)).not.toBeNull();
+      expect(await refusalRows(db, 'mark_b')).toBe(1);
+    });
+  }, 60_000);
+
+  it('marks a `consumeOnce` refusal — the replayed credential', async () => {
+    await withTestDb(async (db) => {
+      const limiter = new RateLimiter(db);
+      expect(await limiter.consumeOnce('mark_c', 'k', 60_000)).toBe(true);
+      expect(await limiter.consumeOnce('mark_c', 'k', 60_000)).toBe(false);
+      expect(await refusalRows(db, 'mark_c')).toBe(1);
+    });
+  }, 60_000);
+
+  it('a marker never counts against the window it records', async () => {
+    // The marker shares the key and differs only in purpose. If the prefix
+    // were dropped, every refusal would extend its own window forever and a
+    // limit of 2 would become a limit of 2 followed by an infinite refusal.
+    await withTestDb(async (db) => {
+      const limiter = new RateLimiter(db);
+      expect(await limiter.allow('mark_d', 'k', 1, 60_000)).toBe(true);
+      expect(await limiter.allow('mark_d', 'k', 1, 60_000)).toBe(false);
+      await db
+        .delete(schema.rateEvents)
+        .where(eq(schema.rateEvents.purpose, 'mark_d'));
+      // Only the refusal marker is left; the real window is empty again.
+      expect(await limiter.allow('mark_d', 'k', 1, 60_000)).toBe(true);
     });
   }, 60_000);
 });
