@@ -55,3 +55,4 @@
 - e2e 15/17: journey 8 + smoke 17 failed on 429 register_rate_limited — the 30/IP/hour meter (D26) shared by the e2e host and three bug-hunters' bh*-accounts. Not a defect; rerun after the window. Ruling: no e2e exemption for the meter.
 - Sequential unit run on merged main: api 913/913; web 4 red = F-14's red-first guide-accuracy tests in flight (expected).
 - UI-2 DONE, merged (b843b7d): nav IA — grouped desktop bar, ≤5-item phone tab bar + Thêm sheet, D76; web rebuilt, pushed. help.tsx copy for the new bar owed to F-14's guide pass.
+- F-14 DONE_WITH_CONCERNS (06b5f19..ea1249a): guides/help refreshed incl. D76 nav copy, i18n parity+orphans, judge-2 in compose-up (SCALE=1) + dashboard node join/blocked panel, export tests, problem-set tests; api+web redeployed, pushed.
