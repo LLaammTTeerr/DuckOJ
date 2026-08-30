@@ -572,3 +572,75 @@ describe('DmojDriver', () => {
     expect(judge!.received.length).toBe(receivedBeforeBroadcast);
   }, 30_000);
 });
+
+/**
+ * Live probe, B3: a real CE on the running stack came back as
+ *
+ *   '\x1b[01m\x1b[K9fad4a92…8499cpp.cpp:\x1b[m\x1b[K In function ...'
+ *
+ * — gcc's terminal colour escapes, verbatim, and the DuckOJ **package hash**
+ * where the filename belongs (judged sends the hash as DMOJ's `problem-id`,
+ * and judge-server names the compile unit `{problem_id}.{ext}`,
+ * `dmoj/executors/base_executor.py:122`). `submission.access.ts` returns
+ * `compileOutput` verbatim and `submit.tsx` renders it into a `<pre>`, so a
+ * student's first compile error is a wall of control characters addressed to
+ * a 64-hex blob they have never heard of.
+ */
+describe('DmojDriver — compile output is fit to show the submitter', () => {
+  let server: BridgeServer | undefined;
+  let judge: ReturnType<typeof fakeJudge> | undefined;
+  afterEach(async () => {
+    judge?.close();
+    judge = undefined;
+    await server?.close();
+    server = undefined;
+  });
+
+  async function compileLog(packetName: 'compile-error' | 'compile-message', log: string): Promise<string> {
+    server = new BridgeServer({ languageToExecutor: () => 'CPP17', verifyJudge: async () => true });
+    const port = await server.listen(0);
+    const driver = new DmojDriver(server, fakeAgent());
+    judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+
+    const seen: GradingEvent[] = [];
+    await driver.dispatch(job, async (e) => void seen.push(e));
+    await vi.waitFor(
+      () => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true),
+      10_000,
+    );
+    const id = Number(
+      (judge!.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })[
+        'submission-id'
+      ],
+    );
+    const wanted = packetName === 'compile-error' ? 'compileError' : 'compileMessage';
+    judge!.send({ name: packetName, 'submission-id': id, log });
+    await vi.waitFor(() => expect(seen.some((e) => e.type === wanted)).toBe(true), 10_000);
+    return (seen.find((e) => e.type === wanted) as { message: string }).message;
+  }
+
+  const REAL_GCC_CE =
+    '\x1b[01m\x1b[Khash-of-aplusbcpp.cpp:\x1b[m\x1b[K In function ‘\x1b[01m\x1b[Kint main()\x1b[m\x1b[K’:\r\n' +
+    '\x1b[01m\x1b[Khash-of-aplusbcpp.cpp:1:13:\x1b[m\x1b[K \x1b[01;31m\x1b[Kerror: \x1b[m\x1b[Kinvalid use of ‘this’\r\n';
+
+  it('strips gcc colour escapes from a compile error', async () => {
+    const message = await compileLog('compile-error', REAL_GCC_CE);
+    expect(message).not.toMatch(/\x1b/);
+  }, 30_000);
+
+  it('never shows the package hash where the filename belongs', async () => {
+    const message = await compileLog('compile-error', REAL_GCC_CE);
+    expect(message).not.toContain(job.packageHash);
+    expect(message).toContain('solution.cpp:1:13: error: invalid use of ‘this’');
+  }, 30_000);
+
+  it('cleans a compile WARNING the same way — it reaches the same field', async () => {
+    const message = await compileLog(
+      'compile-message',
+      '\x1b[01m\x1b[Khash-of-aplusbcpp.cpp:3:7:\x1b[m\x1b[K warning: unused variable\r\n',
+    );
+    expect(message).toBe('solution.cpp:3:7: warning: unused variable\n');
+  }, 30_000);
+});

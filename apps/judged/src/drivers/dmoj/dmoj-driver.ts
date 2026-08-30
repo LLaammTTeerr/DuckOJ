@@ -445,10 +445,16 @@ export class DmojDriver implements JudgeDriver {
 
       case 'compile-error':
         this.finish(entry);
-        return entry.emit({ type: 'compileError', message: packet.log });
+        return entry.emit({
+          type: 'compileError',
+          message: cleanCompileLog(packet.log, entry.job.packageHash),
+        });
 
       case 'compile-message':
-        return entry.emit({ type: 'compileMessage', message: packet.log });
+        return entry.emit({
+          type: 'compileMessage',
+          message: cleanCompileLog(packet.log, entry.job.packageHash),
+        });
 
       case 'internal-error':
         this.finish(entry);
@@ -534,6 +540,47 @@ export class DmojDriver implements JudgeDriver {
         return;
     }
   }
+}
+
+
+/** Everything in `\x1b[ … <letter>` — gcc's SGR colours and its `\x1b[K`. */
+const ANSI_ESCAPE = /\x1b\[[0-9;]*[A-Za-z]/g;
+
+function escapeForRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Makes a judge's compile log fit to hand to the person who submitted.
+ *
+ * `submission.access.ts` returns `compileOutput` verbatim and `submit.tsx`
+ * renders it into a `<pre>`, so whatever arrives here is what a student reads.
+ * Two things arrive that should not (both observed on the live stack, B3):
+ *
+ *  - **gcc's terminal colour escapes.** The judge compiles on a pipe but gcc
+ *    is invoked with colour on, so every diagnostic is wrapped in `\x1b[01m`
+ *    /`\x1b[K`/`\x1b[m`. In a browser those are control characters, not
+ *    colour — the message reads as line noise.
+ *  - **The package hash where the filename belongs.** `judged` sends the
+ *    package hash as DMOJ's `problem-id` (see `dispatch`), and judge-server
+ *    names the compile unit `{problem_id}.{ext}`
+ *    (`dmoj/executors/base_executor.py:122`), so every diagnostic line is
+ *    addressed to a 64-hex blob. It identifies the problem's TEST PACKAGE,
+ *    which is not the submitter's business and is not a name that helps them.
+ *
+ * CRLF is normalised for the same reason: the log is rendered as text, not
+ * fed to a terminal.
+ */
+export function cleanCompileLog(log: string, packageHash: string): string {
+  const hash = escapeForRegex(packageHash);
+  return log
+    .replace(ANSI_ESCAPE, '')
+    // `<hash>cpp.cpp` -> `solution.cpp`: the executor appends its own suffix
+    // before the extension, so anything between the hash and the dot goes too.
+    .replace(new RegExp(`${hash}[A-Za-z0-9_]*\\.([A-Za-z0-9]+)`, 'g'), 'solution.$1')
+    // Any bare mention left over (a path, a linker line) still must not leak.
+    .replace(new RegExp(hash, 'g'), 'solution')
+    .replace(/\r\n/g, '\n');
 }
 
 /** Loose sum + per-batch min, the bridge's aggregation. */
