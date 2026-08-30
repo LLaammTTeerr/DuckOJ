@@ -7,6 +7,7 @@ import type { Actor } from '../src/authz/actor.js';
 import { likeEscape, ProblemAccessService } from '../src/authz/problem.access.js';
 import type { PackageStore } from '../src/packages/package.store.js';
 import { withTestDb } from './db.harness.js';
+import { bypassCache } from './cache.harness.js';
 import { insertUser } from './submissions.fixtures.js';
 
 function actorFor(userId: number, globalRole: 'user' | 'admin' = 'user'): Actor {
@@ -75,7 +76,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'owner-pub');
       await seedProblem(db, { code: 'pub1', name: 'Public One', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(null, { limit: 25 });
       expect(page.items.map((p) => p.code)).toContain('pub1');
@@ -95,7 +96,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
         .returning();
       const { id } = await seedProblem(db, { code: 'org1', name: 'Org One', visibility: 'org', createdBy: owner.id });
       await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(actorFor(stranger.id), { limit: 25 });
       expect(page.items.map((p) => p.code)).not.toContain('org1');
@@ -118,7 +119,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       await db.insert(orgMembers).values({ orgId: org!.id, userId: member.id, role: 'member' });
       const { id } = await seedProblem(db, { code: 'org2', name: 'Org Two', visibility: 'org', createdBy: owner.id });
       await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(actorFor(member.id), { limit: 25 });
       expect(page.items.map((p) => p.code)).toContain('org2');
@@ -139,7 +140,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
         createdBy: owner.id,
       });
       await db.insert(problemMembers).values({ problemId: id, userId: tester.id, role: 'tester' });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(actorFor(tester.id), { limit: 25 });
       expect(page.items.map((p) => p.code)).toContain('priv1');
@@ -154,7 +155,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       const owner = await insertUser(db, 'owner-priv2');
       const stranger = await insertUser(db, 'stranger-priv2');
       await seedProblem(db, { code: 'priv2', name: 'Private Two', visibility: 'private', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       await expect(service.getVisible(actorFor(stranger.id), 'priv2')).rejects.toMatchObject({
         status: 404,
@@ -176,7 +177,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       await seedProblem(db, { code: 'page-a', name: 'Page A', createdBy: owner.id });
       await seedProblem(db, { code: 'page-b', name: 'Page B', createdBy: owner.id });
       await seedProblem(db, { code: 'page-c', name: 'Page C', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const first = await service.listVisible(null, { limit: 2 });
       expect(first.items.map((p) => p.code)).toEqual(['page-a', 'page-b']);
@@ -193,7 +194,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       const owner = await insertUser(db, 'owner-q');
       await seedProblem(db, { code: 'aplusb', name: 'A plus B', createdBy: owner.id });
       await seedProblem(db, { code: 'other', name: 'Something Else', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const byName = await service.listVisible(null, { limit: 25 }, { q: 'PLUS' });
       expect(byName.items.map((p) => p.code)).toEqual(['aplusb']);
@@ -211,7 +212,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       // pattern's middle is a wildcard rather than a literal character.
       await seedProblem(db, { code: 'nopct', name: 'Contains 100 but no percent', createdBy: owner.id });
       await seedProblem(db, { code: 'haspct', name: 'Get 100% off today', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(null, { limit: 25 }, { q: '100%' });
       expect(page.items.map((p) => p.code)).toEqual(['haspct']);
@@ -236,7 +237,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
       const owner = await insertUser(db, 'tc-owner');
       await seedProblem(db, { code: 'tcpub', name: 'Published', createdBy: owner.id });
       await seedProblem(db, { code: 'tcdraft', name: 'Draft only', createdBy: owner.id, publish: false });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(null, { limit: 50 });
       const byCode = new Map(page.items.map((p) => [p.code, p]));
@@ -249,7 +250,7 @@ describe('ProblemAccessService.listVisible / getVisible — visibility matrix', 
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'owner-draft');
       await seedProblem(db, { code: 'draft1', name: 'Draft One', createdBy: owner.id, publish: false });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(null, { limit: 25 });
       const item = page.items.find((p) => p.code === 'draft1');
@@ -297,7 +298,7 @@ describe('getVisible — members and orgSlugs (spec §4.1)', () => {
         { problemId: id, userId: owner.id, role: 'author' },
         { problemId: id, userId: coauthor.id, role: 'author' },
       ]);
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const detail = await service.getVisible(actorFor(coauthor.id), 'credit1');
       expect(detail.orgSlugs).toEqual(['hazard-org']);
@@ -320,7 +321,7 @@ describe('getVisible — members and orgSlugs (spec §4.1)', () => {
       });
       await db.insert(problemOrgs).values({ problemId: id, orgId: org!.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       // The problem itself IS visible to the stranger (not a 404) — the
       // point is a viewable problem with an invisible org name, not a
@@ -346,7 +347,7 @@ describe('getVisible — members and orgSlugs (spec §4.1)', () => {
         { problemId: id, userId: owner.id, role: 'author' },
         { problemId: id, userId: tester.id, role: 'tester' },
       ]);
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const ownerView = await service.getVisible(actorFor(owner.id), 'credit3');
       const strangerView = await service.getVisible(actorFor(stranger.id), 'credit3');
@@ -390,7 +391,7 @@ describe('getVisible — members and orgSlugs (spec §4.1)', () => {
         { problemId: id, orgId: orgB!.id },
       ]);
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const actor = actorFor(owner.id);
 
       const before = await service.getVisible(actor, 'credit4');

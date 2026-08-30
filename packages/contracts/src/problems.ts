@@ -200,6 +200,20 @@ export const ProblemSummary = z.object({
   tags: z.array(Tag),
   /** `null` for "nobody has said" — and, per D35, for "not while you are sitting the contest". */
   difficulty: Difficulty.nullable(),
+  /**
+   * How many distinct people have submitted to this problem at all, and how
+   * many have an `AC` on it (D49). On the **summary** for the same reason
+   * `tags` and `testCount` are: the list draws them on every row, and a
+   * second request per row is the N+1 the summary exists to prevent.
+   *
+   * Both count only submissions whose contest participation window has
+   * CLOSED, so a live contest does not publish how its room is doing; and
+   * both read `0` for a viewer D35 hides the hint from, which is exactly
+   * what a problem nobody has attempted returns. Two distinguishable states
+   * would be the hint the rule exists to withhold.
+   */
+  attemptedCount: z.number().int(),
+  solvedCount: z.number().int(),
 });
 export type ProblemSummaryDto = z.infer<typeof ProblemSummary>;
 
@@ -259,6 +273,58 @@ export type ProblemDetailDto = z.infer<typeof ProblemDetail>;
  */
 export const EditorialResponse = z.object({ markdown: z.string() });
 export type EditorialResponseDto = z.infer<typeof EditorialResponse>;
+
+/** One bar of a histogram: the value, and how many submissions carry it. */
+export const StatsBucket = z.object({ key: z.string(), count: z.number().int() });
+export type StatsBucketDto = z.infer<typeof StatsBucket>;
+
+/** One of the ten fastest accepted submissions (D49). */
+export const FastestSubmission = z.object({
+  submissionId: z.number().int(),
+  username: z.string(),
+  timeMs: z.number().int(),
+  memoryKb: z.number().int().nullable(),
+  createdAt: Timestamp,
+});
+export type FastestSubmissionDto = z.infer<typeof FastestSubmission>;
+
+/**
+ * `GET /problems/{code}/stats` — D49.
+ *
+ * Every field counts only submissions whose contest participation window has
+ * **closed**, uniformly for every viewer (an admin included). A live room's
+ * acceptance rate is a difficulty hint of the same family D35 withholds, and
+ * a per-viewer answer would make the cache a per-viewer cache.
+ */
+export const ProblemStats = z.object({
+  totalSubmissions: z.number().int(),
+  attemptedUsers: z.number().int(),
+  solvedUsers: z.number().int(),
+  /**
+   * Accepted submissions / total submissions — a *submission* rate, not a
+   * people rate, which is what every judge means by the words and what the
+   * verdict histogram beside it is a breakdown of. `null`, never `0`, when
+   * there is nothing to divide: "nobody has tried" is not "nobody succeeded".
+   */
+  acceptanceRate: z.number().nullable(),
+  /** Keyed by `Verdict`; a verdict nobody has scored is absent, not zero. */
+  verdicts: z.array(StatsBucket),
+  /** Keyed by the language's `key`, ordered by count then key. */
+  languages: z.array(StatsBucket),
+  /**
+   * At most ten, one row per person — their own best — so one student's
+   * resubmissions cannot fill the table. Ordered by `timeMs`, ties by id.
+   * `submissionId` links to `GET /submissions/{id}`, which decides for
+   * itself whether this viewer may open it: the statistics disclose that
+   * somebody solved the problem and how fast, never their source.
+   */
+  fastest: z.array(FastestSubmission),
+  /** The earliest accepted submission, or `null` if nobody has solved it. */
+  firstSolver: z
+    .object({ submissionId: z.number().int(), username: z.string(), createdAt: Timestamp })
+    .nullable(),
+});
+export type ProblemStatsDto = z.infer<typeof ProblemStats>;
 
 export const RevisionSummary = z.object({
   id: z.number().int(),
@@ -486,5 +552,22 @@ registry.registerPath({
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     422: VALIDATION_FAILED,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/problems/{code}/stats',
+  tags: ['Problems'],
+  summary: "The problem's submission statistics",
+  description:
+    'Visibility is exactly `GET /problems/{code}`. Submissions belonging to a contest ' +
+    'participation whose window is still open are excluded from every field, for every viewer ' +
+    '(D49) — and a viewer sitting a running contest that uses this problem is served the empty ' +
+    'shape, the same one a problem nobody has attempted returns (D35).',
+  request: { params: ProblemCodeParam },
+  responses: {
+    200: { description: 'The statistics', content: { 'application/json': { schema: ProblemStats } } },
+    404: PROBLEM_NOT_FOUND,
   },
 });

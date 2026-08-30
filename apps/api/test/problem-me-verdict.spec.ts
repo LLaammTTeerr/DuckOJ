@@ -4,6 +4,7 @@ import { ProblemAccessService } from '../src/authz/problem.access.js';
 import type { Actor } from '../src/authz/actor.js';
 import type { PackageStore } from '../src/packages/package.store.js';
 import { testDbUrl, withTestDb } from './db.harness.js';
+import { bypassCache } from './cache.harness.js';
 import {
   grantProblemRole,
   insertGradedSubmission,
@@ -81,7 +82,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
       await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'WA', points: 0, maxPoints: 100 });
 
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
       const item = page.items.find((p) => p.code === 'bestnotlatest');
       expect(item?.me).toEqual({ verdict: 'AC', points: 100, maxPoints: 100 });
@@ -108,7 +109,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
         await insertGradedSubmission(db, { userId: solver.id, problemId: noiseId, verdict: 'WA', points: 0, maxPoints: 100 });
       }
 
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
       const item = page.items.find((p) => p.code === 'oldsolved');
       expect(item?.me).toEqual({ verdict: 'AC', points: 100, maxPoints: 100 });
@@ -146,7 +147,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       });
       expect(earlier).toBeLessThan(later);
 
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
       const item = page.items.find((p) => p.code === 'tiebreak');
       expect(item?.me).toEqual({ verdict: 'WA', points: 50, maxPoints: 100 });
@@ -178,7 +179,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       // above was graded against revision 1 and is never regraded.
       await publishNextRevision(db, problemId, 'maxpointsfollow', 50);
 
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       // Confirm the fixture actually separates the two readings: the
       // problem's OWN current total is now 50, not 100.
@@ -200,7 +201,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       const { id: problemId } = await seedProblemWithSourceAccess(db, { code: 'anonme' });
       const solver = await insertUser(db, 'anon-solver');
       await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       log.reset();
       const anonPage = await service.listVisible(null, { limit: 25 });
@@ -225,7 +226,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       await seedProblemAndLanguage(db);
       await seedProblemWithSourceAccess(db, { code: 'untouched' });
       const viewer = await insertUser(db, 'untouched-viewer');
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(actorFor(viewer.id), { limit: 25 });
       const item = page.items.find((p) => p.code === 'untouched');
@@ -248,13 +249,14 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
         }
       }
 
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
-      // Three statements, not one, since tags landed (D35): the D35 hidden-id
-      // scan, the page itself, and the whole page's tags in one `IN`. What
-      // this test pins is not the number but its INDEPENDENCE from the row
-      // count — a per-row lookup for `me` (the original regression) or for
-      // `tags` (the new one) would make the two measurements below differ.
+      // Four statements, not one: the D35 hidden-id scan, the page itself,
+      // the whole page's tags in one `IN` (D35), and the whole page's
+      // solved/attempted counters in one aggregate (D49). What this test
+      // pins is not the number but its INDEPENDENCE from the row count — a
+      // per-row lookup for `me` (the original regression), for `tags`, or
+      // for the counters would make the two measurements below differ.
       log.reset();
       const wide = await service.listVisible(actorFor(solver.id), { limit: 50 });
       expect(wide.items.filter((p) => p.code.startsWith('onestmt-'))).toHaveLength(8);
@@ -264,7 +266,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       const narrow = await service.listVisible(actorFor(solver.id), { limit: 2 });
       expect(narrow.items).toHaveLength(2);
       expect(log.queries).toHaveLength(wideCount);
-      expect(wideCount).toBe(3);
+      expect(wideCount).toBe(4);
     });
   }, 120_000);
 
@@ -282,7 +284,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       await grantProblemRole(db, problemId, author.id, 'author');
       await insertGradedSubmission(db, { userId: author.id, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
 
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const updated = await service.update(actorFor(author.id), 'detailme', { name: 'Detail Me Renamed' });
       expect(updated.me).toEqual({ verdict: 'AC', points: 100, maxPoints: 100 });
     });
@@ -307,7 +309,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       // the same way).
       await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'CE', points: 0 });
 
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
       const item = page.items.find((p) => p.code === 'ceonly');
       // NOT null — a CE is a real, graded attempt, distinct from never
@@ -333,7 +335,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'WA', points: 40, maxPoints: 100 });
       await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'CE', points: 0 });
 
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
       const item = page.items.find((p) => p.code === 'cevswa');
       expect(item?.me).toEqual({ verdict: 'WA', points: 40, maxPoints: 100 });
@@ -354,7 +356,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'CE', points: 0 });
       await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'IE' });
 
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
       const item = page.items.find((p) => p.code === 'ievsce');
       expect(item?.me).toEqual({ verdict: 'CE', points: 0, maxPoints: null });
@@ -368,7 +370,7 @@ describe('ProblemAccessService — the `me` column (best verdict, spec §6)', ()
       const solver = await insertUser(db, 'ie-only-solver');
       await insertGradedSubmission(db, { userId: solver.id, problemId, verdict: 'IE' });
 
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const page = await service.listVisible(actorFor(solver.id), { limit: 25 });
       const item = page.items.find((p) => p.code === 'ieonly');
       expect(item?.me).toEqual({ verdict: 'IE', points: null, maxPoints: null });

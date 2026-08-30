@@ -8,6 +8,7 @@ import { ProblemAccessService } from '../src/authz/problem.access.js';
 import { SubmissionAccessService } from '../src/authz/submission.access.js';
 import type { PackageStore } from '../src/packages/package.store.js';
 import { testDbUrl, withTestDb } from './db.harness.js';
+import { bypassCache } from './cache.harness.js';
 import { insertUser } from './submissions.fixtures.js';
 
 function actorFor(userId: number, globalRole: 'user' | 'setter' | 'admin' = 'user'): Actor {
@@ -77,7 +78,7 @@ describe('ProblemAccessService.publishRevision', () => {
       const { id } = await seedProblem(db, { code: 'pub1', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const rev1 = await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const result = await service.publishRevision(actorFor(owner.id), 'pub1', 1);
       expect(result).toEqual({ version: 1 });
@@ -96,7 +97,7 @@ describe('ProblemAccessService.publishRevision', () => {
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const rev1 = await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id, timeMs: 1000 });
       const rev2 = await seedRevision(db, { problemId: id, version: 2, createdBy: owner.id, timeMs: 2000 });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       await service.publishRevision(actorFor(owner.id), 'pub2', 1);
       const result = await service.publishRevision(actorFor(owner.id), 'pub2', 2);
@@ -140,7 +141,7 @@ describe('ProblemAccessService.publishRevision', () => {
       const rev1 = await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id });
       const rev2 = await seedRevision(db, { problemId: id, version: 2, createdBy: owner.id });
       await seedLanguage(db, 'pub3-cpp');
-      const problemService = new ProblemAccessService(db, UNUSED_STORE);
+      const problemService = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const submissionService = new SubmissionAccessService(db);
 
       await problemService.publishRevision(actorFor(owner.id), 'pub3', 1);
@@ -171,7 +172,7 @@ describe('ProblemAccessService.publishRevision', () => {
       const { id } = await seedProblem(db, { code: 'pub4', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const rev1 = await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       await service.publishRevision(actorFor(owner.id), 'pub4', 1);
       const result = await service.publishRevision(actorFor(owner.id), 'pub4', 1);
@@ -191,7 +192,7 @@ describe('ProblemAccessService.publishRevision', () => {
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const rev1 = await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id });
       const rev2 = await seedRevision(db, { problemId: id, version: 2, createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       await service.publishRevision(actorFor(owner.id), 'pub5', 1);
       await service.publishRevision(actorFor(owner.id), 'pub5', 2);
@@ -214,7 +215,7 @@ describe('ProblemAccessService.publishRevision', () => {
       const { id } = await seedProblem(db, { code: 'pub6', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       await expect(service.publishRevision(actorFor(owner.id), 'pub6', 99)).rejects.toMatchObject({
         status: 404,
@@ -231,7 +232,7 @@ describe('ProblemAccessService.publishRevision', () => {
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       await db.insert(problemMembers).values({ problemId: id, userId: tester.id, role: 'tester' });
       await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       await expect(service.publishRevision(actorFor(tester.id), 'pub7', 1)).rejects.toMatchObject({
         status: 403,
@@ -249,7 +250,7 @@ describe('ProblemAccessService.publishRevision', () => {
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       await db.insert(problemMembers).values({ problemId: id, userId: tester.id, role: 'tester' });
       const rev1 = await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       await expect(service.listRevisions(actorFor(outsider.id), 'pub8')).rejects.toMatchObject({
         status: 404,
@@ -271,7 +272,7 @@ describe('ProblemAccessService.publishRevision', () => {
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       await db.insert(problemMembers).values({ problemId: id, userId: curator.id, role: 'curator' });
       const rev1 = await seedRevision(db, { problemId: id, version: 1, createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       // Author: a member via `problemMembers`, same as the tester case.
       const authorList = await service.listRevisions(actorFor(owner.id), 'pub9');
@@ -402,7 +403,7 @@ describe('ProblemAccessService.publishRevision — concurrency', () => {
       const rev1 = await seedRevision(a.db, { problemId: id, version: 1, createdBy: owner.id });
       await seedRevision(a.db, { problemId: id, version: 2, createdBy: owner.id });
 
-      const serviceB = new ProblemAccessService(b.db, UNUSED_STORE);
+      const serviceB = new ProblemAccessService(b.db, UNUSED_STORE, bypassCache());
       const actor = actorFor(owner.id);
 
       let signalV1Published: () => void = () => {};

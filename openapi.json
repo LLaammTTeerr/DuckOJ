@@ -10345,6 +10345,12 @@
                             ],
                             "minimum": 1,
                             "maximum": 10
+                          },
+                          "attemptedCount": {
+                            "type": "integer"
+                          },
+                          "solvedCount": {
+                            "type": "integer"
                           }
                         },
                         "required": [
@@ -10358,7 +10364,9 @@
                           "testCount",
                           "me",
                           "tags",
-                          "difficulty"
+                          "difficulty",
+                          "attemptedCount",
+                          "solvedCount"
                         ]
                       }
                     },
@@ -10589,6 +10597,12 @@
                       "minimum": 1,
                       "maximum": 10
                     },
+                    "attemptedCount": {
+                      "type": "integer"
+                    },
+                    "solvedCount": {
+                      "type": "integer"
+                    },
                     "statement": {
                       "type": "string"
                     },
@@ -10667,6 +10681,8 @@
                     "me",
                     "tags",
                     "difficulty",
+                    "attemptedCount",
+                    "solvedCount",
                     "statement",
                     "sourceAccess",
                     "totalPoints",
@@ -10995,6 +11011,12 @@
                       "minimum": 1,
                       "maximum": 10
                     },
+                    "attemptedCount": {
+                      "type": "integer"
+                    },
+                    "solvedCount": {
+                      "type": "integer"
+                    },
                     "statement": {
                       "type": "string"
                     },
@@ -11073,6 +11095,8 @@
                     "me",
                     "tags",
                     "difficulty",
+                    "attemptedCount",
+                    "solvedCount",
                     "statement",
                     "sourceAccess",
                     "totalPoints",
@@ -11355,6 +11379,12 @@
                       "minimum": 1,
                       "maximum": 10
                     },
+                    "attemptedCount": {
+                      "type": "integer"
+                    },
+                    "solvedCount": {
+                      "type": "integer"
+                    },
                     "statement": {
                       "type": "string"
                     },
@@ -11433,6 +11463,8 @@
                     "me",
                     "tags",
                     "difficulty",
+                    "attemptedCount",
+                    "solvedCount",
                     "statement",
                     "sourceAccess",
                     "totalPoints",
@@ -12436,6 +12468,202 @@
           },
           "422": {
             "description": "The request failed validation",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/problems/{code}/stats": {
+      "get": {
+        "tags": [
+          "Problems"
+        ],
+        "summary": "The problem's submission statistics",
+        "description": "Visibility is exactly `GET /problems/{code}`. Submissions belonging to a contest participation whose window is still open are excluded from every field, for every viewer (D49) — and a viewer sitting a running contest that uses this problem is served the empty shape, the same one a problem nobody has attempted returns (D35).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "code",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalSubmissions": {
+                      "type": "integer"
+                    },
+                    "attemptedUsers": {
+                      "type": "integer"
+                    },
+                    "solvedUsers": {
+                      "type": "integer"
+                    },
+                    "acceptanceRate": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "verdicts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "count"
+                        ]
+                      }
+                    },
+                    "languages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "count"
+                        ]
+                      }
+                    },
+                    "fastest": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "submissionId": {
+                            "type": "integer"
+                          },
+                          "username": {
+                            "type": "string"
+                          },
+                          "timeMs": {
+                            "type": "integer"
+                          },
+                          "memoryKb": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "submissionId",
+                          "username",
+                          "timeMs",
+                          "memoryKb",
+                          "createdAt"
+                        ]
+                      }
+                    },
+                    "firstSolver": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "submissionId": {
+                          "type": "integer"
+                        },
+                        "username": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "submissionId",
+                        "username",
+                        "createdAt"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "totalSubmissions",
+                    "attemptedUsers",
+                    "solvedUsers",
+                    "acceptanceRate",
+                    "verdicts",
+                    "languages",
+                    "fastest",
+                    "firstSolver"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such problem, or one the caller may not see — the two are indistinguishable",
             "content": {
               "application/problem+json": {
                 "schema": {

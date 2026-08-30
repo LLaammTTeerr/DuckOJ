@@ -15,6 +15,7 @@ import { ProblemAccessService } from '../src/authz/problem.access.js';
 import { AppError } from '../src/common/app.error.js';
 import type { PackageStore } from '../src/packages/package.store.js';
 import { withTestDb } from './db.harness.js';
+import { bypassCache } from './cache.harness.js';
 import { insertUser } from './submissions.fixtures.js';
 
 function actorFor(userId: number, globalRole: 'user' | 'admin' = 'user'): Actor {
@@ -90,7 +91,7 @@ describe('tags and difficulty on reads', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'tag-owner');
       await seedProblem(db, { code: 'graphs', createdBy: owner.id, difficulty: 6, tagSlugs: ['do-thi', 'cay'] });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(null, { limit: 25 });
       expect(page.items).toHaveLength(1);
@@ -110,7 +111,7 @@ describe('tags and difficulty on reads', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'bare-owner');
       await seedProblem(db, { code: 'bare', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(null, { limit: 25 });
       expect(page.items[0]!.tags).toEqual([]);
@@ -127,7 +128,7 @@ describe('filtering by tag', () => {
       await seedProblem(db, { code: 'graph-only', createdBy: owner.id, tagSlugs: ['do-thi'] });
       await seedProblem(db, { code: 'dp-only', createdBy: owner.id, tagSlugs: ['quy-hoach-dong'] });
       await seedProblem(db, { code: 'neither', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const both = await service.listVisible(null, { limit: 25 }, { tags: ['do-thi', 'quy-hoach-dong'] });
       expect(both.items.map((p) => p.code)).toEqual(['both']);
@@ -141,7 +142,7 @@ describe('filtering by tag', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'unknown-owner');
       await seedProblem(db, { code: 'tagged', createdBy: owner.id, tagSlugs: ['do-thi'] });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       // The AND counts against the number of slugs REQUESTED, not the number
       // resolved — otherwise an unrecognised slug would silently drop out of
@@ -157,7 +158,7 @@ describe('filtering by tag', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'dupe-owner');
       await seedProblem(db, { code: 'graph', createdBy: owner.id, tagSlugs: ['do-thi'] });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(null, { limit: 25 }, { tags: ['do-thi', 'do-thi'] });
       expect(page.items.map((p) => p.code)).toEqual(['graph']);
@@ -171,7 +172,7 @@ describe('filtering by tag', () => {
       await seedProblem(db, { code: 'medium', createdBy: owner.id, difficulty: 5 });
       await seedProblem(db, { code: 'hard', createdBy: owner.id, difficulty: 9 });
       await seedProblem(db, { code: 'unrated', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       expect(
         (await service.listVisible(null, { limit: 25 }, { difficultyMin: 3, difficultyMax: 7 })).items.map(
@@ -192,7 +193,7 @@ describe('filtering by tag', () => {
       const owner = await insertUser(db, 'combo-owner');
       await seedProblem(db, { code: 'graph-walk', createdBy: owner.id, tagSlugs: ['do-thi'] });
       await seedProblem(db, { code: 'graph-flow', createdBy: owner.id, tagSlugs: ['luong'] });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const page = await service.listVisible(null, { limit: 25 }, { q: 'graph', tags: ['do-thi'] });
       expect(page.items.map((p) => p.code)).toEqual(['graph-walk']);
@@ -223,7 +224,7 @@ describe('D35 — tags and difficulty are hidden during a contest the viewer is 
         problemId: id,
         participantIds: [student.id, organiser.id, staff.id],
       });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const hidden = await service.getVisible(actorFor(student.id), 'live');
       expect(hidden.tags).toEqual([]);
@@ -259,7 +260,7 @@ describe('D35 — tags and difficulty are hidden during a contest the viewer is 
         participantIds: [student.id],
         running: false,
       });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const detail = await service.getVisible(actorFor(student.id), 'over');
       expect(detail.tags.map((t) => t.slug)).toEqual(['cay']);
@@ -284,7 +285,7 @@ describe('D35 — tags and difficulty are hidden during a contest the viewer is 
         problemId: id,
         participantIds: [student.id],
       });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const student1 = actorFor(student.id);
 
       // Masking `tags` alone would leave the FILTER as an oracle: ask for
@@ -311,7 +312,7 @@ describe('writing tags and difficulty', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'write-owner');
       const { id } = await seedProblem(db, { code: 'writable', createdBy: owner.id, tagSlugs: ['do-thi'] });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const patched = await service.update(actorFor(owner.id), 'writable', {
         tags: ['cay', 'so-hoc'],
@@ -335,7 +336,7 @@ describe('writing tags and difficulty', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'null-owner');
       await seedProblem(db, { code: 'clearable', createdBy: owner.id, difficulty: 5 });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const untouched = await service.update(actorFor(owner.id), 'clearable', { name: 'Renamed' });
       expect(untouched.difficulty).toBe(5);
@@ -349,7 +350,7 @@ describe('writing tags and difficulty', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'empty-owner');
       await seedProblem(db, { code: 'emptyable', createdBy: owner.id, tagSlugs: ['do-thi', 'cay'] });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const patched = await service.update(actorFor(owner.id), 'emptyable', { tags: [] });
       expect(patched.tags).toEqual([]);
@@ -360,7 +361,7 @@ describe('writing tags and difficulty', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'bad-tag-owner');
       await seedProblem(db, { code: 'unchanged', createdBy: owner.id, tagSlugs: ['do-thi'] });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       await expect(
         service.update(actorFor(owner.id), 'unchanged', { name: 'New name', tags: ['do-thi', 'nope'] }),
@@ -379,7 +380,7 @@ describe('writing tags and difficulty', () => {
       const owner = await insertUser(db, 'guarded-owner');
       const stranger = await insertUser(db, 'guarded-stranger');
       await seedProblem(db, { code: 'guarded', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       await expect(
         service.update(actorFor(stranger.id), 'guarded', { tags: ['do-thi'] }),

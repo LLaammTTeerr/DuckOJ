@@ -18,6 +18,7 @@ import { AppError } from '../src/common/app.error.js';
 import type { PackageStore } from '../src/packages/package.store.js';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
+import { bypassCache } from './cache.harness.js';
 import { insertUser } from './submissions.fixtures.js';
 
 /**
@@ -157,7 +158,7 @@ describe('editorial visibility (D43)', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'ed-none-owner');
       await seedProblem(db, { code: 'ed-none', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       for (const actor of [null, actorFor(owner.id)]) {
         const detail = await service.getVisible(actor, 'ed-none');
@@ -173,7 +174,7 @@ describe('editorial visibility (D43)', () => {
       const owner = await insertUser(db, 'ed-draft-owner');
       const reader = await insertUser(db, 'ed-draft-reader');
       await seedProblem(db, { code: 'ed-draft', createdBy: owner.id, editorial: EDITORIAL });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       // A reader cannot tell this apart from "there is no editorial".
       const asReader = await service.getVisible(actorFor(reader.id), 'ed-draft');
@@ -195,7 +196,7 @@ describe('editorial visibility (D43)', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'ed-pub-owner');
       await seedProblem(db, { code: 'ed-pub', createdBy: owner.id, editorial: EDITORIAL, published: true });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const detail = await service.getVisible(null, 'ed-pub');
       expect(detail.editorial).toBe(EDITORIAL);
@@ -215,7 +216,7 @@ describe('editorial visibility (D43)', () => {
         published: true,
       });
       await db.update(problems).set({ visibility: 'private' }).where(eq(problems.id, id));
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       // `problem_not_found`, not an editorial-level code: the problem's own
       // invisibility is decided first, and the editorial never gets a say.
@@ -237,7 +238,7 @@ describe('editorial visibility (D43)', () => {
         published: true,
       });
       await seedContest(db, { key: 'live', createdBy: owner.id, problemId: id, participantIds: [sitter.id] });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const detail = await service.getVisible(actorFor(sitter.id), 'ed-contest');
       expect(detail.editorial).toBeNull();
@@ -272,7 +273,7 @@ describe('editorial visibility (D43)', () => {
       });
       await seedSubmission(db, { problemId: id, userId: solver.id, verdict: 'AC' });
       await seedSubmission(db, { problemId: id, userId: struggler.id, verdict: 'WA' });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const solved = await service.getVisible(actorFor(solver.id), 'ed-ac');
       expect(solved.editorial).toBe(EDITORIAL);
@@ -303,7 +304,7 @@ describe('editorial visibility (D43)', () => {
         participantIds: [sitter.id],
         running: false,
       });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       // Nothing was stored and nothing was scheduled — this is a clock
       // question, exactly as D35 is.
@@ -333,7 +334,7 @@ describe('editorial visibility (D43)', () => {
         problemId: id,
         participantIds: [organiser.id, admin.id],
       });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const asOrganiser = await service.getVisible(actorFor(organiser.id), 'ed-exempt');
       expect(asOrganiser.editorialAvailable).toBe(true);
@@ -364,7 +365,7 @@ describe('editorial visibility (D43)', () => {
         problemId: id,
         participantIds: [curator.id],
       });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const detail = await service.getVisible(actorFor(curator.id), 'ed-editor');
       expect(detail.editorial).toBe(EDITORIAL);
@@ -378,7 +379,7 @@ describe('editorial writes', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'ed-write-owner');
       await seedProblem(db, { code: 'ed-write', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const actor = actorFor(owner.id);
 
       const drafted = await service.update(actor, 'ed-write', { editorial: EDITORIAL });
@@ -405,7 +406,7 @@ describe('editorial writes', () => {
         editorial: EDITORIAL,
         published: true,
       });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const [before] = await db
         .select({ at: problems.editorialPublishedAt })
         .from(problems)
@@ -430,7 +431,7 @@ describe('editorial writes', () => {
         editorial: EDITORIAL,
         published: true,
       });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const cleared = await service.update(actorFor(owner.id), 'ed-clear', { editorial: null });
       expect(cleared.editorial).toBeNull();
@@ -447,7 +448,7 @@ describe('editorial writes', () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'ed-empty-owner');
       await seedProblem(db, { code: 'ed-empty', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
       const actor = actorFor(owner.id);
 
       await expect(service.update(actor, 'ed-empty', { editorialPublished: true })).rejects.toMatchObject({
@@ -478,7 +479,7 @@ describe('editorial writes', () => {
         editorial: EDITORIAL,
         published: true,
       });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       const detail = await service.update(actorFor(owner.id), 'ed-untouched', { name: 'still here' });
       expect(detail.editorial).toBe(EDITORIAL);
@@ -491,7 +492,7 @@ describe('editorial writes', () => {
       const owner = await insertUser(db, 'ed-forbid-owner');
       const stranger = await insertUser(db, 'ed-forbid-stranger');
       await seedProblem(db, { code: 'ed-forbid', createdBy: owner.id });
-      const service = new ProblemAccessService(db, UNUSED_STORE);
+      const service = new ProblemAccessService(db, UNUSED_STORE, bypassCache());
 
       await expect(
         service.update(actorFor(stranger.id), 'ed-forbid', { editorial: EDITORIAL }),

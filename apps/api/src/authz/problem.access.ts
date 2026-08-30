@@ -24,6 +24,7 @@ import {
   type ProblemMeDto,
   type ProblemMemberDto,
   type ProblemPageDto,
+  type ProblemStatsDto,
   type ProblemSummaryDto,
   type RevisionSummaryDto,
   type TagDto,
@@ -45,6 +46,8 @@ import {
 } from './problem.visibility.js';
 import { isAdmin, type Actor } from './actor.js';
 import { loadOrgMembership, visibleOrgsWhere } from './org.visibility.js';
+import { contestWindowOpenWhere } from './submission.freeze.js';
+import { ScoreboardCache, type ScoreboardCacheState } from './scoreboard.cache.js';
 
 /** Postgres SQLSTATE for a unique-constraint violation. */
 const UNIQUE_VIOLATION = '23505';
@@ -132,6 +135,11 @@ export class ProblemAccessService {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(PACKAGE_STORE) private readonly store: PackageStore,
+    // The same read-through cache the scoreboard uses (D25, generic since
+    // D48). The statistics are viewer-independent by construction — that is
+    // the whole point of D49's uniform exclusion — so one key per problem
+    // serves everybody.
+    @Inject(ScoreboardCache) private readonly cache: ScoreboardCache,
   ) {}
 
   /**
@@ -319,14 +327,22 @@ export class ProblemAccessService {
     }
 
     const pageRows = rows.slice(0, page.limit);
-    // One query for the whole page's tags, keyed by problem id — never one
-    // per row. Exactly the N+1 `testCount` was hoisted onto the summary to
-    // avoid, and the reason `tags` lives there too.
-    const tagsByProblem = await this.loadTagsByProblem(
-      pageRows.map((row) => row.id).filter((id) => !hidden.has(id)),
-    );
+    const shown = pageRows.map((row) => row.id).filter((id) => !hidden.has(id));
+    // One query each for the whole page — never one per row. Exactly the N+1
+    // `testCount` was hoisted onto the summary to avoid, and the reason
+    // `tags` and D49's counters live there too.
+    const [tagsByProblem, countsByProblem] = await Promise.all([
+      this.loadTagsByProblem(shown),
+      this.loadCountsByProblem(shown),
+    ]);
     const items = pageRows.map((row) =>
-      toSummary(row, hidden.has(row.id) ? BLANK_HINT : { tags: tagsByProblem.get(row.id) ?? [], difficulty: row.difficulty }),
+      hidden.has(row.id)
+        ? toSummary(row, BLANK_HINT, BLANK_COUNTS)
+        : toSummary(
+            row,
+            { tags: tagsByProblem.get(row.id) ?? [], difficulty: row.difficulty },
+            countsByProblem.get(row.id) ?? BLANK_COUNTS,
+          ),
     );
     const nextCursor = rows.length > page.limit ? String(items.at(-1)!.id) : null;
     return { items, nextCursor };
@@ -441,10 +457,13 @@ export class ProblemAccessService {
     const hint = hidden.has(row.id)
       ? BLANK_HINT
       : { tags: (await this.loadTagsByProblem([row.id])).get(row.id) ?? [], difficulty: row.difficulty };
+    const counts = hidden.has(row.id)
+      ? BLANK_COUNTS
+      : ((await this.loadCountsByProblem([row.id])).get(row.id) ?? BLANK_COUNTS);
     const editorial = await this.resolveEditorial(actor, row, canEditProblem(actor, ctx), hidden.has(row.id));
 
     return {
-      ...toSummary(row, hint),
+      ...toSummary(row, hint, counts),
       ...editorial,
       statement: row.statement,
       // Not revision-derived, so unlike the three fields below it is never
@@ -459,6 +478,192 @@ export class ProblemAccessService {
       members,
       orgSlugs,
     };
+  }
+
+  /**
+   * `GET /problems/{code}/stats` — D49.
+   *
+   * Built on `getVisible`, like `getEditorial` and for the same reason: the
+   * two surfaces must agree about who may read this problem at all, and the
+   * cheapest way to guarantee that is for one of them to BE the other. The
+   * problem's own 404 therefore lands first, so this route is no more of an
+   * existence oracle than the detail route already is.
+   *
+   * The cached object is the TRUE one and the D35 mask is applied on the way
+   * out. Caching the masked version would need the viewer in the key; masking
+   * after the read keeps one key per problem and still hands a viewer sitting
+   * a running contest exactly the shape a problem nobody has attempted
+   * returns — blanked, never signalled.
+   */
+  async getStats(
+    actor: Actor | null,
+    code: string,
+  ): Promise<{ stats: ProblemStatsDto; cache: ScoreboardCacheState }> {
+    const detail = await this.getVisible(actor, code);
+    const hidden = await this.contestHiddenProblemIds(actor, [detail.id]);
+    const { value, cache } = await this.cache.through(
+      `${STATS_CACHE_PREFIX}:${String(detail.id)}`,
+      () => this.computeStats(detail.id),
+      STATS_CACHE_TTL_MS,
+    );
+    // Read first, mask second — even for a viewer who will be handed
+    // nothing. Short-circuiting ahead of the cache would make the
+    // `X-Stats-Cache` header lie about a read that did not happen, and it
+    // would let the D35 mask decide what is stored, which is how a masked
+    // answer ends up cached for everybody.
+    return { stats: hidden.has(detail.id) ? blankStats() : value, cache };
+  }
+
+  /**
+   * Five aggregates over one problem's submissions, all filtered by the same
+   * D49 predicate: a submission counts only once its contest participation
+   * window has closed.
+   *
+   * Every one of them is served by `submissions_problem_user_verdict_idx`
+   * (migration 0022) — `(problem_id, user_id, verdict)`, which is the group
+   * key, the DISTINCT key and the filter, in that order.
+   */
+  private async computeStats(problemId: number): Promise<ProblemStatsDto> {
+    // ONE clock for the whole computation: five queries asking "is that
+    // window still open" of five different instants could disagree at a
+    // boundary, and the entry they are cached under would be internally
+    // inconsistent for a full TTL.
+    const settled = and(
+      eq(submissions.problemId, problemId),
+      sql`not ${contestWindowOpenWhere(new Date())}`,
+    );
+
+    const totalsQuery = this.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        accepted: sql<number>`count(*) filter (where ${submissions.verdict} = 'AC')::int`,
+        attempted: sql<number>`count(distinct ${submissions.userId})::int`,
+        solved: sql<number>`count(distinct ${submissions.userId}) filter (where ${submissions.verdict} = 'AC')::int`,
+      })
+      .from(submissions)
+      .where(settled);
+
+    const verdictsQuery = this.db
+      .select({ key: submissions.verdict, count: sql<number>`count(*)::int` })
+      .from(submissions)
+      .where(and(settled, isNotNull(submissions.verdict)))
+      .groupBy(submissions.verdict)
+      .orderBy(sql`count(*) desc`, asc(submissions.verdict));
+
+    const languagesQuery = this.db
+      .select({ key: schema.languages.key, count: sql<number>`count(*)::int` })
+      .from(submissions)
+      .innerJoin(schema.languages, eq(schema.languages.id, submissions.languageId))
+      .where(settled)
+      .groupBy(schema.languages.key)
+      .orderBy(sql`count(*) desc`, asc(schema.languages.key));
+
+    // One row per person — their own fastest AC — so a student who submits
+    // the same solution eleven times cannot own the whole table. `DISTINCT
+    // ON` picks that row inside, and the outer select re-sorts the winners
+    // against each other; doing the second sort in JavaScript would drag
+    // every solver's best row out of the database to keep ten of them.
+    const best = this.db
+      .selectDistinctOn([submissions.userId], {
+        id: submissions.id,
+        username: schema.users.username,
+        timeMs: submissions.timeMs,
+        memoryKb: submissions.memoryKb,
+        createdAt: submissions.createdAt,
+      })
+      .from(submissions)
+      .innerJoin(schema.users, eq(schema.users.id, submissions.userId))
+      .where(and(settled, eq(submissions.verdict, 'AC'), isNotNull(submissions.timeMs)))
+      .orderBy(asc(submissions.userId), asc(submissions.timeMs), asc(submissions.id))
+      .as('best');
+    const fastestQuery = this.db
+      .select()
+      .from(best)
+      .orderBy(asc(best.timeMs), asc(best.id))
+      .limit(FASTEST_LIMIT);
+
+    const firstQuery = this.db
+      .select({
+        id: submissions.id,
+        username: schema.users.username,
+        createdAt: submissions.createdAt,
+      })
+      .from(submissions)
+      .innerJoin(schema.users, eq(schema.users.id, submissions.userId))
+      .where(and(settled, eq(submissions.verdict, 'AC')))
+      .orderBy(asc(submissions.createdAt), asc(submissions.id))
+      .limit(1);
+
+    const [totals, verdicts, languages, fastest, first] = await Promise.all([
+      totalsQuery,
+      verdictsQuery,
+      languagesQuery,
+      fastestQuery,
+      firstQuery,
+    ]);
+    const totalsRow = totals[0] ?? { total: 0, accepted: 0, attempted: 0, solved: 0 };
+    const firstRow = first[0];
+
+    return {
+      totalSubmissions: totalsRow.total,
+      attemptedUsers: totalsRow.attempted,
+      solvedUsers: totalsRow.solved,
+      // `null`, never `0`: "nobody has tried" is not "nobody succeeded", and
+      // a 0 % on an untouched problem reads as a warning it has not earned.
+      acceptanceRate: totalsRow.total === 0 ? null : totalsRow.accepted / totalsRow.total,
+      verdicts: verdicts.map((row) => ({ key: row.key!, count: row.count })),
+      languages: languages.map((row) => ({ key: row.key, count: row.count })),
+      fastest: fastest.map((row) => ({
+        submissionId: row.id,
+        username: row.username,
+        timeMs: row.timeMs!,
+        memoryKb: row.memoryKb,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      firstSolver:
+        firstRow === undefined
+          ? null
+          : {
+              submissionId: firstRow.id,
+              username: firstRow.username,
+              createdAt: firstRow.createdAt.toISOString(),
+            },
+    };
+  }
+
+  /**
+   * `attemptedCount`/`solvedCount` for a whole page of problems, in ONE
+   * aggregate query keyed by problem id — never one per row, which is the
+   * N+1 `tags` and `testCount` are on the summary to avoid.
+   *
+   * Uncached, unlike `getStats`: a page's ids differ from request to request,
+   * so a cache would be keyed on the set rather than on a problem and would
+   * miss almost always. What makes it affordable is migration 0022's
+   * `(problem_id, user_id, verdict)` index — without it this is a sequential
+   * scan of a table that grows forever (D11) on the most public page in the
+   * app.
+   */
+  private async loadCountsByProblem(problemIds: number[]): Promise<Map<number, ProblemCounts>> {
+    const byProblem = new Map<number, ProblemCounts>();
+    if (problemIds.length === 0) return byProblem;
+    const rows = await this.db
+      .select({
+        problemId: submissions.problemId,
+        attempted: sql<number>`count(distinct ${submissions.userId})::int`,
+        solved: sql<number>`count(distinct ${submissions.userId}) filter (where ${submissions.verdict} = 'AC')::int`,
+      })
+      .from(submissions)
+      .where(
+        and(
+          inArray(submissions.problemId, problemIds),
+          sql`not ${contestWindowOpenWhere(new Date())}`,
+        ),
+      )
+      .groupBy(submissions.problemId);
+    for (const row of rows) {
+      byProblem.set(row.problemId, { attemptedCount: row.attempted, solvedCount: row.solved });
+    }
+    return byProblem;
   }
 
   /**
@@ -1066,8 +1271,12 @@ export class ProblemAccessService {
     // told their write vanished.
     const editorial = await this.resolveEditorial(actor, row, true, false);
 
+    // The counts are NOT masked here, for the same reason the tags are not:
+    // both callers act for an editor of this exact problem.
+    const counts = (await this.loadCountsByProblem([id])).get(id) ?? BLANK_COUNTS;
+
     return {
-      ...toSummary(row, { tags, difficulty: row.difficulty }),
+      ...toSummary(row, { tags, difficulty: row.difficulty }, counts),
       ...editorial,
       statement: row.statement,
       // Not revision-derived, so unlike the three fields below it is never
@@ -1470,6 +1679,37 @@ function isUniqueViolationShape(value: unknown): value is { code: string; constr
  */
 const BLANK_HINT: ProblemHint = Object.freeze({ tags: [] as TagDto[], difficulty: null });
 
+/** D49's two per-problem counters, blanked exactly as `BLANK_HINT` blanks a hint. */
+export interface ProblemCounts {
+  attemptedCount: number;
+  solvedCount: number;
+}
+const BLANK_COUNTS: ProblemCounts = Object.freeze({ attemptedCount: 0, solvedCount: 0 });
+
+const STATS_CACHE_PREFIX = 'duckoj:pstats:v1';
+/**
+ * Thirty seconds. A problem page is not a live board — nobody is watching the
+ * acceptance rate tick — and the window exists to collapse the burst of a
+ * class opening the same problem at once.
+ */
+const STATS_CACHE_TTL_MS = 30_000;
+/** Ten, per D49: a leaderboard, not a listing. */
+const FASTEST_LIMIT = 10;
+
+/** The shape a problem nobody has attempted returns — and D35's mask. */
+function blankStats(): ProblemStatsDto {
+  return {
+    totalSubmissions: 0,
+    attemptedUsers: 0,
+    solvedUsers: 0,
+    acceptanceRate: null,
+    verdicts: [],
+    languages: [],
+    fastest: [],
+    firstSolver: null,
+  };
+}
+
 /** The one empty set every "nothing is hidden" answer returns. */
 const EMPTY_IDS: ReadonlySet<number> = new Set<number>();
 
@@ -1516,7 +1756,7 @@ function toSummary(row: {
   meVerdict?: string | null;
   mePoints?: number | null;
   meMaxPoints?: number | null;
-}, hint: ProblemHint): ProblemSummaryDto {
+}, hint: ProblemHint, counts: ProblemCounts): ProblemSummaryDto {
   return {
     id: row.id,
     code: row.code,
@@ -1538,6 +1778,11 @@ function toSummary(row: {
     // applied (or not); this function never decides visibility itself.
     tags: hint.tags,
     difficulty: hint.difficulty,
+    // D49, masked by the same rule and in the same place as the hint above:
+    // `counts` is where the caller has already decided whether this viewer
+    // is sitting a contest that uses the problem.
+    attemptedCount: counts.attemptedCount,
+    solvedCount: counts.solvedCount,
   };
 }
 

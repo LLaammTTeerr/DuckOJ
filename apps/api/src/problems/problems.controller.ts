@@ -25,6 +25,7 @@ import {
   type ProblemDetailDto,
   type ProblemListQueryDto,
   type ProblemPageDto,
+  type ProblemStatsDto,
   type RevisionSummaryDto,
   type RevisionVersionResponseDto,
   type UpdateProblemRequestDto,
@@ -117,6 +118,28 @@ export class ProblemsController {
   @RequireScope('problems:read')
   editorial(@MaybeActor() actor: Actor | null, @Param('code') code: string): Promise<EditorialResponseDto> {
     return this.problems.getEditorial(actor, code);
+  }
+
+  /**
+   * The problem's submission statistics (D49). `@Public()` and
+   * `problems:read` like the editorial above: what a viewer may see is
+   * decided entirely in `ProblemAccessService`, which resolves this route's
+   * visibility to `GET /problems/{code}`'s own.
+   */
+  @Get(':code/stats')
+  @Public()
+  @RequireScope('problems:read')
+  async stats(
+    @MaybeActor() actor: Actor | null,
+    @Param('code') code: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ProblemStatsDto> {
+    const { stats, cache } = await this.problems.getStats(actor, code);
+    // A HEADER, never a body field — D25's precedent, and for its reason: a
+    // cache is transport metadata, not something the statistics have an
+    // opinion about.
+    res.setHeader('X-Stats-Cache', cache);
+    return stats;
   }
 
   /**

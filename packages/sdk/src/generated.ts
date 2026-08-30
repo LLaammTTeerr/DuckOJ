@@ -5212,6 +5212,8 @@ export interface paths {
                                     nameEn: string;
                                 }[];
                                 difficulty: number | null;
+                                attemptedCount: number;
+                                solvedCount: number;
                             }[];
                             nextCursor: string | null;
                         };
@@ -5293,6 +5295,8 @@ export interface paths {
                                 nameEn: string;
                             }[];
                             difficulty: number | null;
+                            attemptedCount: number;
+                            solvedCount: number;
                             statement: string;
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
@@ -5446,6 +5450,8 @@ export interface paths {
                                 nameEn: string;
                             }[];
                             difficulty: number | null;
+                            attemptedCount: number;
+                            solvedCount: number;
                             statement: string;
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
@@ -5552,6 +5558,8 @@ export interface paths {
                                 nameEn: string;
                             }[];
                             difficulty: number | null;
+                            attemptedCount: number;
+                            solvedCount: number;
                             statement: string;
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
@@ -6111,6 +6119,94 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/problems/{code}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The problem's submission statistics
+         * @description Visibility is exactly `GET /problems/{code}`. Submissions belonging to a contest participation whose window is still open are excluded from every field, for every viewer (D49) — and a viewer sitting a running contest that uses this problem is served the empty shape, the same one a problem nobody has attempted returns (D35).
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    code: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The statistics */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            totalSubmissions: number;
+                            attemptedUsers: number;
+                            solvedUsers: number;
+                            acceptanceRate: number | null;
+                            verdicts: {
+                                key: string;
+                                count: number;
+                            }[];
+                            languages: {
+                                key: string;
+                                count: number;
+                            }[];
+                            fastest: {
+                                submissionId: number;
+                                username: string;
+                                timeMs: number;
+                                memoryKb: number | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            firstSolver: {
+                                submissionId: number;
+                                username: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                            } | null;
+                        };
+                    };
+                };
+                /** @description No such problem, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;

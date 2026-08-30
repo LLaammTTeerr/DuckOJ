@@ -11,6 +11,7 @@ import type { Actor } from '../src/authz/actor.js';
 import { ProblemAccessService } from '../src/authz/problem.access.js';
 import { FilesystemPackageStore, type PackageStore } from '../src/packages/package.store.js';
 import { withTestDb } from './db.harness.js';
+import { bypassCache } from './cache.harness.js';
 import { insertUser } from './submissions.fixtures.js';
 
 function actorFor(userId: number, globalRole: 'user' | 'setter' | 'admin' = 'user'): Actor {
@@ -119,7 +120,7 @@ describe('ProblemAccessService.attachRevision', () => {
       const { id } = await seedProblem(db, { code: 'attach1', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const hash = await seedPackage(db, store, await validPackageDir('v1'));
-      const service = new ProblemAccessService(db, store);
+      const service = new ProblemAccessService(db, store, bypassCache());
 
       const result = await service.attachRevision(actorFor(owner.id), 'attach1', { packageHash: hash });
       expect(result.version).toBe(1);
@@ -138,7 +139,7 @@ describe('ProblemAccessService.attachRevision', () => {
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const hashA = await seedPackage(db, store, await validPackageDir('a'));
       const hashB = await seedPackage(db, store, await validPackageDir('b'));
-      const service = new ProblemAccessService(db, store);
+      const service = new ProblemAccessService(db, store, bypassCache());
 
       const first = await service.attachRevision(actorFor(owner.id), 'attach2', { packageHash: hashA });
       expect(first.version).toBe(1);
@@ -157,7 +158,7 @@ describe('ProblemAccessService.attachRevision', () => {
       const { id } = await seedProblem(db, { code: 'attachfields', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const hash = await seedPackage(db, store, await validPackageDir('fields'));
-      const service = new ProblemAccessService(db, store);
+      const service = new ProblemAccessService(db, store, bypassCache());
 
       await service.attachRevision(actorFor(owner.id), 'attachfields', { packageHash: hash, notes: 'first cut' });
 
@@ -179,7 +180,7 @@ describe('ProblemAccessService.attachRevision', () => {
       const owner = await insertUser(db, 'attach-unknown');
       const { id } = await seedProblem(db, { code: 'attachunknown', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
-      const service = new ProblemAccessService(db, store);
+      const service = new ProblemAccessService(db, store, bypassCache());
 
       await expect(
         service.attachRevision(actorFor(owner.id), 'attachunknown', { packageHash: '0'.repeat(64) }),
@@ -194,7 +195,7 @@ describe('ProblemAccessService.attachRevision', () => {
       const { id } = await seedProblem(db, { code: 'attachnomanifest', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const hash = await seedPackage(db, store, await noManifestPackageDir());
-      const service = new ProblemAccessService(db, store);
+      const service = new ProblemAccessService(db, store, bypassCache());
 
       await expect(
         service.attachRevision(actorFor(owner.id), 'attachnomanifest', { packageHash: hash }),
@@ -209,7 +210,7 @@ describe('ProblemAccessService.attachRevision', () => {
       const { id } = await seedProblem(db, { code: 'attachcollidecase', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const hash = await seedPackage(db, store, await collidingPackageDir('README.md', 'readme.md'));
-      const service = new ProblemAccessService(db, store);
+      const service = new ProblemAccessService(db, store, bypassCache());
 
       await expect(
         service.attachRevision(actorFor(owner.id), 'attachcollidecase', { packageHash: hash }),
@@ -233,7 +234,7 @@ describe('ProblemAccessService.attachRevision', () => {
       expect(nfc.normalize('NFC')).toBe(nfd.normalize('NFC'));
 
       const hash = await seedPackage(db, store, await collidingPackageDir(nfc, nfd));
-      const service = new ProblemAccessService(db, store);
+      const service = new ProblemAccessService(db, store, bypassCache());
 
       await expect(
         service.attachRevision(actorFor(owner.id), 'attachcollidenfc', { packageHash: hash }),
@@ -249,7 +250,7 @@ describe('ProblemAccessService.attachRevision', () => {
       const { id } = await seedProblem(db, { code: 'attachtester', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       await db.insert(problemMembers).values({ problemId: id, userId: tester.id, role: 'tester' });
-      const service = new ProblemAccessService(db, store);
+      const service = new ProblemAccessService(db, store, bypassCache());
 
       await expect(
         service.attachRevision(actorFor(tester.id), 'attachtester', { packageHash: '0'.repeat(64) }),
@@ -264,7 +265,7 @@ describe('ProblemAccessService.attachRevision', () => {
       const { id } = await seedProblem(db, { code: 'attachconcurrent', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const hash = await seedPackage(db, store, await validPackageDir('concurrent'));
-      const service = new ProblemAccessService(db, store);
+      const service = new ProblemAccessService(db, store, bypassCache());
 
       const [a, b] = await Promise.all([
         service.attachRevision(actorFor(owner.id), 'attachconcurrent', { packageHash: hash }),
