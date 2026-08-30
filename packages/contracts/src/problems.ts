@@ -411,6 +411,100 @@ export const ProblemStats = z.object({
 });
 export type ProblemStatsDto = z.infer<typeof ProblemStats>;
 
+/**
+ * The upper bound on a comment's body, in both the zod bound below and the
+ * `problem_comments_body_len_ck` CHECK — 4000 chars is long enough for a real
+ * discussion post and far below anything that hurts.
+ */
+export const COMMENT_BODY_MAX = 4000;
+
+/**
+ * One comment in a problem's discussion (D109).
+ *
+ * `body` and `author` are `null` **only on a tombstone** — a top-level
+ * comment that was deleted but still anchors at least one visible reply, so
+ * the thread does not lose its shape. Every non-deleted comment carries both,
+ * and a deleted comment with no visible reply is omitted from the list
+ * entirely rather than shown as a tombstone.
+ *
+ * `body` is the author's raw Markdown, rendered client-side through the same
+ * DOMPurify path as the statement (`apps/web/src/markdown.ts`) — the API
+ * never emits HTML for it.
+ */
+export const ProblemComment = z.object({
+  id: z.number().int(),
+  /** `null` for a top-level comment; the top-level comment's id for a reply. */
+  parentId: z.number().int().nullable(),
+  /** `null` on a tombstone; otherwise the author's username. */
+  author: z.object({ username: z.string() }).nullable(),
+  /** `null` on a tombstone; otherwise the raw Markdown body. */
+  body: z.string().nullable(),
+  createdAt: Timestamp,
+  /** When the author last edited it, or `null` if never. */
+  editedAt: Timestamp.nullable(),
+  /** When it was soft-deleted, or `null`. Non-null iff this is a tombstone. */
+  deletedAt: Timestamp.nullable(),
+});
+export type ProblemCommentDto = z.infer<typeof ProblemComment>;
+
+/**
+ * A top-level comment together with its one level of replies (D109 — a reply
+ * can never itself be replied to). `replies` are in id order, oldest first,
+ * and a deleted reply is omitted rather than shown as a tombstone: a reply
+ * anchors nothing below it, so there is no thread shape to preserve.
+ */
+export const ProblemCommentThread = ProblemComment.extend({
+  replies: z.array(ProblemComment),
+});
+export type ProblemCommentThreadDto = z.infer<typeof ProblemCommentThread>;
+
+/**
+ * A page of discussion threads.
+ *
+ * `hiddenDuringContest` deliberately breaks D35's "blank, never signalled"
+ * rule, and D109 justifies the exception: the whole page is empty and the
+ * flag is `true` for a viewer sitting a running contest that uses this
+ * problem. It discloses nothing the viewer does not already know — they
+ * joined the contest and can see it contains this problem (that is what let
+ * them open the statement at all) — and the brief requires the UI to show a
+ * note rather than an indistinguishable empty thread.
+ */
+export const ProblemCommentPage = z.object({
+  items: z.array(ProblemCommentThread),
+  nextCursor: z.string().nullable(),
+  hiddenDuringContest: z.boolean(),
+});
+export type ProblemCommentPageDto = z.infer<typeof ProblemCommentPage>;
+
+export const CreateCommentRequest = z
+  .object({
+    body: z.string().min(1).max(COMMENT_BODY_MAX),
+    /**
+     * Present to post a reply, absent for a top-level comment. The named
+     * comment must itself be top-level and belong to this problem, or the
+     * request is 422 — a reply-to-a-reply is not a state the one-level thread
+     * has a meaning for.
+     */
+    parentId: z.number().int().positive().optional(),
+  })
+  .strict();
+export type CreateCommentRequestDto = z.infer<typeof CreateCommentRequest>;
+
+export const UpdateCommentRequest = z.object({ body: z.string().min(1).max(COMMENT_BODY_MAX) }).strict();
+export type UpdateCommentRequestDto = z.infer<typeof UpdateCommentRequest>;
+
+/**
+ * Two schemas for the `{id}` path param, mirroring `RevisionVersionParam`:
+ * `z.coerce.number()` alone documents a path parameter as nullable, which
+ * OpenAPI 3.1 forbids (`openapi-path-params.spec.ts` enforces this repo-wide).
+ * The plain schema is registered; the coerced one is what parses the segment.
+ */
+const CommentIdParamSchema = z.number().int().positive();
+export const CommentIdParam = z.coerce.number().pipe(CommentIdParamSchema);
+export type CommentIdParamDto = z.infer<typeof CommentIdParam>;
+
+const ProblemCodeAndCommentParam = z.object({ code: z.string(), id: CommentIdParamSchema });
+
 export const RevisionSummary = z.object({
   id: z.number().int(),
   version: z.number().int(),
@@ -683,5 +777,88 @@ registry.registerPath({
   responses: {
     200: { description: 'The statistics', content: { 'application/json': { schema: ProblemStats } } },
     404: PROBLEM_NOT_FOUND,
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/problems/{code}/comments',
+  tags: ['Problems'],
+  summary: "The problem's discussion (D109)",
+  description:
+    'Visibility is exactly `GET /problems/{code}`. A viewer sitting a running contest that uses ' +
+    'this problem is served an empty page with `hiddenDuringContest: true` (D109) — a discussion ' +
+    'can leak the solution, so it is withheld until the contest is over; organisers and admins are ' +
+    'unaffected. A deleted comment appears as a tombstone only while it anchors a visible reply.',
+  request: { params: ProblemCodeParam, query: PaginationQuery },
+  responses: {
+    200: { description: 'A page of discussion threads', content: { 'application/json': { schema: ProblemCommentPage } } },
+    404: PROBLEM_NOT_FOUND,
+    422: VALIDATION_FAILED,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/problems/{code}/comments',
+  tags: ['Problems'],
+  summary: 'Post a comment or a reply on a problem',
+  description:
+    'Authenticated. Rate-limited to 10 per user per hour (429 `comment_rate_limited`, with ' +
+    '`Retry-After`). Withheld exactly as the read is while the caller sits a running contest that ' +
+    "uses this problem (D109). A `parentId` must name a top-level, non-deleted comment on this " +
+    'problem, or the request is 422.',
+  request: {
+    params: ProblemCodeParam,
+    body: { content: { 'application/json': { schema: CreateCommentRequest } } },
+  },
+  responses: {
+    201: { description: 'The created comment', content: { 'application/json': { schema: ProblemComment } } },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: PROBLEM_NOT_FOUND,
+    422: VALIDATION_FAILED,
+    429: {
+      description: 'Too many comments this hour (`comment_rate_limited`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/problems/{code}/comments/{id}',
+  tags: ['Problems'],
+  summary: "Edit one of your own comments",
+  request: {
+    params: ProblemCodeAndCommentParam,
+    body: { content: { 'application/json': { schema: UpdateCommentRequest } } },
+  },
+  responses: {
+    200: { description: 'The edited comment', content: { 'application/json': { schema: ProblemComment } } },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: {
+      description: 'No such problem, no such comment, or one the caller may not see — indistinguishable',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
+  },
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/problems/{code}/comments/{id}',
+  tags: ['Problems'],
+  summary: 'Soft-delete a comment (author or admin)',
+  request: { params: ProblemCodeAndCommentParam },
+  responses: {
+    204: { description: 'The comment was soft-deleted' },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: {
+      description: 'No such problem, no such comment, or one the caller may not see — indistinguishable',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
