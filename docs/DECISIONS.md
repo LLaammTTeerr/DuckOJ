@@ -1664,3 +1664,33 @@ named it; this closes it.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B7 brief),
 no human available to consult. No migration.*
+
+## D60 — `POST /packages` refuses a manifest that names files it does not have
+
+`upload()` parsed the manifest and threw the parsed value away: the archive's
+real file list and the manifest's promises were both in hand and never
+compared. So a package whose manifest names `tests/01.out`, or a
+`checker: { kind: 'source' }` whose source was never packed, was hashed,
+stored and served — and refused only much later at `attachRevision`, by the
+rule B6 added there. The B6 report left this open as "one line to add if
+wanted". It was wanted.
+
+- **The same `findMissingPackageFiles`**, not a second copy. Completeness is
+  a property of a package's contents, independent of whether it is checked
+  while building the archive, while uploading it, or while attaching a
+  revision — and two copies is exactly how the checker path came to be
+  checked nowhere at all.
+- **422 `package_manifest_incomplete`**, its own code rather than the
+  neighbouring `package_manifest_invalid`. The two have different fixes:
+  invalid means "correct the JSON", incomplete means "pack the file", and
+  the message names which files are missing so the second is actionable.
+  Deliberately NOT `attachRevision`'s 400 `package_invalid`: that is the
+  code vocabulary of the problem-revision endpoints, and this endpoint
+  answers 422 for every "this archive is not acceptable". The RULE is
+  shared; the wire code belongs to its own route.
+- **Refused before anything is stored.** A package that cannot be attached
+  to any revision is a dead blob with a permanent hash — garbage an eviction
+  pass has to reclaim, and a hash a client can hold and believe in.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B7 brief),
+no human available to consult. No migration.*

@@ -5,7 +5,16 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import { describeError } from '@duckoj/observability';
-import { findPathCollision, hashFile, packageHash, parseManifest, unpackArchive, type PackageFile } from '@duckoj/package-format';
+import {
+  findMissingPackageFiles,
+  findPathCollision,
+  hashFile,
+  packageHash,
+  parseManifest,
+  unpackArchive,
+  type PackageFile,
+  type PackageManifestDto,
+} from '@duckoj/package-format';
 import type { PackageSummaryDto, UploadPackageResponseDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
@@ -89,7 +98,9 @@ export class PackagesService {
    *     (Task 2 review / addendum A2) — safe to do here because rejecting a
    *     package never changes an existing hash.
    *  5. Parse the manifest. A package that cannot be parsed cannot be graded,
-   *     so it must not be storable as if it could be.
+   *     so it must not be storable as if it could be — and then check that
+   *     what it names is actually here (D60), through the same
+   *     `findMissingPackageFiles` `attachRevision` uses.
    *  6. Store the bytes, then record the rows — in that order. `store.put`
    *     and the database insert are not atomic with each other, and an
    *     orphaned blob (store write succeeds, insert fails) is garbage an
@@ -149,14 +160,34 @@ export class PackagesService {
       if (!manifestFile) {
         throw new AppError(422, 'package_manifest_invalid', 'The package is missing manifest.json.');
       }
+      let manifest: PackageManifestDto;
       try {
         const manifestText = await readFile(join(workDir, 'manifest.json'), 'utf8');
-        parseManifest(JSON.parse(manifestText));
+        manifest = parseManifest(JSON.parse(manifestText));
       } catch (error) {
         throw new AppError(
           422,
           'package_manifest_invalid',
           error instanceof Error ? error.message : 'The package manifest is invalid.',
+        );
+      }
+
+      // 5b. Does the manifest describe THIS archive? (D60.) `parseManifest`
+      // validates the SHAPE of a path and can say nothing about whether it
+      // names anything; `files` above is the authoritative list of what the
+      // archive actually holds, and until now the two were never compared
+      // here — the same omission `attachRevision` closed on its own side,
+      // through this same `findMissingPackageFiles`, one rule in one place.
+      // A stored package that names a missing test answer or checker source
+      // is not one that grades badly; it is one that can never be attached
+      // to a revision at all, so refusing it at the door turns a dead blob
+      // into a message the setter can act on.
+      const missing = findMissingPackageFiles(manifest, files);
+      if (missing.length > 0) {
+        throw new AppError(
+          422,
+          'package_manifest_incomplete',
+          `The manifest names files this package does not contain: ${missing.join(', ')}.`,
         );
       }
 
