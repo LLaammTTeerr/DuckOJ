@@ -718,6 +718,7 @@ export const en = {
   'password.mismatch': 'The two do not match.',
   'password.save': 'Change password',
   'password.done': 'Your password has been changed. Every other device has been signed out.',
+  'password.dismiss': 'Dismiss',
   'password.error': 'Could not change your password.',
   'password.signedOut': 'Sign in to change your password.',
   'nav.password': 'Password',

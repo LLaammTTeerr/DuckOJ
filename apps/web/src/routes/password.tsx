@@ -24,7 +24,23 @@ import { useT } from '../i18n/index.js';
 /** `Password` in `@duckoj/contracts` — restated so the form can refuse early. */
 const MIN_PASSWORD_LENGTH = 10;
 
-export function ChangePasswordPage({ forced = false }: { forced?: boolean }) {
+export function ChangePasswordPage({
+  forced = false,
+  onChanged,
+}: {
+  forced?: boolean;
+  /**
+   * Called once the change has been accepted, BEFORE the `me` refetch below.
+   *
+   * The forced instance of this page is rendered by `PasswordGate`, and the
+   * refetch is what makes the gate step aside — unmounting this component in
+   * the same tick the change succeeds. So the confirmation cannot live here:
+   * `done` below is raised and destroyed together, and a pupil sees the form
+   * vanish and the site appear with nothing anywhere saying their password
+   * changed. This hands the news to something that outlives the swap.
+   */
+  onChanged?: () => void;
+}) {
   const t = useT();
   const client = useQueryClient();
   const me = useQuery(meQueryOptions);
@@ -60,6 +76,10 @@ export function ChangePasswordPage({ forced = false }: { forced?: boolean }) {
       setCurrent('');
       setNext('');
       setConfirm('');
+      // Before the refetch, not after: the refetch is what unmounts this
+      // component when the gate steps aside, and a `setState` on the way out
+      // would be dropped.
+      onChanged?.();
       // The obligation is carried on `me`, so the gate keeps standing until
       // this refetch lands. Nothing else can clear it.
       await client.invalidateQueries({ queryKey: ['me'] });
@@ -76,7 +96,7 @@ export function ChangePasswordPage({ forced = false }: { forced?: boolean }) {
     <section className="panel">
       <h1>{t('password.title')}</h1>
       {mustChange ? <p role="alert">{t('password.forced')}</p> : null}
-      {done ? <p>{t('password.done')}</p> : null}
+      {done ? <p role="status">{t('password.done')}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {mustChange ? null : (
         <p>
@@ -134,7 +154,32 @@ export function ChangePasswordPage({ forced = false }: { forced?: boolean }) {
  * gate must never be what a visitor sees.
  */
 export function PasswordGate({ children }: { children: ReactNode }) {
+  const t = useT();
   const me = useQuery(meQueryOptions);
-  if (me.data?.mustChangePassword === true) return <ChangePasswordPage forced />;
-  return <>{children}</>;
+  // Owned HERE, not by the page below, and that is the whole point: the
+  // refetch that clears `mustChangePassword` unmounts the page in the same
+  // tick the change succeeds, so a confirmation held in the page's own state
+  // is raised and destroyed together and nobody ever reads it (B-14). This
+  // component is the root route's, rendered once for every child route, so it
+  // survives both the swap and every client-side navigation after it.
+  const [changed, setChanged] = useState(false);
+  if (me.data?.mustChangePassword === true) {
+    return <ChangePasswordPage forced onChanged={() => setChanged(true)} />;
+  }
+  return (
+    <>
+      {changed ? (
+        <p role="status">
+          {t('password.done')}{' '}
+          {/* Dismissible because this component is never remounted: without
+              it the line would sit above every screen for the rest of the
+              session. */}
+          <button type="button" onClick={() => setChanged(false)}>
+            {t('password.dismiss')}
+          </button>
+        </p>
+      ) : null}
+      {children}
+    </>
+  );
 }

@@ -352,6 +352,57 @@ describe('the forced password change (D61)', () => {
     expect(screen.queryByRole('heading', { name: en['password.title'] })).toBeNull();
   });
 
+  /**
+   * B-14's finding: the confirmation was unobservable.
+   *
+   * `ChangePasswordPage` raised `password.done` in its OWN state, and the
+   * `me` refetch that clears `mustChangePassword` makes `PasswordGate` swap
+   * the page out for the site — unmounting the element carrying the message
+   * in the same tick it became true. A pupil saw the form vanish and the
+   * site appear, with nothing anywhere saying the password had changed; the
+   * one screen where that reassurance matters most, because the account
+   * belongs to someone who was handed a password on a sheet of paper.
+   *
+   * The confirmation now belongs to the GATE, which outlives the swap.
+   */
+  it('keeps the confirmation on screen after the me refetch swaps the page away', async () => {
+    let mustChange = true;
+    get.mockImplementation(() =>
+      Promise.resolve({
+        data: { username: 'hs001', displayName: 'A', globalRole: 'user', mustChangePassword: mustChange },
+      }),
+    );
+    post.mockImplementation(() => {
+      mustChange = false;
+      return Promise.resolve({ data: undefined });
+    });
+
+    wrap(
+      <PasswordGate>
+        <p>trang binh thuong</p>
+      </PasswordGate>,
+    );
+    await screen.findByRole('heading', { name: en['password.title'] });
+
+    await userEvent.type(screen.getByLabelText(en['password.new']), 'mat-khau-moi');
+    await userEvent.type(screen.getByLabelText(en['password.confirm']), 'mat-khau-moi');
+    await userEvent.click(screen.getByRole('button', { name: en['password.save'] }));
+
+    // The gate has stepped aside — the site is back...
+    await screen.findByText('trang binh thuong');
+    // ...and the confirmation is still readable beside it, as a live region
+    // rather than as a page that no longer exists.
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent(en['password.done']);
+
+    // And it is dismissible, so it does not sit above every screen for the
+    // rest of the session: the gate is the root route's component and is
+    // never remounted by a client-side navigation.
+    await userEvent.click(screen.getByRole('button', { name: en['password.dismiss'] }));
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByText('trang binh thuong')).toBeInTheDocument();
+  }, 30_000);
+
   it('does not ask a flagged account for a password it never chose', async () => {
     serveMe(true);
     post.mockResolvedValue({ data: undefined });
