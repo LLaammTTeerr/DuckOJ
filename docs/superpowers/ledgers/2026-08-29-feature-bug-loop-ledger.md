@@ -83,3 +83,4 @@
 - F-20 DONE, merged (094513c): apps/mcp (19 tools, D89), oj mcp, docs/guide/mcp.md; live e2e AC via MCP. Root 'prepare' lifecycle name broke image builds → renamed prepare:problem; api deployed via deploy.sh (see line above); pushed.
 - Dispatched F-22 structured samples (main, D94) and F-23 organiser live monitor (worktree, D95). e2e full run in flight; B-16 running.
 - Full e2e on live after F-19/F-20/F-21: 28/28 (8 journeys, 11 feature journeys, 9 smoke).
+- F-23 DONE_WITH_CONCERNS, merged (445aeaf): /contests/{key}/monitor + contest-activity WS frame + presence (D95, migration 0035); deployed via deploy.sh; pushed.
