@@ -10,7 +10,20 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import request from 'supertest';
+import { Redis } from 'ioredis';
+import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
+import {
+  contestOrgs,
+  contestParticipations,
+  contestProblems,
+  contests,
+  orgMembers,
+  organizations,
+  problems,
+} from '@duckoj/db/guarded';
+import { schema, type Db } from '@duckoj/db';
 import {
   DEFAULT_ISSUER,
   certificatesToTypst,
@@ -19,7 +32,15 @@ import {
   type ResultsInput,
 } from '../src/statements/results.js';
 import { CSV_BOM, resultsCsv } from '../src/contests/results-csv.js';
-import { TypstStatementRenderer } from '../src/statements/statement-renderer.js';
+import {
+  STATEMENT_RENDERER,
+  TypstStatementRenderer,
+  type StatementRenderer,
+} from '../src/statements/statement-renderer.js';
+import { buildApp } from './app.harness.js';
+import { withTestDb } from './db.harness.js';
+import { ensureRedisUrl } from './redis.harness.js';
+import { insertUser, registerAndLogin, userIdOf } from './submissions.fixtures.js';
 
 const TYPST_BIN =
   process.env.TYPST_BIN ??
@@ -337,4 +358,411 @@ describe.skipIf(TYPST_BIN === null)('the results documents compile', () => {
     );
     expect(await compileStatus(doc)).toBe('ok');
   }, 120_000);
+});
+
+/* --------------------------------------------------------- the routes (D71) */
+
+/** A renderer that records every document it is handed and returns a stub PDF. */
+function fakeRenderer(): StatementRenderer & { documents: string[] } {
+  const documents: string[] = [];
+  return {
+    documents,
+    render: () => Promise.reject(new Error('unused')),
+    renderDocument: (document: string) => {
+      documents.push(document);
+      return Promise.resolve(Buffer.from('%PDF-fake'));
+    },
+  };
+}
+
+const MINUTE = 60_000;
+
+/** This file's own logical Redis database — see `redis.harness.ts`. */
+const REDIS_DB = 4;
+
+async function freshRedis(): Promise<string> {
+  const url = await ensureRedisUrl(REDIS_DB);
+  const redis = new Redis(url);
+  try {
+    await redis.flushdb();
+  } finally {
+    redis.disconnect();
+  }
+  return url;
+}
+
+/**
+ * A finished, public `icpc` contest owned by `ownerId`, with one problem and
+ * three ranked rows: a clean live entrant who belongs to a school, a
+ * disqualified live entrant, and a virtual replay.
+ *
+ * That triple is the whole point of the fixture: the CSV must carry all
+ * three, and the certificates must carry only the first.
+ */
+async function seedResultsContest(
+  db: Db,
+  key: string,
+  ownerId: number,
+  opts: { visibility?: 'public' | 'private'; withOrg?: boolean } = {},
+): Promise<number> {
+  const now = Date.now();
+  const [problem] = await db
+    .insert(problems)
+    .values({
+      code: `${key}-a`,
+      name: 'Tổng hai số',
+      statement: 'Cho $a+b$.',
+      visibility: 'public',
+      createdBy: ownerId,
+    })
+    .returning({ id: problems.id });
+  const [contest] = await db
+    .insert(contests)
+    .values({
+      key,
+      name: 'Thi thử tỉnh',
+      startTime: new Date(now - 120 * MINUTE),
+      endTime: new Date(now - 60 * MINUTE),
+      format: 'icpc',
+      visibility: opts.visibility ?? 'public',
+      createdBy: ownerId,
+    })
+    .returning({ id: contests.id });
+  await db
+    .insert(contestProblems)
+    .values({ contestId: contest!.id, problemId: problem!.id, label: 'A', points: 100, order: 0 });
+
+  const an = await insertUser(db, `${key}-an`);
+  const binh = await insertUser(db, `${key}-binh`);
+  const cuong = await insertUser(db, `${key}-cuong`);
+  await db
+    .update(schema.users)
+    .set({ displayName: 'Nguyễn Văn An' })
+    .where(eq(schema.users.id, an.id));
+  await db.insert(contestParticipations).values([
+    { contestId: contest!.id, userId: an.id, virtual: 0, startTime: new Date(now - 110 * MINUTE) },
+    {
+      contestId: contest!.id,
+      userId: binh.id,
+      virtual: 0,
+      startTime: new Date(now - 110 * MINUTE),
+      isDisqualified: true,
+    },
+    {
+      contestId: contest!.id,
+      userId: cuong.id,
+      virtual: 1,
+      startTime: new Date(now - 90 * MINUTE),
+    },
+  ]);
+
+  if (opts.withOrg === true) {
+    const [org] = await db
+      .insert(organizations)
+      .values({ slug: `${key}-truong`, name: 'THPT Chuyên Hạ Long', visibility: 'public' })
+      .returning({ id: organizations.id });
+    await db.insert(orgMembers).values({ orgId: org!.id, userId: an.id, role: 'member' });
+    await db.insert(contestOrgs).values({ contestId: contest!.id, orgId: org!.id });
+  }
+  return contest!.id;
+}
+
+describe('GET /contests/{key}/results.csv', () => {
+  it('refuses an anonymous caller — this route is never @Public', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const owner = await insertUser(db, 'anon-owner');
+        await seedResultsContest(db, 'anon', owner.id);
+        // Deny-by-default: the export is the live board, so there is no
+        // anonymous reading of it for a service to gate.
+        const res = await request(app.getHttpServer()).get('/contests/anon/results.csv');
+        expect(res.status).toBe(401);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('404s a contest the caller may not see, and 403s one they may but do not run', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'nosy');
+        const owner = await insertUser(db, 'gate-owner');
+        await seedResultsContest(db, 'hidden', owner.id, { visibility: 'private' });
+        await seedResultsContest(db, 'shown', owner.id);
+
+        // Existence is the thing being protected, so 404.
+        const hidden = await agent.get('/contests/hidden/results.csv').set('Cookie', cookie);
+        expect(hidden.status).toBe(404);
+        expect(hidden.body.code).toBe('contest_not_found');
+
+        // Here there is no existence left to protect — the caller is looking
+        // at the contest — so the honest answer is 403.
+        const shown = await agent.get('/contests/shown/results.csv').set('Cookie', cookie);
+        expect(shown.status).toBe(403);
+        expect(shown.body.code).toBe('contest_forbidden');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('serves the creator a BOM-led attachment with every row, DQ flagged', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'organiser');
+        const ownerId = await userIdOf(db, 'organiser');
+        await seedResultsContest(db, 'final', ownerId, { withOrg: true });
+
+        const res = await agent.get('/contests/final/results.csv').set('Cookie', cookie);
+        expect(res.status).toBe(200);
+        expect(res.headers['content-type']).toContain('text/csv');
+        expect(res.headers['content-disposition']).toBe('attachment; filename="final-results.csv"');
+        const csv = res.text;
+        expect(csv.startsWith('﻿')).toBe(true);
+        // The display name and the competitor's own school, neither of which
+        // the scoreboard response carries.
+        expect(csv).toContain('Nguyễn Văn An');
+        expect(csv).toContain('THPT Chuyên Hạ Long');
+        // All three rows are present, and the disqualified one is FLAGGED
+        // rather than dropped.
+        expect(csv).toContain('final-binh');
+        expect(csv).toMatch(/final-binh.*,true,0/);
+        expect(csv).toMatch(/final-cuong.*,false,1/);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('serves a global admin who did not create the contest', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'root');
+        await db
+          .update(schema.users)
+          .set({ globalRole: 'admin' })
+          .where(eq(schema.users.username, 'root'));
+        const owner = await insertUser(db, 'someone-else');
+        await seedResultsContest(db, 'admin-sees', owner.id);
+        const res = await agent.get('/contests/admin-sees/results.csv').set('Cookie', cookie);
+        expect(res.status).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  /**
+   * The CSV needs no typesetter, and a server without one must still serve
+   * it. Routing all three exports through one handler would have made this
+   * answer 501 for a file that is a string.
+   */
+  it('is served on a server with no typst configured, where the PDFs are not', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'no-typst');
+        const ownerId = await userIdOf(db, 'no-typst');
+        await seedResultsContest(db, 'binless', ownerId);
+        const csv = await agent.get('/contests/binless/results.csv').set('Cookie', cookie);
+        expect(csv.status).toBe(200);
+        const pdf = await agent.get('/contests/binless/results.pdf').set('Cookie', cookie);
+        expect(pdf.status).toBe(501);
+        expect(pdf.body.code).toBe('statement_pdf_unavailable');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
+describe('GET /contests/{key}/results.pdf', () => {
+  it('403s before the renderer is asked, so 501 never leaks entitlement', async () => {
+    await withTestDb(async (db) => {
+      const renderer = fakeRenderer();
+      const app = await buildApp(db, {
+        overrides: [{ provide: STATEMENT_RENDERER, useValue: renderer }],
+      });
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'bystander');
+        const owner = await insertUser(db, 'pdf-owner');
+        await seedResultsContest(db, 'standings', owner.id);
+        const res = await agent.get('/contests/standings/results.pdf').set('Cookie', cookie);
+        expect(res.status).toBe(403);
+        // Authorization BEFORE capability: the renderer was never reached.
+        expect(renderer.documents).toHaveLength(0);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('renders the standings and caches them for a minute', async () => {
+    await withTestDb(async (db) => {
+      const renderer = fakeRenderer();
+      const redisUrl = await freshRedis();
+      const app = await buildApp(db, {
+        configOverrides: { redisUrl },
+        overrides: [{ provide: STATEMENT_RENDERER, useValue: renderer }],
+      });
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'printer');
+        const ownerId = await userIdOf(db, 'printer');
+        await seedResultsContest(db, 'printed', ownerId, { withOrg: true });
+
+        // One throwaway request: the store's Redis connection is lazy and
+        // `enableOfflineQueue` is off, so the very first command a fresh
+        // worker sends fails while the socket is still connecting — the
+        // designed behaviour, and not what this test is about. Whether that
+        // first request managed to WRITE its entry is a race, so the
+        // database is emptied again afterwards: the assertions below are
+        // about the cache, not about how fast a socket opened.
+        await agent.get('/contests/printed/results.pdf').set('Cookie', cookie);
+        const redis = new Redis(redisUrl);
+        try {
+          await redis.flushdb();
+        } finally {
+          redis.disconnect();
+        }
+
+        const first = await agent.get('/contests/printed/results.pdf').set('Cookie', cookie);
+        expect(first.status).toBe(200);
+        expect(first.headers['content-type']).toContain('application/pdf');
+        expect(first.headers['x-results-cache']).toBe('miss');
+        expect(renderer.documents.at(-1)).toContain('Nguyễn Văn An');
+        expect(renderer.documents.at(-1)).toContain('flipped: true');
+        // A statement never reaches a standings sheet (D62 by construction).
+        expect(renderer.documents.at(-1)).not.toContain('Cho $a+b$');
+
+        const second = await agent.get('/contests/printed/results.pdf').set('Cookie', cookie);
+        expect(second.headers['x-results-cache']).toBe('hit');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
+describe('GET /contests/{key}/certificates.pdf', () => {
+  it('refuses a request that names no scope, or names both', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'certs-owner');
+        const ownerId = await userIdOf(db, 'certs-owner');
+        await seedResultsContest(db, 'certs', ownerId);
+        const none = await agent.get('/contests/certs/certificates.pdf').set('Cookie', cookie);
+        expect(none.status).toBe(422);
+        const both = await agent
+          .get('/contests/certs/certificates.pdf?top=1&username=certs-an')
+          .set('Cookie', cookie);
+        expect(both.status).toBe(422);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('prints the top N, excluding the disqualified and the virtual', async () => {
+    await withTestDb(async (db) => {
+      const renderer = fakeRenderer();
+      const app = await buildApp(db, {
+        overrides: [{ provide: STATEMENT_RENDERER, useValue: renderer }],
+      });
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'awarder');
+        const ownerId = await userIdOf(db, 'awarder');
+        await seedResultsContest(db, 'awards', ownerId, { withOrg: true });
+
+        const res = await agent
+          .get('/contests/awards/certificates.pdf?top=10')
+          .set('Cookie', cookie);
+        expect(res.status).toBe(200);
+        const doc = renderer.documents.at(-1)!;
+        expect(doc).toContain('GIẤY CHỨNG NHẬN');
+        expect(doc).toContain('Nguyễn Văn An');
+        // A certificate is an award, not a record: neither the expelled
+        // competitor nor the virtual replay gets one, even at `top=10`.
+        expect(doc).not.toContain('awards-binh');
+        expect(doc).not.toContain('awards-cuong');
+        // Signed by the contest's own organization (D56).
+        expect(doc).toContain('THPT Chuyên Hạ Long');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('falls back to the site as issuer when the contest names no organization', async () => {
+    await withTestDb(async (db) => {
+      const renderer = fakeRenderer();
+      const app = await buildApp(db, {
+        overrides: [{ provide: STATEMENT_RENDERER, useValue: renderer }],
+      });
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'unaffiliated');
+        const ownerId = await userIdOf(db, 'unaffiliated');
+        await seedResultsContest(db, 'nobrand', ownerId);
+        const res = await agent
+          .get('/contests/nobrand/certificates.pdf?top=1')
+          .set('Cookie', cookie);
+        expect(res.status).toBe(200);
+        expect(renderer.documents.at(-1)).toContain('DuckOJ');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('prints one named competitor, and 404s one with no certifiable result', async () => {
+    await withTestDb(async (db) => {
+      const renderer = fakeRenderer();
+      const app = await buildApp(db, {
+        overrides: [{ provide: STATEMENT_RENDERER, useValue: renderer }],
+      });
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'namer');
+        const ownerId = await userIdOf(db, 'namer');
+        await seedResultsContest(db, 'byname', ownerId);
+
+        const one = await agent
+          .get('/contests/byname/certificates.pdf?username=BYNAME-AN')
+          .set('Cookie', cookie);
+        expect(one.status).toBe(200);
+        // Case-insensitive, as every username lookup in this codebase is.
+        expect(renderer.documents.at(-1)).toContain('Nguyễn Văn An');
+        expect(renderer.documents.at(-1)!.match(/#pagebreak\(\)/g)).toBeNull();
+
+        // Disqualified: not certifiable, and the refusal does not say which
+        // of the three reasons applied.
+        const dq = await agent
+          .get('/contests/byname/certificates.pdf?username=byname-binh')
+          .set('Cookie', cookie);
+        expect(dq.status).toBe(404);
+        expect(dq.body.code).toBe('contest_participant_not_found');
+
+        const missing = await agent
+          .get('/contests/byname/certificates.pdf?username=nobody')
+          .set('Cookie', cookie);
+        expect(missing.status).toBe(404);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
 });
