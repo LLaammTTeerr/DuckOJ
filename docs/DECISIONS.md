@@ -3853,6 +3853,16 @@ caller a cap on shared disk exists for. Measured: two concurrent PUTs at the
   draft, and holding a lock across them would let a slow write block the next
   upload.
 
+- **The sweeper skips a held draft rather than waiting for it.** `sweep` is `rm -r` of the
+  whole directory, lock and all, so a draft crossing its 24 hours while a build reads it was
+  yanked out from under `buildPackage` — and the setter got the raw `ENOENT` quoted verbatim
+  into a 422, for a build that had already passed the expiry check when it started. Skipped
+  rather than waited on: the sweep runs hourly over every draft on the volume, and blocking
+  each one for the lock's timeout would let a single held draft stall the whole pass. The
+  next tick reclaims it, an hour is nothing against a 24-hour TTL, and a lock held past
+  `DRAFT_LOCK_STALE_MS` is not held by anything alive. Expiry is unaffected: the draft stays
+  unreachable through the API the instant it expires — the skip is about the disk.
+
 **Two rulings recorded rather than changed.** A build whose package hash equals
 the current revision's still attaches a NEW revision: `attachRevision` is a
 version allocator, not a deduplicator, `submissions.revisionId` pins history
