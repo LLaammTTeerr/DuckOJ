@@ -4786,6 +4786,15 @@ other has not happened, each says yes, and both write.
   migration 0038 and both transactions commit and the pupil is seated twice;
   with it, exactly one is refused.
 
+- **One interaction, checked rather than assumed.** An organiser may seed a
+  team before the gun (D99 as amended by F-25) and may swap
+  `participationMode` right up to the start, so a contest CAN hold team seats
+  and then become individual. A pupil already seated on that team row is then
+  refused their individual join with `409 contest_already_joined` — which is
+  the true answer, since the seeded row is still on the board. The stale team
+  participation itself is D99's gap, not this table's, and the seat now makes
+  it visible instead of silently double-counting the pupil.
+
 *Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
 no human available to consult. Migration 0038.*
 
