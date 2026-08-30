@@ -124,6 +124,50 @@ export function ProblemEditPage(props: { code?: string }) {
   // replays nothing itself.
   const [reRate, setReRate] = useState<string[]>([]);
 
+  // D88: "Nhân bản". Its own state, deliberately not part of the form above
+  // — a clone is a different problem being created, not a save of this one,
+  // and sharing `busy`/`submitError` would make a failed clone look like a
+  // failed edit.
+  const [cloneCode, setCloneCode] = useState('');
+  const [cloneName, setCloneName] = useState('');
+  const [cloneBusy, setCloneBusy] = useState(false);
+  const [cloneError, setCloneError] = useState<string | null>(null);
+  const [cloned, setCloned] = useState<string | null>(null);
+
+  /**
+   * Clones this problem into `cloneCode`.
+   *
+   * The result is a LINK rather than a redirect: the copy is private, has an
+   * unpublished revision and usually wants its statement edited next, so
+   * landing on its edit screen is right — but so is staying here, and a
+   * navigation that discarded unsaved edits to THIS form would be the worse
+   * of the two. The server's own error code is shown verbatim, as everywhere
+   * else on this screen (`problem_code_taken` is the one that matters).
+   */
+  async function handleClone(): Promise<void> {
+    setCloneBusy(true);
+    setCloneError(null);
+    setCloned(null);
+    try {
+      const { data, error } = await api.POST('/problems/{code}/clone', {
+        params: { path: { code: props.code! } },
+        body: {
+          newCode: cloneCode.trim(),
+          ...(cloneName.trim() === '' ? {} : { newName: cloneName.trim() }),
+        },
+      });
+      if (error || !data) {
+        setCloneError(error?.code ?? t('problemEdit.cloneFailed'));
+        return;
+      }
+      setCloned(data.code);
+    } catch {
+      setCloneError(t('common.networkError'));
+    } finally {
+      setCloneBusy(false);
+    }
+  }
+
   async function handleRejudge(): Promise<void> {
     // No undo: every verdict on this problem is discarded and re-earned.
     if (!window.confirm(t('problemEdit.rejudgeConfirm', { code: props.code ?? '' }))) {
@@ -416,6 +460,38 @@ export function ProblemEditPage(props: { code?: string }) {
             </p>
           ) : null}
           {rejudgeError ? <p role="alert">{rejudgeError}</p> : null}
+        </section>
+      ) : null}
+
+      {isEdit ? (
+        <section>
+          <h2>{t('problemEdit.clone')}</h2>
+          <p>{t('problemEdit.cloneHint')}</p>
+          <label htmlFor="problem-clone-code">{t('problemEdit.cloneCode')}</label>
+          <input
+            id="problem-clone-code"
+            value={cloneCode}
+            onChange={(e) => setCloneCode(e.target.value)}
+            placeholder="aplusb-2"
+          />
+          <label htmlFor="problem-clone-name">{t('problemEdit.cloneName')}</label>
+          <input id="problem-clone-name" value={cloneName} onChange={(e) => setCloneName(e.target.value)} />
+          <p>
+            <button
+              type="button"
+              disabled={cloneBusy || cloneCode.trim() === ''}
+              onClick={() => void handleClone()}
+            >
+              {t('problemEdit.cloneButton')}
+            </button>
+          </p>
+          {cloneError ? <p role="alert">{cloneError}</p> : null}
+          {cloned ? (
+            <p role="status">
+              {t('problemEdit.cloned', { code: cloned })}{' '}
+              <a href={`/problems/${cloned}/edit`}>{t('problemEdit.clonedLink')}</a>
+            </p>
+          ) : null}
         </section>
       ) : null}
 

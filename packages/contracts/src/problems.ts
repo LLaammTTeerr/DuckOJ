@@ -34,6 +34,25 @@ export const CreateProblemRequest = z.object({
 });
 export type CreateProblemRequestDto = z.infer<typeof CreateProblemRequest>;
 
+/**
+ * `POST /problems/{code}/clone` — a new problem seeded from an existing one
+ * (D88).
+ *
+ * Only the two things a copy cannot inherit: a problem's code is its URL and
+ * must be new, and a name may be given so the copy is distinguishable in a
+ * list. Everything else that is carried across is decided by the server, not
+ * asked for here — a request that could choose what to copy would be a
+ * second, half-specified `POST /problems`.
+ */
+export const CloneProblemRequest = z
+  .object({
+    newCode: z.string().regex(PROBLEM_CODE),
+    /** Defaults to the source's own name. */
+    newName: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+export type CloneProblemRequestDto = z.infer<typeof CloneProblemRequest>;
+
 export const UpdateProblemRequest = z
   .object({
     name: z.string().min(1).max(200).optional(),
@@ -422,6 +441,35 @@ registry.registerPath({
       description: 'This server has no typst binary configured (`statement_pdf_unavailable`)',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/problems/{code}/clone',
+  tags: ['Problems'],
+  summary: 'Create a new problem from an existing one',
+  description:
+    "Copies the statement, the editorial (unpublished), the tags, the difficulty and the current " +
+    "published revision's package — as revision 1 of the new problem, in `draft` state. The copy is " +
+    'private and its only member is the caller. Nothing about how the source was USED is copied: no ' +
+    'submissions, no statistics, no organization shares, no membership. Cloning requires the right ' +
+    'to EDIT the source (it carries an unpublished editorial and the whole test set) as well as the ' +
+    'right to create problems.',
+  request: {
+    params: ProblemCodeParam,
+    body: { content: { 'application/json': { schema: CloneProblemRequest } } },
+  },
+  responses: {
+    201: { description: 'The new problem', content: { 'application/json': { schema: ProblemDetail } } },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: PROBLEM_NOT_FOUND,
+    409: {
+      description: 'A problem already has that code (`problem_code_taken`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
   },
 });
 

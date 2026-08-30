@@ -14680,6 +14680,490 @@
         }
       }
     },
+    "/problems/{code}/clone": {
+      "post": {
+        "tags": [
+          "Problems"
+        ],
+        "summary": "Create a new problem from an existing one",
+        "description": "Copies the statement, the editorial (unpublished), the tags, the difficulty and the current published revision's package — as revision 1 of the new problem, in `draft` state. The copy is private and its only member is the caller. Nothing about how the source was USED is copied: no submissions, no statistics, no organization shares, no membership. Cloning requires the right to EDIT the source (it carries an unpublished editorial and the whole test set) as well as the right to create problems.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "code",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "newCode": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$"
+                  },
+                  "newName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "newCode"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new problem",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "visibility": {
+                      "type": "string",
+                      "enum": [
+                        "private",
+                        "org",
+                        "public"
+                      ]
+                    },
+                    "hasPublishedRevision": {
+                      "type": "boolean"
+                    },
+                    "timeMs": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "memoryKb": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "testCount": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "me": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "verdict": {
+                          "type": "string",
+                          "enum": [
+                            "AC",
+                            "WA",
+                            "TLE",
+                            "MLE",
+                            "OLE",
+                            "RTE",
+                            "IR",
+                            "CE",
+                            "IE"
+                          ]
+                        },
+                        "points": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "maxPoints": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "verdict",
+                        "points",
+                        "maxPoints"
+                      ]
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "nameVi": {
+                            "type": "string"
+                          },
+                          "nameEn": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "nameVi",
+                          "nameEn"
+                        ]
+                      }
+                    },
+                    "difficulty": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 1,
+                      "maximum": 10
+                    },
+                    "attemptedCount": {
+                      "type": "integer"
+                    },
+                    "solvedCount": {
+                      "type": "integer"
+                    },
+                    "statement": {
+                      "type": "string"
+                    },
+                    "sourceAccess": {
+                      "type": "string",
+                      "enum": [
+                        "private",
+                        "solved"
+                      ]
+                    },
+                    "totalPoints": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "checkerKind": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "author",
+                              "curator",
+                              "tester"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "role"
+                        ]
+                      }
+                    },
+                    "orgSlugs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "editorial": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "editorialAvailable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "code",
+                    "name",
+                    "visibility",
+                    "hasPublishedRevision",
+                    "timeMs",
+                    "memoryKb",
+                    "testCount",
+                    "me",
+                    "tags",
+                    "difficulty",
+                    "attemptedCount",
+                    "solvedCount",
+                    "statement",
+                    "sourceAccess",
+                    "totalPoints",
+                    "checkerKind",
+                    "createdAt",
+                    "members",
+                    "orgSlugs",
+                    "editorial",
+                    "editorialAvailable"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in, but not permitted to perform this action on this problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such problem, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A problem already has that code (`problem_code_taken`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request failed validation",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/problems/{code}/editorial": {
       "get": {
         "tags": [

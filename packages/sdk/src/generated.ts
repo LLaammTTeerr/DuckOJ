@@ -7015,6 +7015,193 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/problems/{code}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a new problem from an existing one
+         * @description Copies the statement, the editorial (unpublished), the tags, the difficulty and the current published revision's package — as revision 1 of the new problem, in `draft` state. The copy is private and its only member is the caller. Nothing about how the source was USED is copied: no submissions, no statistics, no organization shares, no membership. Cloning requires the right to EDIT the source (it carries an unpublished editorial and the whole test set) as well as the right to create problems.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    code: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        newCode: string;
+                        newName?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The new problem */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            code: string;
+                            name: string;
+                            /** @enum {string} */
+                            visibility: "private" | "org" | "public";
+                            hasPublishedRevision: boolean;
+                            timeMs: number | null;
+                            memoryKb: number | null;
+                            testCount: number | null;
+                            me: {
+                                /** @enum {string} */
+                                verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                points: number | null;
+                                maxPoints: number | null;
+                            } | null;
+                            tags: {
+                                slug: string;
+                                nameVi: string;
+                                nameEn: string;
+                            }[];
+                            difficulty: number | null;
+                            attemptedCount: number;
+                            solvedCount: number;
+                            statement: string;
+                            /** @enum {string} */
+                            sourceAccess: "private" | "solved";
+                            totalPoints: number | null;
+                            checkerKind: string | null;
+                            /** Format: date-time */
+                            createdAt: string;
+                            members: {
+                                username: string;
+                                /** @enum {string} */
+                                role: "author" | "curator" | "tester";
+                            }[];
+                            orgSlugs: string[];
+                            editorial: string | null;
+                            editorialAvailable: boolean;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not permitted to perform this action on this problem */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such problem, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description A problem already has that code (`problem_code_taken`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/problems/{code}/editorial": {
         parameters: {
             query?: never;

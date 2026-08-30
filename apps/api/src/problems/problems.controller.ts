@@ -15,11 +15,13 @@ import {
 import type { Response } from 'express';
 import {
   AttachRevisionRequest,
+  CloneProblemRequest,
   CreateProblemRequest,
   ProblemListQueryParse,
   RevisionVersionParam,
   UpdateProblemRequest,
   type AttachRevisionRequestDto,
+  type CloneProblemRequestDto,
   type CreateProblemRequestDto,
   type EditorialResponseDto,
   type ProblemDetailDto,
@@ -189,6 +191,23 @@ export class ProblemsController {
     @Body(new ZodValidationPipe(CreateProblemRequest)) body: CreateProblemRequestDto,
   ): Promise<ProblemDetailDto> {
     return this.problems.create(actor, body);
+  }
+
+  /**
+   * D88's clone. `problems:publish`, not `problems:write`: this mints a
+   * revision and copies an unpublished editorial and a whole test set out of
+   * the source, so it is a strictly stronger act than editing a statement,
+   * and the scope a token carries must say so.
+   */
+  @Post(':code/clone')
+  @HttpCode(201)
+  @RequireScope('problems:publish')
+  clone(
+    @CurrentActor() actor: Actor,
+    @Param('code') code: string,
+    @Body(new ZodValidationPipe(CloneProblemRequest)) body: CloneProblemRequestDto,
+  ): Promise<ProblemDetailDto> {
+    return this.problems.clone(actor, code, body);
   }
 
   @Patch(':code')

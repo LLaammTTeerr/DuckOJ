@@ -137,6 +137,57 @@ describe('ProblemEditPage', () => {
   });
 });
 
+describe('cloning a problem from the edit screen (D88)', () => {
+  it('sends the new code and name, then links to the copy', async () => {
+    mockedGet.mockResolvedValue({ data: PROBLEM_DETAIL, error: undefined, response: new Response() } as never);
+    mockedPost.mockResolvedValueOnce({
+      data: { ...PROBLEM_DETAIL, code: 'aplusb-2', name: 'A Plus B II' },
+      error: undefined,
+      response: new Response(),
+    } as never);
+
+    renderWithClient(<ProblemEditPage code="aplusb" />);
+
+    // Nothing to clone into yet, so the button refuses to be pressed.
+    const button = await screen.findByRole('button', { name: /^Nhân bản$/ });
+    expect(button).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText('Mã bài mới'), 'aplusb-2');
+    await userEvent.type(screen.getByLabelText(/Tên bài mới/), 'A Plus B II');
+    await userEvent.click(button);
+
+    await waitFor(() => expect(mockedPost).toHaveBeenCalledTimes(1));
+    expect(mockedPost.mock.calls[0]![0]).toBe('/problems/{code}/clone');
+    expect(mockedPost.mock.calls[0]![1]).toMatchObject({
+      params: { path: { code: 'aplusb' } },
+      body: { newCode: 'aplusb-2', newName: 'A Plus B II' },
+    });
+
+    // A link, not a redirect: unsaved edits to THIS form must survive.
+    const link = await screen.findByRole('link', { name: 'Mở bài mới' });
+    expect(link).toHaveAttribute('href', '/problems/aplusb-2/edit');
+  });
+
+  it("omits the name when it is blank, and shows the server's own refusal code", async () => {
+    mockedGet.mockResolvedValue({ data: PROBLEM_DETAIL, error: undefined, response: new Response() } as never);
+    mockedPost.mockResolvedValueOnce({
+      data: undefined,
+      error: { code: 'problem_code_taken' },
+      response: new Response(null, { status: 409 }),
+    } as never);
+
+    renderWithClient(<ProblemEditPage code="aplusb" />);
+    await userEvent.type(await screen.findByLabelText('Mã bài mới'), 'taken');
+    await userEvent.click(screen.getByRole('button', { name: /^Nhân bản$/ }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('problem_code_taken'));
+    // An empty name is an ABSENT key, not an empty string: the server
+    // defaults it to the source's own name.
+    expect(mockedPost.mock.calls[0]![1]).toMatchObject({ body: { newCode: 'taken' } });
+    expect((mockedPost.mock.calls[0]![1] as { body: Record<string, unknown> }).body).not.toHaveProperty('newName');
+  });
+});
+
 describe('ProblemRevisionsPage', () => {
   it('a failed attach shows the server error code', async () => {
     mockedGet.mockResolvedValueOnce({

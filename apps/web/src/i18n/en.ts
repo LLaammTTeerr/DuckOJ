@@ -220,6 +220,14 @@ export const en = {
   'problemEdit.rejudgeConfirm':
     'Rejudge every submission of {code}? Their current verdicts are discarded.',
   'problemEdit.rejudgeAll': 'Rejudge all submissions',
+  'problemEdit.clone': 'Clone',
+  'problemEdit.cloneHint': 'Create a new problem from this one: the statement, the editorial (unpublished), the tags, the difficulty and the published revision\u2019s test data. The copy is private.',
+  'problemEdit.cloneCode': 'New problem code',
+  'problemEdit.cloneName': 'New name (blank keeps this one)',
+  'problemEdit.cloneButton': 'Clone',
+  'problemEdit.cloned': 'Created {code}.',
+  'problemEdit.clonedLink': 'Open it',
+  'problemEdit.cloneFailed': 'Could not clone this problem.',
   'problemEdit.rejudgeQueued': 'Queued {n} submissions.',
   // A PROBLEM's member roles — a different enum from an ORGANIZATION's
   // (`role.*`, below), which is exactly what `tsc` caught when this file

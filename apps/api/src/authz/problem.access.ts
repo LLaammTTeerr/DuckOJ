@@ -35,6 +35,7 @@ import {
   type RevisionSummaryDto,
   type TagDto,
   type RevisionVersionResponseDto,
+  type CloneProblemRequestDto,
   type UpdateProblemRequestDto,
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
@@ -101,6 +102,8 @@ export type CreateProblemInput = z.input<typeof CreateProblemRequest>;
  * not merges.
  */
 export type UpdateProblemPatch = UpdateProblemRequestDto & { code?: string };
+
+export type CloneProblemInput = CloneProblemRequestDto;
 
 export type AttachRevisionInput = AttachRevisionRequestDto;
 
@@ -794,6 +797,121 @@ export class ProblemAccessService {
     }
 
     return this.loadDetailById(problemId, actor);
+  }
+
+  /**
+   * Creates a new problem seeded from an existing one (D88).
+   *
+   * **What is copied** is what makes the next problem: the statement, the
+   * editorial, the tags, the difficulty, and the current PUBLISHED
+   * revision's package as revision 1. **What is not** is everything that
+   * describes how the source has been used or who else is involved with it —
+   * submissions, statistics, membership, organization shares — and every
+   * publication decision: the copy is `private`, its revision is a `draft`,
+   * and its editorial is unpublished no matter what the source's was. A
+   * clone is the first draft of a new problem, not a second copy of a live
+   * one.
+   *
+   * **Two permissions, not one.** `loadForEdit` first, so the caller must be
+   * able to EDIT the source: a clone hands them its unpublished editorial
+   * and the whole test set, and a mere reader of a public problem may see
+   * neither. Then `canCreateProblem`, because this mints a problem and a
+   * setter who was demoted must not keep a side door that does. Both answer
+   * `problem_forbidden`, and an invisible source still 404s first.
+   *
+   * Revision 1 is the source ROW copied, not an `attachRevision` call: a
+   * package is content-addressed, so the new revision points at the very
+   * same stored bytes and there is nothing to upload, re-hash or re-verify.
+   * A source with no published revision simply clones without one.
+   */
+  async clone(actor: Actor | null, code: string, input: CloneProblemInput): Promise<ProblemDetailDto> {
+    const { problem: row } = await this.loadForEdit(actor, code);
+    if (!actor || !canCreateProblem(actor)) {
+      throw new AppError(403, 'problem_forbidden', 'You may not create problems.');
+    }
+
+    const source = (
+      await this.db
+        .select({
+          name: problems.name,
+          statement: problems.statement,
+          editorial: problems.editorial,
+          difficulty: problems.difficulty,
+        })
+        .from(problems)
+        .where(eq(problems.id, row.id))
+        .limit(1)
+    )[0]!;
+
+    const tagIds = (
+      await this.db.select({ tagId: problemTags.tagId }).from(problemTags).where(eq(problemTags.problemId, row.id))
+    ).map((t) => t.tagId);
+
+    // The PUBLISHED revision, by state rather than through
+    // `currentRevisionId`: the two agree, and `state` is the column the rest
+    // of this service treats as authoritative (see `loadProblemRows`).
+    const published = (
+      await this.db
+        .select({
+          packageHash: problemRevisions.packageHash,
+          timeMs: problemRevisions.timeMs,
+          memoryKb: problemRevisions.memoryKb,
+          testCount: problemRevisions.testCount,
+          totalPoints: problemRevisions.totalPoints,
+          checkerKind: problemRevisions.checkerKind,
+        })
+        .from(problemRevisions)
+        .where(and(eq(problemRevisions.problemId, row.id), eq(problemRevisions.state, 'published')))
+        .limit(1)
+    )[0];
+
+    let cloneId: number;
+    try {
+      cloneId = await this.db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(problems)
+          .values({
+            code: input.newCode,
+            name: input.newName ?? source.name,
+            statement: source.statement,
+            // Carried, but never carried as PUBLISHED: the source's readers
+            // were let in by its author, and cloning is not that decision
+            // being made again by someone else.
+            editorial: source.editorial,
+            difficulty: source.difficulty,
+            visibility: 'private',
+            createdBy: actor.userId,
+          })
+          .returning({ id: problems.id });
+        await tx.insert(problemMembers).values({ problemId: created!.id, userId: actor.userId, role: 'author' });
+        if (tagIds.length > 0) {
+          await tx.insert(problemTags).values(tagIds.map((tagId) => ({ problemId: created!.id, tagId })));
+        }
+        if (published) {
+          await tx.insert(problemRevisions).values({
+            problemId: created!.id,
+            version: 1,
+            packageHash: published.packageHash,
+            state: 'draft',
+            createdBy: actor.userId,
+            notes: null,
+            timeMs: published.timeMs,
+            memoryKb: published.memoryKb,
+            testCount: published.testCount,
+            totalPoints: published.totalPoints,
+            checkerKind: published.checkerKind,
+          });
+        }
+        return created!.id;
+      });
+    } catch (error) {
+      // The same unique violation on `problems_code_lower_idx` `create`
+      // turns into 409 `problem_code_taken` — never pre-checked with a
+      // SELECT, which races.
+      throw toCreateConflict(error);
+    }
+
+    return this.loadDetailById(cloneId, actor);
   }
 
   /**
