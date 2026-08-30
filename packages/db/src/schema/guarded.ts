@@ -138,6 +138,20 @@ export const problems = pgTable(
      * constraint.
      */
     difficulty: smallint('difficulty'),
+    /**
+     * The setter's write-up of how the problem is solved (D43), Markdown in
+     * the same vi+en shape as `statement` (D10). On the problem row rather
+     * than on a revision: an editorial explains the *problem*, and a
+     * republished test set does not invalidate it.
+     */
+    editorial: text('editorial'),
+    /**
+     * When the editorial was published — `null` while it is a draft. A
+     * timestamp rather than a boolean so "since when" is answerable at all
+     * (a later `?since=` feed, an audit of who saw what during a contest)
+     * without a second migration; nothing reads it as a clock yet.
+     */
+    editorialPublishedAt: timestamp('editorial_published_at', { withTimezone: true }),
     currentRevisionId: bigint('current_revision_id', { mode: 'number' }),
     createdBy: bigint('created_by', { mode: 'number' })
       .notNull()
@@ -151,6 +165,17 @@ export const problems = pgTable(
     // this table without passing `UpdateProblemRequest`, and a difficulty of
     // 0 or 47 would sort into a `min`/`max` filter as if it meant something.
     check('problems_difficulty_ck', sql`${t.difficulty} IS NULL OR (${t.difficulty} BETWEEN 1 AND 10)`),
+    // A published editorial with nothing in it is not a state the product
+    // has a meaning for: `editorialAvailable: true` would promise a page
+    // that renders empty. The service refuses it with 422
+    // `problem_editorial_empty` — this CHECK is the backstop for every
+    // writer that never passes the service (a psql session, an importer),
+    // and it is what makes "clearing the text unpublishes it" a rule the
+    // database holds rather than a convention one UPDATE remembers.
+    check(
+      'problems_editorial_published_ck',
+      sql`${t.editorialPublishedAt} IS NULL OR ${t.editorial} IS NOT NULL`,
+    ),
   ],
 );
 

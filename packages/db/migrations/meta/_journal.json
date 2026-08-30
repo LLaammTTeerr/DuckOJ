@@ -141,6 +141,13 @@
       "when": 1788020645863,
       "tag": "0019_totp_recovery_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788062399129,
+      "tag": "0021_editorials",
+      "breakpoints": true
     }
   ]
 }
