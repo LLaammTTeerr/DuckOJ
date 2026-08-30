@@ -93,3 +93,4 @@
 - F-24 DONE_WITH_CONCERNS (0879821..fe85612): team contests (D99, migration 0036). B-17 merged. Deployed api+judged via deploy.sh; pushed.
 - Dispatched F-25 teams/monitor consolidation (main, D100, migration 0037) and B-18 whole-diff review II (worktree, D101–D103). Full api suite + full e2e running in the background.
 - Full e2e on live after the teams deploy: 31/31 (journeys, features, authoring, smoke).
+- Full api suite on merged main (serial): 1035/1035.
