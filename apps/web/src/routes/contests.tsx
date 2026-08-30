@@ -352,6 +352,19 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
           </Link>
         </p>
       ) : null}
+      {/* The contest-day monitor (D95). Gated on `canEdit` — the server's own
+          `canRunContest` — because the route behind it 403s for anybody
+          else, and a link that only ever leads to a refusal is worse than no
+          link. Its own page rather than a panel here: it polls every five
+          seconds, which is not something to put on the tab two thousand
+          competitors are holding open. */}
+      {contest.data.canEdit ? (
+        <p>
+          <Link to="/contests/$key/monitor" params={{ key: contestKey }}>
+            {t('contest.monitor')}
+          </Link>
+        </p>
+      ) : null}
 
       {participation.isError ? (
         // Neither branch below is honest when the read failed. "Joined" would

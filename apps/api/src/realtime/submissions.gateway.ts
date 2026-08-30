@@ -6,6 +6,8 @@ import { describeError } from '@duckoj/observability';
 import { SessionService } from '../authn/session.service.js';
 import { TokenService } from '../authn/token.service.js';
 import { SubmissionAccessService } from '../authz/submission.access.js';
+import { ContestMonitorService } from '../authz/contest.monitor.js';
+import { CONTEST_PRESENCE, type ContestPresence } from './contest-presence.js';
 import { AppError } from '../common/app.error.js';
 import type { Actor } from '../authz/actor.js';
 
@@ -50,6 +52,23 @@ export const MAX_SUBSCRIPTIONS = Symbol('MAX_SUBSCRIPTIONS');
 export const DEFAULT_MAX_SUBSCRIPTIONS = 256;
 
 /**
+ * How many contests one connection may watch at once (D95).
+ *
+ * `subscribe`'s cap exists for two reasons and this one shares both: a
+ * `watch-contest` frame costs two queries (`loadVisible` plus its visibility
+ * context) before it can be refused, and the Set it feeds lives for the life
+ * of the connection. Eight rather than 256 because there is no plausible
+ * client that watches more — the monitor page watches exactly one, and an
+ * organiser with every contest of a province open on one socket is a script,
+ * not a person.
+ *
+ * Injected for `MAX_SUBSCRIPTIONS`' reason: a test can then meet the cap with
+ * two contests instead of nine.
+ */
+export const MAX_CONTEST_WATCHES = Symbol('MAX_CONTEST_WATCHES');
+export const DEFAULT_MAX_CONTEST_WATCHES = 8;
+
+/**
  * The single browser origin permitted to open this socket (the deployment's
  * `publicOrigin`, the same value CORS pins). Injected so the check below has
  * something to compare against without reaching into config itself.
@@ -59,6 +78,12 @@ export const ALLOWED_WS_ORIGIN = Symbol('ALLOWED_WS_ORIGIN');
 interface Client {
   actor: Actor;
   subscriptions: Set<number>;
+  /**
+   * Contests this socket receives `contest-activity` for, by canonical key
+   * (D95). Organiser-only: every entry got here through
+   * `ContestMonitorService.assertMayWatch`.
+   */
+  contests: Set<string>;
   /** Set on each ping, cleared on the matching pong. Still set at the next
    * sweep means the previous ping went unanswered. */
   awaitingPong: boolean;
@@ -162,6 +187,9 @@ export class SubmissionsGateway implements OnModuleDestroy {
     @Inject('SESSION_COOKIE_NAME') private readonly cookieName: string,
     @Inject(MAX_SUBSCRIPTIONS) private readonly maxSubscriptions: number,
     @Inject(ALLOWED_WS_ORIGIN) private readonly allowedOrigins: readonly string[],
+    @Inject(MAX_CONTEST_WATCHES) private readonly maxContestWatches: number,
+    @Inject(ContestMonitorService) private readonly monitor: ContestMonitorService,
+    @Inject(CONTEST_PRESENCE) private readonly presence: ContestPresence,
   ) {}
 
   attach(server: HttpServer): void {
@@ -205,7 +233,18 @@ export class SubmissionsGateway implements OnModuleDestroy {
   }
 
   private accept(ws: WebSocket, actor: Actor): void {
-    this.clients.set(ws, { actor, subscriptions: new Set(), awaitingPong: false });
+    this.clients.set(ws, {
+      actor,
+      subscriptions: new Set(),
+      contests: new Set(),
+      awaitingPong: false,
+    });
+    // Presence, at once rather than at the next sweep (D95): a competitor who
+    // has just opened their page must count towards the monitor's "in the
+    // room" number now, not up to thirty seconds from now. Best-effort by
+    // construction — `ContestPresence` swallows everything — so a Redis
+    // outage costs a decorative number and never a handshake.
+    void this.presence.seen([actor.userId]);
     ws.on('close', () => this.clients.delete(ws));
     ws.on('error', () => {
       // An unhandled 'error' on a `WebSocket` is an uncaught exception on
@@ -224,6 +263,7 @@ export class SubmissionsGateway implements OnModuleDestroy {
 
   /** Pings every client; terminates whichever one didn't answer the previous round. */
   private sweep(): void {
+    const alive: number[] = [];
     for (const [ws, client] of this.clients) {
       if (client.awaitingPong) {
         this.clients.delete(ws);
@@ -232,7 +272,15 @@ export class SubmissionsGateway implements OnModuleDestroy {
       }
       client.awaitingPong = true;
       ws.ping();
+      alive.push(client.actor.userId);
     }
+    // One write per sweep for every surviving connection, not one per
+    // connection: `PRESENCE_WINDOW_MS` is ten sweeps wide, so a socket that
+    // stays open is re-scored long before it ages out, and a socket the sweep
+    // has just torn down is deliberately NOT re-scored — it ages out on its
+    // own, which is what makes a closed laptop stop counting. Collected
+    // first, then written, so a slow Redis cannot delay the ping loop.
+    void this.presence.seen(alive);
   }
 
   private async onMessage(ws: WebSocket, raw: string): Promise<void> {
@@ -248,6 +296,22 @@ export class SubmissionsGateway implements OnModuleDestroy {
 
     const message = readClientMessage(parsed);
     if (message === null) return;
+
+    if (message.type === 'watch-contest') {
+      await this.watchContest(ws, client, message.key);
+      return;
+    }
+
+    if (message.type === 'unwatch-contest') {
+      // `unsubscribe`'s rule, for `unsubscribe`'s reason: never authorized
+      // and never an error, so releasing a watch you do not hold cannot be
+      // used to tell an existing contest from one that never existed.
+      client.contests.delete(message.key);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'contest-unwatched', key: message.key }));
+      }
+      return;
+    }
 
     if (message.type === 'unsubscribe') {
       // Never authorized and never an error: releasing a subscription you do
@@ -315,6 +379,64 @@ export class SubmissionsGateway implements OnModuleDestroy {
     }
   }
 
+  /**
+   * `watch-contest` (D95): enrol this socket in a contest's activity fan-out.
+   *
+   * **Organiser-only, decided server-side on every frame.** `AuthGuard` never
+   * sees a WebSocket, so `assertMayWatch` is the whole of the check — and it
+   * is `ContestMonitorService`'s, not this class's, so the socket and the
+   * `GET /contests/{key}/monitor` route can never disagree about who runs a
+   * contest. Its `AppError` code is forwarded verbatim: `contest_not_found`
+   * for a contest this caller may not see and `contest_forbidden` for one
+   * they can see but do not run, which is exactly the pair the HTTP route
+   * already publishes. Collapsing them here would tell a client less than the
+   * route beside it, which is not a security property — only a confusing one.
+   */
+  private async watchContest(ws: WebSocket, client: Client, key: string): Promise<void> {
+    // Re-acked without touching the database — `subscribe`'s rule, and what
+    // keeps a client that re-watches on every reconnect from paying for it.
+    // Matched case-insensitively because contest keys are (D8's
+    // `contests_key_lower_idx`), so a re-watch spelled differently is still
+    // the same watch rather than a second one.
+    const held = [...client.contests].find((k) => k.toLowerCase() === key.toLowerCase());
+    if (held !== undefined) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'contest-watched', key: held }));
+      }
+      return;
+    }
+
+    // Checked BEFORE the queries, deliberately: past the cap a flood must
+    // cost this process nothing at all. `subscribe`'s reasoning, unchanged.
+    if (client.contests.size >= this.maxContestWatches) {
+      ws.send(JSON.stringify({ type: 'error', code: 'contest_watch_limit' }));
+      return;
+    }
+
+    try {
+      const canonical = await this.monitor.assertMayWatch(client.actor, key);
+      client.contests.add(canonical);
+      // The ack closes the same staleness window `subscribed` does: the page
+      // fetches its first snapshot on THIS frame, which proves the watch is
+      // live server-side, so no activity between the fetch and the enrolment
+      // can be lost.
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'contest-watched', key: canonical }));
+      }
+    } catch (error: unknown) {
+      // The same distinction `subscribe` draws, for the same reason: an
+      // authorization outcome and a database that dropped a connection are
+      // different things, and dressing the second up as the first hides a
+      // real operational problem behind a code nobody would alert on.
+      if (error instanceof AppError) {
+        ws.send(JSON.stringify({ type: 'error', code: error.code }));
+      } else {
+        this.logger.error(describeError(error));
+        ws.send(JSON.stringify({ type: 'error', code: 'internal_error' }));
+      }
+    }
+  }
+
   /** Called by the Redis subscriber. The payload is a signal, never data. */
   notify(submissionId: number): void {
     const message = JSON.stringify({ type: 'submission', id: submissionId });
@@ -324,6 +446,55 @@ export class SubmissionsGateway implements OnModuleDestroy {
       // than failing silently, which `accept`'s handler would then tear down
       // — harmless, but pointless. Only send to sockets actually open.
       if (client.subscriptions.has(submissionId) && ws.readyState === WebSocket.OPEN) {
+        ws.send(message);
+      }
+    }
+    void this.notifyContest(submissionId);
+  }
+
+  /**
+   * The second half of `notify` (D95): tell every organiser watching this
+   * submission's contest that something moved.
+   *
+   * **The short-circuit is the design.** `judged` publishes one id per state
+   * change and knows nothing about contests, so which contest an id belongs
+   * to is a lookup — and a lookup on every verdict, forever, to serve a page
+   * nobody has open is a cost the ordinary judging path must not pay. So the
+   * query runs only when this worker actually holds a watcher. Per worker,
+   * deliberately: `main.ts` forks several, every one of them subscribes to
+   * the Redis channel, and each answers for its own sockets.
+   *
+   * The frame carries the contest KEY and nothing else — D23's rule, that a
+   * realtime push is a signal and never data. The watcher re-fetches
+   * `GET /contests/{key}/monitor`, which re-decides authorization from
+   * scratch.
+   */
+  private async notifyContest(submissionId: number): Promise<void> {
+    let watching = false;
+    for (const client of this.clients.values()) {
+      if (client.contests.size > 0) {
+        watching = true;
+        break;
+      }
+    }
+    if (!watching) return;
+
+    let key: string | null;
+    try {
+      key = await this.monitor.contestKeyForSubmission(submissionId);
+    } catch (error: unknown) {
+      // A wake-up that never arrives costs a watcher one five-second poll.
+      // `RedisSubmissionPublisher`'s rule: a realtime path must never make
+      // its caller fail, and `notify` is called from the Redis subscriber's
+      // message handler, where a rejection would be unhandled.
+      this.logger.warn(describeError(error));
+      return;
+    }
+    if (key === null) return;
+
+    const message = JSON.stringify({ type: 'contest-activity', key });
+    for (const [ws, client] of this.clients) {
+      if (client.contests.has(key) && ws.readyState === WebSocket.OPEN) {
         ws.send(message);
       }
     }
@@ -343,18 +514,55 @@ export class SubmissionsGateway implements OnModuleDestroy {
  * `subscribe`: without it the only way to stop watching a submission was to
  * drop the connection, which is why `subscriptions` could only ever grow.
  */
-function readClientMessage(
-  value: unknown,
-): { type: 'subscribe' | 'unsubscribe'; submissionId: number } | null {
+/**
+ * Four members with four single-literal discriminants, not two with a union
+ * discriminant each: TypeScript removes a member from a union only when the
+ * check excludes its discriminant entirely, so `{ type: 'watch-contest' |
+ * 'unwatch-contest' }` survives both `if`s that handle it and leaves a
+ * `key`-only shape in scope where `submissionId` is read.
+ */
+type ClientMessage =
+  | { type: 'subscribe'; submissionId: number }
+  | { type: 'unsubscribe'; submissionId: number }
+  | { type: 'watch-contest'; key: string }
+  | { type: 'unwatch-contest'; key: string };
+
+/** Contest keys, as `CONTEST_KEY` in `@duckoj/contracts` spells them.
+ *
+ * Restated rather than imported for the reason `JUDGE_SILENCE_SECONDS` is
+ * duplicated out of judged: this is a *frame* validator, and its job is to
+ * refuse a string that cannot be a key before it reaches a query, not to be
+ * the authority on what a key is. A key that passes here and names nothing
+ * 404s from `assertMayWatch` exactly as it should. */
+const CONTEST_KEY_FRAME = /^[a-z0-9][a-z0-9_-]{1,63}$/i;
+
+function readClientMessage(value: unknown): ClientMessage | null {
   if (typeof value !== 'object' || value === null) return null;
-  const { type, submissionId } = value as { type?: unknown; submissionId?: unknown };
+  const { type, submissionId, key } = value as {
+    type?: unknown;
+    submissionId?: unknown;
+    key?: unknown;
+  };
+
+  if (type === 'watch-contest' || type === 'unwatch-contest') {
+    // Shape-checked here rather than in the handler so a 10 000-character
+    // `key` can never reach a `lower(key) = lower($1)` comparison, and so a
+    // non-string can never reach `.toLowerCase()` — the same crash class
+    // `readClientMessage` was written to close.
+    if (typeof key !== 'string' || !CONTEST_KEY_FRAME.test(key)) return null;
+    if (type === 'watch-contest') return { type, key };
+    return { type, key };
+  }
+
   if (type !== 'subscribe' && type !== 'unsubscribe') return null;
   // `Number.isInteger` rather than `typeof === 'number'`: `NaN`, `Infinity`
   // and `1.5` are all numbers, and none of them is a submission id — an id
   // that reaches the Set but can never match a `notify` is a subscription
   // that occupies a slot and can never fire.
   if (!Number.isInteger(submissionId) || (submissionId as number) <= 0) return null;
-  return { type, submissionId: submissionId as number };
+  const id = submissionId as number;
+  if (type === 'subscribe') return { type, submissionId: id };
+  return { type, submissionId: id };
 }
 
 function parseCookie(header: string): Record<string, string> {

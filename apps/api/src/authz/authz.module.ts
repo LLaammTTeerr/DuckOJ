@@ -6,8 +6,10 @@ import {
   RedisSubmissionPublisher,
   SUBMISSION_PUBLISHER,
 } from '../realtime/submission-publisher.js';
+import { CONTEST_PRESENCE, RedisContestPresence } from '../realtime/contest-presence.js';
 import { RateLimiter } from '../common/rate-limiter.js';
 import { ContestAccessService } from './contest.access.js';
+import { ContestMonitorService } from './contest.monitor.js';
 import { DashboardService, REDIS_HEALTH, RedisHealthProbe } from './dashboard.access.js';
 import { ContestClarificationsService } from './contest.clarifications.js';
 import {
@@ -45,6 +47,11 @@ import {
   providers: [
     ContestAccessService,
     ContestClarificationsService,
+    // The organiser live monitor (D95). Here rather than beside the contests
+    // controller for `ContestClarificationsService`'s reason: it reads six
+    // guarded tables and decides no visibility of its own — it asks
+    // `ContestAccessService.loadVisible` and `canRunContest`.
+    ContestMonitorService,
     // The source-similarity reports (D77). Here rather than beside the
     // contests controller, on `ContestClarificationsService`'s precedent:
     // it reads five guarded tables and writes a sixth, which the runbook
@@ -107,10 +114,24 @@ import {
     // provider back into `AuthzModule` would close a cycle. It opens no
     // connection until something actually publishes.
     { provide: SUBMISSION_PUBLISHER, useClass: RedisSubmissionPublisher },
+    // Who holds a live socket, shared across workers through Redis (D95).
+    // Provided here, and exported, for the publisher's reason turned around:
+    // `RealtimeModule` is the one that WRITES it and `ContestMonitorService`
+    // is the one that reads it, and having the realtime module export a
+    // provider back into this one would close a cycle. It opens no connection
+    // until a socket is accepted or a monitor is opened.
+    { provide: CONTEST_PRESENCE, useClass: RedisContestPresence },
   ],
   exports: [
     ContestAccessService,
     ContestClarificationsService,
+    ContestMonitorService,
+    CONTEST_PRESENCE,
+    // The organiser live monitor (D95). Here rather than beside the contests
+    // controller for `ContestClarificationsService`'s reason: it reads six
+    // guarded tables and decides no visibility of its own — it asks
+    // `ContestAccessService.loadVisible` and `canRunContest`.
+    ContestMonitorService,
     ContestSimilarityService,
     DashboardService,
     ScoreboardCache,

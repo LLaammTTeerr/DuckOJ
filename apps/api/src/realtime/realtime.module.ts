@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { AuthnModule } from '../authn/authn.module.js';
+import { AuthzModule } from '../authz/authz.module.js';
 import { SubmissionsModule } from '../submissions/submissions.module.js';
 import { APP_CONFIG, ConfigModule } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import {
   ALLOWED_WS_ORIGIN,
+  DEFAULT_MAX_CONTEST_WATCHES,
   DEFAULT_MAX_SUBSCRIPTIONS,
+  MAX_CONTEST_WATCHES,
   MAX_SUBSCRIPTIONS,
   SubmissionsGateway,
 } from './submissions.gateway.js';
@@ -24,11 +27,20 @@ import { RedisSubscriber } from './redis-subscriber.js';
  * grading in real time.
  */
 @Module({
-  imports: [ConfigModule, AuthnModule, SubmissionsModule],
+  // `AuthzModule` for `ContestMonitorService` (who may watch a contest, and
+  // which contest a submission is in) and for `CONTEST_PRESENCE` (D95). It is
+  // imported, never re-provided, for the same reason `SubmissionAccessService`
+  // is: two instances of a visibility chokepoint is exactly the thing that
+  // later diverges. Acyclic — `AuthzModule` imports `ConfigModule`,
+  // `PackagesModule` and `NotificationsModule`, none of which reach back here;
+  // it consumes this directory's `RedisSubmissionPublisher` as a FILE rather
+  // than as a module import, which is what keeps that direction open.
+  imports: [ConfigModule, AuthnModule, SubmissionsModule, AuthzModule],
   providers: [
     SubmissionsGateway,
     RedisSubscriber,
     { provide: MAX_SUBSCRIPTIONS, useValue: DEFAULT_MAX_SUBSCRIPTIONS },
+    { provide: MAX_CONTEST_WATCHES, useValue: DEFAULT_MAX_CONTEST_WATCHES },
     {
       provide: 'SESSION_COOKIE_NAME',
       useFactory: (config: AppConfig): string => config.sessionCookieName,

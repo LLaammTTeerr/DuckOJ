@@ -3816,3 +3816,128 @@ it there. Two doors existed into a live problem and it takes exactly one.
 human available to consult. No migration.*
 
 
+
+## D95 — The contest-day monitor is one organiser-only snapshot, cached for exactly as long as its page waits
+
+`GET /contests/{key}/monitor` (tag `Contests`, `contests:read`, no `@Public()`)
+answers one question — *is this contest running properly right now* — with
+seven panels in one response: per-problem attempts / accepted / distinct
+solvers / still-queued, the grading queue scoped to this contest with the age
+of its oldest job, judge liveness, the last fifty submissions with their real
+verdicts, the questions nobody has answered, how many of this contest's
+competitors have a live socket open, and how many submissions D80's meter
+refused in the last ten minutes. `apps/api/src/authz/contest.monitor.ts`,
+`apps/web/src/routes/contest-monitor.tsx`, migration **0035**.
+
+**One response, not seven** — D47's reason, unchanged: a queue backing up
+reads one way beside a live judge and another beside a silent one, and a
+five-second refresh of seven routes is seven times the load for one page.
+
+**Who may see it: `loadVisible` then `canRunContest`** — 404 for a contest the
+caller may not see, 403 `contest_forbidden` for one they can see but do not
+run. Exactly the pair the similarity report already publishes (D77), and the
+same two gates in the same order, because they are the same question.
+
+- **Nothing is frozen, and that is the point.** D22 hands the contest's
+  creator and a global admin the live scoreboard; D23 exempts the same set
+  from the submission mask. The gate here IS that set, so the feed shows real
+  verdicts inside a freeze window. An organiser who could not see what the
+  judge was doing during the last hour of their own contest would have no
+  monitor at all.
+- **Cached five seconds in Redis, through `ScoreboardCache`** — where D47's
+  dashboard deliberately caches nothing. The difference is who is holding the
+  page open: one admin there, every organiser and invigilator in a province
+  here, during the two hours the deployment is busiest. Five seconds is the
+  page's own poll interval, so the cache collapses a room of organisers into
+  one fold per tick and nobody ever reads a number older than their own
+  refresh. One key per contest (`duckoj:monitor:v1:<id>`) — no view and no
+  freeze phase in it, unlike D25's, because there is one audience and no
+  freeze to be on either side of. **No invalidation**: every write that would
+  move these numbers is a submission or a verdict, and D25 already records
+  that the API never handles the verdict. `generatedAt` is inside the cached
+  body, so a hit says honestly when it was folded.
+- **"Participants online" is connected users ∩ this contest's participations,
+  and it is a floor, not a roster.** Neither half knows the whole thing: the
+  gateway knows who is CONNECTED and cannot know which contest they are here
+  for — D31 gave the contest page no socket of its own, and a competitor's
+  socket watches a *submission* — while the database knows who holds a
+  participation and nothing about sockets. So `SubmissionsGateway` writes
+  every authenticated connection's user id into one Redis sorted set
+  (`duckoj:ws:presence:v1`, scored by the instant of the last sighting,
+  refreshed on the existing 30 s heartbeat sweep, trimmed to five minutes on
+  every write) and the monitor intersects it with `contest_participations`.
+  One set for the deployment rather than one per contest, because a per-contest
+  key would need a contest the gateway was never told. A competitor reading a
+  statement with no socket open is not counted; nobody is counted twice for
+  two tabs. Redis-backed for D25's reason — `main.ts` forks workers, and an
+  in-process registry is one registry per worker.
+- **Judge liveness reuses `JUDGE_SILENCE_SECONDS` (90 s), not the brief's
+  "last minute".** 90 s is judged's own rule (`PING_INTERVAL_MS ×
+  MISSED_PING_LIMIT`), and it is what `/admin/dashboard` calls offline. A
+  monitor that buried a judge thirty seconds early would have organisers
+  reporting an outage the operations page says is not happening. It is a
+  fleet count, not a per-contest one: a judge serves every contest, and the
+  drill-down is the dashboard, which already lists each node.
+- **The refusals count is deployment-wide, and that is a ruling.** D80 keys
+  the submission meter on the USER — deliberately, because a school computer
+  room is one IP — so a refusal carries no contest. Showing it anyway is the
+  honest trade: during a contest almost every submission in the system is that
+  contest's, and an organiser watching the number climb is watching somebody's
+  script, which is the thing the panel exists to surface. The purpose string
+  is composed from `REFUSAL_PREFIX` + `SUBMISSION_PURPOSE`, never typed out,
+  so a rename moves the count instead of silently zeroing it.
+- **The clarifications panel is a work queue, so it lists the newest five
+  UNANSWERED**, not the newest five. A contest whose last five questions were
+  all answered while twenty wait is exactly the state where the other choice
+  shows nothing worth showing. `answer is null` is the whole predicate, and
+  D31's CHECK is what makes it safe: an announcement has no question and its
+  text in `answer`, so it can never appear here.
+- **Every query is bounded by the CONTEST, not by a time window** — D47's
+  amendment, in its own words: a window bounds the rows a query returns, only
+  an index bounds the rows it scans. **Migration 0035** adds
+  `contest_submissions (contest_problem_id, id)`, because there was no index
+  into that table from a contest at all and every panel scanned every contest
+  submission the deployment had ever taken (D11 keeps them forever); and
+  `contest_submissions (participation_id)`, a **missing foreign-key index
+  under `ON DELETE CASCADE`** — the same bug D47's amendment paid for on
+  `grading_jobs (submission_id)`. The feed is a `LATERAL` top-50 per problem,
+  so it reads at most `50 × problems` rows however large the contest grows,
+  rather than sorting the whole contest to discard all but fifty. The queue
+  panel is driven from `grading_jobs` under `grading_jobs_active_idx`'s
+  predicate, spelled `state <> 'done'` word for word so the planner can prove
+  it applies. `oldestPendingSeconds` is `null` for an empty queue, never `0`
+  — D47's rule, for D47's reason.
+
+**Live updates: a five-second poll, and a WebSocket that beats it.**
+`{ type: 'watch-contest', key }` enrols a socket in a contest's fan-out,
+authorized by `ContestMonitorService.assertMayWatch` — the same two gates as
+the route, asked rather than answered, because `AuthGuard` never sees a
+WebSocket upgrade and a second opinion about who runs a contest is how the two
+would eventually disagree. The gateway then publishes
+`{ type: 'contest-activity', key }` to those sockets whenever `notify` fires
+for a submission in that contest, over the Redis channel `judged` already
+uses. Three rulings inside that:
+
+- **The submission→contest lookup runs only when this worker holds a
+  watcher.** `judged` publishes one id per state change and knows nothing
+  about contests, so the mapping is a query; paying it on every verdict
+  forever to serve a page nobody has open is a cost the ordinary judging path
+  must not carry. With no watcher the fan-out returns before touching the
+  database.
+- **The frame carries the key and nothing else** — D23's rule that a realtime
+  push is a signal, never data. The page re-fetches through the ordinary
+  authorized read, which re-decides everything.
+- **The page's socket is an accelerator, never a dependency.** A refused watch
+  stops reconnecting rather than retrying: a caller the server said no to will
+  be told no again, and an organiser's tab hammering an upgrade for three
+  hours is the one way this screen could hurt the deployment it watches. With
+  no socket at all the page is exactly its five-second poll, and it says so.
+
+Web: `/contests/{key}/monitor`, a route rather than a panel — it is the screen
+an invigilator leaves open for hours, a URL is what you send to the colleague
+in the other room, and its five-second poll must not ride along on the contest
+page every competitor has open. The link on the contest page is gated on
+`canEdit`, which is `canRunContest`'s own answer.
+
+*Ruled by the implementer during the 2026-08-30 F-23 loop, no human available
+to consult. Migration 0035.*

@@ -35,6 +35,7 @@ import {
   type ContestDetailDto,
   type ContestParticipationDto,
   type ContestListQueryDto,
+  type ContestMonitorDto,
   type ContestPageDto,
   type CreateContestRequestDto,
   type PostAnnouncementRequestDto,
@@ -53,6 +54,7 @@ import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { ContestAccessService } from '../authz/contest.access.js';
 import { ContestClarificationsService } from '../authz/contest.clarifications.js';
+import { ContestMonitorService } from '../authz/contest.monitor.js';
 import { ContestSimilarityService } from '../authz/contest.similarity.js';
 import { ScoreboardCache } from '../authz/scoreboard.cache.js';
 import { STATEMENT_RENDERER, type StatementRenderer } from '../statements/statement-renderer.js';
@@ -84,6 +86,7 @@ export class ContestsController {
     @Inject(ScoreboardCache) private readonly cache: ScoreboardCache,
     @Inject(ContestResultsService) private readonly results: ContestResultsService,
     @Inject(ContestSimilarityService) private readonly similarity: ContestSimilarityService,
+    @Inject(ContestMonitorService) private readonly monitor: ContestMonitorService,
   ) {}
 
   // `@Public()` is marked per handler, never on the class: `Public()` only
@@ -263,6 +266,25 @@ export class ContestsController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${contestKey}-certificates.pdf"`);
     return new StreamableFile(Buffer.from(value.pdf, 'base64'));
+  }
+
+  /**
+   * The organiser live monitor (D95).
+   *
+   * **No `@Public()`**, on `similarityReport`'s reasoning: an anonymous caller
+   * has no business reaching a handler that reports, unfrozen, what every
+   * competitor in a running contest has just submitted. `contests:read`,
+   * because it is a read; who may actually ask is `ContestMonitorService`'s
+   * call, never this controller's — 404 for a contest the caller may not see,
+   * 403 `contest_forbidden` for one they can see but do not run.
+   */
+  @Get(':key/monitor')
+  @RequireScope('contests:read')
+  contestMonitor(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+  ): Promise<ContestMonitorDto> {
+    return this.monitor.snapshot(actor, key);
   }
 
   /**
