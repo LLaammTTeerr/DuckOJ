@@ -118,6 +118,10 @@ const DYNAMIC_KEY_PREFIXES: readonly string[] = [
   'sourceAccess.', // problem-edit.tsx, over the source-access enum
   'problemRole.', // problem-edit.tsx, from a member's role
   'testData.unpaired.', // problem-testdata.tsx, from a pairing failure's reason
+  // contests.tsx, from `MyTeamSummary.ineligibleReason` — the server's own
+  // refusal code, so the catalogue is keyed by it rather than by a second
+  // list of reasons this app would have to keep in step.
+  'contest.teamReason.',
 ];
 
 function sourceFiles(dir: string): string[] {

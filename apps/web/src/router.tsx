@@ -37,6 +37,7 @@ import { ChangePasswordPage, PasswordGate } from './routes/password.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
 import { ProblemSetPage, ProblemSetProgressPage } from './routes/problem-sets.js';
+import { TeamPage } from './routes/teams.js';
 import { AdminPage } from './routes/admin.js';
 import { HelpPage } from './routes/help.js';
 import { NotificationsPage } from './routes/notifications.js';
@@ -482,6 +483,10 @@ function ProblemSetRouteComponent() {
   // another's.
   return <ProblemSetPage key={`${slug}/${setSlug}`} slug={slug} setSlug={setSlug} />;
 }
+function TeamRouteComponent() {
+  const { slug, teamSlug } = useParams({ from: '/orgs/$slug/teams/$teamSlug' });
+  return <TeamPage key={`${slug}/${teamSlug}`} slug={slug} teamSlug={teamSlug} />;
+}
 function ProblemSetProgressRouteComponent() {
   const { slug, setSlug } = useParams({ from: '/orgs/$slug/sets/$setSlug/progress' });
   return <ProblemSetProgressPage slug={slug} setSlug={setSlug} />;
@@ -564,6 +569,11 @@ const problemSetProgressRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/orgs/$slug/sets/$setSlug/progress',
   component: ProblemSetProgressRouteComponent,
+});
+const teamRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/orgs/$slug/teams/$teamSlug',
+  component: TeamRouteComponent,
 });
 const tokensRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -660,6 +670,7 @@ const routeTree = rootRoute.addChildren([
   orgRoute,
   problemSetRoute,
   problemSetProgressRoute,
+  teamRoute,
   tokensRoute,
   securityRoute,
   settingsRoute,

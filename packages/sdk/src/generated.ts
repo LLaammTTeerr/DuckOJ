@@ -1704,6 +1704,166 @@ export interface paths {
         };
         trace?: never;
     };
+    "/contests/{key}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enter a team into this contest — the contest creator or an admin
+         * @description Runs every check `POST /contests/{key}/join` runs — the team belongs to one of the contest’s schools, nobody on it already competes, it is within `maxTeamSize`, and no other team of that name is on the board — under the same per-(contest, team name) advisory lock. The participation is held by the LOWEST user id on the roster: the row needs a captain (D99 keys disqualification on the username that holds it) and nobody pressed a button, so the choice is made deterministically rather than by whoever the query happened to return first. Seeding BEFORE the start is allowed and is the ordinary case; the participation then starts when the contest does. Seeding a finished contest is refused (`contest_ended`): a team has no virtual replay (D99).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        teamSlug: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The team's participation */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            contestKey: string;
+                            virtual: number;
+                            startTime: string;
+                            endTime: string;
+                            isDisqualified: boolean;
+                            team: {
+                                slug: string;
+                                name: string;
+                                orgSlug: string;
+                                members: string[];
+                            } | null;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The caller can see this contest but does not run it (`contest_forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The team is already entered (`contest_team_joined`), somebody on it already competes (`contest_already_joined`), the roster exceeds `maxTeamSize` (`contest_team_too_large`), another team of that name is on the board (`contest_team_name_taken`), or the contest has ended (`contest_ended`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This contest is not entered by team (`contest_team_unexpected`), no team of that slug belongs to its schools (`contest_team_unknown`), or the team has no members (`contest_team_empty`) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/contests/{key}/clarifications": {
         parameters: {
             query?: never;
@@ -11054,6 +11214,7 @@ export interface paths {
                                 memberCount: number;
                                 /** Format: date-time */
                                 createdAt: string;
+                                inRunningContest: boolean;
                             }[];
                             nextCursor: string | null;
                         };
@@ -11140,11 +11301,23 @@ export interface paths {
                             memberCount: number;
                             /** Format: date-time */
                             createdAt: string;
+                            inRunningContest: boolean;
                             members: {
                                 username: string;
                                 displayName: string;
                                 /** Format: date-time */
                                 joinedAt: string;
+                            }[];
+                            contests: {
+                                key: string;
+                                name: string;
+                                /** Format: date-time */
+                                startTime: string;
+                                /** Format: date-time */
+                                endTime: string;
+                                running: boolean;
+                                isDisqualified: boolean;
+                                captain: string;
                             }[];
                             canEdit: boolean;
                         };
@@ -11295,11 +11468,23 @@ export interface paths {
                             memberCount: number;
                             /** Format: date-time */
                             createdAt: string;
+                            inRunningContest: boolean;
                             members: {
                                 username: string;
                                 displayName: string;
                                 /** Format: date-time */
                                 joinedAt: string;
+                            }[];
+                            contests: {
+                                key: string;
+                                name: string;
+                                /** Format: date-time */
+                                startTime: string;
+                                /** Format: date-time */
+                                endTime: string;
+                                running: boolean;
+                                isDisqualified: boolean;
+                                captain: string;
                             }[];
                             canEdit: boolean;
                         };
@@ -11494,11 +11679,23 @@ export interface paths {
                             memberCount: number;
                             /** Format: date-time */
                             createdAt: string;
+                            inRunningContest: boolean;
                             members: {
                                 username: string;
                                 displayName: string;
                                 /** Format: date-time */
                                 joinedAt: string;
+                            }[];
+                            contests: {
+                                key: string;
+                                name: string;
+                                /** Format: date-time */
+                                startTime: string;
+                                /** Format: date-time */
+                                endTime: string;
+                                running: boolean;
+                                isDisqualified: boolean;
+                                captain: string;
                             }[];
                             canEdit: boolean;
                         };
@@ -11606,6 +11803,102 @@ export interface paths {
                 };
             };
         };
+        trace?: never;
+    };
+    "/users/me/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every team I am on, across every school
+         * @description One request, however many organizations the caller belongs to. It exists because the join picker used to issue `GET /orgs/{slug}/teams` once per organization a contest named — fine at two schools, not at twenty. With `?contest=`, each team also carries whether it may enter that contest and, if not, the code `POST /contests/{key}/join` would refuse with, so the picker greys a choice out with the server’s own reason rather than a guess. `orgs:read`, not `users:read`: what comes back is a school’s rosters, and a token holding only the profile scope must not reach them through a route named after the caller.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    contest?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description My teams */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                slug: string;
+                                name: string;
+                                orgSlug: string;
+                                orgName: string;
+                                memberCount: number;
+                                /** Format: date-time */
+                                createdAt: string;
+                                inRunningContest: boolean;
+                                eligible: boolean | null;
+                                /** @enum {string|null} */
+                                ineligibleReason: "contest_not_team_mode" | "contest_team_org_not_named" | "contest_team_too_large" | "contest_team_joined" | "contest_already_joined" | "contest_team_name_taken" | null;
+                            }[];
+                            truncated: boolean;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The `?contest=` names no contest this caller may see */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }

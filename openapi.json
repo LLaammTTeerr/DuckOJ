@@ -3814,6 +3814,340 @@
         }
       }
     },
+    "/contests/{key}/participants": {
+      "post": {
+        "tags": [
+          "Contests"
+        ],
+        "summary": "Enter a team into this contest — the contest creator or an admin",
+        "description": "Runs every check `POST /contests/{key}/join` runs — the team belongs to one of the contest’s schools, nobody on it already competes, it is within `maxTeamSize`, and no other team of that name is on the board — under the same per-(contest, team name) advisory lock. The participation is held by the LOWEST user id on the roster: the row needs a captain (D99 keys disqualification on the username that holds it) and nobody pressed a button, so the choice is made deterministically rather than by whoever the query happened to return first. Seeding BEFORE the start is allowed and is the ordinary case; the participation then starts when the contest does. Seeding a finished contest is refused (`contest_ended`): a team has no virtual replay (D99).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "key",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "teamSlug": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "teamSlug"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The team's participation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "contestKey": {
+                      "type": "string"
+                    },
+                    "virtual": {
+                      "type": "integer"
+                    },
+                    "startTime": {
+                      "type": "string"
+                    },
+                    "endTime": {
+                      "type": "string"
+                    },
+                    "isDisqualified": {
+                      "type": "boolean"
+                    },
+                    "team": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "slug": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "orgSlug": {
+                          "type": "string"
+                        },
+                        "members": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "slug",
+                        "name",
+                        "orgSlug",
+                        "members"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "contestKey",
+                    "virtual",
+                    "startTime",
+                    "endTime",
+                    "isDisqualified",
+                    "team"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller can see this contest but does not run it (`contest_forbidden`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such contest, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The team is already entered (`contest_team_joined`), somebody on it already competes (`contest_already_joined`), the roster exceeds `maxTeamSize` (`contest_team_too_large`), another team of that name is on the board (`contest_team_name_taken`), or the contest has ended (`contest_ended`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "This contest is not entered by team (`contest_team_unexpected`), no team of that slug belongs to its schools (`contest_team_unknown`), or the team has no members (`contest_team_empty`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/contests/{key}/clarifications": {
       "post": {
         "tags": [
@@ -23606,6 +23940,9 @@
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
+                          },
+                          "inRunningContest": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -23614,7 +23951,8 @@
                           "orgSlug",
                           "orgName",
                           "memberCount",
-                          "createdAt"
+                          "createdAt",
+                          "inRunningContest"
                         ]
                       }
                     },
@@ -23803,6 +24141,9 @@
                       "type": "string",
                       "format": "date-time"
                     },
+                    "inRunningContest": {
+                      "type": "boolean"
+                    },
                     "members": {
                       "type": "array",
                       "items": {
@@ -23826,6 +24167,46 @@
                         ]
                       }
                     },
+                    "contests": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "startTime": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "endTime": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "running": {
+                            "type": "boolean"
+                          },
+                          "isDisqualified": {
+                            "type": "boolean"
+                          },
+                          "captain": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "name",
+                          "startTime",
+                          "endTime",
+                          "running",
+                          "isDisqualified",
+                          "captain"
+                        ]
+                      }
+                    },
                     "canEdit": {
                       "type": "boolean"
                     }
@@ -23837,7 +24218,9 @@
                     "orgName",
                     "memberCount",
                     "createdAt",
+                    "inRunningContest",
                     "members",
+                    "contests",
                     "canEdit"
                   ]
                 }
@@ -24124,6 +24507,9 @@
                       "type": "string",
                       "format": "date-time"
                     },
+                    "inRunningContest": {
+                      "type": "boolean"
+                    },
                     "members": {
                       "type": "array",
                       "items": {
@@ -24147,6 +24533,46 @@
                         ]
                       }
                     },
+                    "contests": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "startTime": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "endTime": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "running": {
+                            "type": "boolean"
+                          },
+                          "isDisqualified": {
+                            "type": "boolean"
+                          },
+                          "captain": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "name",
+                          "startTime",
+                          "endTime",
+                          "running",
+                          "isDisqualified",
+                          "captain"
+                        ]
+                      }
+                    },
                     "canEdit": {
                       "type": "boolean"
                     }
@@ -24158,7 +24584,9 @@
                     "orgName",
                     "memberCount",
                     "createdAt",
+                    "inRunningContest",
                     "members",
+                    "contests",
                     "canEdit"
                   ]
                 }
@@ -24338,6 +24766,9 @@
                       "type": "string",
                       "format": "date-time"
                     },
+                    "inRunningContest": {
+                      "type": "boolean"
+                    },
                     "members": {
                       "type": "array",
                       "items": {
@@ -24361,6 +24792,46 @@
                         ]
                       }
                     },
+                    "contests": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "startTime": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "endTime": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "running": {
+                            "type": "boolean"
+                          },
+                          "isDisqualified": {
+                            "type": "boolean"
+                          },
+                          "captain": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "name",
+                          "startTime",
+                          "endTime",
+                          "running",
+                          "isDisqualified",
+                          "captain"
+                        ]
+                      }
+                    },
                     "canEdit": {
                       "type": "boolean"
                     }
@@ -24372,7 +24843,9 @@
                     "orgName",
                     "memberCount",
                     "createdAt",
+                    "inRunningContest",
                     "members",
+                    "contests",
                     "canEdit"
                   ]
                 }
@@ -24771,6 +25244,199 @@
           },
           "409": {
             "description": "The team has competed (`team_has_participations`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/me/teams": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Every team I am on, across every school",
+        "description": "One request, however many organizations the caller belongs to. It exists because the join picker used to issue `GET /orgs/{slug}/teams` once per organization a contest named — fine at two schools, not at twenty. With `?contest=`, each team also carries whether it may enter that contest and, if not, the code `POST /contests/{key}/join` would refuse with, so the picker greys a choice out with the server’s own reason rather than a guess. `orgs:read`, not `users:read`: what comes back is a school’s rosters, and a token holding only the profile scope must not reach them through a route named after the caller.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "required": false,
+            "name": "contest",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "My teams",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "orgSlug": {
+                            "type": "string"
+                          },
+                          "orgName": {
+                            "type": "string"
+                          },
+                          "memberCount": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "inRunningContest": {
+                            "type": "boolean"
+                          },
+                          "eligible": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "ineligibleReason": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              "contest_not_team_mode",
+                              "contest_team_org_not_named",
+                              "contest_team_too_large",
+                              "contest_team_joined",
+                              "contest_already_joined",
+                              "contest_team_name_taken",
+                              null
+                            ]
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "name",
+                          "orgSlug",
+                          "orgName",
+                          "memberCount",
+                          "createdAt",
+                          "inRunningContest",
+                          "eligible",
+                          "ineligibleReason"
+                        ]
+                      }
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "truncated"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The `?contest=` names no contest this caller may see",
             "content": {
               "application/problem+json": {
                 "schema": {

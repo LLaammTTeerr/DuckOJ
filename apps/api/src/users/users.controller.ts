@@ -5,6 +5,9 @@ import {
   type UpdateMeRequestDto,
   type UserListQueryDto,
   type UserPageDto,
+  MyTeamsQuery,
+  type MyTeamListDto,
+  type MyTeamsQueryDto,
   RatingHistoryQuery,
   type RatingHistoryPageDto,
   type RatingHistoryQueryDto,
@@ -19,6 +22,7 @@ import type { Actor } from '../authz/actor.js';
 import { UserAccessService } from '../authz/user.access.js';
 import { ProgressService } from '../authz/progress.access.js';
 import { RatingService } from '../authz/rating.service.js';
+import { TeamAccessService } from '../authz/team.access.js';
 
 @Controller('users')
 export class UsersController {
@@ -29,6 +33,7 @@ export class UsersController {
     @Inject(UserAccessService) private readonly users: UserAccessService,
     @Inject(RatingService) private readonly ratings: RatingService,
     @Inject(ProgressService) private readonly progress: ProgressService,
+    @Inject(TeamAccessService) private readonly teams: TeamAccessService,
   ) {}
 
   /**
@@ -63,6 +68,30 @@ export class UsersController {
   @RequireScope('users:read')
   myProgress(@CurrentActor() actor: Actor): Promise<MyProgressDto> {
     return this.progress.myProgress(actor);
+  }
+
+  /**
+   * Every team I am on, across every school (D99 as amended by F-25).
+   *
+   * Declared above `/:username` for the reason the two routes above are, and
+   * served by `TeamAccessService` rather than by a second copy of "which
+   * teams is this person on" — `TeamsController` next door is the same
+   * service under a different path, exactly as `ProgressService` answers both
+   * `/users/me/progress` and `/users/{username}/progress`.
+   *
+   * **`orgs:read`, not `users:read`**, unlike its neighbours. What comes back
+   * is a school's rosters — team names, member counts, the organizations they
+   * belong to — and a token holding only the profile scope must not reach
+   * them through a route that happens to be named after the caller. The path
+   * says "me"; the data says "orgs".
+   */
+  @Get('me/teams')
+  @RequireScope('orgs:read')
+  myTeams(
+    @CurrentActor() actor: Actor,
+    @Query(new ZodValidationPipe(MyTeamsQuery)) query: MyTeamsQueryDto,
+  ): Promise<MyTeamListDto> {
+    return this.teams.myTeams(actor, query);
   }
 
   @Get()

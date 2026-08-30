@@ -867,6 +867,73 @@ registry.registerPath({
 });
 
 /**
+ * An organiser entering a team into their own contest (D99 as amended by
+ * F-25) — the mirror of D61's "an owner mints the accounts".
+ *
+ * A team contest is entered by whichever member presses Join, and on contest
+ * day that member is a fifteen-year-old at a school computer whose password
+ * was issued this morning. The organiser who set the round up can already
+ * disqualify a team, answer for it and export its results; being unable to
+ * ENTER it is the one gap, and it is the gap that gets filled by an
+ * invigilator borrowing a pupil's account.
+ *
+ * `teamSlug` only. There is deliberately no way to seed an INDIVIDUAL: a
+ * person entering a contest is a person choosing to sit it, `join` is
+ * idempotent and needs nothing from an organiser, and seeding someone would
+ * put a row on the board under a name that never consented to it.
+ */
+export const SeedParticipantRequest = z.object({ teamSlug: z.string().min(1).max(64) }).strict();
+export type SeedParticipantRequestDto = z.infer<typeof SeedParticipantRequest>;
+
+registry.registerPath({
+  method: 'post',
+  path: '/contests/{key}/participants',
+  tags: ['Contests'],
+  summary: 'Enter a team into this contest — the contest creator or an admin',
+  description:
+    'Runs every check `POST /contests/{key}/join` runs — the team belongs to one of the ' +
+    'contest\u2019s schools, nobody on it already competes, it is within `maxTeamSize`, and no ' +
+    'other team of that name is on the board \u2014 under the same per-(contest, team name) ' +
+    'advisory lock. The participation is held by the LOWEST user id on the roster: the row needs ' +
+    'a captain (D99 keys disqualification on the username that holds it) and nobody pressed a ' +
+    'button, so the choice is made deterministically rather than by whoever the query happened ' +
+    'to return first. Seeding BEFORE the start is allowed and is the ordinary case; the ' +
+    'participation then starts when the contest does. Seeding a finished contest is refused ' +
+    '(`contest_ended`): a team has no virtual replay (D99).',
+  request: {
+    params: ContestKeyParam,
+    body: { content: { 'application/json': { schema: SeedParticipantRequest } } },
+  },
+  responses: {
+    201: {
+      description: "The team's participation",
+      content: { 'application/json': { schema: ContestParticipation } },
+    },
+    401: NOT_SIGNED_IN,
+    403: {
+      description: 'The caller can see this contest but does not run it (`contest_forbidden`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    404: CONTEST_NOT_FOUND,
+    409: {
+      description:
+        'The team is already entered (`contest_team_joined`), somebody on it already competes ' +
+        '(`contest_already_joined`), the roster exceeds `maxTeamSize` ' +
+        '(`contest_team_too_large`), another team of that name is on the board ' +
+        '(`contest_team_name_taken`), or the contest has ended (`contest_ended`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: {
+      description:
+        'This contest is not entered by team (`contest_team_unexpected`), no team of that slug ' +
+        'belongs to its schools (`contest_team_unknown`), or the team has no members ' +
+        '(`contest_team_empty`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+/**
  * Contest clarifications and announcements (D31) — the Q&A a provincial
  * olympiad runs on contest day.
  *

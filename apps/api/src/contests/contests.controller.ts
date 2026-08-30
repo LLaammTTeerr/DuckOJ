@@ -23,6 +23,7 @@ import {
   JoinContestRequest,
   PostAnnouncementRequest,
   RunSimilarityRequest,
+  SeedParticipantRequest,
   SetDisqualifiedRequest,
   SimilarityPairQuery,
   UpdateContestRequest,
@@ -45,6 +46,7 @@ import {
   type PostAnnouncementRequestDto,
   type RunSimilarityRequestDto,
   type ScoreboardDto,
+  type SeedParticipantRequestDto,
   type SetDisqualifiedRequestDto,
   type SimilarityPairQueryDto,
   type SimilarityPairViewDto,
@@ -417,6 +419,29 @@ export class ContestsController {
    * Who may actually do it is decided in `ContestAccessService`, as
    * everywhere else in this controller.
    */
+  /**
+   * Enter a team into this contest, as its organiser (D99 amended).
+   *
+   * `contests:write`, matching `join` and the disqualify control beside it:
+   * running a contest you created is the same authority as creating it. Who
+   * may actually do it is `ContestAccessService`'s call, as everywhere else
+   * here — 404 for a contest the caller may not see, 403 for one they can see
+   * but do not run.
+   *
+   * `POST` on the collection, not a verb: it creates a participation, and 201
+   * is what creating one means.
+   */
+  @Post(':key/participants')
+  @HttpCode(201)
+  @RequireScope('contests:write')
+  seedParticipant(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Body(new ZodValidationPipe(SeedParticipantRequest)) body: SeedParticipantRequestDto,
+  ): Promise<ContestParticipationDto> {
+    return this.contests.seedParticipant(actor, key, body.teamSlug);
+  }
+
   @Patch(':key/participants/:username')
   @RequireScope('contests:write')
   setDisqualified(

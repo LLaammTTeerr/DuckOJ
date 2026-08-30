@@ -291,35 +291,31 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
   });
 
   /**
-   * The teams this viewer may enter with (D99).
+   * The teams this viewer may enter with (D99, amended by F-25).
    *
-   * One request per organization the contest names, because teams are
-   * org-scoped and there is no "my teams" endpoint: `GET /orgs/{slug}/teams`
-   * already answers with the caller's own teams for anybody who is not the
-   * school's staff, so the picker is the server's own answer rather than a
-   * filter this page applies. A team contest always names at least one
-   * organization (422 `contest_team_orgs_required`), so this is never a
-   * request for nothing.
+   * **One request**, `GET /users/me/teams?contest=`. It used to be one per
+   * organization the contest named — fine at two schools, twenty round trips
+   * at twenty, on the page a whole province opens at the same minute. The
+   * `?contest=` also makes the server say WHY a team may not enter, with the
+   * same code the join would refuse with, so a choice is greyed out here for
+   * the server's reason rather than a rule this file re-derived.
    */
   const myTeams = useQuery({
-    queryKey: ['contest-teams', contestKey],
+    queryKey: ['my-teams', contestKey],
     enabled: me.data != null && contest.data?.participationMode === 'team',
     queryFn: async () => {
-      const orgs = contest.data?.orgs ?? [];
-      const pages = await Promise.all(
-        orgs.map(async (org) => {
-          const { data } = await api.GET('/orgs/{slug}/teams', {
-            params: { path: { slug: org.slug } },
-          });
-          return data?.items ?? [];
-        }),
-      );
-      return pages.flat();
+      const { data } = await api.GET('/users/me/teams', {
+        params: { query: { contest: contestKey } },
+      });
+      return data?.items ?? [];
     },
   });
   const [pickedTeam, setPickedTeam] = useState('');
   const teamChoices = myTeams.data ?? [];
-  const teamSlug = pickedTeam === '' ? (teamChoices[0]?.slug ?? '') : pickedTeam;
+  // The first team that CAN enter, so the button is not pre-loaded with a
+  // choice the server is about to refuse.
+  const defaultTeam = teamChoices.find((team) => team.eligible !== false) ?? teamChoices[0];
+  const teamSlug = pickedTeam === '' ? (defaultTeam?.slug ?? '') : pickedTeam;
 
   async function join(): Promise<void> {
     setJoinBusy(true);
@@ -440,8 +436,19 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
                   {t('contest.teamPick')}{' '}
                   <select value={teamSlug} onChange={(e) => setPickedTeam(e.target.value)}>
                     {teamChoices.map((team) => (
-                      <option key={`${team.orgSlug}/${team.slug}`} value={team.slug}>
+                      <option
+                        key={`${team.orgSlug}/${team.slug}`}
+                        value={team.slug}
+                        // Disabled from the SERVER's verdict, not from a rule
+                        // this page re-derived — and the reason is printed
+                        // beside the name, so a teacher learns it before the
+                        // click rather than from a 409 at the gun.
+                        disabled={team.eligible === false}
+                      >
                         {team.name} · {team.orgName}
+                        {team.ineligibleReason
+                          ? ` — ${t(`contest.teamReason.${team.ineligibleReason}`)}`
+                          : ''}
                       </option>
                     ))}
                   </select>

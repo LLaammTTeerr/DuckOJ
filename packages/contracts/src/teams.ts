@@ -61,14 +61,53 @@ export const TeamSummary = z.object({
   orgName: z.string(),
   memberCount: z.number().int(),
   createdAt: Timestamp,
+  /**
+   * This team is entered in a contest that is running RIGHT NOW (D99 as
+   * amended by F-25).
+   *
+   * Served rather than derived, and on the summary rather than only on the
+   * detail, because it is what makes a roster read-only: while it is true, a
+   * membership change is refused with 409 `team_locked_during_contest` for
+   * anyone who does not run the contest. A teacher who cannot see WHY the
+   * edit is refused until they have already tried it is a teacher who tries
+   * it during the round, which is exactly the moment the refusal costs the
+   * most.
+   */
+  inRunningContest: z.boolean(),
 });
 export type TeamSummaryDto = z.infer<typeof TeamSummary>;
 
 export const TeamPage = cursorPage(TeamSummary);
 export type TeamPageDto = z.infer<typeof TeamPage>;
 
+/**
+ * One contest this team has entered — its record, in the order a reader
+ * wants it (newest first).
+ *
+ * Deliberately NOT a rank. Ranking a team means folding the contest's
+ * scoreboard, which is a cached two-second fold per contest (D25) and would
+ * make a team page cost one of those per row; and a rank means nothing at all
+ * for a contest still running, which is the state this panel exists to show.
+ * The contest is a link, and the contest's own results page is where a
+ * standing lives.
+ */
+export const TeamContestEntry = z.object({
+  key: z.string(),
+  name: z.string(),
+  startTime: Timestamp,
+  endTime: Timestamp,
+  /** `now` is inside `[startTime, endTime]` — the state that locks the roster. */
+  running: z.boolean(),
+  isDisqualified: z.boolean(),
+  /** Which member's account holds the row (D99's captain). */
+  captain: z.string(),
+});
+export type TeamContestEntryDto = z.infer<typeof TeamContestEntry>;
+
 export const TeamDetail = TeamSummary.extend({
   members: z.array(TeamMember),
+  /** Every contest this team has entered, newest first. */
+  contests: z.array(TeamContestEntry),
   /**
    * Whether THIS caller may edit the team — an owner or admin of the
    * organization, or a global admin. Served rather than derived, exactly as
@@ -247,6 +286,97 @@ registry.registerPath({
     404: TEAM_NOT_FOUND,
     409: {
       description: 'The team has competed (`team_has_participations`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * "My teams", and whether they may enter a contest — D99 as amended by F-25.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Why a team of mine cannot enter the contest I named.
+ *
+ * The SAME codes `POST /contests/{key}/join` refuses with, deliberately: this
+ * route exists so a picker can grey out a choice before the click, and a
+ * screen that explained the refusal in words the server would not use is a
+ * screen that disagrees with the server the first time either changes.
+ * `contest_team_org_not_named` is the one code join never answers, because
+ * join resolves the slug inside the contest's schools and simply does not
+ * find a team outside them.
+ */
+export const TeamIneligibleReason = z.enum([
+  'contest_not_team_mode',
+  'contest_team_org_not_named',
+  'contest_team_too_large',
+  'contest_team_joined',
+  'contest_already_joined',
+  'contest_team_name_taken',
+]);
+export type TeamIneligibleReasonDto = z.infer<typeof TeamIneligibleReason>;
+
+/**
+ * A team of mine, with whatever the `?contest=` I asked about implies.
+ *
+ * `eligible` and `ineligibleReason` are BOTH `null` when no contest was
+ * named. Not `true`: "may this team enter" has no answer without a contest,
+ * and answering `true` would make a picker that forgot the query parameter
+ * look like it worked.
+ */
+export const MyTeamSummary = TeamSummary.extend({
+  eligible: z.boolean().nullable(),
+  ineligibleReason: TeamIneligibleReason.nullable(),
+});
+export type MyTeamSummaryDto = z.infer<typeof MyTeamSummary>;
+
+/**
+ * Every team I am on, across every school — not a page.
+ *
+ * A cursor would be ceremony: a person is on a handful of teams, the ceiling
+ * is `MY_TEAMS_LIMIT`, and a picker that had to page would be a picker with a
+ * bug nobody ever reproduces. If somebody is ever on more than that, the list
+ * is truncated rather than paged, and `truncated` says so.
+ */
+export const MyTeamList = z.object({
+  items: z.array(MyTeamSummary),
+  truncated: z.boolean(),
+});
+export type MyTeamListDto = z.infer<typeof MyTeamList>;
+
+/** The ceiling on one person's team list. */
+export const MY_TEAMS_LIMIT = 200;
+
+export const MyTeamsQuery = z.object({
+  /**
+   * A contest key. Every team in the answer is then annotated with whether it
+   * may enter THAT contest and, if not, with the code the join would refuse
+   * with. A key naming no contest the caller may see is 404 — the same answer
+   * reading the contest itself would give.
+   */
+  contest: z.string().max(64).optional(),
+});
+export type MyTeamsQueryDto = z.infer<typeof MyTeamsQuery>;
+
+registry.registerPath({
+  method: 'get',
+  path: '/users/me/teams',
+  tags: ['Users'],
+  summary: 'Every team I am on, across every school',
+  description:
+    'One request, however many organizations the caller belongs to. It exists because the join ' +
+    'picker used to issue `GET /orgs/{slug}/teams` once per organization a contest named — fine ' +
+    'at two schools, not at twenty. With `?contest=`, each team also carries whether it may ' +
+    'enter that contest and, if not, the code `POST /contests/{key}/join` would refuse with, so ' +
+    'the picker greys a choice out with the server’s own reason rather than a guess. ' +
+    '`orgs:read`, not `users:read`: what comes back is a school’s rosters, and a token holding ' +
+    'only the profile scope must not reach them through a route named after the caller.',
+  request: { query: MyTeamsQuery },
+  responses: {
+    200: { description: 'My teams', content: { 'application/json': { schema: MyTeamList } } },
+    401: NOT_SIGNED_IN,
+    404: {
+      description: 'The `?contest=` names no contest this caller may see',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },

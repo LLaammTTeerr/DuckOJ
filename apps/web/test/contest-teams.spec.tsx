@@ -63,11 +63,41 @@ function contest(over: Record<string, unknown> = {}) {
   };
 }
 
-const TEAMS = {
+/**
+ * `GET /users/me/teams?contest=` — ONE request across every school (D99 as
+ * amended by F-25), and the server's own eligibility verdict per row. The
+ * picker used to ask `/orgs/{slug}/teams` once per organization the contest
+ * named.
+ */
+const MY_TEAMS = {
   items: [
-    { slug: 'doi-1', name: 'Đội 1', orgSlug: 'thpt', orgName: 'THPT Chuyên', memberCount: 2, createdAt: '' },
+    {
+      slug: 'doi-1',
+      name: 'Đội 1',
+      orgSlug: 'thpt',
+      orgName: 'THPT Chuyên',
+      memberCount: 2,
+      createdAt: '',
+      inRunningContest: false,
+      eligible: true,
+      ineligibleReason: null,
+    },
+    // A team the server says may NOT enter: the picker offers it, disabled,
+    // with the server's own reason beside it — greying it out for a rule
+    // this page re-derived is exactly what the `?contest=` exists to avoid.
+    {
+      slug: 'doi-to',
+      name: 'Đội To',
+      orgSlug: 'thpt',
+      orgName: 'THPT Chuyên',
+      memberCount: 5,
+      createdAt: '',
+      inRunningContest: false,
+      eligible: false,
+      ineligibleReason: 'contest_team_too_large',
+    },
   ],
-  nextCursor: null,
+  truncated: false,
 };
 
 afterEach(() => {
@@ -81,7 +111,7 @@ describe('joining a team contest', () => {
     get.mockImplementation((path: string) => {
       if (path === '/contests/{key}') return Promise.resolve({ data: contest() });
       if (path === '/auth/me') return Promise.resolve({ data: { username: 'anh', globalRole: 'user' } });
-      if (path === '/orgs/{slug}/teams') return Promise.resolve({ data: TEAMS });
+      if (path === '/users/me/teams') return Promise.resolve({ data: MY_TEAMS });
       // Not joined yet: the endpoint's own 404, which the page reads as a
       // state rather than an error.
       // `read()` decides on the RESPONSE's status as well as the body, so a
@@ -96,6 +126,15 @@ describe('joining a team contest', () => {
 
     const picker = await screen.findByRole('combobox');
     expect(within(picker).getByRole('option', { name: /Đội 1/ })).toBeInTheDocument();
+    // The ineligible one is offered and refused, with the server's reason.
+    const tooBig = within(picker).getByRole('option', { name: /Đội To/ });
+    expect(tooBig).toBeDisabled();
+    expect(tooBig.textContent).toMatch(/quá đông/);
+    // Exactly one request for the whole picker, whatever the contest's
+    // organizations are — the thing this endpoint exists for.
+    await waitFor(() =>
+      expect(get.mock.calls.filter((call) => call[0] === '/users/me/teams')).toHaveLength(1),
+    );
 
     await userEvent.click(screen.getByRole('button', { name: 'Tham gia' }));
     await waitFor(() =>
@@ -110,7 +149,7 @@ describe('joining a team contest', () => {
     get.mockImplementation((path: string) => {
       if (path === '/contests/{key}') return Promise.resolve({ data: contest() });
       if (path === '/auth/me') return Promise.resolve({ data: { username: 'ai', globalRole: 'user' } });
-      if (path === '/orgs/{slug}/teams') return Promise.resolve({ data: { items: [], nextCursor: null } });
+      if (path === '/users/me/teams') return Promise.resolve({ data: { items: [], truncated: false } });
       // `read()` decides on the RESPONSE's status as well as the body, so a
       // "not joined" mock has to carry both halves.
       return Promise.resolve({
@@ -155,7 +194,7 @@ describe('joining a team contest', () => {
     get.mockImplementation((path: string) => {
       if (path === '/contests/{key}') return Promise.resolve({ data: contest() });
       if (path === '/auth/me') return Promise.resolve({ data: { username: 'binh', globalRole: 'user' } });
-      if (path === '/orgs/{slug}/teams') return Promise.resolve({ data: TEAMS });
+      if (path === '/users/me/teams') return Promise.resolve({ data: MY_TEAMS });
       if (path === '/contests/{key}/me')
         return Promise.resolve({
           data: {

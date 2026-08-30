@@ -7,11 +7,12 @@
  * file), and somebody in the school who is on none sees nothing at all
  * rather than an empty heading.
  *
- * There is deliberately no team DETAIL route. A team is a name and three
- * usernames; the panel already prints both, and every member is a link to
- * their profile — which is what "every entity is a hyperlink" is asking for
- * here. A page whose whole content is one row of this table would be a URL
- * with nothing on it.
+ * `TeamPage` is the team's own URL, `/orgs/{slug}/teams/{teamSlug}`. F-24
+ * argued a team was "a name and three usernames" and needed no page; what
+ * changed is that a team now has a RECORD — the contests it entered, whether
+ * one is running, who held each entry — and a record is a thing you link to.
+ * The panel's team name is that link, which is what "every entity is a
+ * hyperlink" was asking for all along.
  *
  * Nothing here renders for an anonymous visitor: every `/orgs/{slug}/teams`
  * route needs a session, so a query fired without one could only 401.
@@ -109,7 +110,13 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
             {teams.data.map((team: TeamSummary) => (
               <tr key={team.slug}>
                 <td>
-                  {team.name} <span className="muted">{team.slug}</span>
+                  <Link
+                    to="/orgs/$slug/teams/$teamSlug"
+                    params={{ slug, teamSlug: team.slug }}
+                  >
+                    {team.name}
+                  </Link>{' '}
+                  <span className="muted">{team.slug}</span>
                 </td>
                 <td>
                   <TeamMembers slug={slug} teamSlug={team.slug} count={team.memberCount} />
@@ -272,5 +279,114 @@ function TeamForm({
         </button>
       </p>
     </>
+  );
+}
+
+/**
+ * One team's own page — `/orgs/{slug}/teams/{teamSlug}`.
+ *
+ * Three things, in the order a reader wants them: who is on it, what it has
+ * entered, and — when a round is running right now — why its roster cannot be
+ * edited. The roster edit itself stays on the organization's page beside the
+ * other teams, because editing one team is a thing you do while looking at
+ * all of them.
+ *
+ * 404 is the answer for a team that does not exist, one in a school the
+ * viewer may not see, and one they neither run nor belong to — the server
+ * makes those indistinguishable on purpose (`team_not_found`), so this page
+ * prints one sentence for all three rather than guessing which it was.
+ */
+export function TeamPage({ slug, teamSlug }: { slug: string; teamSlug: string }) {
+  const t = useT();
+  const me = useQuery(meQueryOptions);
+  const team = useQuery({
+    queryKey: ['org-team', slug, teamSlug],
+    enabled: me.data != null,
+    queryFn: async (): Promise<TeamDetail | null> => {
+      const { data } = await api.GET('/orgs/{slug}/teams/{teamSlug}', {
+        params: { path: { slug, teamSlug } },
+      });
+      return data ?? null;
+    },
+  });
+
+  if (me.data == null) return <p role="alert">{t('teams.signInFirst')}</p>;
+  if (team.isPending) return <p className="muted">{t('common.loading')}</p>;
+  if (!team.data) return <p role="alert">{t('teams.notFound')}</p>;
+
+  const detail = team.data;
+  return (
+    <section>
+      <h1>{detail.name}</h1>
+      <p className="muted">
+        <Link to="/orgs/$slug" params={{ slug: detail.orgSlug }}>
+          {detail.orgName}
+        </Link>{' '}
+        · {detail.slug}
+      </p>
+      {detail.inRunningContest ? <p role="status">{t('teams.lockedNow')}</p> : null}
+
+      <h2>{t('teams.colMembers')}</h2>
+      {detail.members.length === 0 ? (
+        <p className="muted">{t('teams.noMembers')}</p>
+      ) : (
+        <ul>
+          {detail.members.map((member) => (
+            <li key={member.username}>
+              <Link to="/users/$username" params={{ username: member.username }}>
+                {member.username}
+              </Link>{' '}
+              <span className="muted">{member.displayName}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h2>{t('teams.contests')}</h2>
+      {detail.contests.length === 0 ? (
+        <p className="muted">{t('teams.noContests')}</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>{t('teams.colContest')}</th>
+              <th>{t('teams.colWhen')}</th>
+              <th>{t('teams.colEntry')}</th>
+              <th>{t('teams.colResults')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detail.contests.map((entry) => (
+              <tr key={entry.key}>
+                <td>
+                  <Link to="/contests/$key" params={{ key: entry.key }}>
+                    {entry.name}
+                  </Link>
+                </td>
+                <td>{new Date(entry.startTime).toLocaleString()}</td>
+                <td>
+                  {/* The captain is the account that holds the row (D99) —
+                      the one the disqualify control is keyed by, so it is
+                      the one worth naming. */}
+                  <Link to="/users/$username" params={{ username: entry.captain }}>
+                    {entry.captain}
+                  </Link>
+                  {entry.running ? ` · ${t('teams.running')}` : ''}
+                  {entry.isDisqualified ? ` · ${t('teams.disqualified')}` : ''}
+                </td>
+                <td>
+                  {/* The contest's own scoreboard, not a rank computed here:
+                      a standing belongs to the board that folds it, and it
+                      means nothing yet for a round still running. */}
+                  <Link to="/contests/$key/scoreboard" params={{ key: entry.key }}>
+                    {t('teams.scoreboard')}
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }

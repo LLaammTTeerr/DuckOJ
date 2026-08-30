@@ -161,6 +161,17 @@ type ContestRow = typeof contests.$inferSelect;
  * function `canViewProblem` calls. There is one visibility predicate in this
  * codebase (design §5).
  */
+/**
+ * A team's participation, with the account that holds it.
+ *
+ * `ParticipationRow` deliberately carries no `user_id` — it answers "which
+ * attempt is this", not "whose". A team row's holder IS load-bearing (D99's
+ * captain: it decides whether a second teammate reads the row back or is
+ * refused, and it is the username the disqualify control takes), so the team
+ * path carries it and nothing else has to learn about it.
+ */
+type TeamParticipationRow = ParticipationRow & { userId: number };
+
 @Injectable()
 export class ContestAccessService {
   constructor(
@@ -1248,6 +1259,51 @@ export class ContestAccessService {
         'This contest has ended, and a team contest has no virtual replay.',
       );
     }
+
+    const entered = await this.enterTeam(contest, team, memberIds, actor.userId, now);
+    if (entered.userId === actor.userId) return this.participationDto(contest, entered, team);
+    throw new AppError(
+      409,
+      'contest_team_joined',
+      'A teammate has already entered this team; you are competing on their row.',
+    );
+  }
+
+  /**
+   * Put ONE team on a contest's board, under a lock, or hand back the row
+   * that is already there.
+   *
+   * **The lock is `(contest, case-folded team NAME)`, and the key is the
+   * whole point.** D99 recorded a residual: two teams called the same thing
+   * joining in the same instant both land, because neither check sees the
+   * other's uncommitted row — and then the board's `teams` sidecar collapses
+   * them into one entry, the scoreboard's disqualify control moves the WRONG
+   * team, and one exported results sheet prints the wrong roster. Locking on
+   * the team's ID would not close it: the racing rows belong to two
+   * DIFFERENT teams, so a per-team lock never collides for them. Locking on
+   * the name does, and it also serialises two teammates entering the same
+   * team (same name, same lock), which is the other race this path has.
+   *
+   * `pg_advisory_xact_lock` rather than a row lock, because there is no row
+   * to lock: the thing being made unique is a name that is not yet on the
+   * board, in a table whose relevant row does not exist yet. It is held for
+   * the transaction and released by the commit — which is why every check
+   * below has to be INSIDE the transaction, and why the transaction exists at
+   * all. `hashtext` collides across unrelated names roughly never, and a
+   * collision costs one join a few milliseconds of waiting, not a wrong
+   * answer.
+   *
+   * `startTime` is a parameter rather than `now()`: an organiser may seed a
+   * team before the gun (D99 amended), and the row must not start before the
+   * contest does.
+   */
+  private async enterTeam(
+    contest: ContestRow & { id: number },
+    team: ContestTeam,
+    memberIds: number[],
+    captainUserId: number,
+    startTime: Date,
+  ): Promise<TeamParticipationRow> {
     if (memberIds.length > contest.maxTeamSize) {
       throw new AppError(
         409,
@@ -1255,35 +1311,60 @@ export class ContestAccessService {
         `This contest admits teams of at most ${String(contest.maxTeamSize)}.`,
       );
     }
-    await this.assertMembersFree(contest.id, memberIds);
-    await this.assertTeamNameFree(contest.id, team);
 
-    const [inserted] = await this.db
-      .insert(contestParticipations)
-      .values({
-        contestId: contest.id,
-        userId: actor.userId,
-        teamId: team.id,
-        virtual: LIVE_VIRTUAL,
-        startTime: now,
-        isDisqualified: false,
-      })
-      // Two teammates pressing Join at the same instant race to the same
-      // `(team_id, contest_id)` key. The loser reads the winner's row rather
-      // than surfacing a 500 — the same guarantee the individual path makes,
-      // and the reason the checks above are not enough on their own.
-      .onConflictDoNothing()
-      .returning({
-        id: contestParticipations.id,
-        userId: contestParticipations.userId,
-        virtual: contestParticipations.virtual,
-        startTime: contestParticipations.startTime,
-        isDisqualified: contestParticipations.isDisqualified,
-        teamId: contestParticipations.teamId,
-      });
-    if (inserted) return this.participationDto(contest, inserted, team);
+    return this.db.transaction(async (tx) => {
+      const db = tx as Db;
+      await db.execute(
+        sql`select pg_advisory_xact_lock(${contest.id}::int4, hashtext(lower(${team.name})))`,
+      );
 
-    const [raced] = await this.db
+      // Re-read UNDER the lock. The caller has already read this once for
+      // the idempotency answer; between then and here a teammate's join may
+      // have committed, and returning their row is the same answer the
+      // caller's own read would have given a moment later.
+      const held = await this.teamParticipation(contest.id, team.id, db);
+      if (held) return held;
+
+      await this.assertMembersFree(contest.id, memberIds, db);
+      await this.assertTeamNameFree(contest.id, team, db);
+
+      const [inserted] = await db
+        .insert(contestParticipations)
+        .values({
+          contestId: contest.id,
+          userId: captainUserId,
+          teamId: team.id,
+          virtual: LIVE_VIRTUAL,
+          startTime,
+          isDisqualified: false,
+        })
+        // Belt to the lock's braces: the `(team_id, contest_id)` unique index
+        // is what actually guarantees one row per team, and a process that
+        // somehow skipped the lock must still not surface a 500.
+        .onConflictDoNothing()
+        .returning({
+          id: contestParticipations.id,
+          userId: contestParticipations.userId,
+          virtual: contestParticipations.virtual,
+          startTime: contestParticipations.startTime,
+          isDisqualified: contestParticipations.isDisqualified,
+          teamId: contestParticipations.teamId,
+        });
+      if (inserted) return inserted;
+
+      const raced = await this.teamParticipation(contest.id, team.id, db);
+      if (!raced) throw new AppError(409, 'contest_join_conflict', 'Try joining again.');
+      return raced;
+    });
+  }
+
+  /** The one participation a team holds in a contest, if it holds one. */
+  private async teamParticipation(
+    contestId: number,
+    teamId: number,
+    db: Db = this.db,
+  ): Promise<TeamParticipationRow | undefined> {
+    const [row] = await db
       .select({
         id: contestParticipations.id,
         userId: contestParticipations.userId,
@@ -1293,20 +1374,88 @@ export class ContestAccessService {
         teamId: contestParticipations.teamId,
       })
       .from(contestParticipations)
-      .where(
-        and(
-          eq(contestParticipations.contestId, contest.id),
-          eq(contestParticipations.teamId, team.id),
-        ),
-      )
+      .where(and(eq(contestParticipations.contestId, contestId), eq(contestParticipations.teamId, teamId)))
       .limit(1);
-    if (!raced) throw new AppError(409, 'contest_join_conflict', 'Try joining again.');
-    if (raced.userId === actor.userId) return this.participationDto(contest, raced, team);
-    throw new AppError(
-      409,
-      'contest_team_joined',
-      'A teammate has already entered this team; you are competing on their row.',
-    );
+    return row;
+  }
+
+  /**
+   * An organiser enters a team into their own contest (D99 as amended by
+   * F-25) — D61's spirit, one rank up.
+   *
+   * On contest day the member who is supposed to press Join is a fifteen-year
+   * old at a school computer whose password was issued this morning. The
+   * organiser can already disqualify that team, answer its questions and
+   * export its results; being unable to ENTER it is the one gap, and the way
+   * that gap gets filled today is an invigilator borrowing a pupil's account.
+   *
+   * **Every check `join` makes, under the same lock.** The only differences
+   * are the two this route has to decide for itself:
+   *
+   * - **who holds the row.** `contest_participations.user_id` is NOT NULL and
+   *   is D99's captain — the username `PATCH .../participants/{username}`
+   *   takes. Nobody pressed a button, so the choice is the LOWEST user id on
+   *   the roster: deterministic, so two organisers seeding the same team
+   *   twice cannot produce two different captains, and stable, so the
+   *   disqualify control keeps working after a page refresh. An empty roster
+   *   is refused (422) rather than given a null captain.
+   * - **when it starts.** Seeding BEFORE the gun is the ordinary case — it is
+   *   the whole point, an organiser preparing the room — so `join`'s
+   *   `contest_not_started` refusal does not apply here; the participation
+   *   starts when the CONTEST does. After the end it is refused, because a
+   *   team has no virtual replay (D99) and a row minted into a finished
+   *   contest would be a competitor who never competed.
+   */
+  async seedParticipant(
+    actor: Actor,
+    key: string,
+    teamSlug: string,
+  ): Promise<ContestParticipationDto> {
+    const contest = await this.loadVisible(actor, key);
+    if (!canRunContest(actor, contest)) {
+      throw new AppError(403, 'contest_forbidden', 'You do not run this contest.');
+    }
+    if (contest.participationMode !== 'team') {
+      throw new AppError(
+        422,
+        'contest_team_unexpected',
+        'This contest is entered individually, not by team.',
+      );
+    }
+    const team = await resolveContestTeam(this.db, contest.id, teamSlug);
+    if (!team) {
+      throw new AppError(
+        422,
+        'contest_team_unknown',
+        'No team with that slug belongs to this contest’s organizations.',
+      );
+    }
+    if (new Date() > contest.endTime) {
+      throw new AppError(
+        409,
+        'contest_ended',
+        'This contest has ended; a team cannot be entered into it now.',
+      );
+    }
+
+    const memberIds = await teamMemberIds(this.db, team.id);
+    if (memberIds.length === 0) {
+      throw new AppError(
+        422,
+        'contest_team_empty',
+        'This team has no members, so there is nobody to hold its entry.',
+      );
+    }
+    const captainUserId = Math.min(...memberIds);
+    // `max(now, startTime)` — never before the contest itself, and never
+    // backdated for a seed made mid-round.
+    const startTime = new Date(Math.max(Date.now(), contest.startTime.getTime()));
+
+    const entered = await this.enterTeam(contest, team, memberIds, captainUserId, startTime);
+    if (entered.teamId !== team.id) {
+      throw new AppError(409, 'contest_join_conflict', 'Try again.');
+    }
+    return this.participationDto(contest, entered, team);
   }
 
   /**
@@ -1319,15 +1468,19 @@ export class ContestAccessService {
    * username, D37) would move both, and the board would show one competitor
    * twice with the same work counted on each.
    */
-  private async assertMembersFree(contestId: number, memberIds: number[]): Promise<void> {
+  private async assertMembersFree(
+    contestId: number,
+    memberIds: number[],
+    db: Db = this.db,
+  ): Promise<void> {
     const theirTeams = (
-      await this.db
+      await db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
         .where(inArray(teamMembers.userId, memberIds))
     ).map((row) => row.teamId);
     const mine = inArray(contestParticipations.userId, memberIds);
-    const [clash] = await this.db
+    const [clash] = await db
       .select({ id: contestParticipations.id })
       .from(contestParticipations)
       .where(
@@ -1363,8 +1516,12 @@ export class ContestAccessService {
    * two teams whose names differ only in case are one name on a printed
    * standings sheet.
    */
-  private async assertTeamNameFree(contestId: number, team: ContestTeam): Promise<void> {
-    const [clash] = await this.db
+  private async assertTeamNameFree(
+    contestId: number,
+    team: ContestTeam,
+    db: Db = this.db,
+  ): Promise<void> {
+    const [clash] = await db
       .select({ id: contestParticipations.id })
       .from(contestParticipations)
       .innerJoin(teams, eq(teams.id, contestParticipations.teamId))

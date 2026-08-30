@@ -4315,12 +4315,16 @@ replays are byte-identical, untouched.
   the contest's schools can make while the round runs. The consequence is not
   cosmetic: two rows sharing a name collapse to one sidecar entry, and then
   the scoreboard's disqualify control moves the WRONG team and the results
-  sheet prints the wrong roster against one of the two rows. *Residual,
-  stated rather than fixed:* two same-named teams **joining in the same
-  instant** are not serialised — neither check sees the other's uncommitted
-  row — so that one race can still land both. Closing it needs a lock on a
-  table that has no natural one; the same misfire is possible for as long as
-  it lasts, which is milliseconds rather than a contest.
+  sheet prints the wrong roster against one of the two rows. **The
+  same-instant race is now closed** (F-25): the whole of `join`'s tail runs
+  in one transaction that first takes
+  `pg_advisory_xact_lock(contest_id, hashtext(lower(team.name)))`. The key is
+  the NAME, not the team, and that is the entire point — the two rows racing
+  are two DIFFERENT teams, so a per-team lock never collides for them, while
+  the name they share is exactly what makes them a collision. It serialises
+  two teammates entering one team as a free side effect (same name, same
+  lock). An advisory lock rather than a row lock because there is no row to
+  lock: the thing being made unique is a name that is not on the board yet.
 - **The board's `teams` is a camelCase sidecar, absent for an individual
   contest.** Built inside `computeScoreboard` from the same participation
   rows the fold consumed, so it rides D25's two-second cache and cannot
@@ -4350,12 +4354,23 @@ replays are byte-identical, untouched.
   does not. Reads are staff, a global admin, or somebody on the team — anybody
   else gets 404 `team_not_found`, because a squad list read off the API the
   morning of the round is reconnaissance.
-- **A roster edit during a running contest is allowed, deliberately.**
-  Membership is read, never frozen: a member removed mid-round stops being
-  able to submit for the team from that moment, and the participation and
-  every submission already on it are untouched. Freezing the roster at join
-  would need a snapshot table and would refuse the one edit an organiser
-  actually makes on contest day (a pupil who did not turn up).
+- **A roster edit during a running contest is REFUSED** — 409
+  `team_locked_during_contest` — unless the caller runs every contest the
+  team is mid-round in, or is a global admin. *(Amended F-25; this bullet
+  used to allow it.)* The original reasoning — membership is read, never
+  frozen, so nothing already recorded changes — is true and is not the
+  danger. The danger is who may make the edit: an org admin at ANY of the
+  contest's schools could swap a stranger onto a team mid-round and hand them
+  the participation and every point on it, through an ordinary PATCH, and
+  nothing would say so afterwards. The one legitimate mid-round edit is the
+  pupil who did not turn up, and that is made by the person running the
+  round, which is who the exemption names. **All** the running contests, not
+  any: an organiser of round A has no standing to reshuffle a roster that is
+  mid-round in B. A **rename** is not covered — it has its own rule (the
+  board-ambiguity check above), and a typo fixed during a round harms
+  nobody. `TeamSummary.inRunningContest` is served so the org page can WARN
+  before a teacher opens a form, rather than refusing after they filled it
+  in.
 - **A team contest is never rated** (409 `contest_team_unrateable`).
   Glicko-2 rates a person against the people they were measured with, and a
   team row is three people sharing one result: crediting the captain rates
@@ -4378,8 +4393,54 @@ replays are byte-identical, untouched.
   problem are one entry rather than three suspiciously similar competitors.
   Teammates sharing code is what a team contest IS.
 
+### D99 amended, 2026-08-31 (F-25) — the four gaps F-24 left open
+
+- **`GET /users/me/teams`** — every team the caller is on, across every
+  school, in ONE request. The join picker issued `GET /orgs/{slug}/teams`
+  once per organization the contest named: fine at two schools, twenty round
+  trips at twenty, on the page a province opens at the same minute. It asks
+  no visibility question because every row is a team the caller is ON, which
+  is the strongest membership the team read already accepts. `orgs:read`, not
+  `users:read`: what comes back is a school's rosters, and a token holding
+  only the profile scope must not reach them through a route named after the
+  caller. Not paged (`MY_TEAMS_LIMIT = 200`, `truncated` says so) — a person
+  is on a handful of teams and a picker that had to page would carry a bug
+  nobody reproduces.
+- **`?contest=` annotates each team with `eligible` and
+  `ineligibleReason`**, and every code is one `POST /contests/{key}/join`
+  would refuse with. A screen that explained a refusal in words the server
+  would not use disagrees with the server the first time either changes. Both
+  fields are `null` without a `?contest=` — never `true`, because "may this
+  team enter" has no answer without a contest, and `true` would make a picker
+  that forgot the parameter look like it worked. It is a snapshot, not a
+  promise: the same-instant races are settled by the lock, and no picker can
+  be.
+- **A team has its own page**, `/orgs/{slug}/teams/{teamSlug}`, listing its
+  members and the contests it entered. F-24 argued a team was "a name and
+  three usernames"; what changed is that a team now has a RECORD. It carries
+  no RANK, deliberately: ranking means folding the contest's scoreboard —
+  a cached two-second fold per contest (D25) — which would make one team page
+  cost one of those per row, and a rank means nothing for a round still
+  running. The contest and its board are links, which is where a standing
+  lives.
+- **`POST /contests/{key}/participants` `{ teamSlug }`** lets the organiser
+  enter a team, D61's spirit one rank up. On contest day the member who
+  should press Join is a fifteen-year-old whose password was issued that
+  morning; the organiser can already disqualify that team, answer for it and
+  export its results, and the gap gets filled today by an invigilator
+  borrowing a pupil's account. Every check `join` makes, under the same lock,
+  plus two decisions this route has to make itself: the participation is held
+  by the **lowest user id on the roster** (the row's `user_id` is NOT NULL
+  and is the captain D37's disqualify route is keyed by; nobody pressed a
+  button, so the choice is deterministic rather than whoever the query
+  returned first — an empty roster is 422 `contest_team_empty`), and seeding
+  BEFORE the gun is allowed with `startTime = max(now, contest.startTime)`,
+  because preparing the room is the whole point. After the end it is refused:
+  a team has no virtual replay. There is deliberately **no way to seed an
+  individual** — a person entering a contest is a person choosing to sit it.
+
 *Ruled by the implementer during the 2026-08-30 F-24 loop, no human available
-to consult. Migration 0036.*
+to consult. Migration 0036. Amended during the 2026-08-31 F-25 loop.*
 
 
 ## D100 — The monitor's per-problem panel is a counter, not an aggregate
