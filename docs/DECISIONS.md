@@ -1976,3 +1976,64 @@ is a lie a reader cannot detect.
 *Ruled by the reviewer during the 2026-08-29 feature/bug loop (B8 whole-diff
 review), no human available to consult. No migration.*
 
+
+## D66 — Homework is assigned to a school, and a late solve is shown beside the on-time one rather than instead of it
+
+A province's teachers organise practice by handing out a list of problems and
+a date. Until now the judge had no word for that: a contest is the wrong
+shape (it ranks, it freezes, it has a start you may not enter before), and a
+tag is a topic, not an assignment. `problem_sets` + `problem_set_items`
+(migration 0026) plus six routes under `/orgs/{slug}/sets` are the word —
+*bài tập về nhà*, homework, belonging to one organization.
+
+- **Three questions, in this order: may you see the school, do you belong to
+  it, do you run it.** The first is `OrgAccessService`'s existing visibility
+  gate, unchanged — a school you may not see 404s with no mention of sets.
+  The second is new: a set list is **empty** for a member-less viewer of a
+  *visible* school, and every individual set 404s
+  (`problem_set_not_found`). Blanked, never signalled — D35's shape — because
+  "this school has assigned nothing" is a real state and must be
+  indistinguishable from "you are not in this class". It is not tidiness: an
+  item may name an `org`-visibility problem shared with this school alone, so
+  a readable set is a readable list of problem codes.
+- **A late solve is its own entry on the cell, not a flag on the counted
+  one.** Each cell carries `onTime` and `late`, either of which may be null.
+  The alternative — one "best" attempt plus `late: true` — has to choose, for
+  a pupil with an on-time `WA` and an `AC` two days later, between showing
+  the `WA` (and never telling the teacher they got there) and showing the
+  `AC` (and making the deadline mean nothing). Both, side by side, is the only
+  shape that says what happened. **The deadline is inclusive**: a submission
+  made at the stroke of it is on time. With no deadline, `late` is always
+  `null` — there is nothing to be late for. `solvedAt` is non-null only for
+  an `AC`, because "solved at" is a claim about solving it.
+- **The grid does not count a submission whose contest window is still open;
+  the pupil's own page does.** D49's uniform exclusion, reused verbatim
+  (`contestWindowOpenWhere`), because a set that reuses a live contest's
+  problem would otherwise be a scoreboard of that room, readable by a teacher
+  who is not running it. The pupil's own view is exempt for D23's reason: a
+  submission's author is never masked from their own result. The accepted
+  consequence — a pupil sees their score before their teacher's grid does.
+- **A problem the school's members could not open is refused, 422.** Public,
+  or `org` shared with THIS organization; `private` and another school's `org`
+  problem are both `problem_set_problem_private`, an unknown code is
+  `problem_set_problem_unknown`, and a code twice is
+  `problem_set_problem_duplicate` — every failure in `fields`, keyed
+  `problems[<n>].code`. A problem NARROWED after it was assigned keeps its
+  row, marked `visible: false`: the teacher assigned it, and the page simply
+  stops offering a link that would 404.
+- **The CSV is the whole roster; the JSON grid is a page.** The rows are
+  D58's keyset roster page, cursor and 422 included — except under
+  `?format=csv`, which serves every member. That is a deliberate exception to
+  D58, not an oversight: the export exists *because* a paged grid cannot be
+  handed to a spreadsheet, and a file that stops after twenty-five pupils is
+  a file somebody would mark a class from. A dated set gets a second
+  `<code> (late)` column per problem, because that is the whole of what a
+  deadline buys the person reading the sheet.
+- **D35 has nothing to mask here, by construction.** A set item carries the
+  problem's code, name and its per-set points — no tags, no difficulty, no
+  acceptance rate — so a set page cannot become the hint D35 withholds from a
+  room still solving. Adding any of those to an item later means adding
+  `contestHiddenProblemIds` with them.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F9 brief),
+no human available to consult. Migration 0026.*
