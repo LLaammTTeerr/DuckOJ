@@ -4,7 +4,7 @@ import { rankBand } from '@duckoj/glicko2';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { formatPoints } from '../format.js';
-import { formatDate, useLocale, useT } from '../i18n/index.js';
+import { formatDate, rankTitle, useLocale, useT } from '../i18n/index.js';
 
 type Profile = paths['/users/{username}']['get']['responses'][200]['content']['application/json'];
 type RatingEvent =
@@ -71,15 +71,24 @@ export function UserPage({ username }: { username: string }) {
           <tr>
             <th>{t('user.rating')}</th>
             <td className="num">
-              {/* Title as text, never colour: the design reserves colour
-                  for verdicts (app.css rule 1). The band table is the D6
-                  placeholder — renaming it is a data edit in
-                  packages/glicko2/src/bands.ts. */}
-              {/* The band TITLE comes from `packages/glicko2`'s data table
-                  (D6) — content, renamed by editing that table, not here. */}
-              {user.rating === null
-                ? t('user.unrated')
-                : `${rankBand(user.rating).title} \u00b7 ${String(user.rating)}`}
+              {/* The band's TITLE and its COLOUR both come from
+                  `packages/glicko2`'s data table (D46): the words are the
+                  row's own two spellings, and the key is the CSS modifier
+                  class app.css matches its muted rank scale on. Renaming or
+                  recolouring a rank is an edit to that table plus one
+                  `.rank.<key>` rule — never a change here. The scale is
+                  deliberately outside the verdict palette (app.css rule 1,
+                  amended for D46). */}
+              {user.rating === null ? (
+                t('user.unrated')
+              ) : (
+                <>
+                  <span className={`rank ${rankBand(user.rating).key}`}>
+                    {rankTitle(locale, rankBand(user.rating))}
+                  </span>
+                  {` \u00b7 ${String(user.rating)}`}
+                </>
+              )}
               {user.maxRating !== null && user.maxRating !== user.rating
                 ? t('user.peak', { n: user.maxRating })
                 : ''}

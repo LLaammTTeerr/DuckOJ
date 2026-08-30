@@ -191,6 +191,20 @@ export function tagName(locale: Locale, tag: { nameVi: string; nameEn: string })
 }
 
 /**
+ * A rank band's title in the active locale.
+ *
+ * Takes the locale rather than `t`, for the same reason `tagName` above
+ * does: a band's words are DATA, not catalogue entries. They live on one row
+ * of `packages/glicko2`'s `RANK_BANDS` table (D46), both spellings together,
+ * so switching locale re-renders from a value already in hand and renaming a
+ * rank is an edit to that table alone — not an edit there plus two catalogue
+ * edits that can drift apart.
+ */
+export function rankTitle(locale: Locale, band: { nameVi: string; nameEn: string }): string {
+  return locale === 'vi' ? band.nameVi : band.nameEn;
+}
+
+/**
  * A global role (`user`/`setter`/`admin`) as a word.
  *
  * Takes a bare `string`, not the union: it is called with values that arrive

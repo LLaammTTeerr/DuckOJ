@@ -5,12 +5,21 @@
  * Reference: docs/design/mockup-v1.html (approved). Two rules from it are
  * structural, not cosmetic, and this file exists to keep them intact:
  *
- *   1. COLOUR IS RESERVED FOR VERDICTS. Chrome is monochrome — a green- or
- *      amber-phosphor chrome would collide with AC-green and TLE-amber, and
- *      on a judge the verdict must read before anything else. Every verdict
- *      carries a GLYPH as well as a hue (`.badge::before` / `.case::before`
- *      below), never colour alone, so it survives colour-blindness and a
- *      monochrome screenshot.
+ *   1. COLOUR IS RESERVED FOR VERDICTS — and, since D46, for exactly one
+ *      other scale. Chrome is monochrome: a green- or amber-phosphor chrome
+ *      would collide with AC-green and TLE-amber, and on a judge the verdict
+ *      must read before anything else. Every verdict carries a GLYPH as well
+ *      as a hue (`.badge::before` / `.case::before` below), never colour
+ *      alone, so it survives colour-blindness and a monochrome screenshot.
+ *
+ *      The one amendment (D46): a RANK BAND gets a hue too, from the `.rank`
+ *      scale near the bottom of this file. It does not break the rule it
+ *      amends, because the scale is deliberately built not to collide — it
+ *      is one desaturated ramp (cool grey → steel → plum → bronze) at half
+ *      the chroma of any verdict, it appears on exactly one row of exactly
+ *      one screen (a profile's rating), and no verdict ever appears beside
+ *      it. And it is never colour alone either: the band's NAME is the
+ *      carrier, the hue only tints it.
  *   2. THE STATEMENT IS THE ONLY NON-DENSE SURFACE: 68ch measure, 1.7
  *      line-height (`main > section > div`, below — the problem statement's
  *      `dangerouslySetInnerHTML` container). Everything else is a table
@@ -148,6 +157,19 @@
   --ce: #0969da;
   --pend: #5c6470;
 
+  /* The rank scale (D46) — see `.rank` below for why it is allowed to
+     exist beside the verdict hues, and why it looks nothing like them. */
+  --rank-newbie: #5f6570;
+  --rank-pupil: #47664f;
+  --rank-specialist: #3c6570;
+  --rank-expert: #3d5b87;
+  --rank-candidate-master: #554f86;
+  --rank-master: #6b4a7d;
+  --rank-international-master: #7a4563;
+  --rank-grandmaster: #854840;
+  --rank-international-grandmaster: #75552b;
+  --rank-legendary-grandmaster: #5a4620;
+
   --space: 1rem;
   --measure: 68ch;
 }
@@ -172,6 +194,17 @@
     --ie: #a371f7;
     --ce: #58a6ff;
     --pend: #7e8894;
+
+    --rank-newbie: #9aa0a8;
+    --rank-pupil: #8fb69c;
+    --rank-specialist: #7fb6c2;
+    --rank-expert: #8aabdc;
+    --rank-candidate-master: #a29ce0;
+    --rank-master: #bd9ad6;
+    --rank-international-master: #d095b4;
+    --rank-grandmaster: #d99a8f;
+    --rank-international-grandmaster: #cfae76;
+    --rank-legendary-grandmaster: #e8d49a;
   }
 }
 
@@ -549,7 +582,7 @@ section section > p:first-child {
   max-width: none;
 }
 
-/* --- verdicts: the only colour in the system ---------------------------
+/* --- verdicts: the primary colour scale --------------------------------
  * `.badge` is applied to whatever element is showing a verdict-shaped
  * result (a <strong> on the submit page, a <span> in the revisions state
  * column) alongside a lowercase modifier class matching the verdict code —
@@ -624,6 +657,68 @@ section section > p:first-child {
 }
 .badge.pend::before {
   content: '.';
+}
+
+/* --- rank bands (D46) ----------------------------------------------------
+ * The second — and only other — colour scale in the system, and the one
+ * amendment to this file's rule 1 (see the header).
+ *
+ * `.rank` is applied to the <span> holding a rating band's title, with the
+ * band's own KEY as the modifier class: `<span class="rank specialist">`.
+ * The key comes straight out of `packages/glicko2`'s `RANK_BANDS` table, so
+ * renaming a band is a data edit there plus one rule here, and a band whose
+ * key changed loses its colour loudly (falls back to `--fg`) rather than
+ * silently inheriting the next band's.
+ *
+ * Why this does not collide with the verdicts above:
+ *   - Every hue here is desaturated — roughly half the chroma of the verdict
+ *     palette — so a rank reads as a tint on a word, never as a signal.
+ *   - The ramp is a progression, not a set of independent tokens: cool grey
+ *     → sage → teal → steel → periwinkle → plum → mulberry → terracotta →
+ *     bronze, dark bronze. Reading UP the ramp is the whole point, which is
+ *     the opposite of a verdict, where each hue means one fixed thing.
+ *   - It appears on exactly one row of one screen (a profile's rating line).
+ *     No verdict is ever rendered beside it.
+ *   - It is never colour alone. The band's NAME is the information; the hue
+ *     tints it. A monochrome screenshot loses nothing.
+ * Every value clears 4.5:1 against both `--bg`s; the top band also takes the
+ * weight, because "legendary" should read as such without a new hue.
+ */
+.rank {
+  color: var(--fg);
+  font-weight: 600;
+}
+.rank.newbie {
+  color: var(--rank-newbie);
+}
+.rank.pupil {
+  color: var(--rank-pupil);
+}
+.rank.specialist {
+  color: var(--rank-specialist);
+}
+.rank.expert {
+  color: var(--rank-expert);
+}
+.rank.candidate-master {
+  color: var(--rank-candidate-master);
+}
+.rank.master {
+  color: var(--rank-master);
+}
+.rank.international-master {
+  color: var(--rank-international-master);
+}
+.rank.grandmaster {
+  color: var(--rank-grandmaster);
+}
+.rank.international-grandmaster {
+  color: var(--rank-international-grandmaster);
+}
+.rank.legendary-grandmaster {
+  color: var(--rank-legendary-grandmaster);
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }
 
 /* --- case grid -----------------------------------------------------------

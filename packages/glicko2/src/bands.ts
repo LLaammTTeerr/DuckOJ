@@ -1,10 +1,16 @@
 /**
- * Rank titles — a placeholder band table behind one function (D6).
+ * Rank titles — the band table behind one function (D46, superseding D6's
+ * placeholder).
  *
- * The names and thresholds are deliberately Codeforces-shaped and
- * deliberately provisional: the product decision is deferred, so replacing
- * either is an edit to `RANK_BANDS` and nothing else. Two properties are
- * load-bearing and tested rather than assumed:
+ * The names are Vietnamese olympiad/chess-flavoured, and both locales live
+ * on the same row: a band's words are DATA, exactly like a tag's two
+ * spellings (D18), so the UI picks a field rather than looking a key up in a
+ * message catalogue. That is what keeps "rename a rank" a one-line edit here
+ * instead of an edit here plus two catalogue edits that can drift apart.
+ *
+ * The thresholds are unchanged from the placeholder — D46 renamed the bands
+ * and nothing else, so nobody's title moved for a reason they cannot see.
+ * Two properties are load-bearing and tested rather than assumed:
  *
  *   - the table is sorted ascending by `min`, and the first band's floor is
  *     `-Infinity`, so *every* number lands in exactly one band — Glicko-2
@@ -13,32 +19,55 @@
  *   - `min` is inclusive: a rating exactly at a boundary holds the higher
  *     title, matching how every rating site reads "1900+".
  *
- * `color` is carried for a future design pass and is NOT rendered today:
- * the approved web design reserves colour for verdicts (app.css rule 1),
- * so the UI shows the title as text only.
+ * There is deliberately no `color` field any more. The web renders a band as
+ * `<span class="rank {key}">`, and `app.css` owns the muted rank scale in
+ * both the light and the dark palette — a hex string in this table could only
+ * ever be right in one of them. The key is the class name, which is why the
+ * table's test pins its shape.
  */
 
 export interface RankBand {
-  /** Stable machine key — safe to persist or use in a class name. */
+  /** Stable machine key — also the CSS modifier class (`.rank.pupil`). */
   key: string;
-  title: string;
+  /** The title in Vietnamese, the default locale (D18). */
+  nameVi: string;
+  /** The title in English. */
+  nameEn: string;
   /** Inclusive lower bound of the band. */
   min: number;
-  /** Reserved for a future design pass; unused by the current UI. */
-  color: string;
 }
 
 export const RANK_BANDS: readonly RankBand[] = [
-  { key: 'newbie', title: 'Newbie', min: -Infinity, color: '#808080' },
-  { key: 'pupil', title: 'Pupil', min: 1200, color: '#008000' },
-  { key: 'specialist', title: 'Specialist', min: 1400, color: '#03a89e' },
-  { key: 'expert', title: 'Expert', min: 1600, color: '#0000ff' },
-  { key: 'candidate-master', title: 'Candidate Master', min: 1900, color: '#aa00aa' },
-  { key: 'master', title: 'Master', min: 2100, color: '#ff8c00' },
-  { key: 'international-master', title: 'International Master', min: 2300, color: '#ff8c00' },
-  { key: 'grandmaster', title: 'Grandmaster', min: 2400, color: '#ff0000' },
-  { key: 'international-grandmaster', title: 'International Grandmaster', min: 2600, color: '#ff0000' },
-  { key: 'legendary-grandmaster', title: 'Legendary Grandmaster', min: 3000, color: '#ff0000' },
+  { key: 'newbie', nameVi: 'Tân binh', nameEn: 'Newbie', min: -Infinity },
+  { key: 'pupil', nameVi: 'Học viên', nameEn: 'Pupil', min: 1200 },
+  { key: 'specialist', nameVi: 'Chuyên gia', nameEn: 'Specialist', min: 1400 },
+  { key: 'expert', nameVi: 'Cao thủ', nameEn: 'Expert', min: 1600 },
+  {
+    key: 'candidate-master',
+    nameVi: 'Ứng viên kiện tướng',
+    nameEn: 'Candidate Master',
+    min: 1900,
+  },
+  { key: 'master', nameVi: 'Kiện tướng', nameEn: 'Master', min: 2100 },
+  {
+    key: 'international-master',
+    nameVi: 'Kiện tướng quốc tế',
+    nameEn: 'International Master',
+    min: 2300,
+  },
+  { key: 'grandmaster', nameVi: 'Đại kiện tướng', nameEn: 'Grandmaster', min: 2400 },
+  {
+    key: 'international-grandmaster',
+    nameVi: 'Đại kiện tướng quốc tế',
+    nameEn: 'International Grandmaster',
+    min: 2600,
+  },
+  {
+    key: 'legendary-grandmaster',
+    nameVi: 'Đại kiện tướng huyền thoại',
+    nameEn: 'Legendary Grandmaster',
+    min: 3000,
+  },
 ];
 
 /** The band holding `rating`. Total: every finite number lands somewhere. */
