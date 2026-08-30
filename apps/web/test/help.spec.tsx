@@ -170,6 +170,19 @@ describe('the guides against the features that exist', () => {
     expect(body).not.toMatch(/no .{0,2}homework.{0,2} object/i);
   });
 
+  it('describes the nav the reader has, phone bar included (D76)', async () => {
+    // UI-2 split one flat row into three desktop clusters and a five-tab
+    // phone bar with a "Thêm" sheet. A guide that still inventories one bar
+    // sends a pupil on a phone looking for links that are now behind a
+    // button — the failure mode a guide has that a stale comment does not.
+    const body = await guideText();
+    expect(body).toContain('năm thẻ');
+    expect(body).toContain('Thêm');
+    expect(body).toContain('five tabs');
+    expect(body).toContain('More');
+    expect(body).not.toContain('Thanh điều hướng luôn có');
+  });
+
   it('gives the import the bounds it actually has (D61, as amended)', async () => {
     const body = await guideText('Giáo viên');
     expect(body).toContain('500 dòng');

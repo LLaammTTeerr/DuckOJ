@@ -4,9 +4,18 @@ Mọi thứ bạn cần để thi và luyện tập trên DuckOJ. Tên các nút
 mục trong hướng dẫn này đúng như trên màn hình tiếng Việt; nếu bạn đang bật
 tiếng Anh thì bấm **VI** ở thanh trên cùng.
 
-Thanh điều hướng luôn có: **Bài tập**, **Kỳ thi**, **Tổ chức**, **Bài nộp**,
-**API**, và khi đã đăng nhập thì thêm **Mã truy cập**, **Bảo mật**, **Cài
-đặt**, **Mật khẩu**, chuông thông báo `[ ]`, nút **VI | EN** và tên bạn.
+Trên **máy tính**, thanh điều hướng ở trên cùng chia làm ba cụm: phần chính
+(**Bài tập**, **Kỳ thi**, **Bài nộp**, **Tổ chức**), phần tra cứu (**Trợ
+giúp**, **API**, và **Quản trị** nếu bạn là quản trị viên), rồi phần tài
+khoản ở bên phải — chuông thông báo, tên bạn, **Cài đặt**, **Bảo mật**, **Mã
+truy cập**, **Mật khẩu**, nút **VI | EN** và **Đăng xuất**.
+
+Trên **điện thoại**, thanh nằm ở **đáy màn hình** và chỉ có năm thẻ: **Bài
+tập**, **Kỳ thi**, **Bài nộp**, **Thông báo** (chưa đăng nhập thì thẻ này là
+**Đăng nhập**) và **Thêm**. Bấm **Thêm** mở một bảng chứa mọi mục còn lại —
+**Tổ chức**, trang cá nhân, **Cài đặt**, **Bảo mật**, **Mã truy cập**, **Mật
+khẩu**, **Trợ giúp**, **API**, **VI | EN**, **Đăng xuất**. Đóng bảng bằng
+phím `Esc`, bằng nút **Đóng**, hoặc bấm ra ngoài bảng.
 
 ## 1. Đăng ký
 
@@ -160,7 +169,8 @@ Ngay dưới bảng bài tập là mục **Hỏi đáp / Thông báo**.
 - Mục này chỉ hiện **200 mục mới nhất**; khi có cắt bớt, hệ thống nói rõ.
 
 Khi câu hỏi của bạn được trả lời, khi một câu hỏi được công bố, hay khi có
-thông báo mới, chuông `[ ]` trên thanh điều hướng sẽ hiện số chưa đọc. Trang
+thông báo mới, chuông trên thanh điều hướng sẽ hiện số chưa đọc — trên điện
+thoại chuông chính là thẻ **Thông báo** ở đáy màn hình. Trang
 **Thông báo** có nút **Đánh dấu đã đọc tất cả**.
 
 ## 8. Bảng điểm và lúc bảng điểm đóng băng
@@ -240,7 +250,8 @@ phải nhập cả **Mật khẩu hiện tại**.
   giờ**. Ngôn ngữ chọn ở đây đi theo tài khoản trên mọi thiết bị và cũng là
   ngôn ngữ của email hệ thống gửi cho bạn. Chọn *Theo trình duyệt* để trả về
   mặc định.
-- **VI | EN** trên thanh điều hướng chỉ đổi ngôn ngữ cho trình duyệt này.
+- **VI | EN** trên thanh điều hướng (trên điện thoại: trong bảng **Thêm**)
+  chỉ đổi ngôn ngữ cho trình duyệt này.
 - Trang **hồ sơ** của bạn (bấm vào tên mình) có số bài đã giải, điểm, số bài
   nộp, **Rating** và lịch sử rating theo từng kỳ thi.
 - **Tổ chức** (`/orgs`) — các trường/câu lạc bộ. Tuỳ cách gia nhập, bạn có thể
@@ -254,7 +265,20 @@ hiệu bài nộp**.
 ## English
 
 Everything you need to compete and practise on DuckOJ. Button and field names
-below are the English ones — press **EN** in the top bar to match them.
+below are the English ones — press **EN** in the nav to match them.
+
+On a **computer** the top bar is three clusters: the main sections
+(**Problems**, **Contests**, **Submissions**, **Orgs**), then reference
+(**Help**, **API**, and **Admin** if you are one), then your account on the
+right — the bell, your name, **Settings**, **Security**, **Tokens**,
+**Password**, the **VI | EN** toggle and **Sign out**.
+
+On a **phone** the bar sits at the bottom of the screen and carries five tabs
+only: **Problems**, **Contests**, **Submissions**, **Notifications** (or
+**Sign in** when you are signed out) and **More**. **More** opens a sheet with
+everything else — **Orgs**, your profile, **Settings**, **Security**,
+**Tokens**, **Password**, **Help**, **API**, **VI | EN** and **Sign out**.
+Close it with `Esc`, with **Close**, or by tapping outside it.
 
 ### 1. Registering
 

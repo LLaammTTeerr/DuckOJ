@@ -36,7 +36,8 @@ diễn ra trong web.
 ## 2. Trang Quản trị
 
 Đăng nhập bằng tài khoản quản trị viên rồi mở **Quản trị** (`/admin`) trên
-thanh điều hướng — mục này chỉ hiện với quản trị viên. Trang gồm bốn phần,
+thanh điều hướng — mục này chỉ hiện với quản trị viên, và trên điện thoại nó
+nằm trong bảng **Thêm** chứ không phải trên thanh dưới đáy. Trang gồm bốn phần,
 theo thứ tự: **Vận hành**, **Cấp quyền toàn hệ thống**, **Đặt lại xác thực hai
 bước**, **Kỳ thi tính rating**.
 
@@ -287,7 +288,8 @@ is needed **once per database**; every later grant happens in the web UI.
 
 ### 2. The Admin page
 
-**Admin** (`/admin`) appears in the nav for administrators only, and holds four
+**Admin** (`/admin`) appears in the nav for administrators only — on a phone
+inside the **More** sheet rather than on the bottom bar — and holds four
 sections in this order: **Operations**, **Grant a global role**, **Reset
 two-factor**, **Rated contests**.
 
