@@ -1027,6 +1027,49 @@ Fourteen nightly backups on the same disk as the database protect against
 nothing that destroys the disk or the machine. Someone has to copy
 `~/duckoj-backups` off this host on a schedule.
 
+## Redis is unbounded on purpose
+
+`redis` runs with **`maxmemory 0`** (no limit) and the default `noeviction`
+policy, and that is deliberate rather than an oversight.
+
+It is safe because of a property of the code, not of the configuration:
+**every key this API writes carries a TTL.** There is exactly one write path,
+`SET … PX` (the scoreboard/booklet/statistics cache, D25/D48/D49), and
+realtime is pub/sub, which stores nothing. B12 scanned the live instance
+*during* a 500-VU hold and found **zero keys without a TTL**, 1.30 MB used
+against a 1.47 MB peak, 98.3% hit rate.
+
+Setting `maxmemory` + `allkeys-lru` was considered and refused: it configures
+an eviction policy for a workload that never needs one, and it would turn the
+first non-expiring key anyone adds from a visible growth problem into a value
+that silently disappears under memory pressure. Unbounded-with-a-TTL fails
+loudly; bounded-with-LRU fails quietly.
+
+**What keeps the ruling honest.** `api` reads `CONFIG GET maxmemory` once at
+startup — one worker only, whichever cluster worker is `#1` — and logs
+
+    WARN [RedisConfig] redis maxmemory is 0 (unbounded) with no eviction policy: …
+
+That line is expected on this deployment. It exists so that whoever adds a
+`SET` without an expiry meets the word `maxmemory` before the host's OOM
+killer does. If you ever do add a non-expiring key, that is the moment to set
+a limit and an eviction policy — and to come back and rewrite this section.
+
+The check never blocks a boot and never fails one: a Redis that is not up
+yet, or a managed Redis that forbids `CONFIG`, logs one `debug` line and
+nothing else. Absence of the warning therefore means "bounded, **or** could
+not ask" — check with `redis-cli config get maxmemory` if it matters.
+
+**A related line you may see under load**, once a minute at most:
+
+    WARN [RedisScoreboardCacheStore] scoreboard cache unavailable, folding every board until Redis returns: Stream isn't writeable…
+
+That is a transient cache drop-out (`enableOfflineQueue: false`, so a command
+that cannot be sent right now fails instead of queueing). It cannot fail a
+request — the board is simply folded from Postgres — and it is throttled to
+one line a minute per worker precisely because it used to arrive once per
+failed request, in the middle of the load that caused it.
+
 ## API workers — `API_WORKERS`
 
 `api` is a Node process, and Node runs JavaScript on one thread. Before this

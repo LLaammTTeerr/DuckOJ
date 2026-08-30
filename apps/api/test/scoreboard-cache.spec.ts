@@ -14,11 +14,13 @@ import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Scoreboard } from '@duckoj/contest-formats';
 import {
+  OUTAGE_LOG_INTERVAL_MS,
   RedisScoreboardCacheStore,
   SCOREBOARD_CACHE_TTL_MS,
   ScoreboardCache,
   scoreboardCacheKey,
   scoreboardCacheKeys,
+  type CacheRedis,
   type ScoreboardCacheStore,
 } from '../src/authz/scoreboard.cache.js';
 
@@ -336,5 +338,69 @@ describe('RedisScoreboardCacheStore, with no Redis to talk to', () => {
     // The whole point of `enableOfflineQueue: false`: a bypass must cost
     // nothing measurable, or a Redis outage becomes a latency outage.
     expect(Date.now() - started).toBeLessThan(1_000);
+  });
+});
+
+/**
+ * A FLAPPING Redis, which is the shape B12 actually measured: `Stream isn't
+ * writeable` drop-outs under load — three workers at k6 start, four more
+ * during a 300-VU hold — each one a single failed command between successful
+ * ones. "One line per outage" was implemented as a boolean cleared by the
+ * next success, so a connection that flaps is not one outage: it is one log
+ * line per failed request, on the hot path, in the middle of the load that
+ * caused it.
+ */
+describe('RedisScoreboardCacheStore under a flapping connection', () => {
+  const stores: RedisScoreboardCacheStore[] = [];
+
+  afterEach(() => {
+    for (const store of stores.splice(0)) store.onModuleDestroy();
+    vi.restoreAllMocks();
+  });
+
+  /** A connection that fails every other command, exactly as a flapping stream does. */
+  function flapping(): CacheRedis {
+    let call = 0;
+    const next = async (): Promise<never | null> => {
+      call += 1;
+      if (call % 2 === 0) throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+      return null;
+    };
+    return {
+      get: next,
+      set: next,
+      del: next,
+      disconnect: () => undefined,
+    };
+  }
+
+  it('logs at most one line a minute, not one per failed request', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const store = new RedisScoreboardCacheStore({ redisUrl: 'redis://127.0.0.1:1' }, () => flapping());
+    stores.push(store);
+
+    // Twenty requests, ten of which fail — a modest fraction of one second of
+    // the load B12 ran.
+    for (let i = 0; i < 20; i++) await store.get('k');
+
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so again once the interval has passed, so a long outage is not silent', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    let clock = 1_000_000;
+    const store = new RedisScoreboardCacheStore(
+      { redisUrl: 'redis://127.0.0.1:1' },
+      () => flapping(),
+      () => clock,
+    );
+    stores.push(store);
+
+    for (let i = 0; i < 10; i++) await store.get('k');
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    clock += OUTAGE_LOG_INTERVAL_MS + 1;
+    for (let i = 0; i < 10; i++) await store.get('k');
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 });
