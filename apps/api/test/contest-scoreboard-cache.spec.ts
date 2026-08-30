@@ -72,11 +72,16 @@ async function join(db: Db, contestId: number, userId: number): Promise<void> {
  * ids restart at 1 — so without the flush, test two would read test one's
  * board out of the cache under exactly the same key.
  */
+const REDIS_DB = 1;
+
 async function freshRedis(): Promise<string> {
-  const url = await ensureRedisUrl();
+  // `flushdb` on this file's OWN logical database, never `flushall`: the
+  // container is shared with `problem-stats` and `contest-booklet`, and a
+  // global wipe from one of them lands between another's write and its read.
+  const url = await ensureRedisUrl(REDIS_DB);
   const redis = new Redis(url);
   try {
-    await redis.flushall();
+    await redis.flushdb();
   } finally {
     redis.disconnect();
   }

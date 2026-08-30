@@ -449,11 +449,14 @@ async function userIdByUsername(db: Db, username: string): Promise<number> {
 }
 
 /** A live Redis, emptied first — see `contest-scoreboard-cache.spec.ts`. */
+const REDIS_DB = 3;
+
 async function freshRedis(): Promise<string> {
-  const url = await ensureRedisUrl();
+  // This file's own logical database — see `redis.harness.ts`.
+  const url = await ensureRedisUrl(REDIS_DB);
   const redis = new Redis(url);
   try {
-    await redis.flushall();
+    await redis.flushdb();
   } finally {
     redis.disconnect();
   }

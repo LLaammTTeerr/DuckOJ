@@ -29,11 +29,31 @@ if (!process.env.DOCKER_HOST) {
 let container: StartedRedisContainer | undefined;
 let url: string | undefined;
 
-export async function ensureRedisUrl(): Promise<string> {
-  if (url) return url;
-  container = await new RedisContainer('redis:7-alpine').start();
-  url = container.getConnectionUrl();
-  return url;
+/**
+ * `db` selects a LOGICAL Redis database, and every spec that empties Redis
+ * must pass one of its own.
+ *
+ * Three spec files now build a real cache on this container and start by
+ * wiping it — `contest-scoreboard-cache`, `problem-stats` (D49) and
+ * `contest-booklet` (D48). The container is cached in this module, and
+ * vitest reuses a worker process across spec files, so two of them can land
+ * in one fork, share one Redis, and `flushall` each other's entry between a
+ * write and the read that asserts on it. That is exactly what reddened the
+ * full ritual: two `expected 'miss' to be 'hit'` failures at once, in files
+ * that pass alone and pass together, only under whole-suite load.
+ *
+ * A logical database per spec makes the wipe local: `flushdb` on `/2` cannot
+ * touch `/1`, whichever fork either file lands in. `SELECT` is per
+ * connection, so nothing else has to change — the store reads the db out of
+ * the URL like any other client. Pub/sub is NOT database-scoped, which
+ * costs nothing here because the realtime specs publish rather than flush.
+ */
+export async function ensureRedisUrl(db?: number): Promise<string> {
+  if (!url) {
+    container = await new RedisContainer('redis:7-alpine').start();
+    url = container.getConnectionUrl();
+  }
+  return db === undefined ? url : `${url}/${String(db)}`;
 }
 
 const STOP_RETRY_DELAYS_MS = [500, 1000, 2000];
