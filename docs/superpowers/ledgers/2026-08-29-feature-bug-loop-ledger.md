@@ -91,3 +91,4 @@
 - MISTAKE: the B-16 merge commit (031dbbc) swept F-24's uncommitted team files in (git add -A apps/api). HEAD fails tsc until F-24 commits; live stays on the F-22 build; deploy + api suite deferred to F-24's completion. Rule from now: merges stage only conflict files + generated artefacts by explicit path.
 - B-17 DONE_WITH_CONCERNS on `worktree-agent-ab098147de8ec7110` (997c839..fa70022): MCP prompt fencing (D96), MCP error codes, prepare crash-masking + editorial auto-publish (D97), unwatch case, double refusal rows; monitor per-problem panel still seq-scans (schema follow-up). Merge after F-24.
 - F-24 DONE_WITH_CONCERNS (0879821..fe85612): team contests (D99, migration 0036). B-17 merged. Deployed api+judged via deploy.sh; pushed.
+- Dispatched F-25 teams/monitor consolidation (main, D100, migration 0037) and B-18 whole-diff review II (worktree, D101–D103). Full api suite + full e2e running in the background.
