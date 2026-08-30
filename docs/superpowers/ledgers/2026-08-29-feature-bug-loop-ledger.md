@@ -73,3 +73,4 @@
 - F-18 DONE (03ae314..68f3d61): browser problem authoring — file-by-file drafts, server build, D87; deployed (health polled 48 s, no re-forks) + pushed.
 - F-19 dispatched (main, opus): authoring round-trip from a revision, problem clone, contest clone (D88).
 - Owner asks (2026-08-30): MCP for agents + problem-prepare system. Dispatched F-20 apps/mcp (worktree, D89: reads default, writes opt-in, no admin tools) and F-21 packages/prepare gate+publisher (worktree, D90) wrapping the competitive-programming skills' output.
+- GitGuardian flagged f921aa3: a fixed e2e fixture password (not a credential). Replaced with a per-run random; 57 throwaway test accounts on live locked (password_hash '!'). Admin/student creds were never in git.
