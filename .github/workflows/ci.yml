@@ -12,7 +12,13 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Fully-serial testing (--workspace-concurrency=1 + --no-file-parallelism,
+    # see the Test step) trades wall time for determinism: apps/api alone is
+    # 121 spec files, each starting its own Testcontainers Postgres, run one at
+    # a time. That is deliberately slower than the old parallel run — which is
+    # exactly why the old `timeout-minutes: 25` no longer fits. Measured local
+    # wall time and the reasoning are in docs/DECISIONS.md D106.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -48,8 +54,28 @@ jobs:
       - name: Lint scripts/
         run: pnpm run lint:scripts
 
+      # The boot check that would have caught the 2026-08-30 DI outage
+      # (D106). app.boot.spec loads the *tsc-compiled* dist/ — the only place
+      # `emitDecoratorMetadata` is real, so the only place a `Nest can't
+      # resolve dependencies` break is visible — boots the real AppModule with
+      # NestFactory.create against a fresh migrated Testcontainers Postgres,
+      # and asserts every controller resolved and /healthz, /readyz and the
+      # deploy-poll route answer. It also runs inside the api suite below, but
+      # this dedicated step fails fast and legibly, before the ~121-file run,
+      # so a DI break is named in seconds rather than found deep in the suite.
+      - name: Boot check (app.boot.spec against dist)
+        run: pnpm run test:boot
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: 'true'
+
+      # `--workspace-concurrency=1` runs the packages one at a time and
+      # `--no-file-parallelism` (forwarded to every package's `vitest run`)
+      # runs each package's spec files one at a time. The suites pass serially
+      # on every loop but flake under a loaded runner when many api spec files
+      # each start a Testcontainers Postgres at once — CI trades wall time for
+      # determinism here; local `pnpm test` stays fully parallel. See D106.
       - name: Test
-        run: pnpm -r test
+        run: pnpm run test:ci
         env:
           # Testcontainers uses the Docker daemon preinstalled on the runner.
           TESTCONTAINERS_RYUK_DISABLED: 'true'

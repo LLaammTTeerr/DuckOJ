@@ -4827,3 +4827,174 @@ captain for every teammate's work — a pupil who may not have touched a keyboar
 
 *Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
 no human available to consult. No migration; one added contract field.*
+
+## D106 — CI runs the suites fully serially, and boots the compiled app, because a loaded runner is the only place the tests flake
+
+Finding #1 of the consolidation loop (c1). `.github/workflows/ci.yml` ran
+`pnpm -r test`, which lets pnpm run workspace packages concurrently and lets
+each package's `vitest run` run its spec files in parallel worker threads.
+Every package passes when run alone and serially — the loop reports say so
+over and over (B-9 needed six attempts, F-6/F-9/F-13 each record a *different*
+random pair of untouched web specs flaking, B-1/B-3/F-1 the scoreboard-cache
+TTL spec) — and every one of those flakes is a symptom of the same cause:
+`apps/api` alone is 121 spec files and **each one starts its own
+Testcontainers Postgres** (`apps/api/test/db.harness.ts`), so under file
+parallelism a loaded runner has dozens of Postgres containers racing to start
+at once and a container-start timeout reds a spec that never ran a line of the
+code under test. That is the "CI is failing/flaky" this loop was told to fix.
+
+- **CI now runs `pnpm run test:ci` = `pnpm -r --workspace-concurrency=1 test
+  -- --no-file-parallelism`.** `--workspace-concurrency=1` runs the packages
+  one at a time; the forwarded `--no-file-parallelism` (which lands on every
+  package's `vitest run`, all twenty of which end in exactly that command —
+  verified) runs each package's spec files one at a time. One Testcontainers
+  Postgres exists at any instant. This is the invocation the loops have been
+  proving green by hand all along (`vitest run --no-file-parallelism`), now the
+  CI default. **Local dev is untouched** — `pnpm test` stays fully parallel and
+  fast; only CI pays the determinism tax.
+- **A dedicated boot step runs before the suite: `pnpm run test:boot`.** It
+  `tsc -b`s `apps/api` and runs `app.boot.spec.ts` (B-15's test) against the
+  compiled `dist/` — the only place `emitDecoratorMetadata` is real, so the
+  only place a `Nest can't resolve dependencies` break like the 2026-08-30
+  outage is visible; a spec importing `src/` cannot see it. It boots the real
+  `AppModule` with `NestFactory.create` against a fresh migrated Postgres and
+  asserts every controller resolved and `/healthz`, `/readyz` and the
+  deploy-poll route answer. The spec already runs inside the api suite; the
+  named step fails fast and legibly, in ~7 s, before the ~100-file run.
+- **`timeout-minutes` raised 25 → 60.** Serial-everything is deliberately
+  slower than the old parallel run; the local `test:ci` wall time is recorded
+  in the c1 report, and 60 is cheap insurance on a slower GitHub runner.
+- **Why not a shared `vitest.config` gated on `process.env.CI`?** It was one of
+  the brief's three offered shapes. The CI-only command is the least invasive:
+  no package gains a config file it did not have, the existing per-package
+  `test` scripts are untouched, and the exact flag the loops already trust is
+  what runs. `vitest.workspace.ts` stays as-is (an unused convenience for a
+  root `vitest` invocation).
+
+*Ruled by the implementer during the 2026-08-31 consolidation loop (c1 brief),
+no human available to consult. No migration; CI + root `package.json` only.*
+
+## D107 — A fresh deploy is proven: migrate applies clean, drizzle-kit reports no drift, the goldens are byte-identical
+
+Consolidation-loop (c1) evidence that a brand-new deployment stands up from an
+empty database, re-established because so much schema landed since B-9/B-12
+(teams 0036, monitor 0035, problem stats 0037, contest seats 0038). Run
+2026-08-31 against a throwaway `postgres:16-alpine` on a spare port, then torn
+down.
+
+- **`scripts/migrate.ts` (`pnpm --filter @duckoj/db migrate`) applied every
+  migration cleanly on the empty database.** `drizzle.__drizzle_migrations`
+  held **33 rows** afterwards and `public` held **40 tables**.
+- **The migration set is 33 SQL files, journal idx `0000`–`0038`.** The count
+  is not 39: the journal has *deliberate gaps* — `0020` (reserved by a sibling
+  task, never filled — B-4/F-4 record it) and `0030`–`0034` (reserved across
+  the F-loops, never needed). Drizzle applies by the journal's `when`
+  timestamp, not by filename number, so the gaps are inert; B-18 already
+  cleared the journal as monotonic. This is why "0001→0038" in prose means 33
+  files, not 39.
+- **`drizzle-kit generate` reports `No schema changes, nothing to migrate` and
+  writes no new file** (`migrations/*.sql` count 33 before and after). The
+  TypeScript schema (`src/schema/index.ts` + `src/schema/guarded.ts`) and the
+  committed migrations are in sync — there is no un-captured drift a fresh
+  deploy would miss.
+- **The `@duckoj/contest-formats` goldens are byte-identical** — `goldens.spec`
+  27/27 green — so the scoring/format fixtures a contest depends on match the
+  code that produces them, unchanged by any of this loop's or the recent
+  feature loops' work.
+- **The boot spec is the fresh-deploy proof at the app layer** (D106): it boots
+  the real `AppModule` against a *freshly migrated* Testcontainers Postgres and
+  the deploy-poll route answers 200. Migrate-clean plus boot-clean is exactly
+  what `scripts/deploy.sh` does in production, minus the image build.
+
+*Ruled by the implementer during the 2026-08-31 consolidation loop (c1 brief),
+no human available to consult. No migration added; a verification, not a
+change.*
+
+## D108 — Standing accepted limitations (the index, so they stop being re-discovered)
+
+B-19 burned a whole leftovers item re-investigating something B-9 had fixed
+ten loops earlier, because no ruling ever closed it. This is the opposite
+list: the things every bug-hunt keeps re-finding that are **deliberate standing
+choices, not defects** — each recorded here once, with its report origin, so
+the next hunt reads the ruling instead of re-opening the investigation. None
+of these is a bug on the province-contest path; each is an accepted bound with
+its upgrade path named where one exists. (Items already *fixed* by a later
+loop are not here — they are closed, listed as verified-closed in
+`loop-c1-consolidation-report.md`.)
+
+**Unbounded / unpaginated reads — safe at province scale, indexed, small
+result sets.** All correct today because the tables are tiny; the upgrade path
+is pagination when a deployment outgrows it.
+- `GET /users/{u}/rating` history is unpaginated (B-7).
+- `listMembers` / `rosterOf` for an org are unpaginated (B-6).
+- The clarification feed is uncapped on read; the ask-limiter bounds the
+  growth rate, not the total (F-1).
+- The problem-set CSV export is one un-streamed response; nothing meters set
+  creation (F-9). The results/certificate exports are bounded at 20,000 but
+  proved only at 3, and are still one response rather than a stream (F-13).
+- `similarity` holds one advisory lock for the whole comparison in a single
+  transaction — a 3000-entrant run holds a connection for its duration (F-15).
+- `rejudgeProblem` requeues a problem's every submission in one unbounded
+  transaction; `JobStore.reclaimExpired()` is called by nothing outside tests
+  (B-3).
+- `/users/me/progress` runs seven aggregates on a cache miss, per user,
+  unmeasured at province size; the heatmap's `at time zone` day is not
+  sargable (F-16).
+
+**Metering gaps — a caller who already holds a credential.**
+- `POST /auth/totp/confirm` has no attempt limiter: twelve wrong codes all
+  answer 422, but the caller already holds the session (B-1).
+- The submission meter (D80) costs two `rate_events` selects per submission on
+  the hot write path, indexed but unmeasured under load; its 20/10 min and
+  1/10 s thresholds come from one judge's throughput, not observed
+  contestants — the first real contest should confirm them (B-13; c1's soak
+  re-confirmed the throughput input, see load/RESULTS.md).
+
+**Masking softness — the D35 family (the vocabulary being masked is public
+anyway).** A contest's tag mask (D35) and editorial gate (D43) key on the
+contest's real window, so a virtual attempt after `end_time`, or simply
+signing out, sees them (F-2, F-4). Accepted: tags and editorials are public
+once a contest ends, and the value of hiding them is organiser discipline, not
+a security boundary.
+
+**Test-harness fidelity (B-15's audit).** `app.harness.ts::buildApp` imports a
+hand-maintained module subset and does not run `configureApp`, so ~900 specs
+run unprefixed with no CORS / body limits; `cache.harness.ts` builds the cache
+by hand. `app.boot.spec` + `config.spec` are the whole cover for both gaps —
+which is why D106 promotes the boot spec to its own CI step. The route-marker,
+i18n-parity and source-is-text guards are the other cross-cutting nets.
+
+**Judge / ops capacity — operational, tuned per deployment.**
+- One judge has a throughput ceiling; a room whose *sustained* aggregate
+  exceeds it needs a second judge (F-11's multi-judge path is built). c1
+  measured the current single judge comfortably serving 40/min (RESULTS.md).
+- Redis `maxmemory` is 0 with `noeviction`: nothing is capped, which is safe
+  *only because every key expires* — a future cache write without a TTL would
+  have no second line of defence (B-12, reasoned in B-13 §3).
+- `clientIp` trusts the leftmost `X-Forwarded-For` — correct for Caddy today
+  (runbook), but a second proxy layer would make D16/D26 bypassable (B-10).
+- `deploy.sh`, `compose-up.test.sh`, `restore.test.sh` are outside
+  `pnpm -r test` and are not exercised by CI (F-14).
+
+**Web / UX bounds.**
+- The `/help` guides are bundled at build time, so a guide edit reaches the
+  site only on a rebuild (F-10, F-14).
+- Tables are the scroll container, so a WCAG 2.1.1 keyboard-scroll fix needs a
+  wrapper refactor, not a one-liner (m21, B-4); the authoring forms render to a
+  signed-out visitor and are refused only on save (B-4).
+- `prepare --token <t>` puts a token in `argv` (B-18).
+- A soft read-degradation remains where a *secondary* list failing shows empty
+  rather than an error: the tag filter bar (`allTags`) and the progress page's
+  error state (spinner, not alert). The primary data reads all surface errors
+  via `read()` (B-9/B-19 closed those); these two are cosmetic and low-stakes.
+
+**Team gaps (D99 residuals not closed by F-25 / B-19).** The team-name join
+race is unguarded at the last millisecond — two same-named teams joining in
+the same instant both land (named in D99; the ordinary second-join and rename
+paths are refused). There is no "my teams" endpoint, so the join picker issues
+one query per org the contest names; rosters are read live, never frozen, with
+no teacher-facing warning; there is no team detail page, no team-scoped
+notifications, no organiser team-seeding UI (F-24).
+
+*Indexed by the implementer during the 2026-08-31 consolidation loop (c1
+brief), no human available to consult. A pointer entry; no migration, no code.*
