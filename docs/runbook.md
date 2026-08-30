@@ -417,6 +417,51 @@ against carelessness, not a total guarantee.
 
 ## Deploying
 
+### Redeploying a service after a code change: `scripts/deploy.sh`
+
+**This is the command.** Do not hand-type a build/stop/rm/up sequence, and do
+not use `scripts/compose-up.sh` for it — that brings the WHOLE stack up from
+nothing, which is a different job.
+
+    scripts/deploy.sh api
+    scripts/deploy.sh api judged caddy      # several at once
+
+It does five things, each of which was learned the hard way (see D85, D86 and
+the OUTAGE entry in `docs/superpowers/ledgers/2026-08-29-feature-bug-loop-ledger.md`):
+
+1. **Builds from `git archive HEAD`**, exported to a scratch directory —
+   never the working tree. Anyone's uncommitted edit, in any file the
+   Dockerfile copies, cannot reach a container. The loop's ledger records
+   "rebuilt from a clean HEAD export" three separate times, done by hand each
+   time; this makes it the only path.
+2. **Keeps the running image as `:previous`** before the build overwrites
+   `:latest`.
+3. **Runs `migrate` first, when `packages/db/migrations` moved** since the sha
+   in `.deploy/last-deploy` (gitignored, written only after a deploy that
+   passed its poll). No marker, or a marker this repo no longer has, means run
+   them. It rebuilds the `migrate` image too — that image carries the
+   migration files, and deploying a schema change without it re-runs the
+   PREVIOUS build's migrations and exits 0.
+4. **Recreates, then watches for 45 s** and requires all three at the end:
+   every deployed container healthy, `GET /api/v1/languages` answering **200
+   through Caddy** (the path a browser takes, not `localhost:3000`), and no
+   worker re-fork or `cannot boot` lines in the last 30 s of the api
+   container's log.
+5. **Rolls back automatically** if any of that fails: prints the logs, retags
+   `:previous` over `:latest`, recreates again, and exits non-zero. The marker
+   is not advanced, so the next attempt still knows the migrations are owed.
+
+Useful overrides: `SKIP_MIGRATE=1` / `FORCE_MIGRATE=1`, `PROBE_URL=...` (a
+different route or origin), `HEALTH_POLL_SECONDS=90` for a slow host. Run
+`scripts/test/deploy.test.sh` after editing it — the whole script is covered
+against stub `podman`/`podman-compose`/`curl` binaries.
+
+`deploy/duckoj.service` is unaffected: the boot unit still runs
+`scripts/compose-up.sh` with `SKIP_BUILD=1`, and still never picks up a code
+change — see "Boot and reboot".
+
+### Bringing the whole stack up
+
 This machine has no Docker daemon; it runs rootless Podman with `podman-compose`
 1.5, not `docker compose`. `scripts/compose-up.sh` (below) was run against this
 stack with that tooling, including a fresh (just-created) `pgdata` volume — see
@@ -1799,6 +1844,13 @@ real `queued` → `compiling` → `done`/`AC` progression, matching the direct
 check exactly.
 
 ### Rebuilding and recreating a single service without touching the rest
+
+**Prefer `scripts/deploy.sh <service>`** (see "Redeploying a service after a
+code change" at the top of "Deploying"): it does everything below from a clean
+`git archive HEAD` export, and then actually checks that what it started
+answers a real route before it walks away. What follows is the manual sequence
+it encodes, kept because knowing it is what lets you recover when the script
+itself is what is broken.
 
 `podman-compose up -d --no-deps <service>` does **not** reliably pick up a
 freshly-built image if the container is still running — `podman-compose ps`

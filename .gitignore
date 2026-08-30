@@ -24,3 +24,10 @@ __pycache__/
 
 # Playwright journey screenshots — evidence, regenerated every run
 apps/web/e2e/screenshots/
+
+# scripts/deploy.sh's marker — the sha of the last deploy that PASSED its
+# poll, which is how it decides whether packages/db/migrations moved. Local
+# to a host, never shared: two machines deploy different things at different
+# times, and a committed marker would tell one of them to skip a migration
+# the other already ran.
+.deploy/
