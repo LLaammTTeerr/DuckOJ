@@ -16,6 +16,7 @@ import { schema, type Db } from '@duckoj/db';
 import { CONTEST_FORMATS, computeContestScoreboard } from '@duckoj/contest-formats';
 import type { Scoreboard } from '@duckoj/contest-formats';
 import type {
+  CloneContestRequestDto,
   ContestParticipationDto,
   ContestDetailDto,
   ContestOrgDto,
@@ -79,6 +80,8 @@ export interface UpdateContestInput {
   orgSlugs?: string[] | undefined;
   problems?: ContestProblemInputDto[] | undefined;
 }
+
+export type CloneContestInput = CloneContestRequestDto;
 
 export interface CreateContestInput {
   key: string;
@@ -589,6 +592,116 @@ export class ContestAccessService {
     }
 
     return this.getVisible(actor, body.key);
+  }
+
+  /**
+   * Creates a new contest from an existing one (D88).
+   *
+   * **What is copied** is the contest as a DESIGN: the format and its
+   * config, the points precision, the freeze, the time limit, the problem
+   * list with its labels, points, partial flags and order, and the
+   * organizations that may enter (D56). **What is not** is everything that
+   * happened inside it — participations, submissions, clarifications,
+   * similarity runs — and every decision about its standing: the copy is
+   * `private` and unrated, whatever the source was. Next year's round is the
+   * same paper at a new time; last year's results are last year's.
+   *
+   * **Two permissions, as the problem clone has.** `canRunContest` first —
+   * 404 for everyone else, which is exactly what `update` answers a
+   * signed-in caller who can see the contest perfectly well — then
+   * `canCreateContest`, so an organiser whose setter role was revoked cannot
+   * keep minting contests through this door.
+   *
+   * The window is the caller's and is validated as an edit would be: a
+   * freeze the source stores can be longer than the contest being asked for,
+   * and nothing in the request says so.
+   *
+   * Problems are copied by `problem_id`, deliberately NOT re-resolved
+   * through `resolveProblemIds`: the codes are already on the source
+   * contest's page in front of this organiser, and a problem whose
+   * visibility narrowed since it was attached would otherwise make last
+   * year's round uncopyable rather than merely uneditable. The same applies
+   * to the organizations, which `resolveOrgIds` already exempts once
+   * attached, and for the same reason.
+   */
+  async clone(actor: Actor, key: string, body: CloneContestInput): Promise<ContestDetailDto> {
+    const source = await this.loadVisible(actor, key);
+    if (!canRunContest(actor, source)) throw NOT_FOUND;
+    if (!canCreateContest(actor)) {
+      throw new AppError(403, 'contest_forbidden', 'You may not create contests.');
+    }
+
+    const startTime = new Date(body.startTime);
+    const endTime = new Date(body.endTime);
+    if (endTime.getTime() <= startTime.getTime()) {
+      throw new AppError(400, 'contest_window_invalid', 'A contest must end after it starts.');
+    }
+    assertFreezeFits(source.frozenLastMinutes, startTime, endTime);
+
+    const problemRows = await this.db
+      .select({
+        problemId: contestProblems.problemId,
+        label: contestProblems.label,
+        points: contestProblems.points,
+        partial: contestProblems.partial,
+        order: contestProblems.order,
+      })
+      .from(contestProblems)
+      .where(eq(contestProblems.contestId, source.id))
+      .orderBy(asc(contestProblems.order), asc(contestProblems.id));
+    const orgIds = (
+      await this.db
+        .select({ orgId: contestOrgs.orgId })
+        .from(contestOrgs)
+        .where(eq(contestOrgs.contestId, source.id))
+    ).map((row) => row.orgId);
+
+    try {
+      await this.db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(contests)
+          .values({
+            key: body.newKey,
+            name: body.newName,
+            startTime,
+            endTime,
+            format: source.format,
+            formatConfig: source.formatConfig,
+            pointsPrecision: source.pointsPrecision,
+            frozenLastMinutes: source.frozenLastMinutes,
+            timeLimitSeconds: source.timeLimitSeconds,
+            // `private`, never the source's own: a copy nobody has scheduled
+            // yet must not appear on the public list the instant it exists.
+            // An org restriction is still carried, so making it visible
+            // later is one edit and not a rebuild.
+            visibility: 'private',
+            createdBy: actor.userId,
+          })
+          .returning({ id: contests.id });
+        if (orgIds.length > 0) {
+          await tx.insert(contestOrgs).values(orgIds.map((orgId) => ({ contestId: created!.id, orgId })));
+        }
+        if (problemRows.length > 0) {
+          await tx.insert(contestProblems).values(
+            problemRows.map((row, index) => ({
+              contestId: created!.id,
+              problemId: row.problemId,
+              label: row.label,
+              points: row.points,
+              partial: row.partial,
+              // Renumbered from the read order rather than copied verbatim:
+              // the source's `order` values may have gaps after an edit, and
+              // what a format actually uses is the SEQUENCE.
+              order: index,
+            })),
+          );
+        }
+      });
+    } catch (error) {
+      throw toCreateConflict(error);
+    }
+
+    return this.getVisible(actor, body.newKey);
   }
 
   /**

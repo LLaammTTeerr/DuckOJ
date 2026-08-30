@@ -756,6 +756,211 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/contests/{key}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a new contest from an existing one (its creator, or an admin)
+         * @description Copies the format and its config, the points precision, the freeze window, the time limit, the problems with their labels, points, partial flag and order, and the organizations that may enter (D56) — into a new, PRIVATE contest at the window given here. Nothing that happened in the source is copied: no participations, no submissions, no clarifications, no similarity runs, and the copy is not rated. The new window is validated as an edit would be, so a freeze the source stores that no longer fits is refused (`contest_freeze_too_long`).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        newKey: string;
+                        newName: string;
+                        /** Format: date-time */
+                        startTime: string;
+                        /** Format: date-time */
+                        endTime: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The new contest */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            id: number;
+                            key: string;
+                            name: string;
+                            /** Format: date-time */
+                            startTime: string;
+                            /** Format: date-time */
+                            endTime: string;
+                            format: string;
+                            /** @enum {string} */
+                            visibility: "private" | "org" | "public";
+                            pointsPrecision: number;
+                            frozenLastMinutes: number;
+                            timeLimitSeconds: number | null;
+                            isRated: boolean;
+                            orgs: {
+                                slug: string;
+                                name: string;
+                            }[];
+                            /** Format: date-time */
+                            createdAt: string;
+                            formatConfig: {
+                                [key: string]: unknown;
+                            } | null;
+                            canEdit: boolean;
+                            problems: {
+                                code: string;
+                                name: string;
+                                label: string;
+                                points: number;
+                                partial: boolean;
+                                order: number;
+                            }[];
+                        };
+                    };
+                };
+                /** @description An unknown format (`unknown_contest_format`), an end before the start, an unknown problem, an organization the caller does not own or administer (`contest_org_unknown`), or an `org`-visible contest with no organization at all (`contest_org_missing`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, runs this contest, and may not create contests */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description That contest key is already taken */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/contests/{key}/join": {
         parameters: {
             query?: never;

@@ -429,6 +429,12 @@ const submissionRoute = createRoute({
 const tokenSearch = (search: Record<string, unknown>): { token?: string } =>
   typeof search.token === 'string' ? { token: search.token } : {};
 
+function ContestNewRouteComponent() {
+  const { cloneFrom } = useSearch({ from: '/contests/new' });
+  // Keyed on the source, so switching which contest is being cloned reseeds
+  // the form rather than keeping the previous one's suggested key and name.
+  return <ContestNewPage key={cloneFrom ?? 'new'} {...(cloneFrom === undefined ? {} : { cloneFrom })} />;
+}
 function ContestRouteComponent() {
   const { key } = useParams({ from: '/contests/$key' });
   return <ContestPage contestKey={key} />;
@@ -487,7 +493,13 @@ const contestsRoute = createRoute({
 const contestNewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/contests/new',
-  component: ContestNewPage,
+  // D88: `?cloneFrom=<key>` turns this screen into "clone that contest".
+  // Omitted rather than present-but-undefined when absent, like every other
+  // optional search key here (`exactOptionalPropertyTypes`).
+  validateSearch: (search: Record<string, unknown>): { cloneFrom?: string } => ({
+    ...(typeof search.cloneFrom === 'string' ? { cloneFrom: search.cloneFrom } : {}),
+  }),
+  component: ContestNewRouteComponent,
 });
 const contestRoute = createRoute({
   getParentRoute: () => rootRoute,

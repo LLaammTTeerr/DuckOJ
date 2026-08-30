@@ -17,6 +17,7 @@ import {
   AskClarificationRequest,
   BookletQuery,
   CertificatesQuery,
+  CloneContestRequest,
   ContestListQuery,
   CreateContestRequest,
   PostAnnouncementRequest,
@@ -29,6 +30,7 @@ import {
   type BookletQueryDto,
   type CertificatesQueryDto,
   type ClarificationDto,
+  type CloneContestRequestDto,
   type ClarificationListDto,
   type ContestDetailDto,
   type ContestParticipationDto,
@@ -443,6 +445,22 @@ export class ContestsController {
     @Body(new ZodValidationPipe(PostAnnouncementRequest)) body: PostAnnouncementRequestDto,
   ): Promise<ClarificationDto> {
     return this.clarifications.announce(actor, key, body);
+  }
+
+  /**
+   * D88's clone. `contests:write`, like every other organiser action here —
+   * this is a contest being created by someone the server has already shown
+   * runs the source, not a new class of permission.
+   */
+  @Post(':key/clone')
+  @HttpCode(201)
+  @RequireScope('contests:write')
+  clone(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Body(new ZodValidationPipe(CloneContestRequest)) body: CloneContestRequestDto,
+  ): Promise<ContestDetailDto> {
+    return this.contests.clone(actor, key, body);
   }
 
   // Deliberately no @Public(): every write requires authentication at the

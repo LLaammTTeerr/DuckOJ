@@ -124,6 +124,29 @@ export const UpdateContestRequest = z
   .strict();
 export type UpdateContestRequestDto = z.infer<typeof UpdateContestRequest>;
 
+/**
+ * `POST /contests/{key}/clone` — next year's round from last year's (D88).
+ *
+ * Only the four things a copy cannot inherit. A key is a URL and must be
+ * new; a name must be too, or two rounds are indistinguishable in a list;
+ * and a contest without a window is not a contest, so the new one is stated
+ * outright rather than defaulted from a source whose window is in the past.
+ * Everything else — the format and its config, the points precision, the
+ * freeze, the time limit, the problems with their labels and points, and the
+ * organizations that may enter — is copied by the server and is not
+ * negotiable here: a request that could pick and choose would be a second,
+ * half-specified `POST /contests`.
+ */
+export const CloneContestRequest = z
+  .object({
+    newKey: z.string().regex(CONTEST_KEY),
+    newName: z.string().min(1).max(200),
+    startTime: Timestamp,
+    endTime: Timestamp,
+  })
+  .strict();
+export type CloneContestRequestDto = z.infer<typeof CloneContestRequest>;
+
 export const ContestProblemSummary = z.object({
   code: z.string(),
   name: z.string(),
@@ -411,6 +434,39 @@ registry.registerPath({
     400: BAD_REQUEST,
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
+    409: {
+      description: 'That contest key is already taken',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/contests/{key}/clone',
+  tags: ['Contests'],
+  summary: 'Create a new contest from an existing one (its creator, or an admin)',
+  description:
+    'Copies the format and its config, the points precision, the freeze window, the time limit, the ' +
+    'problems with their labels, points, partial flag and order, and the organizations that may ' +
+    'enter (D56) — into a new, PRIVATE contest at the window given here. Nothing that happened in ' +
+    'the source is copied: no participations, no submissions, no clarifications, no similarity ' +
+    'runs, and the copy is not rated. The new window is validated as an edit would be, so a freeze ' +
+    'the source stores that no longer fits is refused (`contest_freeze_too_long`).',
+  request: {
+    params: ContestKeyParam,
+    body: { content: { 'application/json': { schema: CloneContestRequest } } },
+  },
+  responses: {
+    201: { description: 'The new contest', content: { 'application/json': { schema: ContestDetail } } },
+    400: BAD_REQUEST,
+    401: NOT_SIGNED_IN,
+    403: {
+      description: 'Signed in, runs this contest, and may not create contests',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    404: CONTEST_NOT_FOUND,
     409: {
       description: 'That contest key is already taken',
       content: { 'application/problem+json': { schema: ProblemDetails } },

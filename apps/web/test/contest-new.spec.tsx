@@ -1,11 +1,14 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const post = vi.fn();
+const get = vi.fn();
 const navigate = vi.fn();
-vi.mock('../src/api.js', () => ({ api: { POST: (...a: unknown[]) => post(...a) } }));
+vi.mock('../src/api.js', () => ({
+  api: { POST: (...a: unknown[]) => post(...a), GET: (...a: unknown[]) => get(...a) },
+}));
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a href="#">{children}</a>,
   useNavigate: () => navigate,
@@ -20,8 +23,22 @@ function wrap(ui: React.ReactElement) {
 
 afterEach(() => {
   post.mockReset();
+  get.mockReset();
   navigate.mockReset();
 });
+
+/** The contest `?cloneFrom=` names, as `GET /contests/{key}` answers it. */
+const SOURCE = {
+  key: 'tinh-2026',
+  name: 'Vòng tỉnh 2026',
+  format: 'ioi16',
+  frozenLastMinutes: 15,
+  problems: [
+    { code: 'p1', label: 'A', points: 100, partial: true, order: 0 },
+    { code: 'p2', label: 'B', points: 50, partial: false, order: 1 },
+  ],
+  orgs: [{ slug: 'truong-a', name: 'Trường A' }],
+};
 
 async function fillBasics() {
   await userEvent.type(screen.getByLabelText(/^Mã kỳ thi/), 'spring');
@@ -86,6 +103,60 @@ describe('ContestNewPage transport failures', () => {
     await userEvent.click(screen.getByRole('button', { name: /Tạo kỳ thi/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/Không kết nối được máy chủ/);
     expect(screen.getByRole('button', { name: /Tạo kỳ thi/ })).toBeEnabled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('cloning a contest from this screen (D88)', () => {
+  it('seeds a key and a name, shows what will be copied, and posts only the new window', async () => {
+    get.mockResolvedValue({ data: SOURCE, error: undefined });
+    post.mockResolvedValue({ data: { key: 'tinh-2026-2' } });
+    wrap(<ContestNewPage cloneFrom="tinh-2026" />);
+
+    // Seeded from the source — a suggestion, not the source's own key,
+    // which is taken by definition.
+    const key = await screen.findByLabelText(/^Mã kỳ thi/);
+    await waitFor(() => expect(key).toHaveValue('tinh-2026-2'));
+    expect(screen.getByLabelText(/^Tên/)).toHaveValue('Vòng tỉnh 2026 (bản sao)');
+
+    // What the server copies is SHOWN, not offered as inputs whose answers
+    // would be ignored.
+    expect(screen.getByTestId('clone-summary')).toHaveTextContent('Bài: A. p1, B. p2');
+    expect(screen.getByTestId('clone-summary')).toHaveTextContent('Trường được thi: truong-a');
+    expect(screen.queryByLabelText(/Mã bài 1/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Thể thức/)).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText(/Bắt đầu/), '2027-09-01T09:00');
+    await userEvent.type(screen.getByLabelText(/Kết thúc/), '2027-09-01T14:00');
+    await userEvent.click(screen.getByRole('button', { name: /Nhân bản kỳ thi/ }));
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0]![0]).toBe('/contests/{key}/clone');
+    const options = post.mock.calls[0]![1] as {
+      params: { path: { key: string } };
+      body: Record<string, unknown>;
+    };
+    expect(options.params.path.key).toBe('tinh-2026');
+    expect(options.body).toEqual({
+      newKey: 'tinh-2026-2',
+      newName: 'Vòng tỉnh 2026 (bản sao)',
+      startTime: new Date('2027-09-01T09:00').toISOString(),
+      endTime: new Date('2027-09-01T14:00').toISOString(),
+    });
+    expect(navigate).toHaveBeenCalledWith({ to: '/contests/$key', params: { key: 'tinh-2026-2' } });
+  });
+
+  it("shows the server's refusal and stays put", async () => {
+    get.mockResolvedValue({ data: SOURCE, error: undefined });
+    post.mockResolvedValue({ data: undefined, error: { code: 'contest_key_taken' } });
+    wrap(<ContestNewPage cloneFrom="tinh-2026" />);
+
+    await waitFor(() => expect(screen.getByLabelText(/^Mã kỳ thi/)).toHaveValue('tinh-2026-2'));
+    await userEvent.type(screen.getByLabelText(/Bắt đầu/), '2027-09-01T09:00');
+    await userEvent.type(screen.getByLabelText(/Kết thúc/), '2027-09-01T14:00');
+    await userEvent.click(screen.getByRole('button', { name: /Nhân bản kỳ thi/ }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('contest_key_taken'));
     expect(navigate).not.toHaveBeenCalled();
   });
 });

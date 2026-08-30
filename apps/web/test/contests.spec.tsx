@@ -330,6 +330,20 @@ describe('ContestPage results export links (D71)', () => {
     expect(screen.queryByRole('link', { name: /Kết quả/ })).toBeNull();
   });
 
+  // D88: cloning is an organiser action, and the link is gated on the same
+  // `canEdit` the server computes — never on a guess from `me`.
+  it('offers "Nhân bản kỳ thi" to an organiser and to nobody else', async () => {
+    serveContest({ ...FINISHED, canEdit: true });
+    const organiser = wrap(<ContestPage contestKey="spring" />);
+    expect(await screen.findByRole('link', { name: /Nhân bản kỳ thi/ })).toBeInTheDocument();
+    organiser.unmount();
+
+    serveContest({ ...FINISHED, canEdit: false });
+    wrap(<ContestPage contestKey="spring" />);
+    expect(await screen.findByRole('link', { name: /Bảng điểm/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Nhân bản kỳ thi/ })).toBeNull();
+  });
+
   it('offers neither when the API did not say whether this reader runs it', async () => {
     // `canEdit` absent — an older API, or a response shape that changed.
     // Fail closed: a link that 403s is worse than no link.

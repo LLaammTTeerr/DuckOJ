@@ -335,6 +335,16 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
       ) : null}
       {/* `canEdit` is the server's own answer, not a guess from `me` — see
           the field's note in the contract. */}
+      {/* D88: a clone is a CREATE, so it lands on the create screen with the
+          source named — the four things a copy cannot inherit (key, name,
+          start, end) are asked for there, and the server copies the rest. */}
+      {contest.data.canEdit ? (
+        <p>
+          <Link to="/contests/new" search={{ cloneFrom: contestKey }}>
+            {t('contest.clone')}
+          </Link>
+        </p>
+      ) : null}
       {contest.data.canEdit ? (
         <p>
           <Link to="/contests/$key/edit" params={{ key: contestKey }}>

@@ -1839,6 +1839,471 @@
         }
       }
     },
+    "/contests/{key}/clone": {
+      "post": {
+        "tags": [
+          "Contests"
+        ],
+        "summary": "Create a new contest from an existing one (its creator, or an admin)",
+        "description": "Copies the format and its config, the points precision, the freeze window, the time limit, the problems with their labels, points, partial flag and order, and the organizations that may enter (D56) — into a new, PRIVATE contest at the window given here. Nothing that happened in the source is copied: no participations, no submissions, no clarifications, no similarity runs, and the copy is not rated. The new window is validated as an edit would be, so a freeze the source stores that no longer fits is refused (`contest_freeze_too_long`).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "key",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "newKey": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$"
+                  },
+                  "newName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "startTime": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endTime": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "newKey",
+                  "newName",
+                  "startTime",
+                  "endTime"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new contest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "startTime": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "endTime": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "visibility": {
+                      "type": "string",
+                      "enum": [
+                        "private",
+                        "org",
+                        "public"
+                      ]
+                    },
+                    "pointsPrecision": {
+                      "type": "integer"
+                    },
+                    "frozenLastMinutes": {
+                      "type": "integer"
+                    },
+                    "timeLimitSeconds": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "isRated": {
+                      "type": "boolean"
+                    },
+                    "orgs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "name"
+                        ]
+                      }
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "formatConfig": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "additionalProperties": {}
+                    },
+                    "canEdit": {
+                      "type": "boolean"
+                    },
+                    "problems": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "points": {
+                            "type": "number"
+                          },
+                          "partial": {
+                            "type": "boolean"
+                          },
+                          "order": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "name",
+                          "label",
+                          "points",
+                          "partial",
+                          "order"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "key",
+                    "name",
+                    "startTime",
+                    "endTime",
+                    "format",
+                    "visibility",
+                    "pointsPrecision",
+                    "frozenLastMinutes",
+                    "timeLimitSeconds",
+                    "isRated",
+                    "orgs",
+                    "createdAt",
+                    "formatConfig",
+                    "canEdit",
+                    "problems"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An unknown format (`unknown_contest_format`), an end before the start, an unknown problem, an organization the caller does not own or administer (`contest_org_unknown`), or an `org`-visible contest with no organization at all (`contest_org_missing`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in, runs this contest, and may not create contests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such contest, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "That contest key is already taken",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/contests/{key}/join": {
       "post": {
         "tags": [
