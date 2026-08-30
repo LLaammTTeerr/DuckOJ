@@ -1,28 +1,35 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { EditorView } from '@codemirror/view';
 import { SubmitForm, VerdictPanel, problemCodeFromSearch } from '../src/routes/submit.js';
 
 describe('SubmitForm', () => {
   it('submits the entered source and language', async () => {
-    const onSubmit = vi.fn(async () => {});
-    render(<SubmitForm onSubmit={onSubmit} languages={['cpp17']} busy={false} />);
+    const onSubmit = vi.fn(async () => true);
+    render(
+      <SubmitForm onSubmit={onSubmit} languages={['cpp17']} busy={false} problemCode="aplusb" />,
+    );
 
-    // userEvent.type() parses `{...}` as its key-descriptor DSL, and C++
-    // source is full of literal braces — every future test that types code
-    // through this field hits the same wall. Paste sidesteps the DSL
-    // entirely (and is closer to what a user actually does with code), so
-    // don't "simplify" this back to .type().
-    await userEvent.click(screen.getByLabelText(/Mã nguồn/));
-    await userEvent.paste('int main(){}');
+    // D84 replaced the <textarea> with CodeMirror, so there is no form
+    // control to type into any more: the buffer is written through the
+    // editor's own transaction, which is the code path a real keystroke
+    // reaches once CodeMirror's DOM observer has read it. (The old note
+    // here warned against `userEvent.type()`, whose `{...}` key-descriptor
+    // DSL eats C++ braces — still true, and now moot.)
+    const content = await screen.findByLabelText(/Mã nguồn/);
+    const view = EditorView.findFromDOM(content.closest('.cm-editor') as HTMLElement)!;
+    act(() => {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'int main(){}' } });
+    });
     await userEvent.click(screen.getByRole('button', { name: /Nộp bài/ }));
 
     expect(onSubmit).toHaveBeenCalledWith({ languageKey: 'cpp17', source: 'int main(){}' });
   });
 
-  it('disables the button while a submission is in flight', () => {
-    render(<SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy />);
-    expect(screen.getByRole('button', { name: /Nộp bài/ })).toBeDisabled();
+  it('disables the button while a submission is in flight', async () => {
+    render(<SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy problemCode="aplusb" />);
+    expect(await screen.findByRole('button', { name: /Nộp bài/ })).toBeDisabled();
   });
 });
 

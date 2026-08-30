@@ -114,7 +114,15 @@ async function signIn(page: Page, username: string, password: string): Promise<v
  * (the app's own "the socket died, reload" message) must never appear.
  */
 async function submitAndAwait(page: Page, source: string, verdict: string): Promise<void> {
-  await page.locator('#source').fill(source);
+  // D84: the source box is CodeMirror's contenteditable, not a <textarea>.
+  // `.fill()` works on either, but the editor arrives in a lazily-loaded
+  // chunk, so it has to be waited for rather than assumed present the
+  // instant the page renders. `.cm-content` also carries `id="source"`; the
+  // class is used here because it is the thing that is actually true about
+  // the element, and it survives a change of id.
+  const editor = page.locator('.cm-content');
+  await editor.waitFor({ state: 'visible' });
+  await editor.fill(source);
   await page.getByRole('button', { name: 'Nộp bài', exact: true }).click();
   await expect(page.getByText(/Không nhận được cập nhật trực tiếp/)).toHaveCount(0);
   await expect(page.locator('.badge')).toHaveText(verdict, { timeout: 60_000 });
