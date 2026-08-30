@@ -24,29 +24,18 @@
  * generated here and never guarded: a score cannot start with `=`, and a
  * guard that fired on them would turn every number into text.
  */
+import { csvSheet, csvText } from '@duckoj/contracts';
 import type { ResultsInput, ResultRow } from '../statements/results.js';
 import { formatResultPoints } from '../statements/results.js';
 
-/** Excel's "this file is UTF-8" marker. Not optional — see the header. */
-export const CSV_BOM = '﻿';
+// The three rules above are `@duckoj/contracts/spreadsheet-csv.ts` now: the
+// roster credential sheet (D61) and the homework grid (D66) are the same
+// file aimed at the same program, and each had grown its own `escape` that
+// did RFC 4180 quoting and no formula guard at all.
+export { CSV_BOM } from '@duckoj/contracts';
 
-/** RFC 4180: quote when the field carries a delimiter, a quote or a newline. */
-function quote(field: string): string {
-  if (!/[",\r\n]/.test(field) && field.trim() === field) return field;
-  return `"${field.replace(/"/g, '""')}"`;
-}
-
-/**
- * Neutralise a field a spreadsheet would run as a formula, then quote it.
- *
- * Only for text that came from a person. The apostrophe is data — it is
- * visible in `cat` and stripped by Excel on display — and that asymmetry is
- * the whole point: the alternative is executing a stranger's formula on an
- * administrator's machine.
- */
-function text(field: string): string {
-  return quote(/^[=+\-@\t\r]/.test(field) ? `'${field}` : field);
-}
+/** Neutralised against formula evaluation, then quoted. Person-typed only. */
+const text = csvText;
 
 /**
  * The columns, in order. **ASCII snake_case, never translated**: a header row
@@ -108,6 +97,5 @@ function bodyRow(input: ResultsInput, row: ResultRow): string[] {
 
 /** The whole sheet: BOM, header, one line per ranked participation. */
 export function resultsCsv(input: ResultsInput): string {
-  const lines = [headerRow(input), ...input.rows.map((row) => bodyRow(input, row))];
-  return CSV_BOM + lines.map((cells) => cells.join(',')).join('\r\n') + '\r\n';
+  return csvSheet([headerRow(input), ...input.rows.map((row) => bodyRow(input, row))]);
 }

@@ -123,12 +123,18 @@ export interface PreparedAccount extends ValidatedRow {
   passwordHash: string;
 }
 
-/** What a completed import hands back — once. */
-export interface ImportedCredential {
-  username: string;
-  displayName: string;
-  password: string;
-}
+/**
+ * What a completed import hands back — once — and the sheet built from it.
+ *
+ * Both live in `@duckoj/contracts` (`org-import-csv.ts`) and are re-exported
+ * here so this module stays the one import the API, the CLI and the tests
+ * reach for. The move is not tidiness: the web panel sends a roster over
+ * 500 rows as several requests and has to hand the teacher ONE file, so the
+ * sheet cannot be the API's private shape — and its bytes are D71's
+ * spreadsheet rule, which had been written down for one export and
+ * implemented in one.
+ */
+export { credentialsCsv, type ImportedCredential } from '@duckoj/contracts';
 
 // ---------------------------------------------------------------------------
 // CSV
@@ -465,23 +471,6 @@ export async function runImport(
       );
     }
   });
-}
-
-/**
- * The credential sheet, as a CSV a teacher can open in a spreadsheet.
- *
- * Built here rather than in the browser because the CLI needs the same bytes,
- * and because a printed sheet that disagrees with the file a school archives
- * is the one thing nobody can debug afterwards.
- */
-export function credentialsCsv(created: ImportedCredential[]): string {
-  const escape = (value: string): string =>
-    /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-  const lines = ['username,displayName,password'];
-  for (const row of created) {
-    lines.push([row.username, row.displayName, row.password].map(escape).join(','));
-  }
-  return `${lines.join('\n')}\n`;
 }
 
 /**

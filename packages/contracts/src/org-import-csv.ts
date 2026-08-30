@@ -13,6 +13,7 @@
  * Nothing here validates: a record is a record, and whether it names an
  * acceptable account is `org-import.core.ts`'s question.
  */
+import { csvQuote, csvSheet, csvText } from './spreadsheet-csv.js';
 
 /**
  * RFC 4180 with the concessions a spreadsheet export actually needs: CRLF or
@@ -204,4 +205,38 @@ export function importUsernames(text: string): string[] {
   const body = declared === null ? records : records.slice(1);
   const at = columns.indexOf('username');
   return body.map((record) => (at === -1 ? '' : (record[at] ?? '').trim()));
+}
+
+/** One imported account, as the credential sheet lists it. */
+export interface ImportedCredential {
+  username: string;
+  displayName: string;
+  password: string;
+}
+
+/**
+ * The credential sheet, as a CSV a teacher can open in a spreadsheet.
+ *
+ * Here rather than beside the server's import for the reason the record
+ * grammar above is: THREE callers build or merge this file — the API, the
+ * `org:import` CLI, and the web panel, which sends a large roster as several
+ * requests and has to hand back ONE sheet rather than the responses
+ * concatenated (which put a second header row in the middle of the file,
+ * where Excel reads it as a pupil called `username`).
+ *
+ * It is `spreadsheet-csv.ts`'s shape — BOM, CRLF, and the formula guard on
+ * the two fields a person typed. A generated password is never guarded: its
+ * alphabet holds no `=`, `+`, `-` or `@` (D61), and an apostrophe in front
+ * of a credential somebody has to read off paper and type in is a support
+ * call.
+ */
+export function credentialsCsv(created: ImportedCredential[]): string {
+  return csvSheet([
+    ['username', 'displayName', 'password'],
+    ...created.map((row) => [
+      csvText(row.username),
+      csvText(row.displayName),
+      csvQuote(row.password),
+    ]),
+  ]);
 }

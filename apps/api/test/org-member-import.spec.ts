@@ -96,7 +96,7 @@ describe('importing a roster', () => {
       // Every password is distinct: one shared password for a class would
       // make the whole roster one credential.
       expect(new Set(outcome.result.created.map((c) => c.password)).size).toBe(2);
-      expect(outcome.result.csv.split('\n')[0]).toBe('username,displayName,password');
+      expect(outcome.result.csv.split('\r\n')[0]).toBe('﻿username,displayName,password');
       expect(outcome.result.csv).toContain(outcome.result.created[0]!.password);
 
       const created = await db
@@ -518,8 +518,11 @@ describe('the CSV reader on its own', () => {
   });
 
   it('quotes a password that contains a comma back out of the credential sheet', () => {
+    // BOM, CRLF and the formula guard are D71's spreadsheet rule, now shared
+    // by every CSV this judge exports (`@duckoj/contracts/spreadsheet-csv`);
+    // `packages/contracts/test/spreadsheet-csv.spec.ts` pins the bytes.
     const csv = credentialsCsv([{ username: 'u', displayName: 'Nguyễn, Văn A', password: 'p' }]);
-    expect(csv).toBe('username,displayName,password\nu,"Nguyễn, Văn A",p\n');
+    expect(csv).toBe('﻿username,displayName,password\r\nu,"Nguyễn, Văn A",p\r\n');
   });
 });
 
