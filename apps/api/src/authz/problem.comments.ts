@@ -27,11 +27,22 @@ const COMMENT_LIMIT = 10;
 const COMMENT_WINDOW_MS = 3_600_000;
 
 /**
- * A page of comments — as many top-level threads as this many, in id order.
- * Small on purpose: a discussion is read from the top, and "Tải thêm" pages
- * the rest, exactly as the roster and rating feeds do (D58).
+ * The default and the ceiling for a page of top-level threads, in id order.
+ * The default is small on purpose — a discussion is read from the top and
+ * "Tải thêm" pages the rest (D58) — and the ceiling matches `PaginationQuery`
+ * (1..100), the schema the route advertises: a caller may ask for fewer or
+ * more up to it, never for an unbounded page. Replies to the threads on a
+ * page are still fetched whole (see `list`); the ceiling on top-level rows is
+ * what keeps that fan-out bounded (D112).
  */
-const PAGE_LIMIT = 25;
+const PAGE_DEFAULT = 25;
+const PAGE_MAX = 100;
+
+/** The caller's `limit`, defaulted and clamped to the advertised range. */
+function pageLimit(limit: number | undefined): number {
+  if (limit === undefined) return PAGE_DEFAULT;
+  return Math.min(Math.max(Math.trunc(limit), 1), PAGE_MAX);
+}
 
 interface CommentRow {
   id: number;
@@ -105,8 +116,9 @@ export class ProblemCommentsService {
   async list(
     actor: Actor | null,
     code: string,
-    page: { cursor?: string | undefined },
+    page: { cursor?: string | undefined; limit?: number | undefined },
   ): Promise<ProblemCommentPageDto> {
+    const limit = pageLimit(page.limit);
     const problem = await this.loadVisibleProblem(actor, code);
     // Withheld whole, and signalled — the one place D109 deliberately breaks
     // D35's "blank, never distinguishable" rule, because the viewer already
@@ -123,10 +135,10 @@ export class ProblemCommentsService {
     // dropped below only if nothing visible hangs off them.
     const topRows = await this.selectComments(
       and(eq(problemComments.problemId, problem.id), isNull(problemComments.parentId), gt(problemComments.id, after)),
-      PAGE_LIMIT + 1,
+      limit + 1,
     );
-    const pageRows = topRows.slice(0, PAGE_LIMIT);
-    const hasMore = topRows.length > PAGE_LIMIT;
+    const pageRows = topRows.slice(0, limit);
+    const hasMore = topRows.length > limit;
 
     // Every visible reply for the whole page in ONE query, never one per
     // parent. Deleted replies are omitted outright: a reply anchors nothing
@@ -192,26 +204,29 @@ export class ProblemCommentsService {
       parentAuthorId = parent.authorId;
     }
 
-    const allowed = await this.limiter.allow(
+    // `retryAfterSeconds` + `record`, never `allow` — D80's split, for D80's
+    // reason. `allow` records the attempt it refuses, so a refused comment
+    // kept an attempt row in the window; the count then stayed AT the limit
+    // even as the oldest event expired, and a caller who honoured the
+    // Retry-After they were handed was refused again — each refusal pushing
+    // the cooldown further out. Here the window is spent by a comment that was
+    // actually created (`record`, below, after the insert) and a refusal costs
+    // the caller nothing. `retryAfterSeconds` writes the single D47 marker on
+    // a non-null answer (one window, one key — no double-mark to avoid).
+    const meterKey = `user:${String(actor.userId)}`;
+    const retry = await this.limiter.retryAfterSeconds(
       COMMENT_PURPOSE,
-      `user:${String(actor.userId)}`,
+      meterKey,
       COMMENT_LIMIT,
       COMMENT_WINDOW_MS,
     );
-    if (!allowed) {
-      const retry = await this.limiter.retryAfterSeconds(
-        COMMENT_PURPOSE,
-        `user:${String(actor.userId)}`,
-        COMMENT_LIMIT,
-        COMMENT_WINDOW_MS,
-        { mark: false },
-      );
+    if (retry !== null) {
       throw new AppError(
         429,
         'comment_rate_limited',
         `At most ${String(COMMENT_LIMIT)} comments per hour.`,
         undefined,
-        retry !== null ? { 'Retry-After': String(retry) } : undefined,
+        { 'Retry-After': String(retry) },
       );
     }
 
@@ -239,6 +254,8 @@ export class ProblemCommentsService {
       return inserted!.id;
     });
 
+    // The window is spent only now, by a comment that was actually created.
+    await this.limiter.record(COMMENT_PURPOSE, meterKey, COMMENT_WINDOW_MS);
     return this.loadOne(created);
   }
 

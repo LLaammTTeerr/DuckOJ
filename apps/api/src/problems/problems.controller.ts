@@ -268,7 +268,7 @@ export class ProblemsController {
     @Param('code') code: string,
     @Query(new ZodValidationPipe(PaginationQuery)) query: PaginationQueryDto,
   ): Promise<ProblemCommentPageDto> {
-    return this.comments.list(actor, code, { cursor: query.cursor });
+    return this.comments.list(actor, code, { cursor: query.cursor, limit: query.limit });
   }
 
   // The three writes below carry no `@Public()`: every one requires

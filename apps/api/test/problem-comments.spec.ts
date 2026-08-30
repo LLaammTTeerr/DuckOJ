@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '@duckoj/db';
 import { schema } from '@duckoj/db';
-import { contestParticipations, contestProblems, contests, problems } from '@duckoj/db/guarded';
+import {
+  contestOrgs,
+  contestParticipations,
+  contestProblems,
+  contests,
+  organizations,
+  problems,
+  teamMembers,
+  teams,
+} from '@duckoj/db/guarded';
 import type { Actor } from '../src/authz/actor.js';
 import { ProblemCommentsService } from '../src/authz/problem.comments.js';
 import { NotificationsService } from '../src/notifications/notifications.service.js';
@@ -92,6 +101,30 @@ describe('problem comments (D109)', () => {
       expect(page.items[0]!.replies).toHaveLength(1);
       expect(page.items[0]!.replies[0]!.body).toBe('a reply');
       expect(page.items[0]!.replies[0]!.parentId).toBe(top.id);
+    });
+  });
+
+  // The endpoint advertises `?limit=` (PaginationQuery, 1..100), and it was
+  // parsed and then dropped — every page was a fixed 25 regardless. A client
+  // asking for a smaller page (a hot thread on a phone) got 25 anyway.
+  it('honours the page limit the caller asks for', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'c-lim-owner');
+      const a = await insertUser(db, 'c-lim-a');
+      await seedProblem(db, { code: 'c-lim', createdBy: owner.id });
+      const service = svc(db);
+      const ids: number[] = [];
+      for (const body of ['one', 'two', 'three']) {
+        ids.push((await service.create(actorFor(a.id), 'c-lim', { body })).id);
+      }
+
+      const first = await service.list(actorFor(a.id), 'c-lim', { limit: 2 });
+      expect(first.items.map((i) => i.id)).toEqual([ids[0], ids[1]]);
+      expect(first.nextCursor).not.toBeNull();
+
+      const second = await service.list(actorFor(a.id), 'c-lim', { cursor: first.nextCursor!, limit: 2 });
+      expect(second.items.map((i) => i.id)).toEqual([ids[2]]);
+      expect(second.nextCursor).toBeNull();
     });
   });
 
@@ -245,6 +278,40 @@ describe('problem comments (D109)', () => {
     });
   });
 
+  // D80's rule, which this limiter must obey too: the window is spent by a
+  // comment that was actually created, and a refusal costs the caller nothing.
+  // With `allow`, a refused create still inserted an attempt row, so the count
+  // stayed AT the limit even as the oldest event expired — a caller who
+  // honoured Retry-After was refused again, and each refusal pushed the
+  // cooldown further out. The attempt table must hold exactly the created
+  // comments, never the refusals.
+  it('does not burn the window on a refused comment (Retry-After stays honest)', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'c-burn-owner');
+      const a = await insertUser(db, 'c-burn-a');
+      await seedProblem(db, { code: 'c-burn', createdBy: owner.id });
+      const service = svc(db);
+
+      for (let i = 0; i < 10; i++) {
+        await service.create(actorFor(a.id), 'c-burn', { body: `comment ${String(i)}` });
+      }
+      // Two refused attempts on top of a full window.
+      for (let i = 0; i < 2; i++) {
+        await expect(service.create(actorFor(a.id), 'c-burn', { body: 'refused' })).rejects.toMatchObject({
+          status: 429,
+        });
+      }
+
+      // The attempt rows are the ten created comments, not twelve: the two
+      // refusals left no attempt behind them.
+      const attempts = await db
+        .select({ id: schema.rateEvents.id })
+        .from(schema.rateEvents)
+        .where(and(eq(schema.rateEvents.purpose, 'problem_comment'), eq(schema.rateEvents.key, `user:${String(a.id)}`)));
+      expect(attempts).toHaveLength(10);
+    });
+  });
+
   it('notifies the parent author of a reply, but never on a self-reply', async () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'c-notif-owner');
@@ -303,6 +370,71 @@ describe('problem comments (D109)', () => {
       const owner = await insertUser(db, 'c-cur-owner');
       await seedProblem(db, { code: 'c-cur', createdBy: owner.id });
       await expect(svc(db).list(null, 'c-cur', { cursor: 'not-a-number' })).rejects.toBeInstanceOf(AppError);
+    });
+  });
+
+  // D109 × D99. The spoiler rule keys on "who is sitting this running
+  // contest", and a team is ONE participation held by whichever member
+  // pressed Join. Every OTHER member competes on that same row (D101) — they
+  // read the problem and submit for the team — so the discussion must be
+  // withheld from them too. Keyed on `contest_participations.user_id` alone,
+  // it was hidden only from the captain, and two of three teammates could
+  // read the whole solution thread mid-round and post into it.
+  it('hides the thread from a NON-CAPTAIN team member sitting a running contest (D109 × D99)', async () => {
+    await withTestDb(async (db) => {
+      const organiser = await insertUser(db, 'c-team-org');
+      const author = await insertUser(db, 'c-team-author');
+      const captain = await insertUser(db, 'c-team-cap');
+      const member = await insertUser(db, 'c-team-mem');
+      const { id } = await seedProblem(db, { code: 'c-team', createdBy: organiser.id });
+      const service = svc(db);
+      await service.create(actorFor(author.id), 'c-team', { body: 'the whole solution' });
+
+      const [org] = await db
+        .insert(organizations)
+        .values({ slug: 'c-team-school', name: 'Trường' })
+        .returning({ id: organizations.id });
+      const now = Date.now();
+      const [contest] = await db
+        .insert(contests)
+        .values({
+          key: 'c-team-ct',
+          name: 'c-team-ct',
+          startTime: new Date(now - 3_600_000),
+          endTime: new Date(now + 3_600_000),
+          format: 'icpc',
+          visibility: 'public',
+          participationMode: 'team',
+          maxTeamSize: 3,
+          createdBy: organiser.id,
+        })
+        .returning({ id: contests.id });
+      await db.insert(contestOrgs).values({ contestId: contest!.id, orgId: org!.id });
+      await db
+        .insert(contestProblems)
+        .values({ contestId: contest!.id, problemId: id, label: 'A', points: 100, order: 0 });
+      const [team] = await db
+        .insert(teams)
+        .values({ orgId: org!.id, slug: 'doi-1', name: 'Đội 1', createdBy: organiser.id })
+        .returning({ id: teams.id });
+      await db.insert(teamMembers).values([captain, member].map((u) => ({ teamId: team!.id, userId: u.id })));
+      // ONE participation, on the captain's account (D99).
+      await db
+        .insert(contestParticipations)
+        .values({ contestId: contest!.id, userId: captain.id, teamId: team!.id, startTime: new Date(now - 3_600_000) });
+
+      // The captain has always been hidden — the row is on their account.
+      const capPage = await service.list(actorFor(captain.id), 'c-team', {});
+      expect(capPage.hiddenDuringContest).toBe(true);
+
+      // The non-captain member must be too: they compete on the same row.
+      const memPage = await service.list(actorFor(member.id), 'c-team', {});
+      expect(memPage.hiddenDuringContest).toBe(true);
+      expect(memPage.items).toHaveLength(0);
+      await expect(service.create(actorFor(member.id), 'c-team', { body: 'leak' })).rejects.toMatchObject({
+        status: 403,
+        code: 'comment_hidden_contest',
+      });
     });
   });
 });

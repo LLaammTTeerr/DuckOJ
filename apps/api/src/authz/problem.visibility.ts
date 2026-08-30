@@ -251,7 +251,14 @@ export async function contestHiddenProblemIds(
   if (!actor || isAdmin(actor)) return EMPTY_HIDDEN_IDS;
   if (problemIds !== undefined && problemIds.length === 0) return EMPTY_HIDDEN_IDS;
   const conditions = [
-    eq(contestParticipations.userId, actor.userId),
+    // Team-aware, exactly as `actingParticipationWhere` (D101): a team is ONE
+    // participation held by whichever member pressed Join, and every other
+    // member competes on that same row — reads the problem, submits for the
+    // team. Keyed on `user_id` alone, the spoiler hide (D109) and D35's mask
+    // reached only the captain, so two of three teammates could read the
+    // whole solution thread mid-round and see the unmasked tags. The set that
+    // is hidden must be the set that competes, which is this predicate.
+    actingParticipationWhere(db, actor.userId),
     // `now()` is the database's clock, the same one every other contest-window
     // predicate in this codebase reads.
     sql`now() >= ${contests.startTime}`,

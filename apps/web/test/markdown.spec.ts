@@ -60,8 +60,28 @@ describe('renderStatement', () => {
     ['a meta refresh', '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">', '<meta'],
     ['a base tag that would repoint every relative link', '<base href="https://evil.example/">', '<base'],
     ['the noscript mXSS re-parse', '<noscript><p title="</noscript><img src=x onerror=alert(1)>"></p></noscript>', 'onerror'],
+    // The b21 additions — the same boundary that renders a comment body
+    // (problem.tsx routes it through `renderStatement` verbatim), thrown the
+    // shapes a discussion invites: an HTML data: URL in a Markdown link, and
+    // two event handlers on ordinary elements a comment might carry.
+    ['an HTML data: URL in a Markdown link', '[x](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)', 'data:text/html'],
+    ['an ontoggle on details', '<details open ontoggle="alert(1)">x</details>', 'ontoggle'],
+    ['an onpointerover handler', '<p onpointerover="alert(1)">x</p>', 'onpointerover'],
   ])('neutralises %s', (_name, source, forbidden) => {
     expect(renderStatement(source)).not.toContain(forbidden);
+  });
+
+  // KaTeX runs with its default `trust: false`, so `\href` is not a command it
+  // will honour: `throwOnError: false` renders the source as an inert red
+  // error, and the `javascript:` string survives only as escaped TEXT inside
+  // the MathML node — never as a live `<a href>`. Asserted as the real
+  // property (no executable link) rather than the raw substring, which the
+  // harmless error text would trip. This is the sanitiser boundary a comment
+  // body meets too.
+  it('does not turn a KaTeX \\href into an executable link', () => {
+    const html = renderStatement('$\\href{javascript:alert(1)}{click}$');
+    expect(html).not.toMatch(/<a\b/i);
+    expect(html).not.toMatch(/href\s*=\s*["']?\s*javascript:/i);
   });
 
   it('does not let a form clobber document properties by name', () => {
