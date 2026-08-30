@@ -1,4 +1,4 @@
-import { open, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, open, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
@@ -8,7 +8,7 @@ import { schema } from '@duckoj/db';
 import type { Db } from '@duckoj/db';
 import { problemRevisions, problems } from '@duckoj/db/guarded';
 import { DRAFT_MAX_FILES, DRAFT_MAX_TOTAL_BYTES, DraftFileName } from '@duckoj/contracts';
-import { DRAFT_STORE, type DraftStore } from '../src/packages/draft.store.js';
+import { DRAFT_LOCK_STALE_MS, DRAFT_STORE, type DraftStore } from '../src/packages/draft.store.js';
 import { DraftSweeper } from '../src/problems/draft.sweeper.js';
 import { buildApp, type BuildAppOptions } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
@@ -407,6 +407,122 @@ describe('problem package drafts (D87)', () => {
         // fixing one wrong answer must not be told the draft is full.
         const replaced = await putFile(agent, 'draft-cnt', draftId, 'f0.in', 'y');
         expect(replaced.status).toBe(200);
+      });
+    });
+  }, 180_000);
+});
+
+/**
+ * D93 — the caps are read-modify-write, so they need the draft locked.
+ *
+ * `ProblemDraftsService.putFile` reads `stats()`, decides, then writes. Two
+ * PUTs in flight against one draft both read the state BEFORE either wrote,
+ * so both are admitted and the draft ends up over a cap that exists to bound
+ * what one setter can put on a shared volume. The browser tab uploads one
+ * file at a time, which is why nothing noticed; the API is a public one, four
+ * `API_WORKERS` share the volume, and a scripted bulk upload is exactly the
+ * caller these caps are for.
+ */
+describe('problem package drafts — the caps hold under concurrent PUTs (D93)', () => {
+  it('admits exactly one of two PUTs racing at the file-count boundary', async () => {
+    await withTestDb(async (db) => {
+      await withApp(db, async (app) => {
+        const agent = await setterWithProblem(db, app, 'draft-race-n', 'draft-rcn');
+        const draftId = (await agent.post('/api/v1/problems/draft-rcn/drafts').send()).body.draftId as string;
+
+        // One slot left. Filled through the store for the reason the
+        // single-writer cap test gives: 499 round trips to prove one
+        // comparison would make this test minutes long.
+        const store = app.get<DraftStore>(DRAFT_STORE);
+        for (let i = 0; i < DRAFT_MAX_FILES - 1; i++) {
+          await store.putFile(draftId, `f${String(i)}.in`, Buffer.from('x'));
+        }
+
+        const [a, b] = await Promise.all([
+          putFile(agent, 'draft-rcn', draftId, 'race-a.in', 'x'),
+          putFile(agent, 'draft-rcn', draftId, 'race-b.in', 'x'),
+        ]);
+
+        const codes = [a.status, b.status].sort((x, y) => x - y);
+        expect(codes).toEqual([200, 422]);
+        expect([a, b].find((r) => r.status === 422)!.body.code).toBe('draft_too_many_files');
+        // The invariant itself, read off the disk rather than off the
+        // response: whatever the two callers were told, the draft holds the
+        // cap and not one file more.
+        expect((await store.stats(draftId)).fileCount).toBe(DRAFT_MAX_FILES);
+      });
+    });
+  }, 180_000);
+
+  it('admits exactly one of two PUTs racing at the total-bytes boundary', async () => {
+    await withTestDb(async (db) => {
+      await withApp(db, async (app) => {
+        const agent = await setterWithProblem(db, app, 'draft-race-b', 'draft-rcb');
+        const draftId = (await agent.post('/api/v1/problems/draft-rcb/drafts').send()).body.draftId as string;
+
+        // Four bytes of headroom, made with a SPARSE file exactly as the
+        // single-writer cap test does: it reports its full length to `stat`
+        // — which is what the cap reads — while occupying almost no blocks.
+        //
+        // The three hundred one-byte files beside it are not decoration.
+        // `stats()` is one `stat` per file, so they are what makes the
+        // read-modify-write window WIDE enough for the second request to
+        // start inside it every time: with a single file in the draft the
+        // two handlers finish one after the other on most runs, and a race
+        // test that only sometimes races is worse than none.
+        const store = app.get<DraftStore>(DRAFT_STORE);
+        const filler = 300;
+        for (let i = 0; i < filler; i++) {
+          await store.putFile(draftId, `f${String(i)}.in`, Buffer.from('x'));
+        }
+        const handle = await open(join(store.filesDir(draftId), 'huge.in'), 'w');
+        try {
+          await handle.truncate(DRAFT_MAX_TOTAL_BYTES - filler - 4);
+        } finally {
+          await handle.close();
+        }
+
+        const [a, b] = await Promise.all([
+          putFile(agent, 'draft-rcb', draftId, 'race-a.in', 'aaaa'),
+          putFile(agent, 'draft-rcb', draftId, 'race-b.in', 'bbbb'),
+        ]);
+
+        const codes = [a.status, b.status].sort((x, y) => x - y);
+        expect(codes).toEqual([200, 422]);
+        expect([a, b].find((r) => r.status === 422)!.body.code).toBe('draft_too_large');
+        expect((await store.stats(draftId)).totalBytes).toBeLessThanOrEqual(DRAFT_MAX_TOTAL_BYTES);
+      });
+    });
+  }, 180_000);
+
+  /**
+   * The lock is a directory on a shared volume, so a worker killed while
+   * holding it must not freeze the draft until its TTL runs out. A lock
+   * older than the takeover age is removed and the waiter proceeds — the
+   * same reasoning `read()` uses for an unreadable `meta.json`: "unreadable"
+   * must never mean "immortal".
+   */
+  it('takes over a lock left behind by a killed worker', async () => {
+    await withTestDb(async (db) => {
+      await withApp(db, async (app) => {
+        const agent = await setterWithProblem(db, app, 'draft-lock', 'draft-lck');
+        const draftId = (await agent.post('/api/v1/problems/draft-lck/drafts').send()).body.draftId as string;
+
+        const store = app.get<DraftStore>(DRAFT_STORE);
+        const lockPath = join(store.filesDir(draftId), '..', '.lock');
+        await mkdir(lockPath);
+        const stale = new Date(Date.now() - 10 * DRAFT_LOCK_STALE_MS);
+        await utimes(lockPath, stale, stale);
+
+        const res = await putFile(agent, 'draft-lck', draftId, '01.in', '1 2\n');
+        expect(res.status).toBe(200);
+
+        // And the lock is not left held: the very next write goes through
+        // without waiting on the takeover path again.
+        expect((await putFile(agent, 'draft-lck', draftId, '01.out', '3\n')).status).toBe(200);
+        // Nothing the lock created is visible to the build: it lives beside
+        // `meta.json`, outside `files/`, for `.tmp-…`'s reason.
+        expect(await readdir(store.filesDir(draftId))).toEqual(['01.in', '01.out']);
       });
     });
   }, 180_000);

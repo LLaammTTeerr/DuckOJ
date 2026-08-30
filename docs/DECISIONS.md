@@ -3817,3 +3817,49 @@ is not a hint about the problem's content, so it is not on D35's mask.
 
 *Ruled by the implementer during the 2026-08-30 bug-hunt loop (B-16 brief), no
 human available to consult. No migration.*
+
+## D93 — A draft's caps are read-modify-write, so a draft is locked while one is decided
+
+D87 bounds a draft at 500 files and 512 MiB, and both are checked the same
+way: `stats()` the directory, decide, then write. Two PUTs in flight against
+one draft both measure the state BEFORE either wrote, so both are admitted —
+the caps bound a one-file-at-a-time client and nothing else. Nothing noticed
+because the authoring tab uploads one file at a time; the API is a public one,
+four `API_WORKERS` share the volume, and a scripted bulk upload is exactly the
+caller a cap on shared disk exists for. Measured: two concurrent PUTs at the
+499-file boundary both answer 200 and leave 501 files.
+
+- **The lock is a directory (`.lock`) beside `meta.json`**, taken with a bare
+  `mkdir` — one syscall that both tests and takes it, with no window between
+  the two — and it lives outside `files/` for the reason the `.tmp-…` file
+  does: `buildPackage` tars everything it is given and `stats` counts
+  everything it sees, so a lock inside `files/` would change the package's
+  content-addressed hash. It is on the shared volume, so it holds ACROSS
+  workers, which an in-process mutex would not.
+- **A lock older than two minutes is taken over, not waited on.** The holder
+  can die — a killed worker, a restart mid-PUT — with nothing left to release
+  it, and a frozen-for-24-hours draft is the one state nothing recovers from
+  on its own. Same reasoning `read()` applies to an unreadable `meta.json`.
+  The age is the directory's own `mtime`, set by the `mkdir`, so there is no
+  second write that could be missing when a waiter looks.
+- **Authorization stays outside the lock.** `resolve` is a database read that
+  can refuse, and a caller who may not touch this draft must not be able to
+  make its owner's uploads queue behind them.
+- **The build holds it only across `buildPackage`.** That step reads the
+  directory listing and then the files in it, so a PUT landing between the two
+  decides what the package contains — and therefore its hash — without the
+  setter who asked for the build having any say. The upload, the attach and
+  the publish that follow touch the database and the package store, not the
+  draft, and holding a lock across them would let a slow write block the next
+  upload.
+
+**Two rulings recorded rather than changed.** A build whose package hash equals
+the current revision's still attaches a NEW revision: `attachRevision` is a
+version allocator, not a deduplicator, `submissions.revisionId` pins history
+per revision rather than per hash, and a caller that wants idempotency compares
+hashes against the revision list — which is what `packages/prepare` does (D90).
+And a draft whose problem is deleted needs no rule: nothing in this API deletes
+a problem.
+
+*Ruled by the implementer during the 2026-08-30 bug-hunt loop (B-16 brief), no
+human available to consult. No migration.*

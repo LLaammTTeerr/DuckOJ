@@ -1,8 +1,32 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { join } from 'node:path';
 
 export const DRAFT_STORE = Symbol('DRAFT_STORE');
+
+/**
+ * How long a held draft lock may go untouched before a waiter takes it over
+ * (D93).
+ *
+ * The lock is a directory on the shared package volume, so the process that
+ * created it can die — a killed worker, a container restart mid-PUT — with
+ * nothing left to release it. Without a takeover that draft would be frozen
+ * for the rest of its 24 hours, which is the one state nothing recovers from
+ * on its own; the same reasoning `read()` applies to an unreadable
+ * `meta.json`.
+ *
+ * Two minutes: comfortably longer than any single PUT (bounded by
+ * `PACKAGE_UPLOAD_MAX_BYTES` of already-buffered bytes reaching the disk) and
+ * short enough that a setter who met a crash retries rather than gives up.
+ */
+export const DRAFT_LOCK_STALE_MS = 120_000;
+
+/** How long a waiter blocks for the lock before refusing. */
+const DRAFT_LOCK_WAIT_MS = 30_000;
+
+/** How long a waiter sleeps between attempts. */
+const DRAFT_LOCK_POLL_MS = 20;
 
 /**
  * What a draft knows about itself, beside its files.
@@ -39,6 +63,16 @@ export interface DraftStore {
   delete(draftId: string): Promise<void>;
   /** Removes every draft created more than `ttlMs` ago; returns how many. */
   sweep(now: Date, ttlMs: number): Promise<number>;
+  /**
+   * Runs `fn` with this draft held exclusively against every other worker.
+   *
+   * The draft's caps are read-modify-write — count the files, decide, write —
+   * and the record they read is the filesystem, which every `API_WORKERS`
+   * process shares. Without this, two PUTs in flight against one draft both
+   * measure the state BEFORE either wrote and both are admitted, so the caps
+   * bound a one-file-at-a-time client and nothing else (D93).
+   */
+  withLock<T>(draftId: string, fn: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -184,6 +218,65 @@ export class FilesystemDraftStore implements DraftStore {
       return await readFile(join(this.filesDir(draftId), name));
     } catch {
       return null;
+    }
+  }
+
+
+  /**
+   * The lock directory for one draft.
+   *
+   * Beside `meta.json` and deliberately NOT inside `files/`, for the reason
+   * the temp file is: `buildPackage` tars everything in the directory it is
+   * given, `stats` counts everything in it, and a lock appearing in either
+   * would change the package's content-addressed hash.
+   */
+  private lockDir(draftId: string): string {
+    return join(this.dirFor(draftId), '.lock');
+  }
+
+  /**
+   * `mkdir` of a single directory is atomic and fails `EEXIST` if it is
+   * already there — one syscall that both tests and takes the lock, with no
+   * window between the two. (A lock FILE opened `wx` would do as well; a
+   * directory is used because the draft's own `rm -r` removes it with no
+   * special case, and because it can never be mistaken for a draft file.)
+   *
+   * A lock older than {@link DRAFT_LOCK_STALE_MS} is taken over rather than
+   * waited on — see that constant for why. `mtime` rather than a timestamp
+   * written inside the directory: `mkdir` sets it, so there is no second
+   * write that could be missing when a waiter looks.
+   */
+  async withLock<T>(draftId: string, fn: () => Promise<T>): Promise<T> {
+    const path = this.lockDir(draftId);
+    const deadline = Date.now() + DRAFT_LOCK_WAIT_MS;
+    for (;;) {
+      try {
+        await mkdir(path);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        let heldForMs: number;
+        try {
+          heldForMs = Date.now() - (await stat(path)).mtimeMs;
+        } catch {
+          // Released between the failed `mkdir` and this `stat`. Retry at
+          // once rather than sleeping: the slot is free right now.
+          continue;
+        }
+        if (heldForMs > DRAFT_LOCK_STALE_MS) {
+          await rm(path, { recursive: true, force: true });
+          continue;
+        }
+        if (Date.now() > deadline) throw new Error(`draft ${draftId} is busy`);
+        await delay(DRAFT_LOCK_POLL_MS);
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      // `force`, so a takeover that already removed this lock does not turn
+      // the release into an error the caller sees instead of its own result.
+      await rm(path, { recursive: true, force: true });
     }
   }
 
