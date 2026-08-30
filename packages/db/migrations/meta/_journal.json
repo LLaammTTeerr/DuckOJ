@@ -169,6 +169,13 @@
       "when": 1788074612757,
       "tag": "0024_must_change_password",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1788081386568,
+      "tag": "0027_judge_node_assignment",
+      "breakpoints": true
     }
   ]
 }

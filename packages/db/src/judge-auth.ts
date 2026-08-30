@@ -57,11 +57,13 @@ export async function verifyJudgeCredential(db: Db, name: string, token: string)
  * Bumps `judge_nodes.last_seen` to now for the named judge — the write half
  * of the design's "`lastSeen` gets written on handshake and heartbeat"
  * promise (`docs/superpowers/specs/2026-08-18-phase-2a-packages-design.md`
- * §8). Callers are `apps/judged`'s `BridgeServer`, on a successful
- * handshake and on every `ping-response` it decodes — the same two signals
- * its own in-memory `lastSeenAt` map already tracks; this just makes that
- * map's answer to "is my judge alive" durable and queryable instead of
- * vanishing on restart.
+ * §8). The caller is `apps/judged`'s `BridgeServer`: on a successful
+ * handshake, and thereafter on any packet it decodes, throttled to one
+ * write per judge per window (D68 — the design's "handshake and heartbeat"
+ * under-reported a judge that was mid-grade and talking constantly). That
+ * is the same signal its own in-memory `lastSeenAt` map tracks; this just
+ * makes that map's answer to "is my judge alive" durable and queryable
+ * instead of vanishing on restart.
  *
  * Never throws: a failure to record liveness (a database blip, most
  * plausibly) is an observability gap, not a reason to reject a handshake
@@ -78,6 +80,40 @@ export async function verifyJudgeCredential(db: Db, name: string, token: string)
 export async function touchJudgeLastSeen(db: Db, name: string): Promise<void> {
   try {
     await db.update(judgeNodes).set({ lastSeen: new Date() }).where(eq(judgeNodes.name, name));
+  } catch {
+    // Swallow — see doc comment above.
+  }
+}
+
+/**
+ * Writes what a judge announced about itself into `judge_nodes.capabilities`
+ * — the languages it can run, the executor names it used for them, its
+ * concurrency (1, D29) and how many problems it had.
+ *
+ * The column has existed since the schema's first draft and was written by
+ * **nothing** until now (D47's report says so in as many words), so an
+ * operator could not answer "which of my judges can run Python" without
+ * reading a container's logs, and `judged` could not either — which is why
+ * every judge was assumed to run everything. `apps/judged`'s `BridgeServer`
+ * calls this once per successful handshake, and that is the only moment the
+ * information arrives: DMOJ re-announces problems but never executors.
+ *
+ * `unknown` rather than a typed shape on purpose: the column is `jsonb`, the
+ * shape belongs to the driver that produced it (`JudgeCapabilities` in
+ * `apps/judged`), and `@duckoj/db` must not grow a dependency on a driver's
+ * vocabulary to store a blob it never interprets.
+ *
+ * Never throws, on exactly the terms `touchJudgeLastSeen` does not: this is
+ * observability, and a failure to record it is not a reason to reject a
+ * judge that has already authenticated.
+ */
+export async function recordJudgeCapabilities(
+  db: Db,
+  name: string,
+  capabilities: unknown,
+): Promise<void> {
+  try {
+    await db.update(judgeNodes).set({ capabilities }).where(eq(judgeNodes.name, name));
   } catch {
     // Swallow — see doc comment above.
   }
