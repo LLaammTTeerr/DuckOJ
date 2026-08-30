@@ -244,8 +244,9 @@ html {
 body {
   background-color: var(--bg);
   background-image:
-    radial-gradient(58rem 40rem at 8% -12%, var(--wash-1), transparent 62%),
-    radial-gradient(48rem 34rem at 104% 2%, var(--wash-2), transparent 58%);
+    radial-gradient(120vmax 80vmax at 6% -18%, var(--wash-1), transparent 62%),
+    radial-gradient(100vmax 70vmax at 104% 8%, var(--wash-2), transparent 60%),
+    radial-gradient(90vmax 70vmax at 50% 118%, var(--wash-1), transparent 64%);
   background-attachment: fixed;
   background-repeat: no-repeat;
   color: var(--fg);
@@ -614,6 +615,9 @@ tr:hover td {
 .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  /* A quantity broken across two lines stops being scannable down a column,
+     which is the entire reason this class exists. */
+  white-space: nowrap;
 }
 
 /* A disqualified scoreboard row. Struck through rather than hidden or
@@ -1178,13 +1182,15 @@ section section > h3:first-child {
   font-weight: 600;
   background: var(--glass-inset);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--fg);
   border-radius: var(--r-sm);
-  padding: var(--sp-2) var(--sp-3);
+  /* An INSET shadow, not a `border-left`: a 3px border tapers into a 10px
+     corner radius and renders as two marks rather than one edge. */
+  box-shadow: inset 3px 0 0 var(--fg);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
   margin: var(--sp-3) 0;
 }
 [role='status'] {
-  border-left-color: var(--dim);
+  box-shadow: inset 3px 0 0 var(--dim);
   font-weight: 500;
 }
 
@@ -1257,8 +1263,8 @@ fieldset label {
   margin: 0 var(--sp-2) 0 0;
   text-transform: none;
   letter-spacing: 0;
-  font-family: var(--font-mono);
-  font-size: 13px;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
   font-weight: 400;
   color: var(--fg);
   white-space: nowrap;
@@ -1320,6 +1326,7 @@ fieldset label {
   }
 
   main {
+    padding-top: var(--sp-3);
     padding-left: var(--sp-3);
     padding-right: var(--sp-3);
     /* Clear of the fixed bar plus the home indicator. */
