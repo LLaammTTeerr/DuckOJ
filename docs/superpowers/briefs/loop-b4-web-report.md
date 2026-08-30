@@ -23,7 +23,7 @@ findings cleared, verified end to end by serving the worktree's own `dist` on :8
    still retrying 5xx and network failures → 92/102/96ms, and `/contests/NOPE` 7412ms →
    115ms once the second commit took the nine queryFns the first missed. `contest-edit` and
    `problem-revisions` had each reached for a local `retry: false` — one bug diagnosed twice,
-   now one policy. **It shipped because all 21 web specs build their client with
+   now one policy. **It shipped because all 23 web specs build their client with
    `retry: false`.**
 3. **`180aaa6` — `/submissions/abc` requested id `NaN`.** The router builds
    `Number(params.id)`; live that meant `GET /submissions/NaN` (422, then 502 on retry) with

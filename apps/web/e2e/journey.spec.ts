@@ -178,7 +178,13 @@ test('journey 1 — register on the form, refuse a mismatched confirmation, then
   await expect(nav.getByRole('link', { name: 'Bài tập' })).toBeVisible();
   await expect(nav.getByRole('link', { name: 'Kỳ thi' })).toBeVisible();
 
-  await nav.getByRole('button', { name: 'EN' }).click();
+  // By its accessible name, which is the language's own name — "EN" is only
+  // the glyph on the face of the button. The two were the same string until
+  // the toggle grew `aria-label`s (a bare <span>'s `role="generic"` cannot
+  // carry the group label, so a screen reader announced two unnamed
+  // buttons); this locator is the one that survives that. The page runs in
+  // `vi-VN` (playwright.config.ts), so the name is the Vietnamese spelling.
+  await nav.getByRole('button', { name: 'Tiếng Anh' }).click();
 
   await expect(nav.getByRole('link', { name: 'Problems' })).toBeVisible();
   await expect(nav.getByRole('link', { name: 'Contests' })).toBeVisible();
