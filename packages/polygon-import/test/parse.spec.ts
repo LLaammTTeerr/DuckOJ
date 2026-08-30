@@ -226,3 +226,55 @@ describe('planImport — a non-numeric limit is refused where it is read', () =>
     expect(() => planImport(withLimits('1000', '1536'))).toThrow(/bad memory-limit/);
   });
 });
+
+/**
+ * D94. `content/problems/*` is the shape that matters here: samples marked
+ * `sample="true" points="0" group="samples"`, which the importer numbers
+ * group 1 — so `isSampleTest`'s "worth nothing in a group worth nothing" is
+ * what has to recognise them, not D87's literal "group 0".
+ */
+describe('planImport samples', () => {
+  const sampled = (extra = '') =>
+    xml({
+      testset: `<testset name="tests">
+        <time-limit>1000</time-limit>
+        <memory-limit>268435456</memory-limit>
+        <test-count>3</test-count>
+        <input-path-pattern>tests/%02d</input-path-pattern>
+        <answer-path-pattern>tests/%02d.a</answer-path-pattern>
+        <tests>
+          <test method="manual" sample="true" points="0" group="samples" description="Chọn ba tuyến chi phí $1 + 2 + 3$."/>
+          <test method="manual" sample="true" points="0" group="samples"/>
+          <test method="generated" points="100" group="lon"${extra}/>
+        </tests>
+        <groups>
+          <group name="samples" points="0"/>
+          <group name="lon" points="100"/>
+        </groups>
+      </testset>`,
+    });
+
+  it("carries a sample's description across as its explanation, keyed by the input path", () => {
+    const plan = planImport(sampled());
+    expect(plan.manifest.samples).toEqual([
+      { input: 'tests/01.in', explanation: 'Chọn ba tuyến chi phí $1 + 2 + 3$.' },
+    ]);
+    // Scoring is untouched — the samples group is still group 1, worth 0.
+    expect(plan.manifest.tests[0]).toEqual({ input: 'tests/01.in', answer: 'tests/01.ans', points: 0, group: 1 });
+  });
+
+  it('omits the key entirely when no sample carries a description', () => {
+    const plan = planImport(xml());
+    expect(plan.manifest.samples).toBeUndefined();
+  });
+
+  it('never rescores a test to fit its description: a scored test keeps its points and is reported skipped', () => {
+    const plan = planImport(sampled(' description="not a sample"'));
+    expect(plan.manifest.samples).toEqual([
+      { input: 'tests/01.in', explanation: 'Chọn ba tuyến chi phí $1 + 2 + 3$.' },
+    ]);
+    expect(plan.manifest.tests[2]!.points).toBe(100);
+    expect(plan.skipped).toContainEqual(expect.stringContaining('description on test 3'));
+  });
+});
+

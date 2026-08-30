@@ -17,7 +17,7 @@
  * make that debuggable.
  */
 import { XMLParser } from 'fast-xml-parser';
-import type { PackageManifestDto } from '@duckoj/package-format';
+import { isSampleTest, type PackageManifestDto, type SampleAnnotationDto } from '@duckoj/package-format';
 
 export interface PolygonImportPlan {
   manifest: PackageManifestDto;
@@ -58,6 +58,13 @@ function asArray<T>(value: T | T[] | undefined): T[] {
 interface XmlTest {
   points?: string | number;
   group?: string;
+  /**
+   * Polygon's own sample marker, and the prose beside it. Read for the
+   * explanation ONLY — never to decide scoring: see the `samples` block at
+   * the end of `planImport`.
+   */
+  sample?: string | boolean;
+  description?: string;
 }
 interface XmlGroup {
   name?: string;
@@ -200,6 +207,29 @@ export function planImport(problemXml: string): PolygonImportPlan {
   if (problem.statements !== undefined) skipped.push('statements (import them by hand)');
   if (problem.assets?.solutions !== undefined) skipped.push('solutions');
 
+  // Polygon marks its samples explicitly (`sample="true"`) and often writes a
+  // sentence about each one in `description`. That sentence is the
+  // explanation D94 renders under the sample, so it is carried across.
+  //
+  // What is NOT carried across is Polygon's opinion of which tests are
+  // samples. Scoring is derived here and stays derived: a test is a DuckOJ
+  // sample when it is worth nothing in a group worth nothing
+  // (`isSampleTest`), which is exactly what `points="0" group="samples"`
+  // becomes above. A test Polygon calls a sample while giving it points is
+  // imported with its declared scoring untouched and its description left
+  // behind — reported in `skipped`, never silently rescored, because
+  // rewriting points to make a description fit would change what the problem
+  // grades.
+  const isSample = isSampleTest(tests);
+  const samples: SampleAnnotationDto[] = [];
+  for (const [i, declared] of declaredTests.entries()) {
+    const description = declared.description === undefined ? '' : String(declared.description).trim();
+    if (description === '') continue;
+    const test = tests[i]!;
+    if (isSample(test)) samples.push({ input: test.input, explanation: description.slice(0, 4096) });
+    else skipped.push(`description on test ${String(i + 1)} (not a sample: ${String(test.points)} point(s), group ${String(test.group)})`);
+  }
+
   return {
     manifest: {
       schemaVersion: 1,
@@ -207,6 +237,7 @@ export function planImport(problemXml: string): PolygonImportPlan {
       checker,
       limits: { timeMs, memoryKb },
       tests,
+      ...(samples.length > 0 ? { samples } : {}),
     },
     copies,
     skipped,
