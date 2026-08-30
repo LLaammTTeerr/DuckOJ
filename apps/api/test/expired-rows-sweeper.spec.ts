@@ -119,35 +119,66 @@ describe('ExpiredRowsSweeper', () => {
  * behaves — and makes the two implementations give different answers.
  */
 describe('the sweep does not materialise what it deletes', () => {
-  function stubDb(count: number): { db: Db; returningCalls: number } {
-    const state = { returningCalls: 0 };
-    const result = { count };
+  /**
+   * A driver that reports a FULL batch `fullBatches` times and then a short
+   * one, per table — the shape postgres.js produces for a table with
+   * `fullBatches * batch + remainder` sweepable rows.
+   *
+   * It answers a sequence rather than one constant because the sweep batches
+   * (B12): a stub that always says "8.6M removed" would never let the loop's
+   * termination condition become true, and the spec would hang instead of
+   * asserting anything.
+   */
+  function stubDb(batch: number, fullBatches: number, remainder: number): {
+    db: Db;
+    returningCalls: () => number;
+    statements: () => number;
+  } {
+    const state = { returningCalls: 0, statements: 0, sent: 0 };
     const db = {
       delete: () => ({
-        where: () => ({
-          // Awaiting the DELETE itself yields postgres.js's `RowList`: empty,
-          // with the affected-row count on it.
-          then: (resolve: (value: unknown) => void) => {
-            resolve(result);
-          },
-          returning: () => {
-            state.returningCalls += 1;
-            return Promise.resolve([]);
-          },
-        }),
+        where: () => {
+          const index = state.sent++;
+          // Each table restarts the sequence: three tables, same shape.
+          const position = index % (fullBatches + 1);
+          const count = position < fullBatches ? batch : remainder;
+          state.statements += 1;
+          return {
+            // Awaiting the DELETE itself yields postgres.js's `RowList`: empty,
+            // with the affected-row count on it.
+            then: (resolve: (value: unknown) => void) => {
+              resolve({ count });
+            },
+            returning: () => {
+              state.returningCalls += 1;
+              return Promise.resolve([]);
+            },
+          };
+        },
       }),
     };
-    return { db: db as unknown as Db, returningCalls: state.returningCalls };
+    return {
+      db: db as unknown as Db,
+      returningCalls: () => state.returningCalls,
+      statements: () => state.statements,
+    };
   }
 
   it('reads the affected-row count instead of returning every id', async () => {
-    const { db } = stubDb(8_600_000);
+    // 860 full batches of 10 000 plus a remainder is the 8.6M-row day this
+    // module's header describes, expressed the way the driver reports it.
+    const { db, returningCalls, statements } = stubDb(10_000, 860, 1234);
     const swept = await new ExpiredRowsSweeper(db).sweep();
     expect(swept).toEqual({
-      rateEvents: 8_600_000,
-      sessions: 8_600_000,
-      oneTimeTokens: 8_600_000,
+      rateEvents: 8_601_234,
+      sessions: 8_601_234,
+      oneTimeTokens: 8_601_234,
     });
+    // The property this test has always existed for: 8.6M ids never came
+    // back over the wire.
+    expect(returningCalls()).toBe(0);
+    // And the property B12 added: 8.6M rows went in bounded statements.
+    expect(statements()).toBe(3 * 861);
   });
 
   it('reports nothing swept rather than NaN if the driver stops counting', async () => {

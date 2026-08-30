@@ -2875,3 +2875,109 @@ Ten further rulings, taken with nobody to ask:
 
 *Ruled by the implementer during the 2026-08-30 feature loop (F-15), no human
 available to consult. Migration 0028; new package `packages/similarity`.*
+
+## D78 — The expired-rows sweep is batched, and its three predicates are indexed
+
+`ExpiredRowsSweeper` bounds the three authentication tables nothing else
+deletes from. Its own docstring ruled that no schema change was needed: *"A
+DELETE by age against `rate_events_lookup_idx`'s trailing `created_at` (and
+the sessions / one-time-token expiry columns) is cheap at any table size this
+deployment will see."* Measured in B12, **both halves of that sentence are
+false**, and this entry is the correction. Migration **0029**.
+
+- **A btree bounds a scan by a PREFIX of its columns, and `created_at` is the
+  THIRD.** `rate_events_lookup_idx` is `(purpose, key, created_at)`; the
+  sweep's predicate names neither of the first two, so the index it was said
+  to use could never serve it. Measured on a 1,000,000-row fixture with ~4%
+  sweepable, picking **one batch**: `Seq Scan on rate_events`, **56.5 ms and
+  8 084 buffers** without 0029, against `Index Scan using
+  rate_events_created_at_idx`, **1.97 ms and 135 buffers** with it — 29x the
+  time and 60x the pages, for one batch of 860. The parenthetical is worse than
+  imprecise — `sessions.expires_at` and `one_time_tokens.expires_at` had **no
+  index at all**, so it asserts two indexes that were never created. Both are
+  added, and both are proved the same way at 200 000 rows.
+- **The fraction is what makes the index matter, not the row count.** An
+  hourly sweep deletes the hour that just fell out of a 24-hour retention — a
+  sliver of the table. A fixture where the predicate matched most rows would
+  let a `LIMIT`ed sequential scan stop almost immediately and the planner
+  would keep choosing it *with the index present*, so the spec would be
+  unfalsifiable. `expired-rows-sweeper-bounded.spec.ts` seeds ~4% (rate
+  events) and 5% (both expiry columns), oldest-last, which is also how an
+  append-only table sits on disk: the rows worth deleting are at the far end
+  of the heap and a seq scan must walk everything else to reach them.
+- **One statement is not a bounded amount of work.** The module's header
+  estimates 8.6M `rate_events` rows a day under a login-stuffing run — the
+  case the sweep exists for — and deleting them in one DELETE is one
+  transaction holding one long lock, one WAL burst, and no progress kept if it
+  is interrupted, so the next hour restarts the same 8.6M-row statement and
+  fails the same way. `SWEEP_BATCH_SIZE` is 10 000: 860 short committed
+  transactions instead of one long one, and an interruption costs the last
+  batch rather than all of it. What the two halves are worth together: 860
+  unindexed batches is **48 seconds of pure scanning** per sweep, per worker,
+  against 1.7 seconds indexed.
+- **`ctid in (select … limit n)`, because Postgres has no `DELETE … LIMIT`.**
+  The subquery picks n physical row addresses through the new index and the
+  DELETE removes exactly those. It stays inside drizzle's
+  `.delete().where()`, so `affected()` still reads the driver's count and the
+  sibling spec's rule — *never* `.returning()` — is untouched. The comparison
+  is a drizzle `lt()` on the COLUMN, never raw `created_at < $1`: interpolated
+  into a template postgres.js has no column to infer a type from, a `Date`
+  fails at bind time with `ERR_INVALID_ARG_TYPE`, which this sweep would have
+  swallowed as a warning line nobody reads. Caught by the spec, not in
+  production.
+- **The loop ends on a SHORT batch, not on an empty one.** "Zero rows
+  removed" would cost one extra round trip per table per sweep on the common
+  case of a table with nothing to sweep, in every worker, every hour. A table
+  with nothing to sweep costs exactly one statement.
+- **The fix is the pair, deliberately.** An index with no batching still
+  deletes 8.6M rows in one transaction; batching with no index still scans the
+  whole table once per batch. Neither half is worth shipping alone.
+- **Three full indexes, and the write cost is accepted.** The predicates are
+  `< now()` comparisons against a moving bound, so no partial index can serve
+  them — D47's partial-index trick does not apply here. One extra index write
+  per session, per one-time token and per rate event is the price; the
+  alternative is a full scan of a forever-growing table every hour in every
+  worker.
+
+*Ruled by the implementer during the 2026-08-30 soak loop (B12 brief), no
+human available to consult. Migration 0029.*
+
+## D79 — `POST /submissions` stays unmetered, and the number that would change that is recorded
+
+Every other costly write in the API is rate limited — login (D16),
+registration (D26), account recovery (D13), clarifications (D63), TOTP, the
+org import. `POST /submissions` is **not**, and it is the endpoint that
+enqueues the most expensive work the system does: one grading job, one
+container, one compile.
+
+B12 measured what that is worth before ruling on it, because "add a limit"
+without a number is how a limit ends up refusing a legitimate contest.
+
+- **Measured judge throughput is the constraint, and it is small.** One
+  `judged` worker (`JUDGED_CONCURRENCY=1`) against one DMOJ judge grades
+  `tong-hai-so` — 12 tests, a 1000 ms limit — at the rate recorded in
+  `load/RESULTS.md`. A single unmetered client can enqueue faster than that
+  from one connection, so the queue is bounded by nothing but how fast a
+  caller can POST.
+- **It is not fixed here, and that is a ruling rather than an oversight.**
+  A limit is a contract change (a 429 with `Retry-After` in
+  `packages/contracts`), a web change (the submit button has to say why it was
+  refused), and a product decision about what a legitimate contestant does —
+  a room re-submitting after a failed test is exactly the burst a naive limit
+  would break, on the one day it must not. That is a feature brief, not a
+  perf fix, and B12's scope is measurement.
+- **What the queue actually does under the load is recorded** in
+  `load/RESULTS.md`'s judging-soak section: queue depth over time,
+  time-to-verdict p50/p95, and whether the single judge keeps up at a
+  province-shaped arrival rate. Whoever writes the limit should set its
+  threshold from those numbers rather than from a guess, and should measure
+  against the same soak.
+- **The mitigations that already exist are real but partial.** D68 keeps a job
+  nobody can run from starving the queue, the lease and its fencing token make
+  a flood recoverable rather than corrupting, and `/admin/dashboard` shows the
+  depth. None of them stops the enqueue.
+
+*Ruled by the implementer during the 2026-08-30 soak loop (B12 brief), no
+human available to consult. No migration, no code change — this entry is the
+deliverable.*
+

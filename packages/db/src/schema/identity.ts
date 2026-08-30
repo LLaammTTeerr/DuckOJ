@@ -100,7 +100,14 @@ export const sessions = pgTable(
     userAgent: text('user_agent'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('sessions_token_hash_idx').on(t.tokenHash)],
+  (t) => [
+    uniqueIndex('sessions_token_hash_idx').on(t.tokenHash),
+    // For `ExpiredRowsSweeper`, not for `resolve` — every read is by
+    // `token_hash` above. The sweep's `expires_at < now()` had no index at
+    // all, so the hourly janitor sequentially scanned every session ever
+    // created to find the expired ones (migration 0029).
+    index('sessions_expires_at_idx').on(t.expiresAt),
+  ],
 );
 
 export const accessTokens = pgTable(
@@ -183,7 +190,11 @@ export const oneTimeTokens = pgTable(
     usedAt: timestamp('used_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('one_time_tokens_hash_idx').on(t.tokenHash)],
+  (t) => [
+    uniqueIndex('one_time_tokens_hash_idx').on(t.tokenHash),
+    /** The sweep's predicate (migration 0029); `redeem` reads by hash. */
+    index('one_time_tokens_expires_at_idx').on(t.expiresAt),
+  ],
 );
 
 /**
@@ -206,7 +217,14 @@ export const rateEvents = pgTable(
     key: text('key').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('rate_events_lookup_idx').on(t.purpose, t.key, t.createdAt)],
+  (t) => [
+    index('rate_events_lookup_idx').on(t.purpose, t.key, t.createdAt),
+    // `created_at` is the TRAILING column of the lookup index, and a btree
+    // can only bound a scan by a PREFIX of its columns — so the sweeper's
+    // `created_at < cutoff`, which names no purpose and no key, could never
+    // use it and sequentially scanned the whole table (migration 0029).
+    index('rate_events_created_at_idx').on(t.createdAt),
+  ],
 );
 
 /**
