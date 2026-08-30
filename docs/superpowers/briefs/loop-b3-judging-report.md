@@ -66,6 +66,8 @@ no diff, `vite build`.
   requeues a problem's every submission in one unbounded transaction; `GET
   /packages/{hash}` answered 200 to a plain session despite its `packages:read`
   scope (summary only — handed to the auth area).
-- `contest-scoreboard-cache`'s privileged-board test flaked once under full-suite
-  load (2 s TTL, D25); passed alone and on re-run, untouched here. `bh3-61808` and
-  ~12 submissions remain; nothing stopped or rebuilt; no migration (D41/D42 unused).
+- **`contest-scoreboard-cache.spec.ts` is load-flaky**, pre-existing: a *different*
+  test in it failed on two full-suite runs (2 s TTL, D25), 4/4 on three isolated
+  runs, and one full `-r test` passed 621/621. Nothing in this diff reaches the
+  scoreboard path. `bh3-61808` and ~12 submissions remain; nothing stopped or
+  rebuilt; no migration needed (D41/D42 unused).
