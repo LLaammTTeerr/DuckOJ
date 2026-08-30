@@ -37,7 +37,9 @@ describe('health endpoints', () => {
 
     const res = await request(app.getHttpServer()).get('/healthz');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: 'ok' });
+    // D86: the body carries the live worker count the compose healthcheck
+    // requires. One process answering its own probe is one worker.
+    expect(res.body).toEqual({ status: 'ok', workers: 1 });
   });
 
   it('reports readiness when the database answers', async () => {

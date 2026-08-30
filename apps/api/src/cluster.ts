@@ -24,6 +24,7 @@
  * API with it instead of letting one worker fail loudly and restart.
  */
 import cluster from 'node:cluster';
+import { workerCountMessage } from './worker-count.js';
 
 /** Default ceiling on workers, however many cores the machine reports. */
 const DEFAULT_MAX_WORKERS = 8;
@@ -73,6 +74,8 @@ export interface SupervisedWorker {
   id: number;
   process: { pid?: number | undefined };
   kill(signal?: string): void;
+  /** The cluster IPC channel — how the live worker count reaches `/healthz` (D86). */
+  send?(message: unknown): unknown;
 }
 
 /**
@@ -181,11 +184,32 @@ export function runPrimary(count: number, options: RunPrimaryOptions = {}): void
   /** Worker ids currently believed alive — the breaker's whole input. */
   const alive = new Set<number>();
 
+  /**
+   * Tells every live worker how many of them there are (D86).
+   *
+   * The primary is the only process that knows this, and `/healthz` — which a
+   * WORKER answers — is where the container healthcheck reads it. A failed
+   * `send` (a worker whose channel has already closed) is ignored: this is a
+   * report, and losing one copy of it must never take the supervisor down.
+   */
+  const broadcastWorkerCount = (): void => {
+    const message = workerCountMessage(alive.size);
+    for (const worker of Object.values(workers.workers ?? {})) {
+      if (!worker || !alive.has(worker.id)) continue;
+      try {
+        worker.send?.(message);
+      } catch {
+        // See above.
+      }
+    }
+  };
+
   const fork = (): void => {
     if (shuttingDown) return;
     const worker = workers.fork();
     startedAt.set(worker.id, now());
     alive.add(worker.id);
+    broadcastWorkerCount();
   };
 
   workers.on('exit', (worker, code, signal) => {
@@ -193,6 +217,9 @@ export function runPrimary(count: number, options: RunPrimaryOptions = {}): void
     startedAt.delete(worker.id);
     alive.delete(worker.id);
     if (shuttingDown) return;
+    // Before the breaker and before the re-fork: the survivors' `/healthz`
+    // must report the fleet as it is NOW, not as it was a worker ago.
+    broadcastWorkerCount();
 
     /**
      * D85. Checked before the re-fork is scheduled, because the re-fork is

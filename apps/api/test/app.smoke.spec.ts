@@ -50,7 +50,7 @@ describe('AppModule composition root', () => {
   it('serves /healthz to an anonymous caller, unprefixed', async () => {
     const res = await request(app.getHttpServer()).get('/healthz');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: 'ok' });
+    expect(res.body).toEqual({ status: 'ok', workers: 1 });
   });
 
   it('serves /readyz to an anonymous caller, unprefixed', async () => {

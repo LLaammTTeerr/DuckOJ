@@ -254,10 +254,13 @@ describe('the real AppModule boots the way the container boots it', () => {
     }
   });
 
-  it('answers /healthz, unprefixed and anonymously', async () => {
+  it('answers /healthz, unprefixed and anonymously, with the body the healthcheck parses', async () => {
     const res = await request(app.getHttpServer()).get('/healthz');
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
+    // D86: `docker-compose.yml`'s probe requires `workers >= 1` out of the
+    // COMPILED build — the one the container runs.
+    expect(res.body.workers).toBeGreaterThanOrEqual(1);
   });
 
   /**

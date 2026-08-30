@@ -3451,3 +3451,49 @@ exists to pin.
 
 *Ruled by the implementer during the 2026-08-30 deploy-safety loop (B-15
 brief), no human available to consult. No migration, no API change.*
+
+## D86 — The api healthcheck must be ANSWERED by a worker, and must count them
+
+`node:cluster` has the **primary** bind port 3000 and hand accepted
+connections to workers. So "the port accepts" and "the application answers"
+are different facts, and on 2026-08-30 they came apart for fifteen minutes:
+every worker dead, the primary holding the socket, `podman ps` reporting `Up`.
+
+The probe in place could not tell:
+
+    fetch('http://localhost:3000/healthz').then(r=>process.exit(r.ok?0:1))
+
+Its connection was accepted by the primary and never answered, so the fetch
+never settled — no timeout, no `.catch`. It did not fail; it hung until
+compose killed it at the service's own 5 s `timeout`, six times, a probe with
+no verdict of its own. Measured: against a socket that accepts and says
+nothing, this command still had not exited after 30 s.
+
+- **`/healthz` now answers `{ status: 'ok', workers: n }`.** The body is the
+  point: only a process that can run a route produces one, so an accepted
+  connection with nobody behind it cannot fake it.
+- **`n` is the primary's own count of live workers**, pushed over the cluster
+  IPC channel on every fork and every death
+  (`apps/api/src/worker-count.ts`). It is the one fact only the supervisor
+  knows, and the healthcheck reads it rather than inferring it.
+- **A worker that has not yet heard reports 1, never 0.** It is itself alive,
+  and `API_WORKERS=1` never forks a primary at all. The number is a floor,
+  never an overstatement.
+- **The compose probe parses the body, requires `workers >= 1`, and carries
+  `AbortSignal.timeout(4000)` plus a `.catch`.** All three are load-bearing:
+  the parse defeats an accepting-but-silent port and a misrouted 200 (an SPA
+  fallback, a proxy error page); the count fails closed against an image too
+  old to send the field; the timeout makes a hang a FAILED probe at 4 s
+  instead of one killed mid-question at 5 s.
+- **`readyz` is unchanged** and still owns dependency health. Liveness must
+  stay answerable while Postgres is down.
+
+`apps/api/test/healthcheck-probe.spec.ts` extracts the command from
+`docker-compose.yml` and runs it with the same `node -e`, against the real
+`HealthController` and against each failure above — a restated copy of the
+probe would drift from the compose file, which is exactly how the old one
+survived looking right.
+
+*Ruled by the implementer during the 2026-08-30 deploy-safety loop (B-15
+brief), no human available to consult. No migration; `/healthz` is not in the
+OpenAPI registry, so no contract regeneration.*

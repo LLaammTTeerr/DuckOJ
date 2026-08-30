@@ -9,8 +9,20 @@ import { resolveWorkerCount, runPrimary } from './cluster.js';
 import { warnIfRedisUnbounded } from './common/redis-maxmemory.js';
 import { loadConfig } from './config/config.schema.js';
 import { SubmissionsGateway } from './realtime/submissions.gateway.js';
+import { listenForWorkerCount } from './worker-count.js';
 
 async function bootstrap(): Promise<void> {
+  // D86. Before anything else that can fail: the primary broadcasts the live
+  // worker count the moment it forks this process, and `/healthz` reports it.
+  // Only a worker has a channel to listen on — with `API_WORKERS=1` there is
+  // no primary at all, and `reportedWorkerCount()` answers 1 because this
+  // process is the one worker.
+  if (cluster.isWorker) {
+    listenForWorkerCount((handler) => {
+      process.on('message', handler);
+    });
+  }
+
   const config = loadConfig(process.env);
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   configureApp(app, config);

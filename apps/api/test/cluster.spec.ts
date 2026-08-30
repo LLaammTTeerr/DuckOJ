@@ -7,6 +7,7 @@ import {
   type SupervisedCluster,
   type SupervisedWorker,
 } from '../src/cluster.js';
+import { workerCountMessage } from '../src/worker-count.js';
 
 describe('resolveWorkerCount', () => {
   it('defaults to the machine parallelism when API_WORKERS is unset', () => {
@@ -82,6 +83,10 @@ describe('runPrimary — the crash-loop breaker', () => {
     workers: Record<string, SupervisedWorker | undefined> = {};
     readonly created: SupervisedWorker[] = [];
     readonly killed: string[] = [];
+    /** Every IPC message the supervisor sent, per worker id (D86). */
+    readonly messages = new Map<number, unknown[]>();
+    /** Worker ids whose IPC channel throws on `send`. */
+    private readonly closedChannels = new Set<number>();
     private listener:
       | ((worker: SupervisedWorker, code: number | null, signal: string | null) => void)
       | undefined;
@@ -93,10 +98,24 @@ describe('runPrimary — the crash-loop breaker', () => {
         id,
         process: { pid: 10_000 + id },
         kill: (signal?: string) => this.killed.push(`${String(id)}:${signal ?? ''}`),
+        send: (message: unknown) => {
+          if (this.closedChannels.has(id)) {
+            throw new Error('ERR_IPC_CHANNEL_CLOSED');
+          }
+          const seen = this.messages.get(id) ?? [];
+          seen.push(message);
+          this.messages.set(id, seen);
+          return true;
+        },
       };
       this.workers[String(id)] = worker;
       this.created.push(worker);
       return worker;
+    }
+
+    /** Makes this worker's `send` throw, as a closed cluster channel does. */
+    breakChannel(worker: SupervisedWorker): void {
+      this.closedChannels.add(worker.id);
     }
 
     on(
@@ -121,6 +140,8 @@ describe('runPrimary — the crash-loop breaker', () => {
     logs: string[];
     advance: (ms: number) => void;
     signal: (name: 'SIGTERM' | 'SIGINT') => void;
+    /** Every IPC message this worker was sent, oldest first. */
+    sent: (worker: SupervisedWorker) => unknown[];
   }
 
   function start(count: number): Harness {
@@ -149,6 +170,7 @@ describe('runPrimary — the crash-loop breaker', () => {
         clock += ms;
       },
       signal: (name) => handlers.get(name)?.(),
+      sent: (worker) => fake.messages.get(worker.id) ?? [],
     };
   }
 
@@ -227,5 +249,43 @@ describe('runPrimary — the crash-loop breaker', () => {
     h.advance(20);
     h.cluster.die(h.cluster.created[0]!, 1, null);
     expect(h.exits).toEqual([CRASH_LOOP_EXIT_CODE]);
+  });
+
+  /**
+   * D86 — the primary is the only process that knows how many workers are up,
+   * and `/healthz` (which a WORKER answers) is where the container
+   * healthcheck reads it. This is the wire.
+   */
+  describe('the live worker count it broadcasts', () => {
+    it('tells every worker the fleet size as it forks them', () => {
+      const h = start(3);
+      // Each fork broadcasts, so the last worker forked has heard the final,
+      // correct number; the earlier ones heard the count at their own moment
+      // and were told again on each later fork.
+      expect(h.sent(h.cluster.created[0]!).at(-1)).toEqual(workerCountMessage(3));
+      expect(h.sent(h.cluster.created[1]!).at(-1)).toEqual(workerCountMessage(3));
+      expect(h.sent(h.cluster.created[2]!).at(-1)).toEqual(workerCountMessage(3));
+    });
+
+    it('tells the survivors when one dies, before anything is re-forked', () => {
+      const h = start(3);
+      h.advance(50);
+      h.cluster.die(h.cluster.created[0]!, 1, null);
+
+      expect(h.sent(h.cluster.created[1]!).at(-1)).toEqual(workerCountMessage(2));
+      expect(h.sent(h.cluster.created[2]!).at(-1)).toEqual(workerCountMessage(2));
+      // The dead worker is not sent to.
+      expect(h.sent(h.cluster.created[0]!).at(-1)).toEqual(workerCountMessage(3));
+    });
+
+    it('survives a worker whose channel has already closed', () => {
+      const h = start(2);
+      // `send` on a worker whose IPC channel is gone throws (ERR_IPC_CHANNEL_CLOSED).
+      // Losing one copy of a REPORT must never take the supervisor with it.
+      h.cluster.breakChannel(h.cluster.created[0]!);
+      expect(() => {
+        h.cluster.die(h.cluster.created[1]!, 1, null);
+      }).not.toThrow();
+    });
   });
 });
