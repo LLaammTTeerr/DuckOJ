@@ -421,7 +421,13 @@ export const contestOrgs = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: 'cascade' }),
   },
-  (t) => [primaryKey({ columns: [t.contestId, t.orgId] })],
+  (t) => [
+    primaryKey({ columns: [t.contestId, t.orgId] }),
+    // The primary key walks `contest_id` first, so "which contests belong to
+    // this organization" — the org page's own list, and the `?org=` filter
+    // behind it — had no index at all and scanned the table (0023).
+    index('contest_orgs_org_idx').on(t.orgId),
+  ],
 );
 
 export const contestProblems = pgTable(

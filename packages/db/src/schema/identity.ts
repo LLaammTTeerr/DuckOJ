@@ -43,8 +43,20 @@ export const users = pgTable(
     about: text('about'),
     avatarKey: text('avatar_key'),
     country: text('country'),
-    timezone: text('timezone').notNull().default('Asia/Ho_Chi_Minh'),
-    locale: text('locale').notNull().default('vi'),
+    /**
+     * The reader's own IANA zone and BCP-47 tag — **nullable, and `NULL` is
+     * the point** (D57).
+     *
+     * Both were `NOT NULL DEFAULT` ('Asia/Ho_Chi_Minh', 'vi') until 0023, and
+     * with a default there is no such thing as "the reader has not chosen":
+     * a server value that beats the browser's own would have forced ICT
+     * clocks and Vietnamese onto every account that never opened the settings
+     * screen, which is exactly what D18's `navigator.language` resolution
+     * exists to avoid. `NULL` means "not chosen — use the client's own", so
+     * the stored value only ever overrides a default when somebody set it.
+     */
+    timezone: text('timezone'),
+    locale: text('locale'),
     /** When this address was confirmed. Nothing is gated on it yet (3f §5). */
     emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
     rating: integer('rating'),
