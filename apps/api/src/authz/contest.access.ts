@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, max, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, max, or, sql } from 'drizzle-orm';
 import {
   contestOrgs,
   contestParticipations,
@@ -11,13 +11,18 @@ import {
   problems,
   submissionCases,
   submissions,
+  teamMembers,
+  teams,
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { CONTEST_FORMATS, computeContestScoreboard } from '@duckoj/contest-formats';
+import { DEFAULT_MAX_TEAM_SIZE } from '@duckoj/contracts';
 import type { Scoreboard } from '@duckoj/contest-formats';
 import type {
   CloneContestRequestDto,
   ContestParticipationDto,
+  ContestParticipationModeDto,
+  JoinContestRequestDto,
   ContestDetailDto,
   ContestOrgDto,
   ContestPageDto,
@@ -37,11 +42,19 @@ import {
 } from './contest.visibility.js';
 import { mapContest, type ContestCaseRow, type ContestSubmissionRow } from './contest.mapping.js';
 import {
+  actingParticipations,
   listParticipations,
   participationWindow,
+  teamIdsOf,
   type ContestWindowRow,
   type ParticipationRow,
 } from './participation.js';
+import {
+  loadContestTeams,
+  resolveContestTeam,
+  teamMemberIds,
+  type ContestTeam,
+} from './contest.teams.js';
 import { loadOrgAdminships } from './org.visibility.js';
 import {
   ScoreboardCache,
@@ -56,6 +69,37 @@ import {
   statementSection,
   type StatementLang,
 } from '../statements/markdown-to-typst.js';
+
+/**
+ * One team as the board describes it (D99) — the sidecar `Scoreboard.teams`
+ * is a record of these, keyed by the team's NAME, which is what the ranking
+ * row prints.
+ *
+ * `captain` is the member whose account holds the participation: the
+ * username `PATCH /contests/{key}/participants/{username}` takes, so a team
+ * is disqualified through the route that already exists rather than one
+ * invented for it. `orgName` rides along because the results sheet's `orgs`
+ * column prints the team's school for a team row (D71's column, D99's
+ * source: `participant-orgs.ts` is keyed by the CAPTAIN's own memberships,
+ * which is the wrong answer for a team).
+ */
+export interface ScoreboardTeam {
+  slug: string;
+  name: string;
+  orgSlug: string;
+  orgName: string;
+  captain: string;
+  members: string[];
+}
+
+/**
+ * The board the API serves: the format's own output, plus D99's sidecar.
+ *
+ * `teams` is ABSENT for an individual contest, so nothing about that
+ * response changed — and the formats package produced neither field, which
+ * is what keeps all 23 goldens byte-identical.
+ */
+export type ContestScoreboard = Scoreboard & { teams?: Record<string, ScoreboardTeam> };
 
 const UNIQUE_VIOLATION = '23505';
 const CONTEST_KEY_CONSTRAINT = 'contests_key_lower_idx';
@@ -76,6 +120,9 @@ export interface UpdateContestInput {
   frozenLastMinutes?: number | undefined;
   timeLimitSeconds?: number | null | undefined;
   visibility?: ContestVisibilityDto | undefined;
+  /** Both frozen once the contest has started (D38's rule, D99's fields). */
+  participationMode?: ContestParticipationModeDto | undefined;
+  maxTeamSize?: number | undefined;
   /** Present replaces the whole set; absent keeps it (D56). */
   orgSlugs?: string[] | undefined;
   problems?: ContestProblemInputDto[] | undefined;
@@ -94,6 +141,8 @@ export interface CreateContestInput {
   frozenLastMinutes?: number | undefined;
   timeLimitSeconds?: number | null | undefined;
   visibility?: ContestVisibilityDto | undefined;
+  participationMode?: ContestParticipationModeDto | undefined;
+  maxTeamSize?: number | undefined;
   orgSlugs?: string[] | undefined;
   problems?: ContestProblemInputDto[] | undefined;
 }
@@ -245,7 +294,7 @@ export class ContestAccessService {
    * database. Everything interesting is in `mapContest`; this only fetches, in
    * the orders that mapping documents as load-bearing.
    */
-  async getScoreboard(actor: Actor | null, key: string): Promise<Scoreboard> {
+  async getScoreboard(actor: Actor | null, key: string): Promise<ContestScoreboard> {
     return (await this.getScoreboardCached(actor, key)).board;
   }
 
@@ -261,7 +310,7 @@ export class ContestAccessService {
   async getScoreboardCached(
     actor: Actor | null,
     key: string,
-  ): Promise<{ board: Scoreboard; cache: ScoreboardCacheState }> {
+  ): Promise<{ board: ContestScoreboard; cache: ScoreboardCacheState }> {
     const contest = await this.loadVisible(actor, key);
     // ONE clock for the whole request. It decides the 409 below, which cache
     // key this read lands on, and what the fold freezes against; reading it
@@ -433,7 +482,7 @@ export class ContestAccessService {
    * with user input by mistake, and deliberately named so that calling it from
    * a request path looks wrong.
    */
-  async scoreboardForSystem(contestId: number): Promise<Scoreboard> {
+  async scoreboardForSystem(contestId: number): Promise<ContestScoreboard> {
     const contest = (
       await this.db.select().from(contests).where(eq(contests.id, contestId)).limit(1)
     )[0];
@@ -446,7 +495,7 @@ export class ContestAccessService {
    *   for the live board. `scoreboardForSystem` passes nothing: a rating
    *   replay that ran during a freeze would fold hidden scores as zeros.
    */
-  private async computeScoreboard(contest: ContestRow, now?: Date): Promise<Scoreboard> {
+  private async computeScoreboard(contest: ContestRow, now?: Date): Promise<ContestScoreboard> {
     const [problemRows, participationRows] = await Promise.all([
       this.loadProblemRows(contest.id),
       this.db
@@ -456,12 +505,36 @@ export class ContestAccessService {
           startTime: contestParticipations.startTime,
           virtual: contestParticipations.virtual,
           isDisqualified: contestParticipations.isDisqualified,
+          teamId: contestParticipations.teamId,
         })
         .from(contestParticipations)
         .innerJoin(schema.users, eq(schema.users.id, contestParticipations.userId))
         .where(eq(contestParticipations.contestId, contest.id))
         .orderBy(asc(contestParticipations.id)),
     ]);
+
+    // D99. Loaded from the SAME rows the board is folded from, so the
+    // sidecar cannot describe a different board than the one beside it —
+    // and inside `computeScoreboard`, so it rides D25's two-second cache
+    // rather than being re-derived per view.
+    const teamById = await loadContestTeams(
+      this.db,
+      participationRows.flatMap((row) => (row.teamId === null ? [] : [row.teamId])),
+    );
+    const teamsByName: Record<string, ScoreboardTeam> = {};
+    for (const row of participationRows) {
+      if (row.teamId === null) continue;
+      const team = teamById.get(row.teamId);
+      if (!team) continue;
+      teamsByName[team.name] = {
+        slug: team.slug,
+        name: team.name,
+        orgSlug: team.orgSlug,
+        orgName: team.orgName,
+        captain: row.username,
+        members: team.members,
+      };
+    }
 
     // An `ioi16` problem with no published revision has no dataset, and
     // `points_scaling_factor` divides by the dataset's total. 4b throws for
@@ -483,7 +556,7 @@ export class ContestAccessService {
 
     const submissionRows = await this.loadSubmissionRows(contest.id);
 
-    return computeContestScoreboard(
+    const board = computeContestScoreboard(
       mapContest({
         contest: {
           key: contest.key,
@@ -497,12 +570,21 @@ export class ContestAccessService {
           timeLimitSeconds: contest.timeLimitSeconds,
         },
         problems: problemRows,
-        participations: participationRows,
+        participations: participationRows.map((row) => {
+          const team = row.teamId === null ? undefined : teamById.get(row.teamId);
+          // Spread, never `teamName: team?.name`: under
+          // `exactOptionalPropertyTypes` an explicit `undefined` is not an
+          // absent key, and `mapContest` keys on absence.
+          return team === undefined ? row : { ...row, teamName: team.name };
+        }),
         submissions: submissionRows,
       }),
       'duckoj',
       now?.toISOString(),
     );
+    // Absent, not empty, for an individual contest: an always-present `{}`
+    // would put a DuckOJ field on every board the goldens describe.
+    return Object.keys(teamsByName).length === 0 ? board : { ...board, teams: teamsByName };
   }
 
   /**
@@ -536,6 +618,8 @@ export class ContestAccessService {
     assertFreezeFits(frozenLastMinutes, startTime, endTime);
 
     const visibility = body.visibility ?? 'private';
+    const participationMode = body.participationMode ?? 'individual';
+    const maxTeamSize = body.maxTeamSize ?? DEFAULT_MAX_TEAM_SIZE;
     const orgSlugs = body.orgSlugs ?? [];
     // `contest_org_missing`, renamed from `contest_org_required` in D56:
     // that name now belongs to the 403 `join` answers a non-member, and one
@@ -549,6 +633,7 @@ export class ContestAccessService {
         'An org-visible contest needs at least one organization.',
       );
     }
+    assertTeamModeHasOrgs(participationMode, orgSlugs.length);
     const orgIds = await this.resolveOrgIds(actor, orgSlugs);
     const problemInputs = body.problems ?? [];
     const problemIds = await this.resolveProblemIds(actor, problemInputs);
@@ -568,6 +653,8 @@ export class ContestAccessService {
             frozenLastMinutes,
             timeLimitSeconds: body.timeLimitSeconds ?? null,
             visibility,
+            participationMode,
+            maxTeamSize,
             createdBy: actor.userId,
           })
           .returning({ id: contests.id });
@@ -675,6 +762,12 @@ export class ContestAccessService {
             // An org restriction is still carried, so making it visible
             // later is one edit and not a rebuild.
             visibility: 'private',
+            // Copied, like the format and the freeze: "this is a team round"
+            // is part of the contest as a DESIGN, which is what a clone is
+            // (D88). The org restriction is copied too, so a team clone still
+            // has the schools its teams come from.
+            participationMode: source.participationMode,
+            maxTeamSize: source.maxTeamSize,
             createdBy: actor.userId,
           })
           .returning({ id: contests.id });
@@ -745,6 +838,8 @@ export class ContestAccessService {
     assertFreezeFits(frozenLastMinutes, startTime, endTime);
 
     const visibility = body.visibility ?? contest.visibility;
+    const participationMode = body.participationMode ?? contest.participationMode;
+    const maxTeamSize = body.maxTeamSize ?? contest.maxTeamSize;
     // The stored set, needed twice: to decide the merged state below, and as
     // `resolveOrgIds`' already-attached exemption.
     const storedOrgIds = (
@@ -773,6 +868,11 @@ export class ContestAccessService {
         'An org-visible contest needs at least one organization.',
       );
     }
+    // On the MERGED state too, and for the same reason: `{ orgSlugs: [] }`
+    // alone must not strand a team contest with no school to pick a team
+    // from, and `{ participationMode: 'team' }` alone must not be accepted
+    // against a contest that names none.
+    assertTeamModeHasOrgs(participationMode, nextOrgIds.length);
 
     // Started is `startTime <= now`, the same instant `join` and `getVisible`
     // read it at. Only an ACTUAL change is refused: re-sending the format the
@@ -801,6 +901,28 @@ export class ContestAccessService {
           409,
           'contest_started',
           'This contest has started; its start time can no longer change.',
+        );
+      }
+      // D99, on D38's rule. `participationMode` decides what a participation
+      // IS and `maxTeamSize` decides who was allowed to make one, and both
+      // are unanswerable over rows that already exist: flipping a running
+      // team contest to `individual` leaves every row on the board naming a
+      // competitor the contest no longer has. Nothing can have joined before
+      // the start — `join` refuses with `contest_not_started` — so a
+      // pre-start edit is always safe and is never refused here. Compared by
+      // VALUE, so a form that PATCHes the whole body back is a no-op (D38).
+      if (body.participationMode !== undefined && body.participationMode !== contest.participationMode) {
+        throw new AppError(
+          409,
+          'contest_started',
+          'This contest has started; individual and team entry can no longer be swapped.',
+        );
+      }
+      if (body.maxTeamSize !== undefined && body.maxTeamSize !== contest.maxTeamSize) {
+        throw new AppError(
+          409,
+          'contest_started',
+          'This contest has started; its team size limit can no longer change.',
         );
       }
     }
@@ -851,6 +973,8 @@ export class ContestAccessService {
           ...(body.pointsPrecision === undefined ? {} : { pointsPrecision: body.pointsPrecision }),
           frozenLastMinutes,
           visibility,
+          participationMode,
+          maxTeamSize,
         })
         .where(eq(contests.id, contest.id));
 
@@ -957,12 +1081,28 @@ export class ContestAccessService {
    * retries a virtual join blindly gets a second attempt, and that is the
    * correct reading of the request it made twice.
    */
-  async join(actor: Actor, key: string): Promise<ContestParticipationDto> {
+  async join(
+    actor: Actor,
+    key: string,
+    body: JoinContestRequestDto = {},
+  ): Promise<ContestParticipationDto> {
     const contest = await this.loadVisible(actor, key);
     const now = new Date();
 
     if (now < contest.startTime) {
       throw new AppError(409, 'contest_not_started', 'This contest has not started yet.');
+    }
+    if (contest.participationMode === 'team') {
+      return this.joinAsTeam(actor, contest, now, body.teamSlug);
+    }
+    // REFUSED, not ignored: a competitor who named a team and was quietly
+    // entered alone would find out on the scoreboard (D99).
+    if (body.teamSlug !== undefined) {
+      throw new AppError(
+        422,
+        'contest_team_unexpected',
+        'This contest is entered individually, not by team.',
+      );
     }
     const running = now <= contest.endTime;
     const existing = await listParticipations(this.db, contest.id, actor.userId);
@@ -1009,6 +1149,7 @@ export class ContestAccessService {
         virtual: contestParticipations.virtual,
         startTime: contestParticipations.startTime,
         isDisqualified: contestParticipations.isDisqualified,
+        teamId: contestParticipations.teamId,
       });
     if (inserted) return this.participationDto(contest, inserted);
 
@@ -1017,6 +1158,231 @@ export class ContestAccessService {
     );
     if (!raced) throw new AppError(409, 'contest_join_conflict', 'Try joining again.');
     return this.participationDto(contest, raced);
+  }
+
+  /**
+   * Entering a team contest (D99).
+   *
+   * **One participation per team, held by whichever member pressed the
+   * button.** Everything else here follows from that single sentence: the
+   * teammate who presses it second reads the row back only if they are the
+   * account that made it (idempotency, `join`'s existing contract) and
+   * otherwise gets 409 rather than a second row; every member's submissions
+   * route to it through `actingParticipations`; and the board shows one row
+   * with the team's name on it.
+   *
+   * **There is no virtual replay for a team.** The unique index is
+   * `(team_id, contest_id)`, so a second row cannot exist at all — and that
+   * is the honest shape rather than an omission: a virtual attempt is a
+   * person re-sitting a finished paper, and "the team re-sits it" is a
+   * different team every time its roster changes. A team that never entered
+   * is therefore refused after the end rather than given `virtual = 1`.
+   *
+   * The refusals are ordered cheapest-and-least-revealing first: the team
+   * has to exist among this contest's schools and the caller has to be on
+   * it before anything about the CONTEST's roster is disclosed.
+   */
+  private async joinAsTeam(
+    actor: Actor,
+    contest: ContestRow & { id: number },
+    now: Date,
+    teamSlug: string | undefined,
+  ): Promise<ContestParticipationDto> {
+    if (teamSlug === undefined) {
+      throw new AppError(
+        422,
+        'contest_team_required',
+        'This contest is entered by team; name the team you are entering with.',
+      );
+    }
+    const team = await resolveContestTeam(this.db, contest.id, teamSlug);
+    // 422, not 404: `loadVisible` has already shown this caller the contest,
+    // and the contest names its organizations in every response it serves
+    // (D56) — there is no existence left to protect, and the answer a client
+    // needs is "that is not a team of this contest's schools".
+    if (!team) {
+      throw new AppError(
+        422,
+        'contest_team_unknown',
+        'No team with that slug belongs to this contest’s organizations.',
+      );
+    }
+    const memberIds = await teamMemberIds(this.db, team.id);
+    if (!memberIds.includes(actor.userId)) {
+      throw new AppError(422, 'contest_team_not_member', 'You are not on that team.');
+    }
+
+    const [existing] = await this.db
+      .select({
+        id: contestParticipations.id,
+        userId: contestParticipations.userId,
+        virtual: contestParticipations.virtual,
+        startTime: contestParticipations.startTime,
+        isDisqualified: contestParticipations.isDisqualified,
+        teamId: contestParticipations.teamId,
+      })
+      .from(contestParticipations)
+      .where(
+        and(
+          eq(contestParticipations.contestId, contest.id),
+          eq(contestParticipations.teamId, team.id),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      if (existing.userId === actor.userId) return this.participationDto(contest, existing, team);
+      throw new AppError(
+        409,
+        'contest_team_joined',
+        'A teammate has already entered this team; you are competing on their row.',
+      );
+    }
+
+    // D56, in the same place the individual path puts it: after the
+    // idempotent read-back, before any row is minted.
+    await this.assertMayJoin(actor, contest);
+
+    if (now > contest.endTime) {
+      throw new AppError(
+        409,
+        'contest_team_no_virtual',
+        'This contest has ended, and a team contest has no virtual replay.',
+      );
+    }
+    if (memberIds.length > contest.maxTeamSize) {
+      throw new AppError(
+        409,
+        'contest_team_too_large',
+        `This contest admits teams of at most ${String(contest.maxTeamSize)}.`,
+      );
+    }
+    await this.assertMembersFree(contest.id, memberIds);
+    await this.assertTeamNameFree(contest.id, team);
+
+    const [inserted] = await this.db
+      .insert(contestParticipations)
+      .values({
+        contestId: contest.id,
+        userId: actor.userId,
+        teamId: team.id,
+        virtual: LIVE_VIRTUAL,
+        startTime: now,
+        isDisqualified: false,
+      })
+      // Two teammates pressing Join at the same instant race to the same
+      // `(team_id, contest_id)` key. The loser reads the winner's row rather
+      // than surfacing a 500 — the same guarantee the individual path makes,
+      // and the reason the checks above are not enough on their own.
+      .onConflictDoNothing()
+      .returning({
+        id: contestParticipations.id,
+        userId: contestParticipations.userId,
+        virtual: contestParticipations.virtual,
+        startTime: contestParticipations.startTime,
+        isDisqualified: contestParticipations.isDisqualified,
+        teamId: contestParticipations.teamId,
+      });
+    if (inserted) return this.participationDto(contest, inserted, team);
+
+    const [raced] = await this.db
+      .select({
+        id: contestParticipations.id,
+        userId: contestParticipations.userId,
+        virtual: contestParticipations.virtual,
+        startTime: contestParticipations.startTime,
+        isDisqualified: contestParticipations.isDisqualified,
+        teamId: contestParticipations.teamId,
+      })
+      .from(contestParticipations)
+      .where(
+        and(
+          eq(contestParticipations.contestId, contest.id),
+          eq(contestParticipations.teamId, team.id),
+        ),
+      )
+      .limit(1);
+    if (!raced) throw new AppError(409, 'contest_join_conflict', 'Try joining again.');
+    if (raced.userId === actor.userId) return this.participationDto(contest, raced, team);
+    throw new AppError(
+      409,
+      'contest_team_joined',
+      'A teammate has already entered this team; you are competing on their row.',
+    );
+  }
+
+  /**
+   * Nobody on this team may already be competing in this contest — under
+   * their own name, or on another team's row.
+   *
+   * Without it one person could hold two participations in one contest,
+   * which breaks three things at once: `actingParticipations` would have to
+   * choose between them for every submission, `setDisqualified` (keyed by
+   * username, D37) would move both, and the board would show one competitor
+   * twice with the same work counted on each.
+   */
+  private async assertMembersFree(contestId: number, memberIds: number[]): Promise<void> {
+    const theirTeams = (
+      await this.db
+        .select({ teamId: teamMembers.teamId })
+        .from(teamMembers)
+        .where(inArray(teamMembers.userId, memberIds))
+    ).map((row) => row.teamId);
+    const mine = inArray(contestParticipations.userId, memberIds);
+    const [clash] = await this.db
+      .select({ id: contestParticipations.id })
+      .from(contestParticipations)
+      .where(
+        and(
+          eq(contestParticipations.contestId, contestId),
+          theirTeams.length === 0
+            ? mine
+            : or(mine, inArray(contestParticipations.teamId, theirTeams)),
+        ),
+      )
+      .limit(1);
+    if (clash) {
+      throw new AppError(
+        409,
+        'contest_already_joined',
+        'Somebody on this team is already competing in this contest.',
+      );
+    }
+  }
+
+  /**
+   * Two teams called the same thing may not compete in one contest.
+   *
+   * The board prints a team's NAME, and every consumer downstream of it —
+   * the scoreboard's `teams` sidecar, the results sheet, a certificate, the
+   * similarity report's pair links — keys on that name because the ranking
+   * row carries no id (D36 declined to add one, and the goldens are why).
+   * Refusing the collision at the one moment it can be created costs a
+   * query; teaching five readers to disambiguate a name would cost a
+   * response shape.
+   *
+   * Case-folded, the way every other name-ish uniqueness in this schema is:
+   * two teams whose names differ only in case are one name on a printed
+   * standings sheet.
+   */
+  private async assertTeamNameFree(contestId: number, team: ContestTeam): Promise<void> {
+    const [clash] = await this.db
+      .select({ id: contestParticipations.id })
+      .from(contestParticipations)
+      .innerJoin(teams, eq(teams.id, contestParticipations.teamId))
+      .where(
+        and(
+          eq(contestParticipations.contestId, contestId),
+          sql`lower(${teams.name}) = lower(${team.name})`,
+        ),
+      )
+      .limit(1);
+    if (clash) {
+      throw new AppError(
+        409,
+        'contest_team_name_taken',
+        'Another team of that name is already competing in this contest.',
+      );
+    }
   }
 
   /**
@@ -1090,22 +1456,34 @@ export class ContestAccessService {
     return this.participationDto(contest, updated!);
   }
 
-  /** The caller's own participation, highest `virtual` first. */
+  /**
+   * The caller's own participation, highest `virtual` first.
+   *
+   * `actingParticipations`, not `listParticipations`: in a team contest the
+   * row belongs to whichever teammate pressed Join, and every other member
+   * has to be told they are competing on it — this route is what the contest
+   * page reads to decide whether to show a Join button (D99).
+   */
   async myParticipation(actor: Actor, key: string): Promise<ContestParticipationDto> {
     const contest = await this.loadVisible(actor, key);
-    const [participation] = await listParticipations(this.db, contest.id, actor.userId);
+    const [participation] = await actingParticipations(this.db, contest.id, actor.userId);
     // 404 for "you have not joined". The caller already passed this contest's
     // own visibility check to get here, so this conceals nothing; it is the
     // not-found shape reused for an empty result.
     if (!participation) {
       throw new AppError(404, 'participation_not_found', 'You have not joined this contest.');
     }
-    return this.participationDto(contest, participation);
+    const team =
+      participation.teamId === null
+        ? undefined
+        : (await loadContestTeams(this.db, [participation.teamId])).get(participation.teamId);
+    return this.participationDto(contest, participation, team);
   }
 
   private participationDto(
     contest: ContestWindowRow,
     participation: ParticipationRow,
+    team?: ContestTeam | undefined,
   ): ContestParticipationDto {
     // `endTime` is derived, never stored: a live participation in a contest
     // with no time limit ends when the contest does, and a virtual one runs
@@ -1118,6 +1496,13 @@ export class ContestAccessService {
       startTime: participation.startTime.toISOString(),
       endTime: new Date(endMs).toISOString(),
       isDisqualified: participation.isDisqualified,
+      // `null` for an individual entry, and for a team row whose team has
+      // been deleted out from under it — which `ON DELETE RESTRICT` makes
+      // impossible, so the branch is the type's, not a case that happens.
+      team:
+        team === undefined
+          ? null
+          : { slug: team.slug, name: team.name, orgSlug: team.orgSlug, members: team.members },
     };
   }
 
@@ -1425,6 +1810,26 @@ function assertFreezeFits(frozenLastMinutes: number, startTime: Date, endTime: D
   }
 }
 
+/**
+ * A team contest needs at least one organization (D99).
+ *
+ * Teams are org-scoped — `teams.slug` is unique per organization and
+ * `resolveContestTeam` searches only the contest's own schools — so a team
+ * contest attached to none is one nobody can name a team for. 422 rather
+ * than the 400 `contest_org_missing` uses: the value is well-formed and the
+ * request as a whole makes it impossible, which is the distinction 422
+ * draws and the one `contest_freeze_too_long` already takes.
+ */
+function assertTeamModeHasOrgs(mode: ContestParticipationModeDto, orgCount: number): void {
+  if (mode === 'team' && orgCount === 0) {
+    throw new AppError(
+      422,
+      'contest_team_orgs_required',
+      'A team contest must name at least one organization for its teams to come from.',
+    );
+  }
+}
+
 function hasKey<T extends object>(body: T, key: keyof T): boolean {
   return Object.prototype.hasOwnProperty.call(body, key);
 }
@@ -1449,6 +1854,8 @@ function toSummary(
     frozenLastMinutes: number;
     timeLimitSeconds: number | null;
     isRated: boolean;
+    participationMode: ContestParticipationModeDto;
+    maxTeamSize: number;
     createdAt: Date;
   },
   orgs: ContestOrgDto[],
@@ -1465,6 +1872,8 @@ function toSummary(
     pointsPrecision: row.pointsPrecision,
     frozenLastMinutes: row.frozenLastMinutes,
     timeLimitSeconds: row.timeLimitSeconds,
+    participationMode: row.participationMode,
+    maxTeamSize: row.maxTeamSize,
     orgs,
     createdAt: row.createdAt.toISOString(),
   };

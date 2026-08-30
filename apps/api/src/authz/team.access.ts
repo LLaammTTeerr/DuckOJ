@@ -43,11 +43,21 @@ const TEAM_SLUG_CONSTRAINT = 'teams_org_slug_lower_idx';
 /** Postgres SQLSTATE for a foreign key a row still points at. */
 const FOREIGN_KEY_VIOLATION = '23503';
 
-/** One row of `teams`, as every method here reads it. */
+/**
+ * One row of `teams`, as every method here reads it — with its school's slug
+ * and name joined on.
+ *
+ * The organization travels WITH the team because `OrgAccessService
+ * .loadForEdit` answers with `OrgRow`, which carries no `name` (it exists to
+ * decide visibility, not to render), and a team summary prints the school on
+ * every row. One join beats a second lookup per write.
+ */
 export interface TeamRow {
   id: number;
   slug: string;
   name: string;
+  orgSlug: string;
+  orgName: string;
   createdAt: Date;
 }
 
@@ -99,7 +109,9 @@ export class TeamAccessService {
     const kept = rows.slice(0, page.limit);
     const counts = await this.memberCounts(kept.map((row) => row.id));
     return {
-      items: kept.map((row) => toSummary(row, org, counts.get(row.id) ?? 0)),
+      items: kept.map((row) =>
+        toSummary({ ...row, orgSlug: org.slug, orgName: org.name }, counts.get(row.id) ?? 0),
+      ),
       nextCursor: rows.length > page.limit ? String(kept.at(-1)!.id) : null,
     };
   }
@@ -111,7 +123,7 @@ export class TeamAccessService {
     const members = await this.membersOf(team.id);
     const staff = isAdmin(actor) || role === 'owner' || role === 'admin';
     if (!staff && !members.some((member) => member.userId === actor.userId)) throw teamNotFound();
-    return toDetail(team, org, members, staff);
+    return toDetail(team, members, staff);
   }
 
   /** Assemble a team. Owner or admin of the organization, or a global admin. */
@@ -134,8 +146,7 @@ export class TeamAccessService {
     } catch (error) {
       throw toTeamConflict(error);
     }
-    const team = await this.findTeamById(teamId);
-    return toDetail(team, org, await this.membersOf(teamId), true);
+    return toDetail(await this.findTeamById(teamId), await this.membersOf(teamId), true);
   }
 
   /**
@@ -181,7 +192,7 @@ export class TeamAccessService {
     } catch (error) {
       throw toTeamConflict(error);
     }
-    return toDetail(await this.findTeamById(team.id), org, await this.membersOf(team.id), true);
+    return toDetail(await this.findTeamById(team.id), await this.membersOf(team.id), true);
   }
 
   /**
@@ -274,9 +285,7 @@ export class TeamAccessService {
   }
 
   private async findTeam(orgId: number, teamSlug: string): Promise<TeamRow> {
-    const [row] = await this.db
-      .select({ id: teams.id, slug: teams.slug, name: teams.name, createdAt: teams.createdAt })
-      .from(teams)
+    const [row] = await this.teamQuery()
       .where(and(eq(teams.orgId, orgId), sql`lower(${teams.slug}) = lower(${teamSlug})`))
       .limit(1);
     if (!row) throw teamNotFound();
@@ -284,13 +293,23 @@ export class TeamAccessService {
   }
 
   private async findTeamById(id: number): Promise<TeamRow> {
-    const [row] = await this.db
-      .select({ id: teams.id, slug: teams.slug, name: teams.name, createdAt: teams.createdAt })
-      .from(teams)
-      .where(eq(teams.id, id))
-      .limit(1);
+    const [row] = await this.teamQuery().where(eq(teams.id, id)).limit(1);
     if (!row) throw teamNotFound();
     return row;
+  }
+
+  private teamQuery() {
+    return this.db
+      .select({
+        id: teams.id,
+        slug: teams.slug,
+        name: teams.name,
+        orgSlug: organizations.slug,
+        orgName: organizations.name,
+        createdAt: teams.createdAt,
+      })
+      .from(teams)
+      .innerJoin(organizations, eq(organizations.id, teams.orgId));
   }
 
   private async membersOf(teamId: number): Promise<MemberRow[]> {
@@ -335,33 +354,24 @@ function teamNotFound(): AppError {
   return new AppError(404, 'team_not_found', 'No such team.');
 }
 
-function toSummary(
-  team: TeamRow,
-  org: { slug: string; name: string },
-  memberCount: number,
-): TeamSummaryDto {
+function toSummary(team: TeamRow, memberCount: number): TeamSummaryDto {
   return {
     slug: team.slug,
     name: team.name,
-    orgSlug: org.slug,
-    orgName: org.name,
+    orgSlug: team.orgSlug,
+    orgName: team.orgName,
     memberCount,
     createdAt: team.createdAt.toISOString(),
   };
 }
 
-function toDetail(
-  team: TeamRow,
-  org: { slug: string; name: string },
-  members: MemberRow[],
-  canEdit: boolean,
-): TeamDetailDto {
+function toDetail(team: TeamRow, members: MemberRow[], canEdit: boolean): TeamDetailDto {
   const items: TeamMemberDto[] = members.map((member) => ({
     username: member.username,
     displayName: member.displayName,
     joinedAt: member.joinedAt.toISOString(),
   }));
-  return { ...toSummary(team, org, items.length), members: items, canEdit };
+  return { ...toSummary(team, items.length), members: items, canEdit };
 }
 
 function toTeamConflict(error: unknown): unknown {

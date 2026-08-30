@@ -385,6 +385,7 @@ export const Scoreboard = z.object({
         slug: z.string(),
         name: z.string(),
         orgSlug: z.string(),
+        orgName: z.string(),
         captain: z.string(),
         members: z.array(z.string()),
       }),
@@ -786,6 +787,9 @@ registry.registerPath({
   path: '/admin/contests/{key}/rate',
   tags: ['Admin'],
   summary: 'Mark a contest rated and replay the whole rating history (admin, session only)',
+  description:
+    'A **team** contest is refused (409 `contest_team_unrateable`): a team’s result is three ' +
+    'people’s work on one row, and a rating is a claim about one person (D99).',
   request: { params: ContestKeyParam },
   responses: {
     200: {
@@ -795,6 +799,10 @@ registry.registerPath({
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: CONTEST_NOT_FOUND,
+    409: {
+      description: 'This is a team contest, which is never rated (`contest_team_unrateable`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
 

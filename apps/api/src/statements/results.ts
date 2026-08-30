@@ -56,6 +56,16 @@ export interface ResultRow {
   penalty: number;
   /** Keyed by problem CODE, matching `format_data`. */
   cells: Record<string, ResultCell>;
+  /**
+   * The team's members, usernames, for a team contest (D99); `[]` in an
+   * individual one.
+   *
+   * `username` and `displayName` are both the TEAM's name on such a row —
+   * the board prints the team and there is no one person behind it — so this
+   * is the only place the people are named. The certificate lists them
+   * under the team's name, which is what an ICPC certificate is.
+   */
+  members: string[];
 }
 
 /** Everything both exports need, and nothing either of them may not have. */
@@ -72,6 +82,16 @@ export interface ResultsInput {
    * site's own name when it has none. Ignored by the standings.
    */
   issuer: string;
+  /**
+   * Whether this contest was entered by team (D99).
+   *
+   * The CSV grows a `members` column when it is, and only then: an ASCII
+   * snake_case header row is the file's contract with whatever script reads
+   * it next (D71), and adding a column to every individual contest's export
+   * to describe a thing none of them has would break that contract for the
+   * files that already exist.
+   */
+  byTeam: boolean;
 }
 
 /** The site itself, when a contest is restricted to no organization (D71). */
@@ -256,7 +276,13 @@ function certificatePage(input: ResultsInput, row: ResultRow): string {
     '  #linebreak()',
     `  #text(24pt, weight: "bold")[${escapeText(row.displayName)}]`,
     '  #linebreak()',
-    `  #text(11pt)[${escapeText(`(${row.username})`)}]`,
+    // A team's row prints its members instead of a username: `username` IS
+    // the team's name there, so `(name)` under `name` would be a line that
+    // says nothing twice. One certificate per team listing its people is
+    // what an ICPC certificate is (D99).
+    row.members.length > 0
+      ? `  #text(11pt)[${escapeText(row.members.join(' · '))}]`
+      : `  #text(11pt)[${escapeText(`(${row.username})`)}]`,
     '  #v(0.8em)',
     `  #text(12pt)[${escapeText(CERTIFICATE_WORDS.achieved)}]`,
     '  #linebreak()',

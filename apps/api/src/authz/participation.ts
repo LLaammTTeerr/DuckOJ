@@ -7,8 +7,8 @@
  * (route a submission) reach the same code without either depending on the
  * other.
  */
-import { and, desc, eq } from 'drizzle-orm';
-import { contestParticipations, contestProblems } from '@duckoj/db/guarded';
+import { and, asc, desc, eq, inArray, or, type SQL } from 'drizzle-orm';
+import { contestParticipations, contestProblems, teamMembers } from '@duckoj/db/guarded';
 import { participationEndMs, participationStartMs } from '@duckoj/contest-formats';
 import type { Db } from '@duckoj/db';
 import { AppError } from '../common/app.error.js';
@@ -28,6 +28,8 @@ export interface ParticipationRow {
   virtual: number;
   startTime: Date;
   isDisqualified: boolean;
+  /** The team this row competes as (D99), or `null` for an individual entry. */
+  teamId: number | null;
 }
 
 /**
@@ -66,21 +68,75 @@ export async function listParticipations(
   contestId: number,
   userId: number,
 ): Promise<ParticipationRow[]> {
+  return selectParticipations(
+    db,
+    and(
+      eq(contestParticipations.contestId, contestId),
+      eq(contestParticipations.userId, userId),
+    )!,
+  );
+}
+
+/**
+ * The team ids this user is on (D99). One query, and `[]` for somebody on
+ * none — which is every competitor in every individual contest, so the
+ * caller can skip the second query entirely.
+ */
+export async function teamIdsOf(db: Db, userId: number): Promise<number[]> {
+  const rows = await db
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId));
+  return rows.map((row) => row.teamId);
+}
+
+/**
+ * **Every participation this user acts under in this contest** — their own
+ * rows, and the rows held by any team they are on (D99).
+ *
+ * ONE function, and that is the whole point of it. Four call sites answer
+ * "which participation is this person competing in": `join`'s idempotent
+ * short-circuit, `GET /contests/{key}/me`, `resolveContestTarget` (a
+ * submission with `?contest=`), and `ContestClarificationsService.ask`. Each
+ * of them used to spell the question as `user_id = ?`, and a team
+ * participation is held by ONE member's account — so four independent
+ * widenings would be four chances to reintroduce the split-predicate bug
+ * D22, D23 and D25 each record having paid for once.
+ *
+ * Ordered highest `virtual` first (`listParticipations`' rule, for its
+ * reason) and then by lowest id, so that a competitor who somehow holds two
+ * rows at the same `virtual` — a roster edited between two teams' joins is
+ * the only way — resolves to the same one on every request rather than to
+ * whatever the planner returned first.
+ */
+export async function actingParticipations(
+  db: Db,
+  contestId: number,
+  userId: number,
+): Promise<ParticipationRow[]> {
+  const teamIds = await teamIdsOf(db, userId);
+  const mine = eq(contestParticipations.userId, userId);
+  return selectParticipations(
+    db,
+    and(
+      eq(contestParticipations.contestId, contestId),
+      teamIds.length === 0 ? mine : or(mine, inArray(contestParticipations.teamId, teamIds))!,
+    )!,
+  );
+}
+
+function selectParticipations(db: Db, where: SQL): Promise<ParticipationRow[]> {
   return db
     .select({
       id: contestParticipations.id,
       virtual: contestParticipations.virtual,
       startTime: contestParticipations.startTime,
       isDisqualified: contestParticipations.isDisqualified,
+      teamId: contestParticipations.teamId,
     })
     .from(contestParticipations)
-    .where(
-      and(
-        eq(contestParticipations.contestId, contestId),
-        eq(contestParticipations.userId, userId),
-      ),
-    )
-    .orderBy(desc(contestParticipations.virtual));
+    .where(where)
+    .orderBy(desc(contestParticipations.virtual), asc(contestParticipations.id));
 }
 
 /**
@@ -107,7 +163,10 @@ export async function resolveContestTarget(
   // the concealed list back one public problem code at a time. Refuse on the
   // caller's own standing first; only somebody with an open, undisqualified
   // window learns which problems the contest holds.
-  const participations = await listParticipations(db, contest.id, userId);
+  // `actingParticipations`, never `listParticipations`: in a team contest the
+  // participation belongs to whichever member pressed Join, and every other
+  // member's submissions have to land on it (D99).
+  const participations = await actingParticipations(db, contest.id, userId);
   if (participations.length === 0) {
     throw new AppError(403, 'contest_not_joined', 'Join this contest before submitting to it.');
   }

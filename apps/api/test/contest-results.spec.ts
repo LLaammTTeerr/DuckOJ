@@ -67,6 +67,7 @@ function row(over: Partial<ResultRow> = {}): ResultRow {
       'p-a': { points: 100, attempts: 1, timeSeconds: 42 },
       'p-b': { points: 100, attempts: 3, timeSeconds: 95 },
     },
+    members: [],
     ...over,
   };
 }
@@ -83,6 +84,7 @@ function input(over: Partial<ResultsInput> = {}): ResultsInput {
     ],
     rows: [row()],
     issuer: 'Sở GD&ĐT Quảng Ninh',
+    byTeam: false,
     ...over,
   };
 }

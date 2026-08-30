@@ -20,6 +20,7 @@ import {
   CloneContestRequest,
   ContestListQuery,
   CreateContestRequest,
+  JoinContestRequest,
   PostAnnouncementRequest,
   RunSimilarityRequest,
   SetDisqualifiedRequest,
@@ -38,6 +39,7 @@ import {
   type ContestMonitorDto,
   type ContestPageDto,
   type CreateContestRequestDto,
+  type JoinContestRequestDto,
   type PostAnnouncementRequestDto,
   type RunSimilarityRequestDto,
   type ScoreboardDto,
@@ -356,14 +358,20 @@ export class ContestsController {
    * accepted for, which is backwards compatible. Starting narrow and widening
    * is not.
    */
+  /**
+   * Join. The body is optional — an individual contest is entered with none,
+   * which is what every client written before D99 sends — and names a
+   * `teamSlug` in a team contest.
+   */
   @Post(':key/join')
   @HttpCode(201)
   @RequireScope('contests:write')
   join(
     @CurrentActor() actor: Actor,
     @Param('key') key: string,
+    @Body(new ZodValidationPipe(JoinContestRequest)) body: JoinContestRequestDto,
   ): Promise<ContestParticipationDto> {
-    return this.contests.join(actor, key);
+    return this.contests.join(actor, key, body);
   }
 
   /** The caller's own participation. Never public: it is about the caller. */

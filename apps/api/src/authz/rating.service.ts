@@ -51,12 +51,28 @@ export class RatingService {
     }
     const contest = (
       await this.db
-        .select({ id: contests.id })
+        .select({ id: contests.id, participationMode: contests.participationMode })
         .from(contests)
         .where(eq(contests.key, key.toLowerCase()))
         .limit(1)
     )[0];
     if (!contest) throw new AppError(404, 'contest_not_found', 'No such contest.');
+
+    // **A team contest is never rated (D99).** Glicko-2 rates a PERSON
+    // against the people they were measured with, and a team row is three
+    // people sharing one result: crediting the captain (whose account holds
+    // the participation) would rate one member for the work of three, and
+    // crediting all three would rate each of them for a performance none of
+    // them produced alone. Refused here rather than filtered in the replay,
+    // because this is the only writer of `is_rated` — so the replay is safe
+    // by construction and cannot acquire a second opinion.
+    if (isRated && contest.participationMode === 'team') {
+      throw new AppError(
+        409,
+        'contest_team_unrateable',
+        'A team contest is never rated: a team’s result is not one person’s rating.',
+      );
+    }
 
     // Flag flip and replay share ONE transaction, behind the replay lock:
     // if the replay throws (an ioi16 contest whose problem lost its dataset,

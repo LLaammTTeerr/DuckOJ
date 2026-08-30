@@ -51,6 +51,17 @@ export interface ParticipationRow {
   startTime: Date;
   virtual: number;
   isDisqualified: boolean;
+  /**
+   * The team's name, for a team participation (D99); absent otherwise.
+   *
+   * The NAME only, because that is the whole of what a scoreboard row is:
+   * `ParticipantSpec.name` is what the row prints and `participation_id` is
+   * what `lower()` matches on (D36), so a team needs no semantic change in
+   * `@duckoj/contest-formats` — it is one participant with a different
+   * label. Who the team actually is travels beside the board, in the API's
+   * own `teams` sidecar.
+   */
+  teamName?: string | undefined;
 }
 
 export interface ContestCaseRow {
@@ -189,7 +200,7 @@ export function mapContest(rows: ContestRows): ContestInput {
       );
     }
     return {
-      participant: participation.username,
+      participant: participation.teamName ?? participation.username,
       // The identity, alongside the name (D36). One person may hold a live
       // participation and any number of virtual attempts in one contest —
       // `join` is built to produce exactly that — and the name alone would
@@ -217,7 +228,7 @@ export function mapContest(rows: ContestRows): ContestInput {
       frozen_last_minutes: contest.frozenLastMinutes,
     },
     participants: rows.participations.map((participation) => ({
-      name: participation.username,
+      name: participation.teamName ?? participation.username,
       participation_id: participation.id,
       real_start: participation.startTime.toISOString(),
       virtual: participation.virtual,

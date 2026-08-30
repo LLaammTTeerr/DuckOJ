@@ -36,6 +36,7 @@ import { RateLimiter } from '../common/rate-limiter.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import type { Actor } from './actor.js';
 import { ContestAccessService, canRunContest } from './contest.access.js';
+import { actingParticipations } from './participation.js';
 
 /**
  * 20 questions per user per contest per hour, DB-backed like every other
@@ -168,16 +169,11 @@ export class ContestClarificationsService {
    */
   async ask(actor: Actor, key: string, body: AskClarificationRequestDto): Promise<ClarificationDto> {
     const contest = await this.contests.loadVisible(actor, key);
-    const joined = await this.db
-      .select({ id: contestParticipations.id })
-      .from(contestParticipations)
-      .where(
-        and(
-          eq(contestParticipations.contestId, contest.id),
-          eq(contestParticipations.userId, actor.userId),
-        ),
-      )
-      .limit(1);
+    // `actingParticipations`, not a `user_id = ?` of its own: in a team
+    // contest the participation belongs to whichever member pressed Join,
+    // and **any member may ask** (D99). This is the fourth call site of that
+    // one question, and the reason it is one function.
+    const joined = await actingParticipations(this.db, contest.id, actor.userId);
     if (joined.length === 0) {
       throw new AppError(403, 'contest_not_joined', 'Join this contest before asking about it.');
     }

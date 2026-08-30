@@ -93,7 +93,15 @@ export function selectCertified(rows: ResultRow[], scope: CertificateScope): Res
   const eligible = rows.filter((row) => !row.disqualified && row.virtual === 0);
   if (scope.username !== undefined) {
     const wanted = scope.username.toLowerCase();
-    const found = eligible.find((row) => row.username.toLowerCase() === wanted);
+    // A team row's `username` IS the team's name (D99), so `?username=` on a
+    // team contest is answered by the team's name **or by any member's
+    // account** — an organiser reprinting one certificate knows the pupil
+    // who lost it, not necessarily which of the three names the row.
+    const found = eligible.find(
+      (row) =>
+        row.username.toLowerCase() === wanted ||
+        row.members.some((member) => member.toLowerCase() === wanted),
+    );
     if (!found) {
       // 404, not 403: this is a row that is not there — an unranked, a
       // disqualified or a virtual-only entrant — and naming which of the
@@ -190,10 +198,20 @@ export class ContestResultsService {
     if (!canRunContest(actor, contest)) throw FORBIDDEN;
     const board = await this.contests.getScoreboard(actor, key);
 
-    const usernames = board.ranking.map((row) => row.participant);
+    // D99: in a team contest `row.participant` is the TEAM's name, and the
+    // board carries a `teams` sidecar keyed by exactly that. Every lookup
+    // below therefore asks the sidecar first and the user tables second —
+    // and the two user queries are skipped entirely for a team contest,
+    // where `loadDisplayNames` would match nothing and `loadParticipantOrgs`
+    // (keyed by the CAPTAIN's own memberships) would print the wrong school.
+    const teams = board.teams ?? {};
+    const byTeam = contest.participationMode === 'team';
+    const usernames = byTeam ? [] : board.ranking.map((row) => row.participant);
     const [displayNames, orgsByUsername] = await Promise.all([
       this.loadDisplayNames(usernames),
-      loadParticipantOrgs(this.db, contest.id),
+      byTeam
+        ? Promise.resolve(new Map<string, { slug: string; name: string }[]>())
+        : loadParticipantOrgs(this.db, contest.id),
     ]);
 
     return {
@@ -205,24 +223,36 @@ export class ContestResultsService {
         endTime: contest.endTime,
         pointsPrecision: contest.pointsPrecision,
         problems: board.problems.map((problem) => ({ code: problem.code, label: problem.label })),
-        rows: board.ranking.map((row) => ({
-          rank: row.rank,
-          username: row.participant,
-          // The username is the fallback, never an empty column: `display_name`
-          // is NOT NULL in the schema, so this only fires for a ranking row
-          // whose account has since been deleted.
-          displayName: displayNames.get(row.participant) ?? row.participant,
-          orgs: (orgsByUsername.get(row.participant) ?? []).map((org) => org.name),
-          virtual: row.virtual,
-          disqualified: row.is_disqualified,
-          total: row.score,
-          penalty: row.cumtime,
-          cells: mapCells(row.format_data),
-        })),
+        rows: board.ranking.map((row) => {
+          const team = teams[row.participant];
+          return {
+            rank: row.rank,
+            username: row.participant,
+            // The username is the fallback, never an empty column:
+            // `display_name` is NOT NULL in the schema, so this only fires
+            // for a ranking row whose account has since been deleted — or
+            // for a team row, whose name is already the thing to print.
+            displayName: displayNames.get(row.participant) ?? row.participant,
+            // A team's school is the TEAM's organization, not the captain's
+            // own memberships: "which school is this entry from" is the
+            // question the column exists to answer (D71), and a team belongs
+            // to exactly one.
+            orgs: team
+              ? [team.orgName]
+              : (orgsByUsername.get(row.participant) ?? []).map((org) => org.name),
+            members: team?.members ?? [],
+            virtual: row.virtual,
+            disqualified: row.is_disqualified,
+            total: row.score,
+            penalty: row.cumtime,
+            cells: mapCells(row.format_data),
+          };
+        }),
         // Only the certificates use it, and they overwrite it with the
         // contest's organizations. A required field with a real default beats
         // an optional one nobody remembers to set.
         issuer: DEFAULT_ISSUER,
+        byTeam,
       },
     };
   }

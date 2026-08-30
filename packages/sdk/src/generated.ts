@@ -47,6 +47,9 @@ export interface paths {
                                 frozenLastMinutes: number;
                                 timeLimitSeconds: number | null;
                                 isRated: boolean;
+                                /** @enum {string} */
+                                participationMode: "individual" | "team";
+                                maxTeamSize: number;
                                 orgs: {
                                     slug: string;
                                     name: string;
@@ -94,6 +97,13 @@ export interface paths {
                          * @enum {string}
                          */
                         visibility?: "private" | "org" | "public";
+                        /**
+                         * @default individual
+                         * @enum {string}
+                         */
+                        participationMode?: "individual" | "team";
+                        /** @default 3 */
+                        maxTeamSize?: number;
                         /** @default [] */
                         orgSlugs?: string[];
                         /** @default [] */
@@ -129,6 +139,9 @@ export interface paths {
                             frozenLastMinutes: number;
                             timeLimitSeconds: number | null;
                             isRated: boolean;
+                            /** @enum {string} */
+                            participationMode: "individual" | "team";
+                            maxTeamSize: number;
                             orgs: {
                                 slug: string;
                                 name: string;
@@ -298,6 +311,9 @@ export interface paths {
                             frozenLastMinutes: number;
                             timeLimitSeconds: number | null;
                             isRated: boolean;
+                            /** @enum {string} */
+                            participationMode: "individual" | "team";
+                            maxTeamSize: number;
                             orgs: {
                                 slug: string;
                                 name: string;
@@ -376,6 +392,9 @@ export interface paths {
                         timeLimitSeconds?: number | null;
                         /** @enum {string} */
                         visibility?: "private" | "org" | "public";
+                        /** @enum {string} */
+                        participationMode?: "individual" | "team";
+                        maxTeamSize?: number;
                         orgSlugs?: string[];
                         problems?: {
                             code: string;
@@ -409,6 +428,9 @@ export interface paths {
                             frozenLastMinutes: number;
                             timeLimitSeconds: number | null;
                             isRated: boolean;
+                            /** @enum {string} */
+                            participationMode: "individual" | "team";
+                            maxTeamSize: number;
                             orgs: {
                                 slug: string;
                                 name: string;
@@ -600,6 +622,16 @@ export interface paths {
                             frozen: boolean;
                             /** Format: date-time */
                             frozenAt: string | null;
+                            teams?: {
+                                [key: string]: {
+                                    slug: string;
+                                    name: string;
+                                    orgSlug: string;
+                                    orgName: string;
+                                    captain: string;
+                                    members: string[];
+                                };
+                            };
                         };
                     };
                 };
@@ -812,6 +844,9 @@ export interface paths {
                             frozenLastMinutes: number;
                             timeLimitSeconds: number | null;
                             isRated: boolean;
+                            /** @enum {string} */
+                            participationMode: "individual" | "team";
+                            maxTeamSize: number;
                             orgs: {
                                 slug: string;
                                 name: string;
@@ -970,7 +1005,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Join a contest — live while it runs, virtually once it has ended */
+        /**
+         * Join a contest — live while it runs, virtually once it has ended
+         * @description In a **team** contest (D99) the body names a `teamSlug` and the caller must be on that team. A team holds exactly ONE participation, so the first member to press the button enters the whole team and every other member’s submissions land on that row; a second member joining reads it back only if they are the account that made it, and otherwise gets 409 `contest_team_joined`. There are no virtual replays for teams.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -980,7 +1018,13 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        teamSlug?: string;
+                    };
+                };
+            };
             responses: {
                 /** @description The participation. Idempotent: joining twice returns the existing one. */
                 201: {
@@ -995,6 +1039,12 @@ export interface paths {
                             startTime: string;
                             endTime: string;
                             isDisqualified: boolean;
+                            team: {
+                                slug: string;
+                                name: string;
+                                orgSlug: string;
+                                members: string[];
+                            } | null;
                         };
                     };
                 };
@@ -1058,8 +1108,28 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The contest has not started yet (`contest_not_started`) */
+                /** @description The contest has not started yet (`contest_not_started`); another member already entered this team (`contest_team_joined`); the caller already competes in this contest under another identity (`contest_already_joined`); a different team of the same name is already on the board (`contest_team_name_taken`); or the team is larger than this contest admits (`contest_team_too_large`). */
                 409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description A team contest joined with no `teamSlug` (`contest_team_required`), an individual contest joined with one (`contest_team_unexpected`), a slug naming no team of any of this contest’s organizations (`contest_team_unknown`), or a team the caller is not on (`contest_team_not_member`). */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1118,6 +1188,12 @@ export interface paths {
                             startTime: string;
                             endTime: string;
                             isDisqualified: boolean;
+                            team: {
+                                slug: string;
+                                name: string;
+                                orgSlug: string;
+                                members: string[];
+                            } | null;
                         };
                     };
                 };
@@ -1276,7 +1352,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Mark a contest rated and replay the whole rating history (admin, session only) */
+        /**
+         * Mark a contest rated and replay the whole rating history (admin, session only)
+         * @description A **team** contest is refused (409 `contest_team_unrateable`): a team’s result is three people’s work on one row, and a rating is a claim about one person (D99).
+         */
         post: {
             parameters: {
                 query?: never;
@@ -1341,6 +1420,26 @@ export interface paths {
                 };
                 /** @description No such contest, or one the caller may not see — the two are indistinguishable */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This is a team contest, which is never rated (`contest_team_unrateable`) */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1512,6 +1611,12 @@ export interface paths {
                             startTime: string;
                             endTime: string;
                             isDisqualified: boolean;
+                            team: {
+                                slug: string;
+                                name: string;
+                                orgSlug: string;
+                                members: string[];
+                            } | null;
                         };
                     };
                 };
@@ -10905,6 +11010,600 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/orgs/{slug}/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An organization's teams
+         * @description An owner or admin of the organization (or a global admin) sees every team; anybody else sees the teams they are ON, and a caller who can see the organization but belongs to no team in it gets an EMPTY page rather than a refusal — D66’s shape, for D66’s reason. An organization the caller may not see is 404.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of teams */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                slug: string;
+                                name: string;
+                                orgSlug: string;
+                                orgName: string;
+                                memberCount: number;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such organization, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Assemble a team (owner or admin)
+         * @description Members are named by username and must already be on this organization’s roster. The size ceiling here is 12, the table’s own; what a CONTEST admits is its own `maxTeamSize` (three by default), checked at `POST /contests/{key}/join` so that one squad can enter two contests with different limits.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        slug: string;
+                        name: string;
+                        /** @default [] */
+                        members?: string[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The created team */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            slug: string;
+                            name: string;
+                            orgSlug: string;
+                            orgName: string;
+                            memberCount: number;
+                            /** Format: date-time */
+                            createdAt: string;
+                            members: {
+                                username: string;
+                                displayName: string;
+                                /** Format: date-time */
+                                joinedAt: string;
+                            }[];
+                            canEdit: boolean;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not an owner or admin of this organization */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such organization, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This organization already has a team with that slug (`team_slug_taken`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation. `team_member_unknown` — a username no account has; `team_member_not_in_org` — an account that is not on this organization’s roster. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{slug}/teams/{teamSlug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One team and its members
+         * @description An owner or admin of the organization, a global admin, or a member of the team itself. Anybody else gets the same 404 a team that does not exist gets: a school’s squad list is not something a rival school reads off the API before the round.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    teamSlug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The team */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            slug: string;
+                            name: string;
+                            orgSlug: string;
+                            orgName: string;
+                            memberCount: number;
+                            /** Format: date-time */
+                            createdAt: string;
+                            members: {
+                                username: string;
+                                displayName: string;
+                                /** Format: date-time */
+                                joinedAt: string;
+                            }[];
+                            canEdit: boolean;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such team, one in an organization the caller may not see, or one the caller neither runs nor belongs to — indistinguishable by design (`team_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /**
+         * Disband a team (owner or admin)
+         * @description A team that has entered a contest cannot be deleted (409 `team_has_participations`): its participation IS the record of what it did, and dropping the row would delete a contest’s results. Disbanding it is emptying its roster, which this route still allows.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    teamSlug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not an owner or admin of this organization */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such team, one in an organization the caller may not see, or one the caller neither runs nor belongs to — indistinguishable by design (`team_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The team has competed (`team_has_participations`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Rename a team or replace its roster (owner or admin)
+         * @description `members`, when present, replaces the whole roster.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    teamSlug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        slug?: string;
+                        name?: string;
+                        members?: string[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The updated team */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            slug: string;
+                            name: string;
+                            orgSlug: string;
+                            orgName: string;
+                            memberCount: number;
+                            /** Format: date-time */
+                            createdAt: string;
+                            members: {
+                                username: string;
+                                displayName: string;
+                                /** Format: date-time */
+                                joinedAt: string;
+                            }[];
+                            canEdit: boolean;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not an owner or admin of this organization */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such team, one in an organization the caller may not see, or one the caller neither runs nor belongs to — indistinguishable by design (`team_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This organization already has a team with that slug (`team_slug_taken`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation. `team_member_unknown` — a username no account has; `team_member_not_in_org` — an account that is not on this organization’s roster. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
         trace?: never;
     };
 }

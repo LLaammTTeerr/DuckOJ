@@ -157,6 +157,16 @@
                           "isRated": {
                             "type": "boolean"
                           },
+                          "participationMode": {
+                            "type": "string",
+                            "enum": [
+                              "individual",
+                              "team"
+                            ]
+                          },
+                          "maxTeamSize": {
+                            "type": "integer"
+                          },
                           "orgs": {
                             "type": "array",
                             "items": {
@@ -192,6 +202,8 @@
                           "frozenLastMinutes",
                           "timeLimitSeconds",
                           "isRated",
+                          "participationMode",
+                          "maxTeamSize",
                           "orgs",
                           "createdAt"
                         ]
@@ -282,6 +294,20 @@
                       "public"
                     ],
                     "default": "private"
+                  },
+                  "participationMode": {
+                    "type": "string",
+                    "enum": [
+                      "individual",
+                      "team"
+                    ],
+                    "default": "individual"
+                  },
+                  "maxTeamSize": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "default": 3
                   },
                   "orgSlugs": {
                     "type": "array",
@@ -384,6 +410,16 @@
                     "isRated": {
                       "type": "boolean"
                     },
+                    "participationMode": {
+                      "type": "string",
+                      "enum": [
+                        "individual",
+                        "team"
+                      ]
+                    },
+                    "maxTeamSize": {
+                      "type": "integer"
+                    },
                     "orgs": {
                       "type": "array",
                       "items": {
@@ -463,6 +499,8 @@
                     "frozenLastMinutes",
                     "timeLimitSeconds",
                     "isRated",
+                    "participationMode",
+                    "maxTeamSize",
                     "orgs",
                     "createdAt",
                     "formatConfig",
@@ -768,6 +806,16 @@
                     "isRated": {
                       "type": "boolean"
                     },
+                    "participationMode": {
+                      "type": "string",
+                      "enum": [
+                        "individual",
+                        "team"
+                      ]
+                    },
+                    "maxTeamSize": {
+                      "type": "integer"
+                    },
                     "orgs": {
                       "type": "array",
                       "items": {
@@ -847,6 +895,8 @@
                     "frozenLastMinutes",
                     "timeLimitSeconds",
                     "isRated",
+                    "participationMode",
+                    "maxTeamSize",
                     "orgs",
                     "createdAt",
                     "formatConfig",
@@ -975,6 +1025,18 @@
                       "public"
                     ]
                   },
+                  "participationMode": {
+                    "type": "string",
+                    "enum": [
+                      "individual",
+                      "team"
+                    ]
+                  },
+                  "maxTeamSize": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12
+                  },
                   "orgSlugs": {
                     "type": "array",
                     "items": {
@@ -1067,6 +1129,16 @@
                     "isRated": {
                       "type": "boolean"
                     },
+                    "participationMode": {
+                      "type": "string",
+                      "enum": [
+                        "individual",
+                        "team"
+                      ]
+                    },
+                    "maxTeamSize": {
+                      "type": "integer"
+                    },
                     "orgs": {
                       "type": "array",
                       "items": {
@@ -1146,6 +1218,8 @@
                     "frozenLastMinutes",
                     "timeLimitSeconds",
                     "isRated",
+                    "participationMode",
+                    "maxTeamSize",
                     "orgs",
                     "createdAt",
                     "formatConfig",
@@ -1554,6 +1628,43 @@
                         "null"
                       ],
                       "format": "date-time"
+                    },
+                    "teams": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "orgSlug": {
+                            "type": "string"
+                          },
+                          "orgName": {
+                            "type": "string"
+                          },
+                          "captain": {
+                            "type": "string"
+                          },
+                          "members": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "name",
+                          "orgSlug",
+                          "orgName",
+                          "captain",
+                          "members"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -1942,6 +2053,16 @@
                     "isRated": {
                       "type": "boolean"
                     },
+                    "participationMode": {
+                      "type": "string",
+                      "enum": [
+                        "individual",
+                        "team"
+                      ]
+                    },
+                    "maxTeamSize": {
+                      "type": "integer"
+                    },
                     "orgs": {
                       "type": "array",
                       "items": {
@@ -2021,6 +2142,8 @@
                     "frozenLastMinutes",
                     "timeLimitSeconds",
                     "isRated",
+                    "participationMode",
+                    "maxTeamSize",
                     "orgs",
                     "createdAt",
                     "formatConfig",
@@ -2310,6 +2433,7 @@
           "Contests"
         ],
         "summary": "Join a contest — live while it runs, virtually once it has ended",
+        "description": "In a **team** contest (D99) the body names a `teamSlug` and the caller must be on that team. A team holds exactly ONE participation, so the first member to press the button enters the whole team and every other member’s submissions land on that row; a second member joining reads it back only if they are the account that made it, and otherwise gets 409 `contest_team_joined`. There are no virtual replays for teams.",
         "parameters": [
           {
             "schema": {
@@ -2320,6 +2444,24 @@
             "in": "path"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "teamSlug": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "default": {},
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "The participation. Idempotent: joining twice returns the existing one.",
@@ -2345,6 +2487,35 @@
                     },
                     "isDisqualified": {
                       "type": "boolean"
+                    },
+                    "team": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "slug": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "orgSlug": {
+                          "type": "string"
+                        },
+                        "members": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "slug",
+                        "name",
+                        "orgSlug",
+                        "members"
+                      ]
                     }
                   },
                   "required": [
@@ -2353,7 +2524,8 @@
                     "virtual",
                     "startTime",
                     "endTime",
-                    "isDisqualified"
+                    "isDisqualified",
+                    "team"
                   ]
                 }
               }
@@ -2495,7 +2667,52 @@
             }
           },
           "409": {
-            "description": "The contest has not started yet (`contest_not_started`)",
+            "description": "The contest has not started yet (`contest_not_started`); another member already entered this team (`contest_team_joined`); the caller already competes in this contest under another identity (`contest_already_joined`); a different team of the same name is already on the board (`contest_team_name_taken`); or the team is larger than this contest admits (`contest_team_too_large`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A team contest joined with no `teamSlug` (`contest_team_required`), an individual contest joined with one (`contest_team_unexpected`), a slug naming no team of any of this contest’s organizations (`contest_team_unknown`), or a team the caller is not on (`contest_team_not_member`).",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2583,6 +2800,35 @@
                     },
                     "isDisqualified": {
                       "type": "boolean"
+                    },
+                    "team": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "slug": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "orgSlug": {
+                          "type": "string"
+                        },
+                        "members": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "slug",
+                        "name",
+                        "orgSlug",
+                        "members"
+                      ]
                     }
                   },
                   "required": [
@@ -2591,7 +2837,8 @@
                     "virtual",
                     "startTime",
                     "endTime",
-                    "isDisqualified"
+                    "isDisqualified",
+                    "team"
                   ]
                 }
               }
@@ -2887,6 +3134,7 @@
           "Admin"
         ],
         "summary": "Mark a contest rated and replay the whole rating history (admin, session only)",
+        "description": "A **team** contest is refused (409 `contest_team_unrateable`): a team’s result is three people’s work on one row, and a rating is a claim about one person (D99).",
         "parameters": [
           {
             "schema": {
@@ -3008,6 +3256,51 @@
           },
           "404": {
             "description": "No such contest, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "This is a team contest, which is never rated (`contest_team_unrateable`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3294,6 +3587,35 @@
                     },
                     "isDisqualified": {
                       "type": "boolean"
+                    },
+                    "team": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "slug": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "orgSlug": {
+                          "type": "string"
+                        },
+                        "members": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "slug",
+                        "name",
+                        "orgSlug",
+                        "members"
+                      ]
                     }
                   },
                   "required": [
@@ -3302,7 +3624,8 @@
                     "virtual",
                     "startTime",
                     "endTime",
-                    "isDisqualified"
+                    "isDisqualified",
+                    "team"
                   ]
                 }
               }
@@ -23159,6 +23482,1284 @@
           },
           "404": {
             "description": "No such set, one in an organization the caller may not see, or one in an organization the caller does not belong to — the three are indistinguishable (`problem_set_not_found`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{slug}/teams": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "An organization's teams",
+        "description": "An owner or admin of the organization (or a global admin) sees every team; anybody else sees the teams they are ON, and a caller who can see the organization but belongs to no team in it gets an EMPTY page rather than a refusal — D66’s shape, for D66’s reason. An organization the caller may not see is 404.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of teams",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slug": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "orgSlug": {
+                            "type": "string"
+                          },
+                          "orgName": {
+                            "type": "string"
+                          },
+                          "memberCount": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "slug",
+                          "name",
+                          "orgSlug",
+                          "orgName",
+                          "memberCount",
+                          "createdAt"
+                        ]
+                      }
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such organization, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Assemble a team (owner or admin)",
+        "description": "Members are named by username and must already be on this organization’s roster. The size ceiling here is 12, the table’s own; what a CONTEST admits is its own `maxTeamSize` (three by default), checked at `POST /contests/{key}/join` so that one squad can enter two contests with different limits.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "slug": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "maxItems": 12,
+                    "default": []
+                  }
+                },
+                "required": [
+                  "slug",
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The created team",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "slug": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "orgSlug": {
+                      "type": "string"
+                    },
+                    "orgName": {
+                      "type": "string"
+                    },
+                    "memberCount": {
+                      "type": "integer"
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          },
+                          "joinedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "displayName",
+                          "joinedAt"
+                        ]
+                      }
+                    },
+                    "canEdit": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "slug",
+                    "name",
+                    "orgSlug",
+                    "orgName",
+                    "memberCount",
+                    "createdAt",
+                    "members",
+                    "canEdit"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in, but not an owner or admin of this organization",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such organization, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "This organization already has a team with that slug (`team_slug_taken`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request failed validation. `team_member_unknown` — a username no account has; `team_member_not_in_org` — an account that is not on this organization’s roster.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{slug}/teams/{teamSlug}": {
+      "get": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "One team and its members",
+        "description": "An owner or admin of the organization, a global admin, or a member of the team itself. Anybody else gets the same 404 a team that does not exist gets: a school’s squad list is not something a rival school reads off the API before the round.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "teamSlug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The team",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "slug": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "orgSlug": {
+                      "type": "string"
+                    },
+                    "orgName": {
+                      "type": "string"
+                    },
+                    "memberCount": {
+                      "type": "integer"
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          },
+                          "joinedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "displayName",
+                          "joinedAt"
+                        ]
+                      }
+                    },
+                    "canEdit": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "slug",
+                    "name",
+                    "orgSlug",
+                    "orgName",
+                    "memberCount",
+                    "createdAt",
+                    "members",
+                    "canEdit"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such team, one in an organization the caller may not see, or one the caller neither runs nor belongs to — indistinguishable by design (`team_not_found`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Rename a team or replace its roster (owner or admin)",
+        "description": "`members`, when present, replaces the whole roster.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "teamSlug",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "slug": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "maxItems": 12
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated team",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "slug": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "orgSlug": {
+                      "type": "string"
+                    },
+                    "orgName": {
+                      "type": "string"
+                    },
+                    "memberCount": {
+                      "type": "integer"
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": "string"
+                          },
+                          "joinedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "displayName",
+                          "joinedAt"
+                        ]
+                      }
+                    },
+                    "canEdit": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "slug",
+                    "name",
+                    "orgSlug",
+                    "orgName",
+                    "memberCount",
+                    "createdAt",
+                    "members",
+                    "canEdit"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in, but not an owner or admin of this organization",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such team, one in an organization the caller may not see, or one the caller neither runs nor belongs to — indistinguishable by design (`team_not_found`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "This organization already has a team with that slug (`team_slug_taken`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request failed validation. `team_member_unknown` — a username no account has; `team_member_not_in_org` — an account that is not on this organization’s roster.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Organizations"
+        ],
+        "summary": "Disband a team (owner or admin)",
+        "description": "A team that has entered a contest cannot be deleted (409 `team_has_participations`): its participation IS the record of what it did, and dropping the row would delete a contest’s results. Disbanding it is emptying its roster, which this route still allows.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "slug",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "teamSlug",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in, but not an owner or admin of this organization",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such team, one in an organization the caller may not see, or one the caller neither runs nor belongs to — indistinguishable by design (`team_not_found`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The team has competed (`team_has_participations`)",
             "content": {
               "application/problem+json": {
                 "schema": {

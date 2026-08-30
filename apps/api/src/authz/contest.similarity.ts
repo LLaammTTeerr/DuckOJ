@@ -40,6 +40,7 @@ import {
   problems,
   similarityRuns,
   submissions,
+  teams,
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import {
@@ -417,9 +418,10 @@ export class ContestSimilarityService {
    * compared.
    */
   private async loadCandidates(contestId: number): Promise<CandidateRow[]> {
-    return this.db
+    const rows = await this.db
       .select({
         username: schema.users.username,
+        teamName: teams.name,
         contestProblemId: contestSubmissions.contestProblemId,
         submissionId: contestSubmissions.submissionId,
         verdict: submissions.verdict,
@@ -431,11 +433,19 @@ export class ContestSimilarityService {
         eq(contestParticipations.id, contestSubmissions.participationId),
       )
       .innerJoin(schema.users, eq(schema.users.id, contestParticipations.userId))
+      // D99: a team is ONE participant, so every member's submissions are the
+      // team's and "one submission per person per problem" becomes one per
+      // TEAM per problem. The label is the team's name, which is also what
+      // the scoreboard prints and what `pairView` looks a pair up by — three
+      // members' independent attempts at one problem must not be reported as
+      // three suspiciously similar competitors.
+      .leftJoin(teams, eq(teams.id, contestParticipations.teamId))
       .innerJoin(submissions, eq(submissions.id, contestSubmissions.submissionId))
       .where(
         and(eq(contestParticipations.contestId, contestId), eq(contestParticipations.virtual, 0)),
       )
       .orderBy(asc(contestSubmissions.submissionId));
+    return rows.map(({ teamName, ...row }) => ({ ...row, username: teamName ?? row.username }));
   }
 
   /** The sources of the chosen submissions, in one query. */

@@ -50,6 +50,10 @@ function headerRow(input: ResultsInput): string[] {
     'username',
     'display_name',
     'orgs',
+    // Only for a team contest (D99): the header row is the file's contract
+    // with whatever reads it next, and an always-present empty column would
+    // change that contract for every individual contest already exported.
+    ...(input.byTeam ? ['members'] : []),
     ...input.problems.flatMap((problem) => [
       `${problem.label}_points`,
       `${problem.label}_attempts`,
@@ -70,6 +74,9 @@ function bodyRow(input: ResultsInput, row: ResultRow): string[] {
     // Semicolon, not comma: a comma inside the field would be correct CSV
     // and would still read as two columns to every human scanning the file.
     text(row.orgs.join('; ')),
+    // Semicolon-joined and formula-guarded like the organizations beside it:
+    // these are account names people chose.
+    ...(input.byTeam ? [text(row.members.join('; '))] : []),
     ...input.problems.flatMap((problem) => {
       const entry = row.cells[problem.code];
       if (entry === undefined) return ['', '', ''];

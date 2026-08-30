@@ -86,6 +86,81 @@ export const orgJoinRequests = pgTable(
   ],
 );
 
+/**
+ * A team inside one school — "đội tuyển", the roster an ICPC-style contest
+ * is entered by (D99).
+ *
+ * Org-scoped rather than global: a team is assembled by the school that
+ * fields it, `slug` is unique per organization (case-insensitively, the rule
+ * `organizations_slug_lower_idx` and `problem_sets_org_slug_lower_idx`
+ * already state), and the URL is `/orgs/{slug}/teams/{teamSlug}`.
+ *
+ * Guarded for `problem_sets`' reason: who may read a team depends on the
+ * ORGANIZATION's visibility and on whether the reader belongs to the team,
+ * and both questions are answered in `apps/api/src/authz/team.access.ts`.
+ *
+ * `name` is what a scoreboard prints for a team participation — the whole of
+ * what D99 needs from this table on the board — and it is deliberately NOT
+ * unique: two schools may both field a "Đội 1". `join` refuses the second of
+ * two same-named teams in one contest instead, which is where the ambiguity
+ * would actually cost something.
+ */
+export const teams = pgTable(
+  'teams',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    orgId: bigint('org_id', { mode: 'number' })
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    /**
+     * The owner who assembled it. No `onDelete` — `problem_sets.created_by`'s
+     * choice, for its reason: a team outlives the teacher who created it.
+     */
+    createdBy: bigint('created_by', { mode: 'number' })
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('teams_org_slug_lower_idx').on(t.orgId, sql`lower(${t.slug})`)],
+);
+
+/**
+ * Who is on a team. A user may belong to many teams (D99) — a pupil sits the
+ * provincial round with one three and the practice round with another — so
+ * the primary key is the pair and neither half is unique on its own.
+ *
+ * The membership decides who may JOIN a contest as this team and whose
+ * `?contest=` submissions land on its participation; it is read, never
+ * frozen, so a roster edited mid-contest changes who may submit next. D99
+ * records that as a deliberate gap rather than a promise.
+ */
+export const teamMembers = pgTable(
+  'team_members',
+  {
+    teamId: bigint('team_id', { mode: 'number' })
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.teamId, t.userId] }),
+    /**
+     * "Which teams is this person on" — the member's own list, and the
+     * lookup `join` and every submission in team mode make. It is also the
+     * missing foreign-key index under `ON DELETE CASCADE` this repo has now
+     * paid for twice (D47's `grading_jobs`, D95's `contest_submissions`):
+     * the primary key walks `team_id` first, so deleting a user would
+     * sequentially scan this table.
+     */
+    index('team_members_user_idx').on(t.userId),
+  ],
+);
+
 export const problemVisibility = pgEnum('problem_visibility', ['private', 'org', 'public']);
 
 /**
@@ -395,6 +470,19 @@ export const submissionCases = pgTable(
  */
 export const contestVisibility = pgEnum('contest_visibility', ['private', 'org', 'public']);
 
+/**
+ * Whether a contest is entered by a person or by a team (D99).
+ *
+ * An enum, unlike `contests.format`: `individual` and `team` are the whole
+ * of it — this is a two-state property of the product, not a plugin point,
+ * and the database refusing a third value is what stops a typo from making a
+ * contest neither.
+ */
+export const contestParticipationMode = pgEnum('contest_participation_mode', [
+  'individual',
+  'team',
+]);
+
 export const contests = pgTable(
   'contests',
   {
@@ -422,6 +510,21 @@ export const contests = pgTable(
     /** `null` means "no per-participant time limit", which also pins `start`. */
     timeLimitSeconds: integer('time_limit_seconds'),
     visibility: contestVisibility('visibility').notNull().default('private'),
+    /**
+     * Individual or team (D99). Settable only before the contest starts, on
+     * D38's rule and for D38's reason: it decides what a participation IS,
+     * and flipping it under rows that already exist would leave every one of
+     * them describing a competitor the contest no longer has.
+     */
+    participationMode: contestParticipationMode('participation_mode')
+      .notNull()
+      .default('individual'),
+    /**
+     * How many members a team entering THIS contest may have (D99); ignored
+     * in `individual` mode. Three is the ICPC roster, which is what a
+     * Vietnamese provincial "thi đồng đội" runs.
+     */
+    maxTeamSize: integer('max_team_size').notNull().default(3),
     /**
      * Whether this contest's results feed the rating system.
      *
@@ -507,8 +610,42 @@ export const contestParticipations = pgTable(
      */
     virtual: integer('virtual').notNull().default(0),
     isDisqualified: boolean('is_disqualified').notNull().default(false),
+    /**
+     * The team this row competes as (D99), or `null` for an individual entry.
+     *
+     * A team participation is ONE row: `user_id` names the member who joined
+     * (the captain), and every member's submissions with `?contest=` land on
+     * this row, because the identity a submission attaches to is the
+     * participation (D36) and a team is one participant.
+     *
+     * `restrict`, not `cascade`: deleting a team that has competed would
+     * silently delete its results, so it fails loudly instead — the choice
+     * `contest_submissions.contest_problem_id` already makes.
+     */
+    teamId: bigint('team_id', { mode: 'number' }).references(() => teams.id, {
+      onDelete: 'restrict',
+    }),
   },
-  (t) => [uniqueIndex('contest_participations_identity_idx').on(t.contestId, t.userId, t.virtual)],
+  (t) => [
+    uniqueIndex('contest_participations_identity_idx').on(t.contestId, t.userId, t.virtual),
+    /**
+     * One participation per team per contest (D99) — the whole of "they all
+     * submit as the team", enforced by the database rather than by a check
+     * the second member's request could race past. Partial, because
+     * `team_id` is null for every individual row and a plain unique index
+     * would then be no constraint at all in Postgres but would still be the
+     * wrong claim to write down.
+     *
+     * `(team_id, contest_id)` rather than the other way round, though the
+     * uniqueness it states is the same either way: `team_id` leading makes
+     * this ALSO the foreign-key index the `ON DELETE RESTRICT` above needs,
+     * so deleting a team is an index probe rather than the sequential scan
+     * D47 and D95 each paid for once.
+     */
+    uniqueIndex('contest_participations_team_idx')
+      .on(t.teamId, t.contestId)
+      .where(sql`${t.teamId} is not null`),
+  ],
 );
 
 export const contestSubmissions = pgTable(
