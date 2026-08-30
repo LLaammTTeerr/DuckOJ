@@ -37,6 +37,12 @@ type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content'
 type Scoreboard = paths['/contests/{key}/scoreboard']['get']['responses'][200]['content']['application/json'];
 type Clarification =
   paths['/contests/{key}/clarifications']['get']['responses'][200]['content']['application/json']['items'][number];
+type SimilarityReport =
+  paths['/contests/{key}/similarity']['get']['responses'][200]['content']['application/json'];
+type SimilarityRun = NonNullable<SimilarityReport['run']>;
+type SimilarityPair = SimilarityRun['pairs'][number];
+type SimilarityPairView =
+  paths['/contests/{key}/similarity/{a}/{b}']['get']['responses'][200]['content']['application/json'];
 
 /**
  * `2026-03-01T09:00:00Z` → `01/03/2026 16:00` (vi) or `3/1/2026 04:00` (en),
@@ -359,6 +365,13 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         canEdit={contest.data.canEdit}
         problems={contest.data.problems.map((problem) => ({ code: problem.code, label: problem.label }))}
       />
+
+      {/* Organisers only, and the server says who that is — `canEdit` is
+          `canRunContest`'s own answer, the same predicate the three
+          similarity routes refuse on. A competitor never sees this section,
+          and there is no screen anywhere that shows them their own score
+          (D77). */}
+      {contest.data.canEdit ? <SimilarityPanel contestKey={contestKey} /> : null}
 
       <p>
         <Link to="/contests/$key/scoreboard" params={{ key: contestKey }}>
@@ -898,6 +911,295 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
       </table>
       {dqError ? <p role="alert">{dqError}</p> : null}
       {ranking.length === 0 ? <p className="muted">{t('scoreboard.empty')}</p> : null}
+    </section>
+  );
+}
+
+/* ---------------------------------------------------- similarity (D77) */
+
+/** `0.9231` → `92%`. A report is read in whole percents, never in decimals. */
+function percent(value: number): string {
+  return `${String(Math.round(value * 100))}%`;
+}
+
+/**
+ * "Kiểm tra trùng lặp" — the organiser's source-similarity report (D77).
+ *
+ * Rendered only for `canEdit`, which is the server's own `canRunContest`
+ * answer rather than a guess from `me`: the three routes behind this panel
+ * refuse on exactly that predicate, and a section offering a button the
+ * server then refuses is worse than no section.
+ *
+ * **Polled only while a run is going.** `refetchInterval` is `2000` for a
+ * `running` row and `false` for everything else — a finished report does not
+ * change, and an organiser leaving this tab open for an afternoon must not
+ * be a request every two seconds for the afternoon.
+ */
+function SimilarityPanel({ contestKey }: { contestKey: string }) {
+  const t = useT();
+  const { locale, timeZone } = useLocale();
+  const client = useQueryClient();
+  const [threshold, setThreshold] = useState('0.6');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const report = useQuery({
+    queryKey: ['similarity', contestKey],
+    queryFn: async (): Promise<SimilarityReport> => {
+      const result = await api.GET('/contests/{key}/similarity', {
+        params: { path: { key: contestKey } },
+      });
+      if (result.error) throw apiError(result, t('similarity.loadError'));
+      return result.data;
+    },
+    refetchInterval: (query) => (query.state.data?.run?.status === 'running' ? 2000 : false),
+  });
+
+  async function run(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const { error: failed } = await api.POST('/contests/{key}/similarity', {
+        params: { path: { key: contestKey } },
+        body: { threshold: Number(threshold) },
+      });
+      if (failed) {
+        setError(failed.detail ?? failed.code);
+        return;
+      }
+      await client.invalidateQueries({ queryKey: ['similarity', contestKey] });
+    } catch {
+      // openapi-fetch rethrows network-level failures rather than resolving
+      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+      setError(t('common.networkError'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const run_ = report.data?.run ?? null;
+  const truncated = (run_?.problems ?? []).some((problem) => problem.truncated);
+
+  return (
+    <section>
+      <h2>{t('similarity.title')}</h2>
+      {/* The caution is not a footnote. D77's whole ruling is that a high
+          score is a reason to LOOK, and printing the table without saying so
+          invites an organiser to treat a number as a finding. */}
+      <p className="muted">{t('similarity.caution')}</p>
+      <p>
+        <label>
+          {t('similarity.threshold')}{' '}
+          <input
+            type="number"
+            min="0.3"
+            max="1"
+            step="0.05"
+            value={threshold}
+            onChange={(event) => {
+              setThreshold(event.target.value);
+            }}
+          />
+        </label>{' '}
+        <button type="button" disabled={busy || run_?.status === 'running'} onClick={() => void run()}>
+          {t('similarity.run')}
+        </button>
+      </p>
+      {error ? <p role="alert">{error}</p> : null}
+      {report.error ? <p role="alert">{report.error.message}</p> : null}
+
+      {run_ === null ? <p className="muted">{t('similarity.never')}</p> : null}
+      {/* `role="status"`, not `alert`: a run in progress is the feature
+          working, not something going wrong. */}
+      {run_?.status === 'running' ? <p role="status">{t('similarity.running')}</p> : null}
+      {run_?.status === 'failed' ? <p role="alert">{t('similarity.failed')}</p> : null}
+      {run_?.status === 'finished' ? (
+        <p className="muted">
+          {t('similarity.finished', {
+            when: run_.finishedAt === null ? '' : formatDateTime(run_.finishedAt, locale, timeZone),
+            people: String(run_.participants),
+            threshold: percent(run_.threshold),
+          })}
+        </p>
+      ) : null}
+      {truncated ? <p role="status">{t('similarity.truncated')}</p> : null}
+
+      {run_ !== null && run_.status === 'finished' && run_.pairs.length === 0 ? (
+        <p className="muted">{t('similarity.none')}</p>
+      ) : null}
+      {run_ !== null && run_.pairs.length > 0 ? (
+        <table>
+          <thead>
+            <tr>
+              <th>{t('similarity.colProblem')}</th>
+              <th>{t('similarity.colPair')}</th>
+              <th className="num">{t('similarity.colContainment')}</th>
+              <th className="num">{t('similarity.colJaccard')}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {run_.pairs.map((pair: SimilarityPair) => (
+              <tr key={`${pair.problemCode}-${pair.a}-${pair.b}`}>
+                <td>
+                  <Link to="/problems/$code" params={{ code: pair.problemCode }}>
+                    {pair.problemLabel}
+                  </Link>
+                </td>
+                <td>
+                  {/* Every entity is a hyperlink, competitors included. */}
+                  <Link to="/users/$username" params={{ username: pair.a }}>
+                    {pair.a}
+                  </Link>
+                  {' · '}
+                  <Link to="/users/$username" params={{ username: pair.b }}>
+                    {pair.b}
+                  </Link>
+                </td>
+                <td className="num">{percent(pair.containment)}</td>
+                <td className="num">{percent(pair.jaccard)}</td>
+                <td>
+                  <Link
+                    to="/contests/$key/similarity"
+                    params={{ key: contestKey }}
+                    search={{ a: pair.a, b: pair.b, problem: pair.problemCode }}
+                  >
+                    {t('similarity.compare')}
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * One source split into the plain runs and the matched ones.
+ *
+ * Built here rather than with `dangerouslySetInnerHTML`: the text is a
+ * competitor's own program, and the one thing this screen must never do is
+ * let a submission containing `<script>` become markup. React escapes every
+ * segment because they are children, not HTML.
+ */
+export function markedSegments(
+  source: string,
+  spans: readonly { start: number; end: number }[],
+): { text: string; matched: boolean }[] {
+  const segments: { text: string; matched: boolean }[] = [];
+  let cursor = 0;
+  for (const span of spans) {
+    // Defensive against a span the server and this string disagree about:
+    // a bad range must render the source unhighlighted, never truncated.
+    const start = Math.max(cursor, Math.min(span.start, source.length));
+    const end = Math.max(start, Math.min(span.end, source.length));
+    if (start > cursor) segments.push({ text: source.slice(cursor, start), matched: false });
+    if (end > start) segments.push({ text: source.slice(start, end), matched: true });
+    cursor = end;
+  }
+  if (cursor < source.length) segments.push({ text: source.slice(cursor), matched: false });
+  return segments;
+}
+
+/** One competitor's source, with the matching regions marked. */
+function MarkedSource({ side }: { side: SimilarityPairView['a'] }) {
+  return (
+    <pre>
+      {/* The index IS the identity here: the segments are a partition of one
+          immutable string, so segment 3 is always segment 3 and nothing is
+          ever inserted between two of them. */}
+      {markedSegments(side.source, side.spans).map((segment, index) =>
+        segment.matched ? (
+          <mark className="match" key={index}>
+            {segment.text}
+          </mark>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        ),
+      )}
+    </pre>
+  );
+}
+
+/**
+ * Two matched submissions side by side (D77).
+ *
+ * Its own route rather than a panel that expands in place, because it is a
+ * thing an organiser links to: "look at these two" is a URL somebody sends
+ * to a colleague, and a disclosure widget has no address.
+ */
+export function SimilarityPairPage({
+  contestKey,
+  a,
+  b,
+  problem,
+}: {
+  contestKey: string;
+  a: string;
+  b: string;
+  problem?: string | undefined;
+}) {
+  const t = useT();
+  const query = useQuery({
+    queryKey: ['similarity-pair', contestKey, a, b, problem ?? ''],
+    queryFn: async (): Promise<SimilarityPairView> => {
+      const result = await api.GET('/contests/{key}/similarity/{a}/{b}', {
+        params: {
+          path: { key: contestKey, a, b },
+          query: problem === undefined ? {} : { problem },
+        },
+      });
+      if (result.error) throw apiError(result, t('similarity.pairLoadError'));
+      return result.data;
+    },
+  });
+
+  return (
+    <section className="panel">
+      <h1>{t('similarity.pairTitle')}</h1>
+      <p>
+        <Link to="/contests/$key" params={{ key: contestKey }}>
+          {t('similarity.back')}
+        </Link>
+      </p>
+      <p className="muted">{t('similarity.caution')}</p>
+      {query.isPending ? <p className="muted">{t('common.loading')}</p> : null}
+      {query.error ? <p role="alert">{query.error.message}</p> : null}
+      {query.data ? (
+        <>
+          <p>
+            <Link to="/problems/$code" params={{ code: query.data.problemCode }}>
+              {query.data.problemLabel}
+            </Link>{' '}
+            <span className="muted">
+              {t('similarity.pairScores', {
+                containment: percent(query.data.containment),
+                jaccard: percent(query.data.jaccard),
+              })}
+            </span>
+          </p>
+          <div className="side-by-side">
+            {[query.data.a, query.data.b].map((side) => (
+              <div key={side.submissionId}>
+                <h2>
+                  <Link to="/users/$username" params={{ username: side.username }}>
+                    {side.username}
+                  </Link>
+                </h2>
+                <p className="muted">
+                  <Link to="/submissions/$id" params={{ id: String(side.submissionId) }}>
+                    #{side.submissionId}
+                  </Link>{' '}
+                  {side.languageKey}
+                </p>
+                <MarkedSource side={side} />
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
     </section>
   );
 }

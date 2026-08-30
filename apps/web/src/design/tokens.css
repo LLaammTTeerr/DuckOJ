@@ -65,6 +65,14 @@
      the page, so it darkens rather than blurs, and it stays put when the
      material collapses to its solid twin. */
   --scrim: rgba(12, 15, 20, 0.34);
+  /* The similarity report's matched span (D77). A wash, not a highlighter:
+     it sits under monospace code inside a glass inset, so it has to read as
+     a tint of the surface rather than as a second colour laid over it. The
+     foreground is stated too — `<mark>`'s UA default is black on yellow, and
+     inheriting only half of that is how a dark theme gets black text on a
+     dark ground. */
+  --mark: rgba(214, 158, 46, 0.28);
+  --mark-fg: var(--fg);
   /* The solid twin every glass token collapses to. Also the print surface. */
   --panel: #ffffff;
 
@@ -176,6 +184,8 @@
     --line: rgba(255, 255, 255, 0.13);
     --sel: rgba(255, 255, 255, 0.06);
     --scrim: rgba(0, 0, 0, 0.58);
+    --mark: rgba(214, 158, 46, 0.3);
+    --mark-fg: var(--fg);
     --panel: #171b22;
 
     --glass-bar: rgba(22, 26, 33, 0.74);

@@ -2791,3 +2791,87 @@ for the eye, and inside `nav.notifications`' sentence for the ear.
 *Ruled by the implementer during the 2026-08-30 UI loop (navigation IA), no
 human available to consult. No migration; `apps/web` only.*
 
+
+## D77 — A similarity report is an organiser's magnifying glass, never a verdict
+
+`POST /contests/{key}/similarity` starts a source-similarity check over a
+contest; `GET` returns the latest run and its pairs; `GET
+/contests/{key}/similarity/{a}/{b}` serves two competitors' sources side by
+side with the matching regions marked. All three are tagged `Contests` and
+gated on the one predicate `canRunContest` — the contest's creator or a
+global admin, the same test `canEdit` reports and D71's exports refuse on.
+
+**The load-bearing ruling is what the report MEANS.** A high score is a
+reason for a person to look at two programs. It is not evidence of guilt, and
+the product never treats it as one: nothing here disqualifies anybody,
+notifies anybody, or appears on any screen a competitor can reach, and the
+caution saying so is on the screen rather than in a footnote. Identifiers are
+erased before anything is compared, which is exactly what makes a renamed
+copy detectable and also what makes two students taught the same technique by
+the same teacher score high while being innocent. A report that is treated as
+a finding is worse than no report.
+
+**D27 is not weakened; its exempt set is reused.** D27 withholds a contest
+submission's `source` from everyone but its submitter, the contest's creator
+and a global admin — and that set is precisely `canRunContest`. The pair view
+therefore hands an organiser nothing they could not already read one
+submission at a time; what it adds is that they no longer have to know which
+two to open. It refuses any pair the latest run did not report, so it cannot
+become "show me any two competitors' code".
+
+Ten further rulings, taken with nobody to ask:
+
+- **The algorithm is a package, `@duckoj/similarity`, with no dependencies.**
+  Language-aware tokenisation (C/C++/Python/Java: comments and whitespace
+  erased, identifiers normalised to one placeholder, literals collapsed to
+  `N`/`S`, keywords and operators kept), then k-gram hashing (k=5) and
+  winnowing (window 4) into fingerprint sets. Winnowing guarantees that any
+  shared run of `w + k - 1` tokens contributes a shared fingerprint, which is
+  the property that survives a copier rewriting one line in five.
+- **Two measures, and the threshold tests CONTAINMENT.** Jaccard is
+  shared/union; containment is shared over the smaller set. Padding a copy
+  with dead code is the first thing a copier does, and it moves Jaccard while
+  leaving containment where it was. Containment is never below Jaccard, so
+  this admits every pair either measure would. Both are printed, because
+  0.93/0.30 (one solution buried in a longer file) and 0.93/0.85 (the same
+  file twice) are different stories.
+- **The default threshold is 0.6, and 0.3 is the floor.** Below that the
+  table fills with independent solutions to easy problems, and a report
+  nobody trusts is worse than none. The threshold is stored ON the run: a
+  report keeps the number it was actually made with.
+- **One submission per person per problem: their AC, else their best, ties
+  to the latest.** An accepted solution is the finished work; a 90-point
+  wrong answer is a draft.
+- **Live participations only; disqualified rows included.** A virtual replay
+  is somebody sitting a finished contest with the statements already public —
+  not the fraud this feature is about, and comparing replays against the live
+  board would report every competitor who later read a published solution. A
+  disqualified competitor is often exactly whose code an organiser wants
+  compared; that is frequently *why* they were disqualified.
+- **Compared only inside a language family.** `cpp17` against `cpp20` is one
+  language; Python against C++ is noise with a number on it. A language the
+  package has no lexer for is skipped, and the run says so through
+  `compared`, rather than failing.
+- **A job row, not a request that blocks.** `similarity_runs` (migration
+  0028) is inserted and committed before the work starts, and the work runs
+  in the API process under `pg_advisory_xact_lock(SIMILARITY_LOCK,
+  contest_id)` — per contest, so two contests are checked in parallel and one
+  contest never is, across every forked worker. A second request while one is
+  going answers 409 `similarity_running`; a failure writes `status: 'failed'`
+  rather than leaving a row saying `running` forever.
+- **Two caps, refused differently, because they are known at different
+  times.** Participants above 3000 is knowable before any work: 422
+  `similarity_too_large`, with the actual number in the hint. Pairs above 500
+  on one problem is only knowable after comparing: the lowest-scoring tail is
+  dropped, `truncated` is set, and the web says so. You cannot refuse what
+  you only learn by doing.
+- **`{ run: null }`, never 404, for a contest nobody has checked.** A 404
+  there is indistinguishable from "no such contest".
+- **The side-by-side view is a route, not a disclosure panel.** "Look at
+  these two" is a URL an organiser sends to a colleague. Sources are rendered
+  as React children, never as markup; matched spans are `<mark class="match">`
+  over a token-tinted background, so a screen reader announces them and the
+  glass surface survives.
+
+*Ruled by the implementer during the 2026-08-30 feature loop (F-15), no human
+available to consult. Migration 0028; new package `packages/similarity`.*

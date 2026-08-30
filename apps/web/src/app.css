@@ -806,6 +806,35 @@ pre {
   overflow-x: auto;
 }
 
+/* A matched region inside a similarity comparison (D77).
+ *
+ * `<mark>` for the semantics — a screen reader announces marked text, which
+ * is the whole claim this element makes — with the UA's black-on-yellow
+ * replaced by a tint of the surface it sits on, so the two <pre> columns
+ * stay one glass inset rather than becoming a highlighter pen. `inherit`
+ * would NOT do here: the UA sets a colour, and inheriting the background
+ * alone leaves black text on a dark ground in the dark scheme. */
+.match {
+  background: var(--mark);
+  color: var(--mark-fg);
+  border-radius: var(--r-xs);
+}
+
+/* The two columns of a similarity comparison. Grid rather than flex so the
+   two halves are exactly equal regardless of which program is longer, and
+   `minmax(0, 1fr)` because a <pre> with a long line otherwise refuses to
+   shrink and pushes the page sideways. On a phone they stack. */
+.side-by-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--sp-4);
+}
+@media (max-width: 720px) {
+  .side-by-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* --- the statement: the one surface that is NOT dense ---------------------
  * Scoped to `main > section > div` — the problem page's
  * `dangerouslySetInnerHTML` container, one level below the page's own

@@ -25,7 +25,7 @@ import {
   ResetPasswordPage,
   VerifyEmailPage,
 } from './routes/account-recovery.js';
-import { ContestPage, ContestsPage, ScoreboardPage } from './routes/contests.js';
+import { ContestPage, ContestsPage, ScoreboardPage, SimilarityPairPage } from './routes/contests.js';
 import { ContestNewPage } from './routes/contest-new.js';
 import { ContestEditPage } from './routes/contest-edit.js';
 import { TokensPage } from './routes/tokens.js';
@@ -443,6 +443,16 @@ function ScoreboardRouteComponent() {
   const { key } = useParams({ from: '/contests/$key/scoreboard' });
   return <ScoreboardPage contestKey={key} />;
 }
+/**
+ * The side-by-side similarity view (D77). A route rather than a panel: "look
+ * at these two" is a URL an organiser sends to a colleague, and a pair with
+ * no address cannot be sent.
+ */
+function SimilarityPairRouteComponent() {
+  const { key } = useParams({ from: '/contests/$key/similarity' });
+  const { a, b, problem } = useSearch({ from: '/contests/$key/similarity' });
+  return <SimilarityPairPage contestKey={key} a={a} b={b} problem={problem} />;
+}
 function OrgRouteComponent() {
   const { slug } = useParams({ from: '/orgs/$slug' });
   return <OrgPage slug={slug} />;
@@ -492,6 +502,20 @@ const scoreboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/contests/$key/scoreboard',
   component: ScoreboardRouteComponent,
+});
+const contestSimilarityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/contests/$key/similarity',
+  // Two usernames and an optional problem code. Absent keys are omitted
+  // rather than present-but-undefined, exactly as `/submissions` does it;
+  // the API answers 404 for a pair its latest run did not report, so a
+  // hand-typed pair is refused there rather than guessed at here.
+  validateSearch: (search: Record<string, unknown>): { a: string; b: string; problem?: string } => ({
+    a: typeof search.a === 'string' ? search.a : '',
+    b: typeof search.b === 'string' ? search.b : '',
+    ...(typeof search.problem === 'string' ? { problem: search.problem } : {}),
+  }),
+  component: SimilarityPairRouteComponent,
 });
 const orgsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -597,6 +621,7 @@ const routeTree = rootRoute.addChildren([
   contestRoute,
   contestEditRoute,
   scoreboardRoute,
+  contestSimilarityRoute,
   orgsRoute,
   orgRoute,
   problemSetRoute,
