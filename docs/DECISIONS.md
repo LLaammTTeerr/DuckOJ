@@ -1531,3 +1531,43 @@ row of `GET /problems`. Visibility is exactly the problem's, decided by
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F6 brief),
 no human available to consult. Migration 0022.*
+
+## D50 — A session holds every scope; `@RequireScope` governs tokens only
+
+`GET /packages/{hash}` carries `@RequireScope('packages:read')` and answers
+**200 to a plain signed-in session that has no token and no scopes at all**.
+This was raised twice as a suspected auth hole (B3's hand-off, B5's brief). It
+is not one — it is the design, and it is what the guards say:
+`ScopeGuard.canActivate` returns `true` for `actor.via === 'session'` before it
+reads any route metadata, and `hasScope` agrees independently.
+
+The ruling, so it stops being rediscovered:
+
+- **Scopes narrow a machine credential; they never grant anything.** A personal
+  access token is a *subset* of its owner's authority, chosen at mint time. A
+  session is the owner, present and interactive: there is nothing to narrow it
+  down from, and refusing it would mean a user could not read a package their
+  own token could.
+- **`@RequireScope` is how a route opts *into* token traffic at all.** Its
+  absence is not "unrestricted" — `ScopeGuard` denies by default, so an
+  undecorated route is unreachable with any token. Read the decorator as
+  "tokens declaring this scope may also come here", not as "this route is
+  protected by this scope".
+- **Authorization proper is elsewhere.** What a session may *see* is decided by
+  `apps/api/src/authz/**` (and, for packages, by requiring an actor at all);
+  scopes sit on top of that for tokens, never underneath it. A route that must
+  refuse some sessions needs a role or visibility check in its service — a
+  scope will never do it.
+- **`@SessionOnly()` is the opposite marker** and the one to reach for when a
+  route must be closed to tokens entirely (credential management, admin
+  minting). See the runbook's "Authentication is deny-by-default".
+
+Pinned by `apps/api/test/scope-matrix.spec.ts` (every scope × {session,
+token-with, token-without, token-empty}) and `scope-guard.spec.ts`'s "lets a
+session reach a scoped route regardless of scopes". Nothing changed in
+behaviour; the runbook paragraph claiming `Actor.scopes` "is still read by
+nothing" predated `ScopeGuard` and is corrected in the same commit.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B5 brief),
+no human available to consult. No migration.*
+

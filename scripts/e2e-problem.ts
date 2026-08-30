@@ -42,9 +42,20 @@ const PASSWORD = 'a-long-enough-password';
  * basename — the same derivation `scripts/compose-up.sh` does
  * (`PROJECT=$(basename "$PWD")`), computed from this file's own location so
  * it does not depend on the working directory the script is invoked from.
+ *
+ * `COMPOSE_PROJECT_NAME` first, `COMPOSE_PROJECT` only as a deprecated alias
+ * — review finding M4, already applied to `backup.sh`/`restore.sh` and missed
+ * here. podman-compose knows nothing about `COMPOSE_PROJECT`; it reads
+ * `COMPOSE_PROJECT_NAME` or falls back to the working directory. Reading only
+ * the alias meant that following the runbook's own worktree instructions
+ * (`export COMPOSE_PROJECT_NAME=duckoj`) left this script looking for
+ * containers labelled with the worktree's basename — `agent-<hash>` — and
+ * dying on "no postgres container found ... is the stack up?" against a stack
+ * that was up the whole time.
  */
 const REPO_ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const PROJECT = process.env.COMPOSE_PROJECT ?? basename(resolve(REPO_ROOT));
+const PROJECT =
+  process.env.COMPOSE_PROJECT_NAME ?? process.env.COMPOSE_PROJECT ?? basename(resolve(REPO_ROOT));
 
 // The stack terminates TLS with a self-signed certificate under Caddy. This
 // disables certificate verification for the WHOLE process — acceptable only
