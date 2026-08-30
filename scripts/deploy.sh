@@ -61,7 +61,9 @@
 #   COMPOSE           compose binary (podman-compose)
 #   PODMAN            podman binary (podman)
 #   CURL              curl binary (curl)
-#   PROBE_URL         the route to poll (https://localhost:8443/api/v1/languages)
+#   PROBE_URL         the route to poll (http://localhost:8080/api/v1/languages —
+#                     Caddy's plain-HTTP listener; its self-signed :8443 resets
+#                     connections from this host, which read as a failed deploy)
 #   HEALTH_POLL_SECONDS   how long to watch after the recreate (45)
 #   POLL_INTERVAL_SECONDS how often, inside that (3)
 #   REFORK_WINDOW_SECONDS how far back in the api log to look (30)
@@ -86,7 +88,7 @@ export COMPOSE_PROJECT_NAME="$PROJECT"
 COMPOSE=${COMPOSE:-podman-compose}
 PODMAN=${PODMAN:-podman}
 CURL=${CURL:-curl}
-PROBE_URL=${PROBE_URL:-https://localhost:8443/api/v1/languages}
+PROBE_URL=${PROBE_URL:-http://localhost:8080/api/v1/languages}
 HEALTH_POLL_SECONDS=${HEALTH_POLL_SECONDS:-45}
 POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-3}
 REFORK_WINDOW_SECONDS=${REFORK_WINDOW_SECONDS:-30}
