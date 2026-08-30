@@ -2,11 +2,24 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import type { paths } from '@duckoj/sdk';
+import { API_PREFIX } from '@duckoj/api-prefix';
 import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { formatPoints } from '../format.js';
 import { meQueryOptions } from '../me.js';
 import { formatDateTime, formatTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
+
+/**
+ * The whole contest as one printable PDF (D48). A plain `<a>`, like the
+ * problem page's own PDF link: this is the API's own response, outside the
+ * router's tree, and on a server with no typst configured it answers an
+ * honest 501. `lang` follows the reader's own locale — the booklet prints
+ * one half of a bilingual statement, and the half they are reading the site
+ * in is the one they want on paper.
+ */
+function bookletUrl(contestKey: string, locale: Locale): string {
+  return `${import.meta.env.VITE_API_ORIGIN ?? ''}/${API_PREFIX}/contests/${contestKey}/booklet.pdf?lang=${locale}`;
+}
 
 type Contest = paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
@@ -272,6 +285,15 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         <Link to="/contests/$key/scoreboard" params={{ key: contestKey }}>
           {t('contest.scoreboard')}
         </Link>{' '}
+        {/* Only once there is a problem list to print. Before the start the
+            API conceals it from everyone but the people who run the contest
+            and answers 404 here — offering the link anyway would be a
+            download that fails for exactly the visitors it is aimed at. */}
+        {contest.data.problems.length > 0 ? (
+          <>
+            <a href={bookletUrl(contestKey, locale)}>{t('contest.booklet')}</a>{' '}
+          </>
+        ) : null}
         {/* Submissions made INTO this contest (`?contest=`), not practice
             submissions to its problems — the same distinction the submit
             links above are explicit about. */}

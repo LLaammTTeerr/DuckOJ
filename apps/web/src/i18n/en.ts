@@ -308,6 +308,7 @@ export const en = {
   'contest.submit': 'Submit',
   'contest.joinToSubmit': 'Join to submit',
   'contest.scoreboard': 'Scoreboard',
+  'contest.booklet': 'Problems (PDF)',
   'scoreboard.title': 'Scoreboard',
   'scoreboard.back': 'Back to the contest',
   'scoreboard.loadError': 'Could not load the scoreboard.',

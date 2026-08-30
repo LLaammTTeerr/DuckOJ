@@ -234,6 +234,42 @@ describe('contest submissions links', () => {
   });
 });
 
+describe('ContestPage booklet link (D48)', () => {
+  it('links the PDF booklet in the reader\'s own language, once there are problems', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
+        ? Promise.resolve({ data: RUNNING })
+        : Promise.resolve({ data: undefined });
+    });
+    wrap(<ContestPage contestKey="spring" />);
+
+    const link = await screen.findByRole('link', { name: /Tải đề \(PDF\)/ });
+    expect(link).toHaveAttribute('href', '/api/v1/contests/spring/booklet.pdf?lang=vi');
+  });
+
+  it('offers no booklet before the start, when the problem list is concealed', async () => {
+    // Pre-start the API answers 404 here, and `problems` comes back empty
+    // for exactly the visitors the link would be aimed at.
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
+        ? Promise.resolve({
+            data: {
+              ...RUNNING,
+              startTime: new Date(Date.now() + 60_000).toISOString(),
+              problems: [],
+            },
+          })
+        : Promise.resolve({ data: undefined });
+    });
+    wrap(<ContestPage contestKey="spring" />);
+
+    expect(await screen.findByRole('link', { name: /Bảng điểm/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Tải đề/ })).toBeNull();
+  });
+});
+
 describe('ContestPage join transport safety', () => {
   it('disables Join while the request is in flight', async () => {
     get.mockImplementation((path: string) => {

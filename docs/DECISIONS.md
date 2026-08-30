@@ -1427,3 +1427,51 @@ staleness question to a screen whose entire job is to be current.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F5 brief),
 no human available to consult. No migration.*
+
+## D48 — The contest booklet is one typst document, and `## English` is the language split
+
+`GET /contests/{key}/booklet.pdf` prints the whole contest: a cover page (name,
+window, a per-problem time/memory table), then every problem in contest order
+behind a page break, headed `Bài A. …`, page-numbered throughout.
+
+- **One document, not one compile per problem.** `bookletToTypst` concatenates
+  the lowering `markdownToTypst` already does (`lowerBody`, factored out for
+  exactly this) and hands typst a single source. Page numbering has to run
+  across the whole booklet, `#import` is only legal at the top of a document —
+  so the mitex import is hoisted, and still emitted only when some statement
+  actually carries math — and merging separately-compiled PDFs would need a
+  second dependency to do it worse.
+- **The language split is the convention `content/problems/` already uses.**
+  The first top-level `## English` (or `## Tiếng Việt`) heading splits the
+  Markdown: what follows is in the language it names, what precedes it is the
+  other. `?lang=vi|en`, defaulting to **vi**. A statement with no such heading
+  is printed WHOLE under either value — a monolingual statement is still the
+  statement, and returning nothing would print an empty problem. The splitter
+  is fence-aware, using the same ``` tracking the lowering does, and it drops
+  the thematic break the corpus writes above the heading: `escapeText` escapes
+  `-`, so a surviving `---` prints as three literal dashes on the last page.
+  The heading word follows the language too — `Bài A.` / `Problem A.`
+- **Visibility is the contest's problem LIST, not its scoreboard.** Pre-start
+  the booklet is concealed from everyone but the people who run the contest
+  (`canRunContest`), and concealed means **404**, not the scoreboard's 409
+  `contest_not_started`: a distinct code would say "this contest exists and
+  starts later", which is the fact the concealment withholds. D22's freeze has
+  no bearing on a statement. Visibility is decided BEFORE the renderer is
+  touched, so a server with no typst cannot answer 501 for a contest whose
+  existence it should be hiding — `statement.pdf`'s rule, unchanged.
+- **The cache key is the hash of the document, not the revision set.** 60 s in
+  Redis, through the same read-through cache the scoreboard uses (now generic:
+  `through<T>(key, compute, ttlMs)`). "Per revision set" was the brief's
+  wording and is not enough — a statement lives in `problems.statement`, a
+  plain column, so a setter fixing a typo changes no revision id and would have
+  gone on serving the stale booklet for a minute. Hashing what is about to be
+  typeset is the exact invalidation, which is why there is no invalidation call
+  anywhere: an edit stops addressing the old key rather than deleting it.
+- **The PDF rides through the JSON cache as base64**, and the cover is dated in
+  `Asia/Ho_Chi_Minh` with the offset printed. A booklet handed to a room in
+  Vietnam dated in UTC states the wrong hour to everyone holding it; the zone is
+  fixed rather than configurable because there is no per-deploy timezone
+  anywhere else in this codebase and a cover page is not the place to add one.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F6 brief),
+no human available to consult. No migration.*
