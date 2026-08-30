@@ -32,6 +32,62 @@ function resultsUrl(contestKey: string, extension: 'csv' | 'pdf'): string {
   return `${import.meta.env.VITE_API_ORIGIN ?? ''}/${API_PREFIX}/contests/${contestKey}/results.${extension}`;
 }
 
+/**
+ * The certificates (D71/D74), beside the results sheet they are cut from.
+ *
+ * The route shipped with F12 and nothing on the site ever linked it, so the
+ * one document a school actually prints was reachable only by typing a URL.
+ * Same `<a>` as its two neighbours, and the API's own PDF.
+ *
+ * `top` is REQUIRED (`CertificatesQuery` refuses a request carrying neither
+ * `top` nor `username`), and D74 makes it a bound on the RANK rather than a
+ * count of sheets — `top=3` over ranks 1, 2, 3, 3 prints four certificates
+ * rather than cutting through a tie. So the depth is the organiser's to
+ * choose, on the screen, rather than a number this file invents for them.
+ */
+function certificatesUrl(contestKey: string, top: number): string {
+  return `${import.meta.env.VITE_API_ORIGIN ?? ''}/${API_PREFIX}/contests/${contestKey}/certificates.pdf?top=${String(top)}`;
+}
+
+/** The contract's own bounds, restated so the box cannot build a 422. */
+const CERTIFICATE_TOP_MIN = 1;
+const CERTIFICATE_TOP_MAX = 1000;
+
+/**
+ * "Cấp tới hạng [3] — Giấy chứng nhận (PDF)".
+ *
+ * A number box beside the link, in the shape the similarity panel already
+ * uses on this page: three is the podium a Vietnamese school prints most
+ * often, and a teacher who wants one for every pupil raises it. The href
+ * tracks the box, so what the organiser sees is what they download.
+ */
+function CertificatesLink({ contestKey }: { contestKey: string }) {
+  const t = useT();
+  const [top, setTop] = useState('3');
+  // Clamped rather than validated: the box is a hint (a reader can still
+  // type 0), and the one thing this link must never do is address a URL the
+  // API answers 422 to.
+  const parsed = Math.trunc(Number(top));
+  const bounded = Number.isFinite(parsed)
+    ? Math.min(CERTIFICATE_TOP_MAX, Math.max(CERTIFICATE_TOP_MIN, parsed))
+    : CERTIFICATE_TOP_MIN;
+  return (
+    <>
+      <label>
+        {t('contest.certificatesTop')}{' '}
+        <input
+          type="number"
+          min={CERTIFICATE_TOP_MIN}
+          max={CERTIFICATE_TOP_MAX}
+          value={top}
+          onChange={(event) => setTop(event.target.value)}
+        />
+      </label>{' '}
+      <a href={certificatesUrl(contestKey, bounded)}>{t('contest.certificates')}</a>{' '}
+    </>
+  );
+}
+
 type Contest = paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
 type Scoreboard = paths['/contests/{key}/scoreboard']['get']['responses'][200]['content']['application/json'];
@@ -396,6 +452,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
           <>
             <a href={resultsUrl(contestKey, 'csv')}>{t('contest.resultsCsv')}</a>{' '}
             <a href={resultsUrl(contestKey, 'pdf')}>{t('contest.resultsPdf')}</a>{' '}
+            <CertificatesLink contestKey={contestKey} />
           </>
         ) : null}
         {/* Submissions made INTO this contest (`?contest=`), not practice

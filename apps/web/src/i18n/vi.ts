@@ -318,6 +318,8 @@ export const vi = {
   'contest.booklet': 'Tải đề (PDF)',
   'contest.resultsCsv': 'Kết quả (CSV)',
   'contest.resultsPdf': 'Kết quả (PDF)',
+  'contest.certificates': 'Giấy chứng nhận (PDF)',
+  'contest.certificatesTop': 'Cấp tới hạng',
   'similarity.title': 'Kiểm tra trùng lặp',
   'similarity.caution': 'Điểm cao là lý do để xem lại hai bài làm, không phải là kết luận. Hai học sinh được dạy cùng một kỹ thuật vẫn có thể giống nhau mà không gian lận. Báo cáo này chỉ ban tổ chức mới xem được.',
   'similarity.threshold': 'Ngưỡng',
