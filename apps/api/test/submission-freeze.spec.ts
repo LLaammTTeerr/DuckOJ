@@ -408,6 +408,9 @@ describe('GET /contests/{key}/me', () => {
         'id',
         'isDisqualified',
         'startTime',
+        // D99's team, and the pin holds: `team` is a name, a slug and a
+        // roster — who is competing, never how they are doing.
+        'team',
         'virtual',
       ]);
     });

@@ -242,7 +242,7 @@ describe('GET /contests/{key}/monitor — who may look (D95)', () => {
       try {
         const owner = await insertUser(db, 'mon-anon-owner');
         await seedMonitorContest(db, 'monanon', owner.id);
-        const res = await request(app.getHttpServer()).get('/contests/monanon/monitor');
+        const res = await request(app.getHttpServer()).get('/api/v1/contests/monanon/monitor');
         expect(res.status).toBe(401);
       } finally {
         await app.close();
@@ -261,14 +261,14 @@ describe('GET /contests/{key}/monitor — who may look (D95)', () => {
         const agent = request.agent(app.getHttpServer());
         const cookie = await registerAndLogin(agent, 'monoutsider');
 
-        const hidden = await agent.get('/contests/monhidden/monitor').set('Cookie', cookie);
+        const hidden = await agent.get('/api/v1/contests/monhidden/monitor').set('Cookie', cookie);
         expect(hidden.status).toBe(404);
         expect(hidden.body.code).toBe('contest_not_found');
 
         // Visible, and still not theirs to watch. 403 rather than 404 is the
         // similarity report's shape: the caller has already reached the
         // contest, so its existence is theirs to know.
-        const shown = await agent.get('/contests/monshown/monitor').set('Cookie', cookie);
+        const shown = await agent.get('/api/v1/contests/monshown/monitor').set('Cookie', cookie);
         expect(shown.status).toBe(403);
         expect(shown.body.code).toBe('contest_forbidden');
       } finally {
@@ -286,7 +286,7 @@ describe('GET /contests/{key}/monitor — who may look (D95)', () => {
         const ownerId = await userIdOf(db, 'monowner');
         await seedMonitorContest(db, 'monboth', ownerId);
 
-        const mine = await agent.get('/contests/monboth/monitor').set('Cookie', ownerCookie);
+        const mine = await agent.get('/api/v1/contests/monboth/monitor').set('Cookie', ownerCookie);
         expect(mine.status).toBe(200);
 
         const adminAgent = request.agent(app.getHttpServer());
@@ -295,7 +295,7 @@ describe('GET /contests/{key}/monitor — who may look (D95)', () => {
           .update(schema.users)
           .set({ globalRole: 'admin' })
           .where(eq(schema.users.username, 'monadmin'));
-        const theirs = await adminAgent.get('/contests/monboth/monitor').set('Cookie', adminCookie);
+        const theirs = await adminAgent.get('/api/v1/contests/monboth/monitor').set('Cookie', adminCookie);
         expect(theirs.status).toBe(200);
       } finally {
         await app.close();
@@ -323,7 +323,7 @@ describe('GET /contests/{key}/monitor — what it shows (D95)', () => {
         await handIn(db, 'moncounts', seeded, { username: 'binh', problemIndex: 0, verdict: 'AC' });
         await handIn(db, 'moncounts', seeded, { username: 'cuong', problemIndex: 0, verdict: 'WA' });
 
-        const res = await agent.get('/contests/moncounts/monitor').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/moncounts/monitor').set('Cookie', cookie);
         expect(res.status).toBe(200);
         expect(res.body.problems).toHaveLength(2);
         expect(res.body.problems[0]).toMatchObject({
@@ -360,7 +360,7 @@ describe('GET /contests/{key}/monitor — what it shows (D95)', () => {
         const watched = await seedMonitorContest(db, 'monqueue', ownerId);
         const other = await seedMonitorContest(db, 'monother', ownerId);
 
-        const empty = await agent.get('/contests/monqueue/monitor').set('Cookie', cookie);
+        const empty = await agent.get('/api/v1/contests/monqueue/monitor').set('Cookie', cookie);
         expect(empty.body.queue).toEqual({ depth: 0, oldestPendingSeconds: null });
 
         await handIn(db, 'monqueue', watched, {
@@ -384,7 +384,7 @@ describe('GET /contests/{key}/monitor — what it shows (D95)', () => {
           queuedJob: true,
         });
 
-        const res = await agent.get('/contests/monqueue/monitor').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/monqueue/monitor').set('Cookie', cookie);
         expect(res.body.queue.depth).toBe(2);
         expect(res.body.queue.oldestPendingSeconds).toBeGreaterThanOrEqual(290);
         expect(res.body.problems[0].pending).toBe(2);
@@ -419,7 +419,7 @@ describe('GET /contests/{key}/monitor — what it shows (D95)', () => {
         }
         const newest = seeded.submissionIds.at(-1)!;
 
-        const res = await agent.get('/contests/monfeed/monitor').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/monfeed/monitor').set('Cookie', cookie);
         expect(res.body.feed).toHaveLength(50);
         expect(res.body.feed[0]).toMatchObject({
           submissionId: newest,
@@ -482,7 +482,7 @@ describe('GET /contests/{key}/monitor — what it shows (D95)', () => {
           visibility: 'public',
         });
 
-        const res = await agent.get('/contests/monqa/monitor').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/monqa/monitor').set('Cookie', cookie);
         expect(res.body.clarifications.unanswered).toBe(7);
         expect(res.body.clarifications.latest).toHaveLength(5);
         expect(res.body.clarifications.latest[0]).toMatchObject({
@@ -525,7 +525,7 @@ describe('GET /contests/{key}/monitor — what it shows (D95)', () => {
           { purpose: `${REFUSAL_PREFIX}login`, key: 'user:4' },
         ]);
 
-        const res = await agent.get('/contests/monjudge/monitor').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/monjudge/monitor').set('Cookie', cookie);
         expect(res.body.judges).toEqual({ total: 3, online: 1 });
         expect(res.body.submitRefusalsLast10Min).toBe(2);
       } finally {
@@ -569,7 +569,7 @@ describe('GET /contests/{key}/monitor — what it shows (D95)', () => {
             // The session lives in the database both apps share, so the
             // organiser's cookie authenticates against either one.
             const res = await request(scoped.getHttpServer())
-              .get('/contests/monwho/monitor')
+              .get('/api/v1/contests/monwho/monitor')
               .set('Cookie', cookie);
             expect(res.body.participantsOnline).toBe(expected);
           } finally {
@@ -599,21 +599,21 @@ describe('the monitor cache (D95)', () => {
         const ownerId = await userIdOf(db, 'moncache');
         const seeded = await seedMonitorContest(db, 'moncache', ownerId);
 
-        const first = await agent.get('/contests/moncache/monitor').set('Cookie', cookie);
+        const first = await agent.get('/api/v1/contests/moncache/monitor').set('Cookie', cookie);
         expect(first.body.problems[0].submitted).toBe(0);
 
         // A submission the cache must NOT show yet: `generatedAt` proves the
         // second response is the first one, byte for byte, rather than a
         // fresh fold that happened to agree.
         await handIn(db, 'moncache', seeded, { username: 'an', problemIndex: 0, verdict: 'AC' });
-        const second = await agent.get('/contests/moncache/monitor').set('Cookie', cookie);
+        const second = await agent.get('/api/v1/contests/moncache/monitor').set('Cookie', cookie);
         expect(second.body.generatedAt).toBe(first.body.generatedAt);
         expect(second.body.problems[0].submitted).toBe(0);
 
         // Dropping the entry is what a TTL does, without waiting five seconds
         // for it.
         await store.del([`duckoj:monitor:v1:${String(seeded.contestId)}`]);
-        const third = await agent.get('/contests/moncache/monitor').set('Cookie', cookie);
+        const third = await agent.get('/api/v1/contests/moncache/monitor').set('Cookie', cookie);
         expect(third.body.generatedAt).not.toBe(first.body.generatedAt);
         expect(third.body.problems[0].submitted).toBe(1);
       } finally {
