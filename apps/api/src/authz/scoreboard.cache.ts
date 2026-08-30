@@ -180,6 +180,64 @@ export class ScoreboardCache {
   }
 
   /**
+   * The read-through shape for a PAGE of things: many keys, but at most ONE
+   * call to `compute`, for whatever missed.
+   *
+   * `through` in a loop would be the obvious way to cache a page and is the
+   * wrong one: it turns a single grouped aggregate into one round trip per
+   * row, which is the N+1 the catalogue endpoints are explicitly built to
+   * avoid (`problem-me-verdict.spec.ts` pins the statement count as
+   * INDEPENDENT of page size, and it catches exactly that mistake). So the
+   * misses are gathered first and computed together, and the statement count
+   * goes from D49's one-per-page to **one on a cold page and none on a warm
+   * one** — strictly better than the uncached version it replaces, never
+   * worse.
+   *
+   * `compute` is handed only the ids it must answer for, and may return
+   * fewer than it was asked about; an id it omits is simply absent from the
+   * result and is not cached, so "no such row" stays the caller's decision.
+   *
+   * No coalescing map here, unlike `through`. Two workers racing a cold page
+   * duplicate one aggregate, which is the same duplication `through` allows
+   * ACROSS workers anyway, and keying the in-flight map by an id SET would
+   * miss almost always — the very objection that makes the per-id key right
+   * in the first place.
+   */
+  async throughMany<T>(
+    ids: readonly number[],
+    keyFor: (id: number) => string,
+    compute: (missing: number[]) => Promise<Map<number, T>>,
+    ttlMs: number,
+  ): Promise<Map<number, T>> {
+    const found = new Map<number, T>();
+    if (ids.length === 0) return found;
+
+    const missing: number[] = [];
+    await Promise.all(
+      ids.map(async (id) => {
+        const cached = await this.store.get(keyFor(id)).catch(() => null);
+        const parsed = cached === null ? null : parse<T>(cached);
+        // An entry this process cannot read is an entry that does not exist —
+        // `through`'s rule, for `through`'s reason.
+        if (parsed === null) missing.push(id);
+        else found.set(id, parsed);
+      }),
+    );
+    if (missing.length === 0) return found;
+
+    // A throw here propagates and nothing is written, so a failed aggregate
+    // is never cached — again `through`'s rule.
+    const computed = await compute(missing);
+    await Promise.all(
+      [...computed].map(async ([id, value]) => {
+        found.set(id, value);
+        await this.store.set(keyFor(id), JSON.stringify(value), ttlMs).catch(() => undefined);
+      }),
+    );
+    return found;
+  }
+
+  /**
    * Drop these keys. Best-effort, like everything else here: if the delete
    * does not land, the 2 s TTL is the floor and the board is right again a
    * moment later.

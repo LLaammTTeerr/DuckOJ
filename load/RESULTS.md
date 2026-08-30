@@ -147,10 +147,98 @@ req/s, which this host serves with p95 in the tens of milliseconds (the
 500-VU samples above). The threshold is a stress target, not a pass/fail
 for contest day.
 
+## 2026-08-30 — the loop's new read routes (B9)
+
+`load/k6-contest-day.js` now covers the five reads the feature loop added
+after it was written — the tag list, the tag-filtered problem list, a
+problem's statistics, the clarification feed and the booklet — each with its
+own `name` tag and its own 800 ms threshold. The mix moved to make room
+(45% problem browsing, 17% scoreboard, 10% each filtered list and
+submissions, 8% statistics, 5% tags, 4% clarifications, 1% booklet); the
+booklet is deliberately thin because a 60 s cache makes a heavier weight
+measure the cache rather than the route.
+
+**What build these numbers are from.** The deployed stack, which is the code
+as of `b1e98fc` — *before* this branch's migration 0025, the dashboard
+rewrite and the per-problem counter cache. The stack may not be rebuilt while
+it is serving, so nothing below reflects those fixes and the post-fix numbers
+await a redeploy.
+
+### Two runs, and only one of them counts
+
+| | host load at start | req/s | p95 (all) |
+| --- | --- | --- | --- |
+| contaminated | **28** | 968 | 1.18 s |
+| reference | **3** | **1097** | **841 ms** |
+
+The first run was taken while the box was busy with unrelated work, and it
+overstates every route by roughly 40%. It is kept only because the
+difference between the two rows is the clearest demonstration in this file of
+why `load/README.md` insists the generator shares the host. **Read the
+reference row.** 500 VUs, 70 s (10 s ramp, 60 s hold), no `SESSION_COOKIE`,
+77,449 requests, **0 failed**, `leg_errors` 0.00%.
+
+### Per-route p95, reference run
+
+| route | p95 | avg | over 800 ms? |
+| --- | --- | --- | --- |
+| `problem_stats` | 960 ms | 634 ms | **yes** |
+| `problem_detail` | 952 ms | 631 ms | **yes** |
+| `scoreboard` | 537 ms | 211 ms | no |
+| `clarifications` | 500 ms | 323 ms | no |
+| `problems_list` | 491 ms | 324 ms | no |
+| `booklet` | 478 ms | 324 ms | no |
+| `problems_filtered` | 252 ms | 167 ms | no |
+| `tags_list` | 239 ms | 159 ms | no |
+
+**Every one of the loop's five new routes is under the bar**, the booklet
+included — the typst compile is behind a 60 s cache and a whole room
+downloading at the bell is exactly the burst that cache was built for.
+
+### The two over the bar are worker saturation, not a slow route
+
+`problem_stats` is the proof, and it is worth stating because it is
+counter-intuitive: it answers from **Redis** (`X-Stats-Cache: hit`, verified
+by hand) and is still the slowest route in the table. A fully cached route
+cannot be over the threshold because of its own work. Both it and
+`problem_detail` answer in **5–6 ms unloaded**; at 500 VUs they are queueing
+behind a 4-worker API, which is this file's own documented ceiling with a
+documented lever — `API_WORKERS=8` plus a `max_connections` raise, see "The
+connection ceiling" above. That lever needs a redeploy, so it is not pulled
+here.
+
+**This corrects the guess at the end of the scoreboard-cache section.** "Next
+lever is caching `problem_detail`'s rendered statement" is wrong twice: the
+route returns **499 bytes of raw markdown** (nothing is rendered server-side),
+and it answers in 5.8 ms unloaded. There is no rendering cost to cache.
+
+### The real regression is not visible at this scale at all
+
+Profiling `problem_detail` against a **seeded 200 000-submission** database
+instead of the live one — where `aplusb` has fifteen attempts — found what
+the load test cannot see: `attemptedCount`/`solvedCount` were an **uncached
+aggregate over every submission the problem has ever had**, 200,000 index
+rows and 201,620 buffers in **126 ms per request**, on `GET /problems` and
+`GET /problems/{code}`. A floor, not the real cost: that database held no
+contests, so D49's `NOT EXISTS` collapsed instead of probing once per row.
+
+Fixed by keying the cache per problem rather than per page (D49's amendment),
+which answers D49's own objection to caching them. Post-fix p95 awaits a
+redeploy; the win is not measurable on this host either way, because at
+fifteen submissions the aggregate is already free. That is the point — it is
+a province-scale regression, and a load test against seeded fixtures is
+structurally blind to it.
+
+Migration 0025's dashboard indexes are the same kind of finding and are
+recorded in D47's amendment rather than here: `/admin/dashboard` is not in
+this profile, being one admin rather than a room.
+
 ## Reproducing
 
 ```
-# per-route p95 at a fixed VU count, small enough to sample CPU through
+# per-route p95 at a fixed VU count, small enough to sample CPU through.
+# Check `uptime` first — the 2026-08-30 section shows what a load average of
+# 28 does to these numbers.
 VUS=500 DURATION=60s k6 run load/k6-contest-day.js
 
 # the full profile (NOT against a stack serving people — see README)

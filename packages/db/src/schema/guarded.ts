@@ -331,6 +331,34 @@ export const submissions = pgTable(
     // the index, in the order the group-by wants them, so the aggregate is an
     // index-only scan.
     index('submissions_problem_user_verdict_idx').on(t.problemId, t.userId, t.verdict),
+    // D47's failures panel, as amended by migration 0025. `order by id desc
+    // limit 20` over `verdict = 'IE' or state = 'errored'` reads beautifully
+    // and scans catastrophically: an IE is an infrastructure failure, so a
+    // healthy judge produces none for days, and the backward primary-key
+    // scan therefore walks every clean submission since the last incident.
+    // Measured at 200 000 rows with the newest failure 150 000 rows back:
+    // 151 501 rows discarded by the filter, 7 084 buffers, 18.5 ms — and
+    // linear in how long the judge has been healthy, which is the wrong way
+    // round for a panel that exists to be read when nothing is wrong.
+    //
+    // The predicate is written to match that WHERE clause TEXTUALLY, `or`
+    // included: a partial index only serves a query whose restriction
+    // Postgres can prove implies the predicate, so rephrasing either side
+    // silently drops back to the seq scan. `id desc` is in the index so the
+    // ordering comes from the index too and the LIMIT stops after 20 entries
+    // (74 buffers, 0.35 ms). 32 kB, holding one entry per failure rather
+    // than one per submission.
+    index('submissions_failed_idx')
+      .on(t.id.desc())
+      .where(sql`${t.verdict} = 'IE' or ${t.state} = 'errored'`),
+    // The worker panel's throughput window (`judged_at > now() - 1 hour`).
+    // A window bounds the rows RETURNED; only an index bounds the rows
+    // SCANNED, and without this one the panel hash-joined all of
+    // `submissions` to all of `grading_jobs` every 15 seconds. Unlike the
+    // two partial indexes beside it this one is full — 4.4 MB per 200 000
+    // rows, growing with history — which is the cost D47 declined to pay
+    // against a guess and 0025 pays against a measurement.
+    index('submissions_judged_at_idx').on(t.judgedAt),
   ],
 );
 

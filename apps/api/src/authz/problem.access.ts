@@ -638,20 +638,70 @@ export class ProblemAccessService {
   }
 
   /**
-   * `attemptedCount`/`solvedCount` for a whole page of problems, in ONE
-   * aggregate query keyed by problem id — never one per row, which is the
-   * N+1 `tags` and `testCount` are on the summary to avoid.
+   * `attemptedCount`/`solvedCount`, one cached entry per problem (D49 as
+   * amended by B-9).
    *
-   * Uncached, unlike `getStats`: a page's ids differ from request to request,
-   * so a cache would be keyed on the set rather than on a problem and would
-   * miss almost always. What makes it affordable is migration 0022's
-   * `(problem_id, user_id, verdict)` index — without it this is a sequential
-   * scan of a table that grows forever (D11) on the most public page in the
-   * app.
+   * **Why this is no longer one grouped query, and no longer uncached.** D49
+   * ruled it out on the reasoning that "a page's ids differ from request to
+   * request, so a cache would be keyed on the set rather than on a problem
+   * and would miss almost always". The premise is exactly right; the
+   * conclusion only follows for a key over the SET. Keyed on a PROBLEM, a
+   * page of fifty problems nobody has ever requested together is still fifty
+   * hits, and the detail route and the list route warm each other's entries.
+   *
+   * The cost D49 could not see, because it is invisible at fixture scale:
+   * with 200 000 submissions against one problem the aggregate reads 200 000
+   * index rows and 201 620 buffers in **126 ms**, uncached, on the two most
+   * public routes in the app — and that measurement had no contests, so the
+   * `NOT EXISTS` below collapsed instead of probing once per row. It is a
+   * floor. Migration 0022's index is what keeps this an index scan rather
+   * than a sequential one; nothing keeps it from being an index scan over
+   * every submission the problem has ever had.
+   *
+   * **The statement count did not go up — it went down.** Caching a page by
+   * calling a read-through helper once per row would turn D49's single
+   * grouped aggregate into one round trip per problem, which is precisely
+   * the N+1 the catalogue endpoints exist to avoid and which
+   * `problem-me-verdict.spec.ts` pins against. So `throughMany` gathers the
+   * misses and computes them TOGETHER: one aggregate on a cold page, none on
+   * a warm one, never one per row.
+   *
+   * **No `X-…-Cache` header**, unlike D25's precedent and `getStats`. A page
+   * mixes hits and misses per problem, so a single boolean would have to lie
+   * about one of them; a header per problem is not a thing HTTP offers.
+   *
+   * The mask stays outside: every caller checks `contestHiddenProblemIds`
+   * and hands back `BLANK_COUNTS` without reaching this method, so what is
+   * stored is always the TRUE count — D49's own rule for the stats cache,
+   * and the reason a masked answer can never be cached for everybody.
    */
   private async loadCountsByProblem(problemIds: number[]): Promise<Map<number, ProblemCounts>> {
-    const byProblem = new Map<number, ProblemCounts>();
-    if (problemIds.length === 0) return byProblem;
+    if (problemIds.length === 0) return new Map();
+    // ONE clock for the page, for `computeStats`'s reason: two problems on
+    // the same screen asking "is that window still open" of two different
+    // instants could disagree at a boundary.
+    const now = new Date();
+    return this.cache.throughMany(
+      problemIds,
+      (id) => `${COUNTS_CACHE_PREFIX}:${String(id)}`,
+      (missing) => this.computeCounts(missing, now),
+      COUNTS_CACHE_TTL_MS,
+    );
+  }
+
+  /**
+   * D49's two counters for a set of problems, in one grouped aggregate,
+   * filtered by the same predicate the statistics use: a submission counts
+   * only once its contest participation window has closed.
+   *
+   * **Every id asked about gets a row, including the ones with no
+   * submissions at all.** The aggregate cannot return a group for a problem
+   * with no rows, and an absent id would never be cached — so the one
+   * problem a setter reloads constantly, the empty one they are still
+   * writing, would be the only problem in the catalogue that recomputes on
+   * every read. Zeros are an answer, and they are cached like any other.
+   */
+  private async computeCounts(problemIds: number[], now: Date): Promise<Map<number, ProblemCounts>> {
     const rows = await this.db
       .select({
         problemId: submissions.problemId,
@@ -659,17 +709,15 @@ export class ProblemAccessService {
         solved: sql<number>`count(distinct ${submissions.userId}) filter (where ${submissions.verdict} = 'AC')::int`,
       })
       .from(submissions)
-      .where(
-        and(
-          inArray(submissions.problemId, problemIds),
-          sql`not ${contestWindowOpenWhere(new Date())}`,
-        ),
-      )
+      .where(and(inArray(submissions.problemId, problemIds), sql`not ${contestWindowOpenWhere(now)}`))
       .groupBy(submissions.problemId);
+    const counted = new Map<number, ProblemCounts>(
+      problemIds.map((id) => [id, { attemptedCount: 0, solvedCount: 0 }]),
+    );
     for (const row of rows) {
-      byProblem.set(row.problemId, { attemptedCount: row.attempted, solvedCount: row.solved });
+      counted.set(row.problemId, { attemptedCount: row.attempted, solvedCount: row.solved });
     }
-    return byProblem;
+    return counted;
   }
 
   /**
@@ -1710,6 +1758,15 @@ export interface ProblemCounts {
 const BLANK_COUNTS: ProblemCounts = Object.freeze({ attemptedCount: 0, solvedCount: 0 });
 
 const STATS_CACHE_PREFIX = 'duckoj:pstats:v1';
+/** One entry per problem, holding D49's two list counters (D49 amended). */
+const COUNTS_CACHE_PREFIX = 'duckoj:pcounts:v1';
+/**
+ * Thirty seconds, the same as the statistics beside it and for the same
+ * reason: these two numbers are a difficulty hint on a catalogue page, not a
+ * live board, and the window exists to collapse the burst of a class opening
+ * the same problem at once. A solve shows up within half a minute.
+ */
+const COUNTS_CACHE_TTL_MS = 30_000;
 /**
  * Thirty seconds. A problem page is not a live board — nobody is watching the
  * acceptance rate tick — and the window exists to collapse the burst of a

@@ -171,6 +171,13 @@
       "breakpoints": true
     },
     {
+      "idx": 25,
+      "version": "7",
+      "when": 1788078255700,
+      "tag": "0025_dashboard_bounds",
+      "breakpoints": true
+    },
+    {
       "idx": 26,
       "version": "7",
       "when": 1788078700099,

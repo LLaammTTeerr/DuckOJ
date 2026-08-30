@@ -1,5 +1,6 @@
 import type { paths } from '@duckoj/sdk';
 import { api } from './api.js';
+import { read } from './api-error.js';
 
 export type Tag = paths['/tags']['get']['responses'][200]['content']['application/json']['items'][number];
 
@@ -17,8 +18,11 @@ export type Tag = paths['/tags']['get']['responses'][200]['content']['applicatio
 export const tagsQueryOptions = {
   queryKey: ['tags'] as const,
   queryFn: async (): Promise<Tag[]> => {
-    const { data } = await api.GET('/tags');
-    return data?.items ?? [];
+    // No `absent` list: `GET /tags` is @Public and answers 200 or nothing is
+    // right. Swallowing here read as "this judge has no tags", which quietly
+    // empties the problem list's filter bar and every tag checkbox on the
+    // edit form — a screen that looks finished and offers nothing.
+    return read(await api.GET('/tags'), 'tags')?.items ?? [];
   },
   staleTime: Infinity,
 };

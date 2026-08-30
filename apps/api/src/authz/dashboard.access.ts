@@ -10,16 +10,28 @@
  * applied HERE rather than in a controller, for the same reason every other
  * `*.access.ts` service does it.
  *
- * **One query per panel, and no query that can grow without bound in a way
- * an operator would notice.** The queue and worker panels are aggregates
- * over `grading_jobs`, which grows forever (D11 keeps grading history), so
- * they are sequential scans of a table that is thousands of rows at province
- * scale and would want a partial index — `on grading_jobs (state) where
- * state <> 'done'` — at a scale this deployment does not have. Deliberately
- * not added: an index nobody has measured a need for is a migration and a
- * write cost paid against a guess. The same applies to the failures panel's
- * filter on `submissions`. Recorded in D47 so the next person finds the
- * upgrade path rather than rediscovering it.
+ * **Every panel is bounded, and migration 0025 is what bounds them.** D47
+ * shipped this service with three queries that were linear in how much
+ * grading the deployment had ever done — `grading_jobs` and `submissions`
+ * both keep every row forever (D11) — and recorded the upgrade path rather
+ * than paying for an index against a guess. The guess is gone; the measured
+ * numbers are in D47's amendment and in `test/admin-dashboard-plan.spec.ts`,
+ * which asserts the PLANS rather than the timings. At 200 000 grading jobs:
+ *
+ * - `queue()` parallel-seq-scanned the whole table (22.9 ms). It now reads
+ *   `where state <> 'done'` — semantics-preserving, because all four states
+ *   it counts are non-done — through `grading_jobs_active_idx`: 150 rows,
+ *   0.9 ms.
+ * - `workers()` hash-joined all 200 000 jobs to all 200 000 submissions
+ *   (88.3 ms). It is now TWO bounded queries merged here in JavaScript.
+ * - `recentFailures()` walked 151 501 clean submissions backwards to find
+ *   twenty failures (18.5 ms) — and got slower the LONGER judging stayed
+ *   healthy. Its SQL is unchanged; `submissions_failed_idx` now serves both
+ *   the filter and the ordering (0.35 ms).
+ *
+ * A query here runs every 15 seconds against a pool of ten connections per
+ * worker, so "linear in history" was not a cosmetic problem: it is the admin
+ * page taking a growing bite out of the database during a contest.
  *
  * **Nothing here is cached.** The page refreshes every 15 seconds for one
  * admin at a time; a cache would add a staleness question to a screen whose
@@ -211,6 +223,13 @@ export class DashboardService {
     // `expiredLeases` is written to match `reclaimExpiredLeases`'s WHERE
     // exactly, because the UI labels it as what the reclaim button would
     // move. If the two ever disagree the button lies about its own effect.
+    //
+    // `where state <> 'done'` is a rewrite, not a narrowing: every state this
+    // aggregate counts — queued, leased, failed — is already non-done, and so
+    // is the `min(created_at)` filtered to queued. It exists to hand the
+    // planner a restriction that provably implies
+    // `grading_jobs_active_idx`'s predicate, which turns a scan of every job
+    // the deployment has ever run into a scan of the ones still in flight.
     const rows = await this.db.execute<{
       queued: string;
       running: string;
@@ -225,6 +244,7 @@ export class DashboardService {
              extract(epoch from (now() - min(created_at) filter (where state = 'queued')))
                                                                                as oldest_queued_seconds
         from grading_jobs
+       where state <> 'done'
     `);
     const row = rows[0];
     return {
@@ -260,41 +280,117 @@ export class DashboardService {
     }));
   }
 
+  /**
+   * The worker panel: what each of judged's claim loops is doing now, and how
+   * much it has finished in the last hour.
+   *
+   * **Two queries, not one, and that is the whole fix.** D47 asked both
+   * questions with a single `left join` from `grading_jobs` to `submissions`
+   * and no restriction on either side, which is a hash join of two tables
+   * that keep every row forever (D11) — 88.3 ms at 200 000 jobs, every 15
+   * seconds, growing. The two questions have nothing in common but the
+   * grouping key:
+   *
+   * - **What is it grading?** Every job not yet done, so `state <> 'done'` —
+   *   a set bounded by how much work is in flight, not by how much has ever
+   *   been done, and exactly `grading_jobs_active_idx`'s predicate. The
+   *   `max(case …)` picks out only the LIVE lease, so a worker sitting on an
+   *   EXPIRED one is still listed, with nothing being graded: that row is the
+   *   panel's "this claim loop is stuck" signal, and restricting the query to
+   *   live leases would have deleted it. Still `max(…)`, and still for D47's
+   *   reason: a claim loop grades one job at a time, so the aggregate is a
+   *   pick, not a reduction.
+   * - **What has it finished?** A time window, so drive it from the windowed
+   *   side — `submissions.judged_at`, through `submissions_judged_at_idx` —
+   *   and reach `worker_id` by an index lookup per row through
+   *   `grading_jobs_submission_idx`. `judged_at` rather than `created_at` is
+   *   D47's ruling, unchanged and deliberately kept: "graded in the last
+   *   hour" is about when the verdict landed, not when the student pressed
+   *   submit, and windowing on `created_at` would report a worker chewing
+   *   through a backlog as having graded nothing.
+   *
+   * An `inner` join here where D47 wrote `left`: this half counts jobs, and a
+   * job with no submission row cannot have a `judged_at` inside the window,
+   * so it contributed zero to both counts before and is absent now. A
+   * submission graded more than once (a rejudge, D9) still contributes one
+   * row per job to its worker's count, exactly as the single query did —
+   * unchanged, not overlooked.
+   *
+   * The merge is a full outer one: a worker with a job in flight may have
+   * finished nothing this hour, and a worker that finished work may have
+   * nothing in flight now. Either half alone would drop a row.
+   *
+   * **What the roster no longer contains**, ruled rather than overlooked: a
+   * worker whose every job is done and whose last verdict landed over an hour
+   * ago is now absent, where D47's single query listed it forever with zeros.
+   * That is the panel's own division of labour — D47 puts LIVENESS on the
+   * judge panel and throughput here — and the alternative is a
+   * `select distinct worker_id from grading_jobs`, which is the unbounded
+   * scan this rewrite exists to remove. A worker that is merely stuck, rather
+   * than gone, still holds a non-done job and is still listed.
+   */
   private async workers(): Promise<AdminDashboardResponseDto['workers']> {
-    // `max(case …)` rather than a second query per worker: a worker holds at
-    // most one live lease (its claim loop grades one job at a time), so the
-    // aggregate is a pick, not a reduction. `judged_at` — not `created_at` —
-    // dates the throughput counts, because "graded in the last hour" is
-    // about when the verdict landed, not when the student pressed submit.
-    const rows = await this.db.execute<{
+    const live = await this.db.execute<{
       worker_id: string;
       current_submission_id: string | null;
       current_job_id: string | null;
+    }>(sql`
+      select worker_id,
+             max(case when state = 'leased' and lease_until >= now()
+                      then submission_id end) as current_submission_id,
+             max(case when state = 'leased' and lease_until >= now()
+                      then id end)            as current_job_id
+        from grading_jobs
+       where state <> 'done'
+         and worker_id is not null
+       group by worker_id
+    `);
+
+    const throughput = await this.db.execute<{
+      worker_id: string;
       graded_last_hour: string;
       ie_last_hour: string;
     }>(sql`
       select j.worker_id,
-             max(case when j.state = 'leased' and j.lease_until >= now()
-                      then j.submission_id end)                          as current_submission_id,
-             max(case when j.state = 'leased' and j.lease_until >= now()
-                      then j.id end)                                     as current_job_id,
-             count(*) filter (where s.judged_at > now() - interval '1 hour')
-                                                                         as graded_last_hour,
-             count(*) filter (where s.judged_at > now() - interval '1 hour'
-                                and s.verdict = 'IE')                    as ie_last_hour
-        from grading_jobs j
-        left join submissions s on s.id = j.submission_id
-       where j.worker_id is not null
+             count(*)                                 as graded_last_hour,
+             count(*) filter (where s.verdict = 'IE') as ie_last_hour
+        from submissions s
+        join grading_jobs j on j.submission_id = s.id
+       where s.judged_at > now() - interval '1 hour'
+         and j.worker_id is not null
        group by j.worker_id
-       order by j.worker_id
     `);
-    return rows.map((row) => ({
-      workerId: row.worker_id,
-      currentSubmissionId: row.current_submission_id === null ? null : num(row.current_submission_id),
-      currentJobId: row.current_job_id === null ? null : num(row.current_job_id),
-      gradedLastHour: num(row.graded_last_hour),
-      internalErrorsLastHour: num(row.ie_last_hour),
-    }));
+
+    const byWorker = new Map<string, AdminDashboardResponseDto['workers'][number]>();
+    const row = (workerId: string): AdminDashboardResponseDto['workers'][number] => {
+      const existing = byWorker.get(workerId);
+      if (existing) return existing;
+      const created = {
+        workerId,
+        currentSubmissionId: null as number | null,
+        currentJobId: null as number | null,
+        gradedLastHour: 0,
+        internalErrorsLastHour: 0,
+      };
+      byWorker.set(workerId, created);
+      return created;
+    };
+
+    for (const r of live) {
+      const target = row(r.worker_id);
+      target.currentSubmissionId = r.current_submission_id === null ? null : num(r.current_submission_id);
+      target.currentJobId = r.current_job_id === null ? null : num(r.current_job_id);
+    }
+    for (const r of throughput) {
+      const target = row(r.worker_id);
+      target.gradedLastHour = num(r.graded_last_hour);
+      target.internalErrorsLastHour = num(r.ie_last_hour);
+    }
+
+    // `order by worker_id` moved out of SQL with the single query it belonged
+    // to. Sorted here so the panel's row order is still stable across polls,
+    // which is what an operator watching one row actually depends on.
+    return [...byWorker.values()].sort((a, b) => (a.workerId < b.workerId ? -1 : a.workerId > b.workerId ? 1 : 0));
   }
 
   private async recentFailures(): Promise<AdminDashboardResponseDto['recentFailures']> {
@@ -302,6 +398,13 @@ export class DashboardService {
     // submission the pipeline gave up on before any verdict existed — a
     // compile-infrastructure failure that never reached a case. A WA is not
     // a failure and is deliberately absent.
+    //
+    // This clause is now also `submissions_failed_idx`'s predicate, word for
+    // word. Do not "tidy" it into `state = 'errored' or verdict = 'IE'`, an
+    // `in (…)`, or a `coalesce`: a partial index serves only a query whose
+    // restriction Postgres can prove implies the predicate, and the failure
+    // mode of getting that wrong is silent — the same twenty rows, back to
+    // walking every clean submission since the last incident to find them.
     const rows = await this.db.execute<{
       id: string;
       code: string;

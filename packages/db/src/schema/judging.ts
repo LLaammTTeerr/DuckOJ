@@ -1,7 +1,9 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   bigserial,
   boolean,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -79,4 +81,22 @@ export const gradingJobs = pgTable(
     workerId: text('worker_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
+  (t) => [
+    // D47, as amended by migration 0025. `grading_jobs` keeps every job
+    // forever (D11), and the dashboard's queue and worker panels only ever
+    // ask about jobs that are NOT done — a set bounded by how many judges
+    // are running, not by how long the judge has existed. A PARTIAL index
+    // carries an entry only while the predicate holds, so it is 16 kB beside
+    // a 21 MB table at 200 000 rows and does not grow with history: the row
+    // enters the index on insert and leaves it when the job finishes.
+    // Measured: the queue aggregate went from a 200 000-row parallel seq
+    // scan (22.9 ms) to a 150-row index scan (0.9 ms).
+    index('grading_jobs_active_idx').on(t.state).where(sql`${t.state} <> 'done'`),
+    // NOT the dashboard's index — the foreign key's. `submission_id`
+    // references `submissions` ON DELETE CASCADE, and Postgres creates no
+    // index for a foreign key on its own, so every cascaded submission
+    // delete sequentially scanned this whole table to find the children.
+    // The worker panel's throughput join rides on it too.
+    index('grading_jobs_submission_idx').on(t.submissionId),
+  ],
 );

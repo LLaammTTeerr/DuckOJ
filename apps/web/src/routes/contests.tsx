@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { paths } from '@duckoj/sdk';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { api } from '../api.js';
-import { apiError } from '../api-error.js';
+import { apiError, read } from '../api-error.js';
 import { formatPoints } from '../format.js';
 import { meQueryOptions } from '../me.js';
 import { formatDateTime, formatTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
@@ -203,8 +203,16 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
   const participation = useQuery({
     queryKey: ['contest-me', contestKey],
     queryFn: async () => {
-      const { data } = await api.GET('/contests/{key}/me', { params: { path: { key: contestKey } } });
-      return data ?? null;
+      // 404 is "you have not joined" — `myParticipation` says so in as many
+      // words, and it is the state most readers of this page are in. 401 for
+      // the moment a session lapses between `me` resolving and this asking.
+      // Anything else is a failure, and used to render as "not joined": the
+      // Join button offered to somebody already competing.
+      return read(
+        await api.GET('/contests/{key}/me', { params: { path: { key: contestKey } } }),
+        t('contest.participationLoadError'),
+        [401, 404],
+      );
     },
     enabled: me.data != null,
   });
@@ -262,7 +270,14 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         </p>
       ) : null}
 
-      {joined ? (
+      {participation.isError ? (
+        // Neither branch below is honest when the read failed. "Joined" would
+        // invent a window; the Join button — which is what the swallow used
+        // to render — offers a competitor mid-contest a button to enter the
+        // contest they are already in, and pressing it is a write against a
+        // state this page does not know.
+        <p role="alert">{t('contest.participationLoadError')}</p>
+      ) : joined ? (
         <p role="status">
           {participation.data!.virtual === 0
             ? t('contest.live')
@@ -733,14 +748,24 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
   });
 
   // Only for `canEdit`: the server decides who runs this contest, and the
-  // board asks it rather than guessing from `me`. A failure here is not an
-  // error state for the page — the board still renders, just without the
-  // organiser's controls.
+  // board asks it rather than guessing from `me`. A failure here is still not
+  // an error state for the page — the board renders without the organiser's
+  // controls, which is the safe direction and stays deliberate.
+  //
+  // What changed is that it is no longer SILENT. The query throws, so the
+  // failure reaches React Query and `contest.isError` is a fact this
+  // component can read, rather than being erased into a `null` that is
+  // indistinguishable from "you do not run this contest". 404 stays absent
+  // because that genuinely is the answer for a contest the viewer may see the
+  // board of but not the detail of.
   const contest = useQuery({
     queryKey: ['contest', contestKey],
     queryFn: async (): Promise<ContestDetail | null> => {
-      const { data } = await api.GET('/contests/{key}', { params: { path: { key: contestKey } } });
-      return data ?? null;
+      return read(
+        await api.GET('/contests/{key}', { params: { path: { key: contestKey } } }),
+        t('contest.notFound'),
+        [401, 403, 404],
+      );
     },
   });
 

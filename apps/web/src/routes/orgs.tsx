@@ -13,7 +13,7 @@ import { useState } from 'react';
 import { ORG_IMPORT_MAX_ROWS, importUsernames, splitImportCsv } from '@duckoj/contracts';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
-import { apiError } from '../api-error.js';
+import { apiError, read } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { useT, type MsgKey, type TFunction } from '../i18n/index.js';
 import { OrgSets } from './problem-sets.js';
@@ -167,8 +167,11 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
   const requests = useQuery({
     queryKey: ['org-requests', slug],
     queryFn: async (): Promise<JoinRequest[]> => {
-      const { data } = await api.GET('/orgs/{slug}/requests', { params: { path: { slug } } });
-      return data ?? [];
+      // This queue is rendered only for an owner or an admin, so there is no
+      // status here that means "nothing to decide" — an empty queue is a 200
+      // with an empty array. A swallowed failure read as exactly that, and a
+      // decider watching an empty screen has no reason to look again.
+      return read(await api.GET('/orgs/{slug}/requests', { params: { path: { slug } } }), t('org.requestsLoadError')) ?? [];
     },
   });
 
@@ -184,6 +187,10 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
     await onDecided();
   }
 
+  // A failed queue and an empty queue are the same absence to a decider
+  // watching this space, and the empty one is the reassuring reading. Say
+  // which it is.
+  if (requests.isError) return <p role="alert">{t('org.requestsLoadError')}</p>;
   if (!requests.data || requests.data.length === 0) return null;
   return (
     <>
@@ -229,10 +236,15 @@ function OrgContests({ slug }: { slug: string }) {
   const contests = useQuery({
     queryKey: ['org-contests', slug],
     queryFn: async () => {
-      const { data } = await api.GET('/contests', { params: { query: { org: slug } } });
-      return data?.items ?? [];
+      return read(await api.GET('/contests', { params: { query: { org: slug } } }), t('contests.loadError'))?.items ?? [];
     },
   });
+  // The section still cannot take the roster down with it — that part of the
+  // doc comment above stands — but "absent because the school runs none" and
+  // "absent because the request failed" are now different renders. They were
+  // the same one, which is the shape B-8 called out: a rival school's page
+  // reading as "no contests" the moment the list 500s.
+  if (contests.isError) return <p role="alert">{t('contests.loadError')}</p>;
   if (!contests.data || contests.data.length === 0) return null;
   return (
     <>

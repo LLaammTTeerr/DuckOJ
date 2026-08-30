@@ -1428,6 +1428,68 @@ staleness question to a screen whose entire job is to be current.
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F5 brief),
 no human available to consult. No migration.*
 
+### Amendment, 2026-08-30 (B9): the need is measured, and 0025 pays for it
+
+The bullet above ends "an index nobody has measured a need for is a migration
+and a write cost paid against a guess". Somebody measured. On a seeded
+database of 200 000 grading jobs and 200 000 submissions — one province season,
+not a stress figure — the three panels that read those tables cost 22.9 ms,
+88.3 ms and 18.5 ms, **every fifteen seconds, growing forever**, because D11
+keeps grading history and none of the three queries had a bound. The failures
+panel is the one worth stating plainly: it walked **151 501 clean submissions**
+backwards to find twenty failures, so it got *slower the longer judging went
+well*. Migration **0025** adds four indexes and `dashboard.access.ts` is
+rewritten around them; `apps/api/test/admin-dashboard-plan.spec.ts` asserts the
+PLANS, dropping the indexes inside its own rolled-back transaction so both
+directions are proved on identical rows on every CI run.
+
+- **The two indexes this entry named are cheap because they are partial.**
+  `grading_jobs (state) where state <> 'done'` is **16 kB** beside a 21 MB
+  table, and `submissions (id desc) where verdict = 'IE' or state = 'errored'`
+  is **32 kB** beside 23 MB. A partial index holds an entry only while its
+  predicate holds, so neither grows with history — the first is sized by work
+  in flight, the second by how often the judge breaks. This is the write cost
+  the entry above worried about, measured, and it is nearly nothing.
+- **`queue()` gained `where state <> 'done'`, which reports the same numbers.**
+  Every state it counts is already non-done. The clause exists only to give
+  the planner a restriction that provably implies the partial predicate; the
+  spec asserts the bounded and unbounded aggregates are equal, so a future
+  `grading_job_state` cannot silently blank the panel. 22.9 ms → 0.9 ms.
+- **`recentFailures()`'s SQL did not change at all** — the index did the work.
+  Its WHERE clause is now also the index predicate, word for word, and the
+  comment says not to tidy it: Postgres serves a partial index only where it
+  can prove the query's restriction implies the predicate, and the failure
+  mode of an innocuous rephrase is silent. 18.5 ms → 0.35 ms, 7 084 buffers
+  → 74.
+- **Two FULL indexes were also needed, and that is the part this entry got
+  wrong.** A time window bounds the rows a query RETURNS; only an index bounds
+  the rows it SCANS. The worker panel's "graded in the last hour" therefore
+  could not be fixed by windowing alone from either join direction, so 0025
+  also adds `submissions (judged_at)` and `grading_jobs (submission_id)` —
+  4.4 MB per 200 000 rows each, growing with history, one extra index write
+  per insert. Paid deliberately: the alternative is an O(history) hash join
+  every fifteen seconds against a pool of ten connections per worker.
+  `grading_jobs (submission_id)` earns its place twice over — it is a
+  **missing foreign-key index under ON DELETE CASCADE**, so until 0025 every
+  cascaded submission delete sequentially scanned the whole job table.
+- **`workers()` is now two queries merged in JavaScript**, because its two
+  questions share nothing but the grouping key. `judged_at`, not `created_at`,
+  still dates the throughput — windowing on `created_at` would report a worker
+  chewing through a backlog as having graded nothing. The merge is full-outer:
+  a worker with work in flight may have finished nothing this hour, and a
+  worker that finished work may hold nothing now.
+- **One thing the worker panel no longer shows**, ruled rather than
+  overlooked: a worker whose every job is done and whose last verdict landed
+  over an hour ago is absent, where the single query listed it forever with
+  zeros. Restoring it costs `select distinct worker_id from grading_jobs` —
+  the unbounded scan this whole amendment removes — and D47 already puts
+  **liveness on the judge panel** and throughput here. A worker that is stuck
+  rather than gone still holds a non-done job and is still listed, which is
+  the case an operator is actually watching for.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B9 brief),
+no human available to consult. Migration 0025.*
+
 ## D48 — The contest booklet is one typst document, and `## English` is the language split
 
 `GET /contests/{key}/booklet.pdf` prints the whole contest: a cover page (name,
@@ -1531,6 +1593,56 @@ row of `GET /problems`. Visibility is exactly the problem's, decided by
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F6 brief),
 no human available to consult. Migration 0022.*
+
+### Amendment, 2026-08-30 (B9): the list counters are cached, keyed per problem
+
+The bullet above ends "The list counters are deliberately uncached: a page's
+ids differ per request, so the key would miss almost always." The premise is
+right and the conclusion only holds for a key over the SET. Keyed on a
+**problem**, a page of fifty problems nobody has ever requested together is
+still fifty hits — and the detail route and the list route warm each other's
+entries, which the set-key version could never do.
+
+What that cost, measured on a seeded database of 200 000 submissions against
+one problem: `loadCountsByProblem` reads **200 000 index rows and 201 620
+buffers in 126 ms**, uncached, on `GET /problems` and `GET /problems/{code}`
+— the two most public routes in the app. Migration 0022 is what keeps it an
+index scan rather than a sequential one; nothing kept it from being an index
+scan over every submission the problem had ever had. The number is a **floor**:
+that database held no contests, so the `NOT EXISTS` that excludes open contest
+windows collapsed to zero rows instead of probing once per submission.
+
+It survived F6, B4, B5 and B8 because it is invisible at fixture scale. The
+counters are correct at every size and slow at exactly one.
+
+- **`duckoj:pcounts:v1:<id>`, 30 s**, through the same read-through cache the
+  scoreboard, the booklet and the statistics use — and the same TTL as the
+  statistics beside it, for the same reason: these two numbers are a
+  difficulty hint on a catalogue page, not a live board. A solve appears
+  within half a minute.
+- **The statement count went DOWN, not up**, and getting this wrong was the
+  first attempt: caching a page by calling the read-through helper once per
+  row turns D49's single grouped aggregate into one round trip per problem —
+  the exact N+1 the catalogue endpoints exist to avoid, and
+  `problem-me-verdict.spec.ts`'s "a fixed number of statements for a page,
+  regardless of how many rows are on it" caught it immediately. So
+  `ScoreboardCache` grew `throughMany`: read every key, then compute only the
+  misses, together. **One aggregate on a cold page, none on a warm one, never
+  one per row.** That test is the reason this entry describes an improvement
+  rather than a trade.
+- **No `X-…-Cache` header**, deviating from D25 and from `getStats`. A page
+  mixes hits and misses per problem, so one boolean would have to lie about
+  one of them, and a header per problem is not a thing HTTP offers.
+- **A problem nobody has attempted caches ZEROS**, not an absent entry.
+  Otherwise the one problem a setter reloads constantly — the one they are
+  still writing — is the one that never has an entry to hit.
+- **The D35 mask is untouched and stays outside the cache.** Every call site
+  checks `contestHiddenProblemIds` and returns `BLANK_COUNTS` without reaching
+  the method at all, so what is stored is always the true count. That is this
+  entry's own rule for the statistics cache, unchanged.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B9 brief),
+no human available to consult. No migration.*
 
 ## D50 — A session holds every scope; `@RequireScope` governs tokens only
 
@@ -2002,6 +2114,54 @@ is a lie a reader cannot detect.
 *Ruled by the reviewer during the 2026-08-29 feature/bug loop (B8 whole-diff
 review), no human available to consult. No migration.*
 
+
+## D64 — The booklet cover is dated in the reader's own timezone, and prints the offset it used
+
+D48 fixed the contest booklet's cover to `Asia/Ho_Chi_Minh` and printed the
+string `(GMT+7)` beside it, reasoning that "there is no per-deploy timezone
+anywhere else in this codebase". Two releases later D57 gave every account
+`users.timezone`, a settings screen to set it on, and made every other date in
+the product honour it — so by the time B-8 flagged the constant, the booklet
+was the one page in DuckOJ that ignored the clock its reader had chosen. **The
+cover now reads `users.timezone` for whoever asked for the PDF, and falls back
+to ICT.**
+
+- **The viewer's zone, not the organiser's.** `contests` carries no timezone
+  column, and adding one would be a migration for a field no screen can set —
+  which is precisely the shape D57 rejected when it made these columns nullable
+  rather than defaulted: a stored preference nobody can edit is not a
+  preference, it is a default wearing a disguise. The account's zone is a value
+  somebody actually chose.
+- **`NULL` still means "not chosen" (D57), and unchosen means ICT (D18).** An
+  anonymous downloader — `booklet.pdf` is `@Public` — and an account that never
+  opened the settings screen both get the room's own clock, which is the answer
+  D48 was right about for the case it was thinking of.
+- **The offset is DERIVED, and that is the real defect this ruling fixes.**
+  `(GMT+7)` was a literal sitting beside a formatter pinned to the same zone:
+  true only while both halves stayed frozen, and the moment the zone became the
+  reader's it would have stopped being stale and started being a confidently
+  wrong hour on a page somebody sits an exam from. It is computed from the zone
+  at the contest's START, not at render time, because a zone with daylight
+  saving has two answers and the one that matters is the one in force when the
+  room sits down.
+- **An unresolvable zone prints ICT rather than 500ing.** D57 deliberately
+  accepts any well-formed value into the column, so `Mars/Olympus` is reachable
+  and `Intl` throws on it. One bad row on one account must not be able to break
+  the printable problems for a whole room at the bell.
+- **The cache needed no work, and that is worth stating** because the opposite
+  reading would send somebody rewriting it. D48 keys the booklet on a hash of
+  the document about to be typeset; the zone changes the cover text, so two
+  zones are two keys by construction, with no invalidation call and no
+  per-viewer cache design. The cost is a lower hit rate on a 60-second TTL in a
+  room that is overwhelmingly on one clock.
+- **Residual, stated rather than fixed:** a booklet is a shared artefact. If an
+  organiser prints one set of papers for a room, every copy carries the
+  organiser's zone, not each student's — which is correct, and is what printing
+  means. The per-reader rule governs the PDF a reader downloads for themselves.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B9 brief),
+no human available to consult. No migration — `users.timezone` already exists
+(0023).*
 
 ## D66 — Homework is assigned to a school, and a late solve is shown beside the on-time one rather than instead of it
 

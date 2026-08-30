@@ -168,6 +168,34 @@ describe('GET /admin/dashboard — the worker panel', () => {
       ]);
     });
   }, 120_000);
+
+  it('lists a worker that finished work this hour but is holding nothing now', async () => {
+    await withTestDb(async (db) => {
+      // Migration 0025 answers "what is it grading" and "what did it finish"
+      // with two separate queries, because one unbounded join over all of
+      // `grading_jobs` and all of `submissions` is what the dashboard used to
+      // run every fifteen seconds. Merging two result sets introduces a
+      // failure the single query could not have: a worker present in only ONE
+      // of them being dropped. This is that case in the direction the panel
+      // above does not cover — throughput, nothing in flight — and its mirror
+      // (`judged-1#2`: in flight, no throughput) is asserted there.
+      const { userId, problemId } = await seedProblemAndUser(db);
+      const graded = await insertGradedSubmission(db, { userId, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
+      await db.update(submissions).set({ judgedAt: sql`now() - interval '5 minutes'` }).where(eq(submissions.id, graded));
+      await seedJob(db, { state: 'done', workerId: 'judged-2#1', submissionId: graded });
+
+      const { workers } = await new DashboardService(db, UP).snapshot(admin());
+      expect(workers).toEqual([
+        {
+          workerId: 'judged-2#1',
+          currentSubmissionId: null,
+          currentJobId: null,
+          gradedLastHour: 1,
+          internalErrorsLastHour: 0,
+        },
+      ]);
+    });
+  }, 120_000);
 });
 
 describe('GET /admin/dashboard — the failures panel', () => {
