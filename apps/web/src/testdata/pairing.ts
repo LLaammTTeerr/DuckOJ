@@ -1,3 +1,5 @@
+import { DRAFT_CHECKER_FILE_NAME, draftCaseStem } from '@duckoj/contracts';
+
 /**
  * The client half of D87's browser authoring: pairing a pile of selected
  * files into test cases, and turning the resulting table into the exact
@@ -141,12 +143,17 @@ export interface ManifestPlan {
   totalPoints: number;
 }
 
-/** `1` -> `01`, `10` -> `10`, `100` -> `100`: sorted correctly as strings. */
-function pad(n: number, width: number): string {
-  return String(n).padStart(width, '0');
-}
-
-export const CHECKER_FILE_NAME = 'checker.cpp';
+/**
+ * Re-exported, not redefined (D88).
+ *
+ * The server names files too now — `POST /problems/{code}/drafts/from-revision
+ * /{version}` flattens a stored package into a draft — and it must choose the
+ * SAME name for the same case, or a round trip renames every file it touches
+ * and a re-PUT lands beside the old one instead of replacing it. So the two
+ * names live in `@duckoj/contracts`, which both sides already depend on, and
+ * this module's own copy of them is gone.
+ */
+export const CHECKER_FILE_NAME = DRAFT_CHECKER_FILE_NAME;
 
 /**
  * Turns the table into the package a build will be run over.
@@ -166,10 +173,9 @@ export function planPackage(input: {
   checker: CheckerDraft;
   cases: CaseDraft[];
 }): ManifestPlan {
-  const width = Math.max(2, String(input.cases.length).length);
   const files: { name: string; text: string }[] = [];
   const tests = input.cases.map((c, i) => {
-    const stem = pad(i + 1, width);
+    const stem = draftCaseStem(i, input.cases.length);
     files.push({ name: `${stem}.in`, text: c.input });
     files.push({ name: `${stem}.out`, text: c.answer });
     return {
