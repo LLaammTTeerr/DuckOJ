@@ -27,7 +27,7 @@
  * rates. Coalescing IS in-process — it is about not folding the same board
  * twice inside one worker at one instant, which needs no coordination.
  */
-import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { freezeAtMs, isFrozenAt } from '@duckoj/contest-formats';
 import { APP_CONFIG } from '../config/config.module.js';
@@ -308,6 +308,10 @@ export interface CacheRedis {
  * spec that is not about this cache runs with the cache bypassed — which is
  * the fallback path, exercised a thousand times over.
  */
+/** Test-only seams for `RedisScoreboardCacheStore`; no module provides them. */
+export const CACHE_STORE_CONNECT = Symbol('CACHE_STORE_CONNECT');
+export const CACHE_STORE_CLOCK = Symbol('CACHE_STORE_CLOCK');
+
 @Injectable()
 export class RedisScoreboardCacheStore implements ScoreboardCacheStore, OnModuleDestroy {
   private readonly logger = new Logger(RedisScoreboardCacheStore.name);
@@ -317,11 +321,22 @@ export class RedisScoreboardCacheStore implements ScoreboardCacheStore, OnModule
 
   constructor(
     @Inject(APP_CONFIG) private readonly config: Pick<AppConfig, 'redisUrl'>,
+    // Both test seams are `@Optional()` with a token nothing provides: Nest
+    // then passes `undefined` and the default applies. Without the marker,
+    // Nest reads the parameter's design type (`Function`) as a dependency and
+    // every worker died at boot with "can't resolve dependencies of the
+    // RedisScoreboardCacheStore (APP_CONFIG, ?, Function)" — while every test
+    // passed, because tests construct the store by hand.
     /** How a connection is opened. Injected only by the flapping-connection tests. */
-    private readonly connect: (url: string) => CacheRedis = openRedis,
+    @Optional() @Inject(CACHE_STORE_CONNECT) connect?: (url: string) => CacheRedis,
     /** The throttle's clock. Injected only so a test can cross a minute in no time. */
-    private readonly now: () => number = Date.now,
-  ) {}
+    @Optional() @Inject(CACHE_STORE_CLOCK) now?: () => number,
+  ) {
+    this.connect = connect ?? openRedis;
+    this.now = now ?? Date.now;
+  }
+  private readonly connect: (url: string) => CacheRedis;
+  private readonly now: () => number;
 
   async get(key: string): Promise<string | null> {
     try {
