@@ -4997,6 +4997,8 @@ export interface paths {
                                 role: "author" | "curator" | "tester";
                             }[];
                             orgSlugs: string[];
+                            editorial: string | null;
+                            editorialAvailable: boolean;
                         };
                     };
                 };
@@ -5148,6 +5150,8 @@ export interface paths {
                                 role: "author" | "curator" | "tester";
                             }[];
                             orgSlugs: string[];
+                            editorial: string | null;
+                            editorialAvailable: boolean;
                         };
                     };
                 };
@@ -5178,7 +5182,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update a problem's name, statement, visibility, sharing, membership, tags or difficulty */
+        /** Update a problem's name, statement, visibility, sharing, membership, tags, difficulty or editorial */
         patch: {
             parameters: {
                 query?: never;
@@ -5205,6 +5209,8 @@ export interface paths {
                         }[];
                         tags?: string[];
                         difficulty?: number | null;
+                        editorial?: string | null;
+                        editorialPublished?: boolean;
                     };
                 };
             };
@@ -5250,6 +5256,8 @@ export interface paths {
                                 role: "author" | "curator" | "tester";
                             }[];
                             orgSlugs: string[];
+                            editorial: string | null;
+                            editorialAvailable: boolean;
                         };
                     };
                 };
@@ -5333,7 +5341,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The request failed validation, or named a tag slug that does not exist */
+                /** @description The request failed validation, named a tag slug that does not exist, or asked to publish an empty editorial (`problem_editorial_empty`) */
                 422: {
                     headers: {
                         [name: string]: unknown;
@@ -5407,6 +5415,66 @@ export interface paths {
                 };
                 /** @description This server has no typst binary configured (`statement_pdf_unavailable`) */
                 501: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/problems/{code}/editorial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The problem's editorial, when the caller may read it */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    code: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The editorial as Markdown */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            markdown: string;
+                        };
+                    };
+                };
+                /** @description No such problem, one the caller may not see, or an editorial that is absent, unpublished, or withheld while the caller sits a contest using this problem (D43) — all indistinguishable */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };

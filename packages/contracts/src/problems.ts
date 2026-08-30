@@ -63,6 +63,22 @@ export const UpdateProblemRequest = z
      * rather than either alone.
      */
     difficulty: Difficulty.nullable().optional(),
+    /**
+     * The editorial's Markdown (D43), same vi+en shape as `statement`
+     * (D10). `null` clears it — and, because a published editorial with no
+     * text is not a state the product has a meaning for, clearing also
+     * unpublishes. Omitting the key leaves both alone.
+     */
+    editorial: z.string().max(262_144).nullable().optional(),
+    /**
+     * Publishes or unpublishes what is stored. Deliberately a boolean and
+     * not a timestamp: *when* it was published is the server's to decide,
+     * and re-publishing an already-published editorial does not move the
+     * date. `true` against an empty (or absent) editorial is refused with
+     * 422 `problem_editorial_empty` rather than silently publishing a page
+     * that renders blank.
+     */
+    editorialPublished: z.boolean().optional(),
   })
   // Rejecting an unknown key is what turns "code is immutable" from a
   // comment into a rule: a PATCH carrying `code` fails validation instead of
@@ -207,8 +223,42 @@ export const ProblemDetail = ProblemSummary.extend({
   // viewer would leak private organizations' names/existence.
   members: z.array(ProblemMember),
   orgSlugs: z.array(z.string()),
+  /**
+   * The editorial's Markdown, or `null` (D43). For a viewer who may not
+   * edit this problem, `editorial !== null` is exactly `editorialAvailable`,
+   * and `null`/`false` is ONE indistinguishable answer to three different
+   * questions — the problem has no editorial, it has an unpublished draft,
+   * or it has a published one this viewer may not read yet. Distinguishing
+   * them would leak both a setter's work-in-progress and, during a contest,
+   * the fact that a solution exists to be read.
+   *
+   * An **editor** (an author, a curator, an admin) additionally gets the
+   * unpublished draft here — the edit form seeds its textarea from this
+   * field, and a form that could not load what it is about to overwrite
+   * would be a way to lose an editorial rather than a way to write one.
+   */
+  editorial: z.string().nullable(),
+  /**
+   * Whether this viewer may read a **published** editorial. For an editor
+   * this is therefore the publish state itself (the edit form's toggle
+   * seeds from it), and it is the one field on which `editorial` being
+   * non-null does not imply `true`: an editor holding a draft reads
+   * `{ editorial: "...", editorialAvailable: false }`.
+   */
+  editorialAvailable: z.boolean(),
 });
 export type ProblemDetailDto = z.infer<typeof ProblemDetail>;
+
+/**
+ * `GET /problems/{code}/editorial`. A route of its own rather than only the
+ * `ProblemDetail` field, because the editorial is the one part of a problem
+ * a reader deliberately asks for — a spoiler is not something to ship with
+ * every page load of the statement — and because 404 is the honest answer
+ * to "show me the solution" when there is none to show, where a detail
+ * response has to answer *something* about the problem regardless.
+ */
+export const EditorialResponse = z.object({ markdown: z.string() });
+export type EditorialResponseDto = z.infer<typeof EditorialResponse>;
 
 export const RevisionSummary = z.object({
   id: z.number().int(),
@@ -331,7 +381,7 @@ registry.registerPath({
   method: 'patch',
   path: '/problems/{code}',
   tags: ['Problems'],
-  summary: "Update a problem's name, statement, visibility, sharing, membership, tags or difficulty",
+  summary: "Update a problem's name, statement, visibility, sharing, membership, tags, difficulty or editorial",
   request: {
     params: ProblemCodeParam,
     body: { content: { 'application/json': { schema: UpdateProblemRequest } } },
@@ -346,7 +396,29 @@ registry.registerPath({
     403: FORBIDDEN,
     404: PROBLEM_NOT_FOUND,
     422: {
-      description: 'The request failed validation, or named a tag slug that does not exist',
+      description:
+        'The request failed validation, named a tag slug that does not exist, or asked to publish ' +
+        'an empty editorial (`problem_editorial_empty`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/problems/{code}/editorial',
+  tags: ['Problems'],
+  summary: "The problem's editorial, when the caller may read it",
+  request: { params: ProblemCodeParam },
+  responses: {
+    200: {
+      description: 'The editorial as Markdown',
+      content: { 'application/json': { schema: EditorialResponse } },
+    },
+    404: {
+      description:
+        'No such problem, one the caller may not see, or an editorial that is absent, unpublished, ' +
+        'or withheld while the caller sits a contest using this problem (D43) — all indistinguishable',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },

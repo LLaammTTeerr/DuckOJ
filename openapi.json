@@ -10015,6 +10015,15 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "editorial": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "editorialAvailable": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -10035,7 +10044,9 @@
                     "checkerKind",
                     "createdAt",
                     "members",
-                    "orgSlugs"
+                    "orgSlugs",
+                    "editorial",
+                    "editorialAvailable"
                   ]
                 }
               }
@@ -10410,6 +10421,15 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "editorial": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "editorialAvailable": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -10430,7 +10450,9 @@
                     "checkerKind",
                     "createdAt",
                     "members",
-                    "orgSlugs"
+                    "orgSlugs",
+                    "editorial",
+                    "editorialAvailable"
                   ]
                 }
               }
@@ -10487,7 +10509,7 @@
         "tags": [
           "Problems"
         ],
-        "summary": "Update a problem's name, statement, visibility, sharing, membership, tags or difficulty",
+        "summary": "Update a problem's name, statement, visibility, sharing, membership, tags, difficulty or editorial",
         "parameters": [
           {
             "schema": {
@@ -10572,6 +10594,16 @@
                     ],
                     "minimum": 1,
                     "maximum": 10
+                  },
+                  "editorial": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 262144
+                  },
+                  "editorialPublished": {
+                    "type": "boolean"
                   }
                 },
                 "additionalProperties": false
@@ -10749,6 +10781,15 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "editorial": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "editorialAvailable": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -10769,7 +10810,9 @@
                     "checkerKind",
                     "createdAt",
                     "members",
-                    "orgSlugs"
+                    "orgSlugs",
+                    "editorial",
+                    "editorialAvailable"
                   ]
                 }
               }
@@ -10956,7 +10999,7 @@
             }
           },
           "422": {
-            "description": "The request failed validation, or named a tag slug that does not exist",
+            "description": "The request failed validation, named a tag slug that does not exist, or asked to publish an empty editorial (`problem_editorial_empty`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -11077,6 +11120,89 @@
           },
           "501": {
             "description": "This server has no typst binary configured (`statement_pdf_unavailable`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/problems/{code}/editorial": {
+      "get": {
+        "tags": [
+          "Problems"
+        ],
+        "summary": "The problem's editorial, when the caller may read it",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "code",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The editorial as Markdown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "markdown": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "markdown"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such problem, one the caller may not see, or an editorial that is absent, unpublished, or withheld while the caller sits a contest using this problem (D43) — all indistinguishable",
             "content": {
               "application/problem+json": {
                 "schema": {
