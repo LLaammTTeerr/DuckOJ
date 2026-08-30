@@ -26,6 +26,7 @@ import {
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import {
+  clearSubmissionMeter,
   insertUser,
   registerAndLogin,
   seedProblemAndLanguage,
@@ -214,7 +215,10 @@ describe('routing a submission into a contest', () => {
         expect(await contestRowsFor(db, inContest.body.id)).toHaveLength(1);
 
         // §2's stated cost, asserted rather than assumed: a participant
-        // submitting without the key is practising, not competing.
+        // submitting without the key is practising, not competing. D80's
+        // meter admits one submission per person per ten seconds, and this
+        // test needs the same person's second one.
+        await clearSubmissionMeter(db);
         const practice = await submit(agent, 'cp-owner');
         expect(practice.status).toBe(201);
         expect(await contestRowsFor(db, practice.body.id)).toHaveLength(0);

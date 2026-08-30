@@ -6136,7 +6136,10 @@ export interface paths {
             };
         };
         put?: never;
-        /** Submit a solution for grading */
+        /**
+         * Submit a solution for grading
+         * @description Metered per USER (D80): **one submission every ten seconds and twenty every ten minutes**. This endpoint enqueues the most expensive work the system does — one grading job, one container, one compile — and one judge grades about 35 submissions a minute (`load/RESULTS.md`), which a single unmetered client can outrun from one connection. Organisers and global admins are metered on exactly the same terms: the cost is a container, and a container costs the same whoever enqueued it. Only a submission that is actually created spends the window, so a refusal — a 429, a 404 for an unknown problem, a 409 for an unpublished one — costs the caller nothing.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -6229,6 +6232,28 @@ export interface paths {
                 /** @description The request body failed validation */
                 422: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This user has submitted too recently (`submission_rate_limited`) — one every ten seconds, twenty every ten minutes (D80). `Retry-After` carries the whole seconds until another submission will be accepted, and is the LONGER of the two windows when both are spent, so a caller told to come back is told when it is actually worth coming back. The refusal itself records nothing, so leaning on the button does not extend its own cooldown. */
+                429: {
+                    headers: {
+                        /** @description Whole seconds until another submission will be accepted */
+                        "Retry-After": number;
                         [name: string]: unknown;
                     };
                     content: {

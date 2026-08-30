@@ -3087,3 +3087,86 @@ that one map. A revoked judge redialling is already refused by the handshake.
 *Ruled by the implementer during the 2026-08-30 B-13 leftovers loop, no human
 available to consult. No migration.*
 
+
+## D80 — `POST /submissions` is metered: one per ten seconds and twenty per ten minutes, per user
+
+D79 ruled this endpoint should be metered, deliberately did not build it, and
+recorded the measurement a threshold should be set from. This is that limit.
+It is the last costly write in the API that was unmetered, and it enqueues the
+most expensive work the system does: one grading job, one container, one
+compile.
+
+**The numbers, and where each comes from.**
+
+- **One every ten seconds** is a burst bound, and it is a judgement rather
+  than a measurement. What it stops is the double-clicked button and the
+  script in a loop — neither is malicious and both cost a container per press.
+  Ten seconds is longer than anyone means to wait between two *different*
+  solutions and shorter than anyone notices after reading a rejected one.
+- **Twenty every ten minutes** is the sustained bound and it IS the
+  measurement. B12 recorded 35.3 verdicts a minute out of one judge, with the
+  queue reaching 23 and a p95 time-to-verdict of 39 s (`load/RESULTS.md`). Two
+  a minute per person means eighteen people can submit continuously before one
+  judge is the constraint — comfortably past what a room does. Somebody
+  submitting twenty times in ten minutes is debugging against the judge, and
+  the twenty-first attempt is worth ten seconds of thinking.
+
+The case that must NOT break is the one D79 named: a room re-submitting after
+a failed test. That is one submission per person at the same moment, and it
+meets neither bound — a per-user meter cannot be tripped by a room's size.
+
+**Organisers and admins are metered on the same terms — no exemption.** The
+thing being bounded is a grading container, and a container costs the same
+whoever enqueued it: an admin looping on `/submissions` starves a contest
+exactly as a contestant would. An exemption would also put the one account
+most likely to be scripted outside the only bound on the queue. Bulk grading
+has its own door, `POST /admin/rejudge`, metered as its own thing.
+
+**Keyed on the USER.** Not the session (signing out and in would buy a fresh
+budget), not the token (`POST /auth/tokens` mints them freely, so the meter
+would bound one token and nothing else), and above all not the IP: a school
+computer room is one address, and metering it would refuse thirty pupils for
+the actions of one. D16 pairs its per-IP window with a per-identifier one
+precisely because each catches what the other cannot; there is no second
+window to pair with here, because an authenticated submission has exactly one
+identity behind it.
+
+**`retryAfterSeconds` + `record`, never `allow`** — login's split (D16), for
+login's reason turned around. `allow` records the attempt it refuses. With a
+limit of ONE that is fatal: a double-clicked button would extend its own
+cooldown on every refusal, and somebody leaning on the key would never be
+allowed to submit at all. So the window is spent only by a submission that was
+actually created, and a refusal costs the caller nothing.
+
+**Where each half sits in `create`, and why:**
+
+- The **check runs first**, before a single row is read — D26's rule for
+  `register`, where the meter runs ahead of the argon2id hash. A refused caller
+  costs this process nothing, and a 429 decided without consulting the problem
+  can leak nothing about one.
+- The **record runs last**, after every other refusal and before the
+  transaction opens. After validation, so a mistyped problem code does not cost
+  a contestant ten seconds of cooldown for a submission the judge never saw;
+  before the transaction, so a failure to record can never leave a created
+  submission this meter did not count.
+- `record` is handed the **ten-minute** window, never the ten-second one. It
+  deletes this key's rows older than the window it is given, so the burst
+  window would sweep away the rows the sustained count is made of on every
+  submission — a limiter that passes every test about its short window and
+  enforces nothing. A test pins the row count for exactly this reason.
+
+**`Retry-After` is the LONGER of the two windows** when both are spent. A
+caller who has used their ten minutes and is told to come back in ten seconds
+comes back fifty times to be refused again, which is a limiter generating the
+load it exists to prevent.
+
+**What the two clients do with it.** The web submit page reads the header,
+disables the button for that many seconds and counts down in the reader's own
+language (`submit.rateLimited` / `submit.cooldown`, vi and en) — "wait a
+moment" with no number is the message that gets pressed again immediately.
+`oj submit` prints the wait in its refusal line, because somebody driving the
+CLI in a loop is exactly who needs the number.
+
+*Ruled by the implementer during the 2026-08-30 B-13 leftovers loop, no human
+available to consult. No migration — `rate_events` takes a new `purpose`
+without one, which is that column's whole design.*

@@ -257,6 +257,9 @@ export const en = {
   'submit.submit': 'Submit',
   'submit.gate': 'Sign in to submit a solution.',
   'submit.failed': 'Submission failed.',
+  'submit.rateLimited':
+    'You are submitting too quickly — one submission every 10 seconds, and 20 every 10 minutes. Try again in {seconds} s.',
+  'submit.cooldown': 'You can submit again in {seconds} s.',
   'submit.liveUnavailable': 'Live updates unavailable ({code}). Refresh to see the latest state.',
   'submit.status': 'Status: {state}',
   'submit.verdict': 'Verdict:',

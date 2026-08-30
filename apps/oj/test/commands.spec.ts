@@ -98,6 +98,34 @@ describe('submit', () => {
       submit(clientWith({ POST: post }), fakeIo(), { problemCode: 'a', source: 's', languageKey: 'cpp17' }),
     ).rejects.toThrow(/Join the contest first/);
   });
+
+  /**
+   * D80's meter, which is the one refusal somebody driving `oj` in a loop
+   * will actually meet. "submission refused: You are submitting too quickly"
+   * says nothing about how to stop being refused; the seconds are the whole
+   * answer, and they are in `Retry-After`.
+   */
+  it('prints the wait when the meter refuses (D80)', async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: undefined,
+      error: { code: 'submission_rate_limited', detail: 'You are submitting too quickly.' },
+      response: { headers: new Headers({ 'Retry-After': '9' }) },
+    });
+    await expect(
+      submit(clientWith({ POST: post }), fakeIo(), { problemCode: 'a', source: 's', languageKey: 'cpp17' }),
+    ).rejects.toThrow(/try again in 9s/);
+  });
+
+  it('still names the meter when no Retry-After came back', async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: undefined,
+      error: { code: 'submission_rate_limited', detail: 'You are submitting too quickly.' },
+      response: { headers: new Headers() },
+    });
+    await expect(
+      submit(clientWith({ POST: post }), fakeIo(), { problemCode: 'a', source: 's', languageKey: 'cpp17' }),
+    ).rejects.toThrow(/too quickly/);
+  });
 });
 
 describe('watch', () => {

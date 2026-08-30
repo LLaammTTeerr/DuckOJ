@@ -3,7 +3,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { buildApp, buildAppWithRealtime } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
-import { registerAndLogin, seedProblemAndLanguage } from './submissions.fixtures.js';
+import { clearSubmissionMeter, registerAndLogin, seedProblemAndLanguage } from './submissions.fixtures.js';
 import { SessionService } from '../src/authn/session.service.js';
 import { SubmissionAccessService } from '../src/authz/submission.access.js';
 import { MAX_SUBSCRIPTIONS } from '../src/realtime/submissions.gateway.js';
@@ -465,6 +465,10 @@ describe('submission realtime — the subscription set is bounded and releasable
     const cookie = await registerAndLogin(agent, username);
     const ids: number[] = [];
     for (let i = 0; i < count; i += 1) {
+      // D80 admits one submission per person per ten seconds, and this
+      // fixture needs several from one person to have several subscriptions
+      // to release. Nothing here is about the meter — it has its own file.
+      await clearSubmissionMeter(db);
       const created = await agent
         .post('/submissions')
         .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: `int main(){}//${String(i)}` });

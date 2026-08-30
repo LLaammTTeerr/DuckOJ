@@ -438,6 +438,19 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /**
+   * Seconds left on D80's meter, or `0`. Counted down here rather than left
+   * as a one-off message: the button has to be disabled for as long as
+   * pressing it can only be refused, and "wait a moment" with no number is
+   * the message that gets pressed again immediately.
+   */
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((left) => Math.max(0, left - 1)), 1_000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   // Read by the WebSocket effect's async callbacks, which close over a given
   // render's `submissionId` — this ref lets them check against the *current*
@@ -487,7 +500,7 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
     setBusy(true);
     setSubmitError(null);
     try {
-      const { data, error } = await api.POST('/submissions', {
+      const { data, error, response } = await api.POST('/submissions', {
         body: {
           problemCode,
           languageKey: values.languageKey,
@@ -496,6 +509,22 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
         },
       });
       if (error || !data) {
+        // D80's refusal gets its own words and its own number. The server's
+        // `detail` is English prose, and this is the one refusal a contestant
+        // meets in the middle of a contest — it has to say how long, in their
+        // language, and it has to stop the button from being pressed again in
+        // the same second.
+        if (error?.code === 'submission_rate_limited') {
+          // `Retry-After` is whole seconds (RFC 9110), and it is on the
+          // CORS exposed-headers list, so a browser on another origin can
+          // read it. Falls back to one second rather than to nothing: a
+          // cooldown of unknown length is the message that gets pressed again.
+          const seconds = Number(response.headers.get('Retry-After'));
+          const wait = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 1;
+          setCooldown(wait);
+          setSubmitError(t('submit.rateLimited', { seconds: String(wait) }));
+          return;
+        }
         setSubmitError(error?.detail ?? t('submit.failed'));
         return;
       }
@@ -533,7 +562,9 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
           </Link>
         </p>
       )}
-      <SubmitForm onSubmit={handleSubmit} languages={LANGUAGES} busy={busy} />
+      {/* Disabled for as long as pressing it can only be refused (D80). */}
+      <SubmitForm onSubmit={handleSubmit} languages={LANGUAGES} busy={busy || cooldown > 0} />
+      {cooldown > 0 ? <p role="status">{t('submit.cooldown', { seconds: String(cooldown) })}</p> : null}
       {submitError ? <p role="alert">{submitError}</p> : null}
       {submission ? <VerdictPanel submission={submission} /> : null}
     </section>

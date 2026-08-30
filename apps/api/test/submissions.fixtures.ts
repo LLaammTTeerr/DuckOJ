@@ -1,5 +1,5 @@
 import type { Agent as SupertestAgent } from 'supertest';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { problemMembers, problems, problemRevisions, submissions } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 
@@ -317,4 +317,26 @@ export async function userIdOf(db: Db, username: string): Promise<number> {
     .where(eq(schema.users.username, username));
   if (!user) throw new Error(`no such user: ${username}`);
   return user.id;
+}
+
+/**
+ * Clears D80's submission meter for every user.
+ *
+ * `POST /submissions` admits one submission per person per ten seconds. Some
+ * tests here need one person to submit three, five or seven times in a row —
+ * a pagination corpus, a list/read agreement set — and none of them is about
+ * the meter. Waiting ten real seconds between posts would add a minute to the
+ * suite to prove nothing; suppressing the limiter in the harness would hide it
+ * from every test that does not opt out, which is the wrong default (a test
+ * that submits repeatedly as one person is testing behaviour this meter
+ * changes, and it should have to say so).
+ *
+ * So: an explicit line, at the point where the fiction is introduced. It
+ * deletes the attempt rows and the D47 refusal markers together, since a
+ * marker under a prefixed purpose is bookkeeping for the same key.
+ */
+export async function clearSubmissionMeter(db: Db): Promise<void> {
+  await db
+    .delete(schema.rateEvents)
+    .where(sql`${schema.rateEvents.purpose} in ('submission', 'refused:submission')`);
 }

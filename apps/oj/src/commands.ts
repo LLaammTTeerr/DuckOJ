@@ -66,7 +66,7 @@ export async function submit(
   io: Io,
   args: { problemCode: string; source: string; languageKey: string; contestKey?: string },
 ): Promise<number> {
-  const { data, error } = await client.POST('/submissions', {
+  const { data, error, response } = await client.POST('/submissions', {
     body: {
       problemCode: args.problemCode,
       languageKey: args.languageKey,
@@ -75,6 +75,20 @@ export async function submit(
     },
   });
   if (error || !data) {
+    // D80's meter gets the number, not just the sentence. This is the one
+    // refusal a contestant meets from a script that is otherwise working —
+    // "submission refused" with no wait tells somebody driving `oj` in a loop
+    // nothing about how to stop being refused, and the seconds are the whole
+    // answer. `Retry-After` is whole seconds (RFC 9110).
+    if (error?.code === 'submission_rate_limited') {
+      const retryAfter = response.headers.get('Retry-After');
+      const seconds = Number(retryAfter);
+      const wait = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
+      io.fail(
+        `submission refused: submitting too quickly (one every 10s, twenty every 10 min)` +
+          (wait === null ? '' : ` — try again in ${String(wait)}s`),
+      );
+    }
     io.fail(`submission refused: ${error?.detail ?? 'unknown error'}`);
   }
   io.print(`submitted #${String(data.id)}`);

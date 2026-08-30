@@ -7,6 +7,7 @@ import { problems, submissions } from '@duckoj/db/guarded';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import {
+  clearSubmissionMeter,
   grantProblemRole,
   insertGradedSubmission,
   registerAndLogin,
@@ -133,6 +134,9 @@ describe('GET /submissions: the list/read agreement (spec §4.1)', () => {
 
         const corpus: number[] = [];
         for (let i = 0; i < 3; i += 1) {
+          // D80's meter admits one per person per ten seconds; this corpus
+          // needs three from one person and is about visibility, not rate.
+          await clearSubmissionMeter(db);
           const res = await quinn
             .post('/submissions')
             .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: `quinn-${i}` });
@@ -140,6 +144,7 @@ describe('GET /submissions: the list/read agreement (spec §4.1)', () => {
           corpus.push((res.body as { id: number }).id);
         }
         for (let i = 0; i < 2; i += 1) {
+          await clearSubmissionMeter(db);
           const res = await rita
             .post('/submissions')
             .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: `rita-${i}` });
@@ -188,6 +193,8 @@ describe('GET /submissions: descending keyset pagination', () => {
 
         const ids: number[] = [];
         for (let i = 0; i < 5; i += 1) {
+          // Five pages' worth from one person; D80's meter would admit one.
+          await clearSubmissionMeter(db);
           const res = await agent
             .post('/submissions')
             .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: `p-${i}` });
@@ -324,6 +331,9 @@ describe('GET /submissions: filters', () => {
         await registerAndLogin(agent, 'sub-filter-verdict');
 
         const ac = await agent.post('/submissions').send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'ac' });
+        // Two verdicts need two submissions from one person; D80's meter
+        // admits one every ten seconds and this test is about `verdict=`.
+        await clearSubmissionMeter(db);
         const wa = await agent.post('/submissions').send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'wa' });
         expect(ac.status).toBe(201);
         expect(wa.status).toBe(201);
