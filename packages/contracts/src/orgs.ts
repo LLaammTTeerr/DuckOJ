@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ProblemDetails, Timestamp, cursorPage } from './common.js';
+import { PaginationQuery, ProblemDetails, Timestamp, cursorPage } from './common.js';
 import { registry } from './registry.js';
 
 export const ORG_SLUG = /^[a-z0-9][a-z0-9_-]{1,63}$/;
@@ -136,6 +136,11 @@ registry.registerPath({
   path: '/orgs',
   tags: ['Organizations'],
   summary: 'Organizations visible to the caller',
+  // The controller has validated `PaginationQuery` here since Phase 3e and
+  // this document never said so, which made `?limit=` invisible to the SDK
+  // and therefore untypeable by the contest forms that need a whole page of
+  // organizations at once.
+  request: { query: PaginationQuery },
   responses: {
     200: { description: 'A page of organizations', content: { 'application/json': { schema: OrgPage } } },
   },

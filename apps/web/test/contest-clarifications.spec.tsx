@@ -45,6 +45,7 @@ const RUNNING = {
   endTime: '2400-01-01T00:00:00.000Z',
   pointsPrecision: 3,
   canEdit: false,
+  orgs: [],
   problems: [{ code: 'aplusb', name: 'A+B', label: 'A', points: 100, partial: true, order: 0 }],
 };
 

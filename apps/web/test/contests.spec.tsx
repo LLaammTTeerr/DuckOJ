@@ -35,6 +35,7 @@ const RUNNING = {
   format: 'icpc',
   startTime: new Date(Date.now() - 60_000).toISOString(),
   endTime: new Date(Date.now() + 3_600_000).toISOString(),
+  orgs: [],
   problems: [{ code: 'aplusb', name: 'A plus B', label: 'A', points: 100 }],
 };
 

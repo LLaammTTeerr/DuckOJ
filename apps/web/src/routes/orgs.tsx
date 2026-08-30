@@ -211,6 +211,42 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
   );
 }
 
+/**
+ * The contests this organization runs (D56).
+ *
+ * `GET /contests?org=` rather than a route of its own: the filter answers
+ * exactly the contests this caller could already see, so the section shows a
+ * visitor the school's public contests and a member its private ones,
+ * without this component knowing either rule. Silent on error and absent when
+ * empty — a school with no contests should not grow an empty table, and a
+ * failed list must not take the roster down with it.
+ */
+function OrgContests({ slug }: { slug: string }) {
+  const t = useT();
+  const contests = useQuery({
+    queryKey: ['org-contests', slug],
+    queryFn: async () => {
+      const { data } = await api.GET('/contests', { params: { query: { org: slug } } });
+      return data?.items ?? [];
+    },
+  });
+  if (!contests.data || contests.data.length === 0) return null;
+  return (
+    <>
+      <h2>{t('org.contests')}</h2>
+      <ul>
+        {contests.data.map((contest) => (
+          <li key={contest.key}>
+            <Link to="/contests/$key" params={{ key: contest.key }}>
+              {contest.name}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 export function OrgPage({ slug }: { slug: string }) {
   const t = useT();
   const client = useQueryClient();
@@ -301,6 +337,8 @@ export function OrgPage({ slug }: { slug: string }) {
       {requested ? <p>{t('org.requestSent')}</p> : null}
 
       {decider ? <RequestsQueue slug={slug} onDecided={refresh} /> : null}
+
+      <OrgContests slug={slug} />
 
       <h2>{t('org.members')}</h2>
       {members.data && members.data.length > 0 ? (

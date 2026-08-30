@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api } from '../api.js';
 import { useT } from '../i18n/index.js';
+import { OrgPicker } from '../org-picker.js';
 
 interface ProblemRow {
   code: string;
@@ -35,6 +36,9 @@ export function ContestNewPage() {
   // would turn a cleared box into `NaN` (or silently into 0) while the setter
   // is still typing.
   const [freeze, setFreeze] = useState('0');
+  // D56: which schools may enter. Empty is the pre-D56 contest — anybody
+  // who can see it may join.
+  const [orgSlugs, setOrgSlugs] = useState<string[]>([]);
   const [rows, setRows] = useState<ProblemRow[]>([{ code: '', points: '100', partial: true }]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,6 +76,7 @@ export function ContestNewPage() {
           endTime: new Date(end).toISOString(),
           format,
           visibility,
+          orgSlugs,
           frozenLastMinutes,
           problems: problems.map((row) => ({
             code: row.code.trim(),
@@ -153,6 +158,8 @@ export function ContestNewPage() {
           </select>
         </label>
       </p>
+
+      <OrgPicker value={orgSlugs} onChange={setOrgSlugs} />
 
       <h2>{t('contestNew.problems')}</h2>
       <table>

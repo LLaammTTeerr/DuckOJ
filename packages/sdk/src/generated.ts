@@ -3259,7 +3259,10 @@ export interface paths {
         /** Organizations visible to the caller */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;

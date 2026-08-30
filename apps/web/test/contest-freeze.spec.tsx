@@ -99,6 +99,7 @@ const CONTEST = {
   createdAt: new Date().toISOString(),
   formatConfig: null,
   canEdit: true,
+  orgs: [],
   problems: [{ code: 'aplusb', name: 'A plus B', label: 'A', points: 100, partial: true, order: 0 }],
 };
 

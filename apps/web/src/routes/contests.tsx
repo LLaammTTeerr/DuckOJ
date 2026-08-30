@@ -33,8 +33,36 @@ type Clarification =
  * order is not cosmetic, and a Vietnamese page printing `3/1/2026` for the
  * first of March is a wrong date, not an odd-looking one.
  */
-function when(iso: string, locale: Locale): string {
-  return formatDateTime(iso, locale);
+function when(iso: string, locale: Locale, timeZone: string | null): string {
+  return formatDateTime(iso, locale, timeZone);
+}
+
+/**
+ * The organizations a contest is restricted to, as links (D56).
+ *
+ * Rendered wherever the contest is, list and page alike, because it is what
+ * a competitor needs BEFORE pressing Join: the API refuses a non-member with
+ * `contest_org_required`, and a refusal that does not name the school is a
+ * refusal nobody can act on. The name is a link — every entity in this app
+ * is — even though a private organization's own page 404s for a stranger:
+ * naming it is the whole point, and where it leads is that page's decision.
+ */
+function OrgBadges({ orgs }: { orgs: Contest['orgs'] }) {
+  const t = useT();
+  if (orgs.length === 0) return null;
+  return (
+    <span className="muted">
+      {t('contest.restrictedTo')}{' '}
+      {orgs.map((org, index) => (
+        <span key={org.slug}>
+          {index > 0 ? ', ' : ''}
+          <Link to="/orgs/$slug" params={{ slug: org.slug }}>
+            {org.name}
+          </Link>
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /**
@@ -63,7 +91,7 @@ function phaseLabel(t: TFunction, phase: Phase): string {
 
 export function ContestsPage() {
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   const me = useQuery(meQueryOptions);
   const query = useQuery({
     queryKey: ['contests'],
@@ -99,6 +127,7 @@ export function ContestsPage() {
               <th>{t('contests.colStarts')}</th>
               <th>{t('contests.colEnds')}</th>
               <th>{t('contests.colPhase')}</th>
+              <th>{t('contests.colOrgs')}</th>
             </tr>
           </thead>
           <tbody>
@@ -113,9 +142,10 @@ export function ContestsPage() {
                     an identifier every setter types into the create form,
                     not a word to translate. */}
                 <td>{contest.format}</td>
-                <td>{when(contest.startTime, locale)}</td>
-                <td>{when(contest.endTime, locale)}</td>
+                <td>{when(contest.startTime, locale, timeZone)}</td>
+                <td>{when(contest.endTime, locale, timeZone)}</td>
                 <td>{phaseLabel(t, phaseOf(contest))}</td>
+                <td>{contest.orgs.length === 0 ? '—' : <OrgBadges orgs={contest.orgs} />}</td>
               </tr>
             ))}
           </tbody>
@@ -127,7 +157,7 @@ export function ContestsPage() {
 
 export function ContestPage({ contestKey }: { contestKey: string }) {
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   const client = useQueryClient();
   const me = useQuery(meQueryOptions);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -197,9 +227,14 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
     <section className="panel">
       <h1>{contest.data.name}</h1>
       <p className="muted">
-        {contest.data.format} · {when(contest.data.startTime, locale)} →{' '}
-        {when(contest.data.endTime, locale)} · {phaseLabel(t, phase)}
+        {contest.data.format} · {when(contest.data.startTime, locale, timeZone)} →{' '}
+        {when(contest.data.endTime, locale, timeZone)} · {phaseLabel(t, phase)}
       </p>
+      {contest.data.orgs.length > 0 ? (
+        <p>
+          <OrgBadges orgs={contest.data.orgs} />
+        </p>
+      ) : null}
       {/* `canEdit` is the server's own answer, not a guess from `me` — see
           the field's note in the contract. */}
       {contest.data.canEdit ? (
@@ -215,7 +250,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
           {participation.data!.virtual === 0
             ? t('contest.live')
             : t('contest.virtual', { n: participation.data!.virtual })}{' '}
-          {t('contest.windowCloses', { when: when(participation.data!.endTime, locale) })}
+          {t('contest.windowCloses', { when: when(participation.data!.endTime, locale, timeZone) })}
         </p>
       ) : (
         <p>
@@ -341,7 +376,7 @@ function ClarificationsPanel({
   problems: { code: string; label: string }[];
 }) {
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   const client = useQueryClient();
   const [question, setQuestion] = useState('');
   const [askProblem, setAskProblem] = useState('');
@@ -537,7 +572,7 @@ function ClarificationsPanel({
         <article key={item.id}>
           <p className="muted">
             {item.question === null ? t('clar.announcement') : t('clar.question')} · {scope(item)} ·{' '}
-            {when(item.createdAt, locale)}
+            {when(item.createdAt, locale, timeZone)}
             {item.visibility === 'private' ? <> · {t('clar.private')}</> : null}
           </p>
           {item.question === null ? null : <p>{item.question}</p>}
@@ -592,14 +627,19 @@ function ClarificationsPanel({
  * alone then reads as this afternoon. Same day: the time, which is what
  * somebody sitting the live contest wants. Any other day: the date too.
  */
-function freezeInstant(iso: string, locale: Locale): string {
+function freezeInstant(iso: string, locale: Locale, timeZone: string | null): string {
   const at = new Date(iso);
   const today = new Date();
+  // The same-day test stays in the BROWSER's zone deliberately: it is asking
+  // "does the reader think of this as today", and a reader looking at their
+  // own screen thinks in the zone that screen is set to. The rendered value
+  // then follows the chosen zone, so the two can disagree by an hour either
+  // side of midnight — a residual, and the honest one of the two choices.
   const sameDay =
     at.getFullYear() === today.getFullYear() &&
     at.getMonth() === today.getMonth() &&
     at.getDate() === today.getDate();
-  return sameDay ? formatTime(iso, locale) : formatDateTime(iso, locale);
+  return sameDay ? formatTime(iso, locale, timeZone) : formatDateTime(iso, locale, timeZone);
 }
 
 type Cell = Scoreboard['ranking'][number]['format_data'][string];
@@ -645,7 +685,7 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
   const [dqBusy, setDqBusy] = useState<string | null>(null);
 
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   const query = useQuery({
     queryKey: ['scoreboard', contestKey],
     queryFn: async (): Promise<Scoreboard> => {
@@ -713,7 +753,7 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
           working as configured, not something going wrong. */}
       {query.data.frozen && query.data.frozenAt !== null ? (
         <p role="status">
-          {t('scoreboard.frozen', { time: freezeInstant(query.data.frozenAt, locale) })}
+          {t('scoreboard.frozen', { time: freezeInstant(query.data.frozenAt, locale, timeZone) })}
         </p>
       ) : null}
       <table>

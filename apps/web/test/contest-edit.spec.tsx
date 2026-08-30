@@ -50,6 +50,9 @@ const CONTEST = {
   createdAt: new Date().toISOString(),
   formatConfig: null,
   canEdit: true,
+  // D56: every contest response carries its organizations, empty when
+  // nothing restricts it.
+  orgs: [],
   problems: [{ code: 'aplusb', name: 'A plus B', label: 'A', points: 100, partial: true, order: 0 }],
 };
 

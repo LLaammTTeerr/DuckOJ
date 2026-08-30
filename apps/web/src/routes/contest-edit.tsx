@@ -3,9 +3,9 @@
  *
  * Prefilled from `GET /contests/{key}`, and it sends only what the form can
  * actually express, so a field this page does not show is a field the request
- * leaves alone (the API reads an absent key as "keep"). `key` and the
- * contest's org shares are not editable here at all — see the request
- * schema's own note.
+ * leaves alone (the API reads an absent key as "keep"). `key` is not editable
+ * here at all — see the request schema's own note. The contest's
+ * organizations are, since D56.
  *
  * Times round-trip through `datetime-local`, which speaks the browser's own
  * zone and no other: the API stores instants, so the value is parsed back to
@@ -20,6 +20,7 @@ import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { useT } from '../i18n/index.js';
+import { OrgPicker } from '../org-picker.js';
 
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
 type Visibility = ContestDetail['visibility'];
@@ -108,6 +109,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
   const [format, setFormat] = useState<string>('icpc');
   const [visibility, setVisibility] = useState<Visibility>('private');
   const [freeze, setFreeze] = useState('0');
+  const [orgSlugs, setOrgSlugs] = useState<string[]>([]);
   const [rows, setRows] = useState<ProblemRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -132,6 +134,10 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
     setEndSeed({ local: toLocalInput(contest.endTime), iso: contest.endTime });
     setFormat(contest.format);
     setVisibility(contest.visibility);
+    // Seeded and sent back on every save, like every other field here: an
+    // absent `orgSlugs` means keep, but a form that SHOWS the restriction and
+    // then omits it is a form that lies about what it will save.
+    setOrgSlugs(contest.orgs.map((org) => org.slug));
     // Prefilled and sent back on every save, like every other field here:
     // the PATCH reads an absent key as "keep", but a form that shows a value
     // it then omits is a form that lies about what it will save.
@@ -183,6 +189,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
           endTime: instantFor(end, endSeed),
           format,
           visibility,
+          orgSlugs,
           frozenLastMinutes,
           problems: problems.map((row) => ({
             code: row.code.trim(),
@@ -289,6 +296,8 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
           </select>
         </label>
       </p>
+
+      <OrgPicker value={orgSlugs} onChange={setOrgSlugs} />
 
       <h2>{t('contestNew.problems')}</h2>
       <table>
