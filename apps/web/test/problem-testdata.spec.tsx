@@ -217,4 +217,16 @@ describe('the test-data tab', () => {
       screen.getByText('Đóng gói thành checker.cpp và chạy như trình chấm testlib qua bridged.'),
     ).toBeInTheDocument();
   });
+
+  it('gives each per-case file input an accessible name (WCAG 4.1.2)', async () => {
+    const user = userEvent.setup();
+    render(<ProblemTestDataTab code="abc" />);
+    await user.click(screen.getByRole('button', { name: 'Thêm test' }));
+    // The row's <label for> points at the textarea, so before this fix the
+    // two file inputs beside it had no accessible name at all — a screen
+    // reader announced a bare "choose file" with no clue which case, or
+    // whether it fed the input or the answer.
+    expect(screen.getByLabelText('Tải tệp đầu vào cho test 1')).toBeInTheDocument();
+    expect(screen.getByLabelText('Tải tệp đáp án cho test 1')).toBeInTheDocument();
+  });
 });

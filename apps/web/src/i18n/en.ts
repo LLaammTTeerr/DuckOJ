@@ -896,6 +896,8 @@ export const en = {
   'testData.colNo': '#',
   'testData.colInput': 'Input',
   'testData.colAnswer': 'Expected output',
+  'testData.uploadInputFor': 'Upload input file for case {n}',
+  'testData.uploadAnswerFor': 'Upload answer file for case {n}',
   'testData.colPoints': 'Points',
   'testData.colGroup': 'Batch',
   'testData.colSample': 'Sample',

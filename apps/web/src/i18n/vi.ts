@@ -863,6 +863,8 @@ export const vi = {
   'testData.colNo': '#',
   'testData.colInput': 'Đầu vào',
   'testData.colAnswer': 'Đáp án',
+  'testData.uploadInputFor': 'Tải tệp đầu vào cho test {n}',
+  'testData.uploadAnswerFor': 'Tải tệp đáp án cho test {n}',
   'testData.colPoints': 'Điểm',
   'testData.colGroup': 'Nhóm',
   'testData.colSample': 'Ví dụ',
