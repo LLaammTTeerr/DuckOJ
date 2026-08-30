@@ -659,6 +659,46 @@ section section > p:first-child {
   content: '.';
 }
 
+/* --- stat tiles (D47) ----------------------------------------------------
+ * The admin dashboard's numbers-first row: a label above a big number, in a
+ * grid that reflows on its own.
+ *
+ * `auto-fit` + `minmax(150px, 1fr)` rather than a media query, because the
+ * number of tiles varies per panel (five for the queue, four for the
+ * runtime) and a breakpoint tuned for one would be wrong for the other. On a
+ * 390px phone this lands on two columns; on a desktop panel, five.
+ *
+ * The 1px gap over a `--line` background is the same hairline-grid trick the
+ * rest of the design uses for tables: one border colour, no double rules
+ * between adjacent cells, and nothing to keep in sync when a tile is added.
+ * Monochrome throughout — a tile is a number, not a signal, and the two
+ * dependency tiles say `up`/`down` in words for exactly that reason.
+ */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  margin: 12px 0;
+}
+.stat {
+  background: var(--panel);
+  padding: 8px 10px;
+}
+.stat > span {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.stat > strong {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- rank bands (D46) ----------------------------------------------------
  * The second — and only other — colour scale in the system, and the one
  * amendment to this file's rule 1 (see the header).

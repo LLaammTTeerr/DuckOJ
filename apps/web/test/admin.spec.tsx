@@ -3,6 +3,8 @@
  * actionable for a non-admin — cosmetic (the API re-decides), but a setter
  * seeing Rate buttons that all 403 would reasonably file it as a bug.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -47,10 +49,23 @@ const CONTEST = {
   createdAt: '2026-02-01T00:00:00Z',
 };
 
-function serve(role: string, contests = [CONTEST]) {
+/** An empty-but-healthy dashboard: every panel present, nothing to report. */
+const DASHBOARD = {
+  queue: { queued: 0, running: 0, expiredLeases: 0, failed: 0, oldestQueuedSeconds: null },
+  judges: [],
+  workers: [],
+  recentFailures: [],
+  refusalsLastHour: [],
+  dependencies: { database: 'up', redis: 'up' },
+  runtime: { apiWorkers: 4, judgedConcurrency: 1 },
+  generatedAt: '2026-08-29T10:00:00Z',
+};
+
+function serve(role: string, contests = [CONTEST], dashboard: unknown = DASHBOARD) {
   get.mockImplementation((path: string) => {
     if (path === '/auth/me') return Promise.resolve({ data: { username: 'root', displayName: 'Root', globalRole: role } });
     if (path === '/contests') return Promise.resolve({ data: { items: contests, nextCursor: null } });
+    if (path === '/admin/dashboard') return Promise.resolve({ data: dashboard });
     return Promise.resolve({ data: undefined });
   });
 }
@@ -211,5 +226,113 @@ describe('AdminPage TOTP reset (M9)', () => {
     await userEvent.type(await screen.findByLabelText(/^Người dùng cần đặt lại$/), 'kim');
     await userEvent.click(screen.getByRole('button', { name: /^Tắt xác thực hai bước$/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('No such user: kim.');
+  });
+});
+
+/**
+ * D47 — the operations dashboard.
+ *
+ * The interesting assertions are the ones about what a number MEANS on
+ * screen: an empty queue must not read as "queued a moment ago", a judge
+ * that never handshook must not read as "seen at the epoch", and the
+ * reclaim button must say something when it moved nothing.
+ */
+describe('AdminPage operations dashboard (D47)', () => {
+  it('shows the queue depth and the fleet, every entity linked', async () => {
+    serve('admin', [CONTEST], {
+      ...DASHBOARD,
+      queue: { queued: 3, running: 1, expiredLeases: 2, failed: 0, oldestQueuedSeconds: 300 },
+      judges: [
+        { name: 'judge0', driver: 'dmoj', lastSeen: '2026-08-29T09:59:30Z', online: true },
+        { name: 'judge1', driver: 'dmoj', lastSeen: null, online: false },
+      ],
+      workers: [
+        { workerId: 'judged-1#1', currentSubmissionId: 42, currentJobId: 7, gradedLastHour: 9, internalErrorsLastHour: 1 },
+      ],
+      recentFailures: [
+        {
+          submissionId: 41,
+          problemCode: 'aplusb',
+          username: 'kim',
+          verdict: 'IE',
+          state: 'errored',
+          judgedAt: '2026-08-29T09:50:00Z',
+          createdAt: '2026-08-29T09:49:00Z',
+        },
+      ],
+      refusalsLastHour: [{ purpose: 'login', count: 12 }],
+    });
+    wrap(<AdminPage />);
+
+    // The oldest wait is a duration, not a timestamp: 300 s reads as minutes.
+    expect(await screen.findByText('5 phút')).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /judge0/ })).toHaveTextContent('trực tuyến');
+    // Never handshaken is "never", never a formatted epoch.
+    expect(screen.getByRole('row', { name: /judge1/ })).toHaveTextContent('chưa kết nối');
+    expect(screen.getByRole('row', { name: /judged-1#1/ })).toHaveTextContent('#42');
+    expect(screen.getByRole('link', { name: 'aplusb' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'kim' })).toBeInTheDocument();
+    // The purpose stays a machine key — it is what you grep the log for.
+    expect(screen.getByRole('row', { name: /login/ })).toHaveTextContent('12');
+  });
+
+  it('says an empty queue has no oldest wait rather than showing a zero', async () => {
+    serve('admin');
+    wrap(<AdminPage />);
+    expect(await screen.findByText(/Chờ lâu nhất/)).toBeInTheDocument();
+    expect(screen.queryByText('0 giây')).toBeNull();
+  });
+
+  it('admits it was not told judged\'s concurrency instead of printing a guess', async () => {
+    serve('admin', [CONTEST], { ...DASHBOARD, runtime: { apiWorkers: 4, judgedConcurrency: null } });
+    wrap(<AdminPage />);
+    expect(await screen.findByText('không được báo')).toBeInTheDocument();
+  });
+
+  it('requeues expired leases and reports how many moved', async () => {
+    serve('admin');
+    post.mockResolvedValue({ data: { reclaimed: 2, jobIds: [4, 5] } });
+    wrap(<AdminPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Đưa lại vào hàng đợi/ }));
+    expect(post).toHaveBeenCalledWith('/admin/grading/reclaim', {});
+    expect(await screen.findByRole('status')).toHaveTextContent('Đã đưa lại 2 công việc chấm');
+  });
+
+  it('says so when the button moved nothing, rather than going quiet', async () => {
+    serve('admin');
+    post.mockResolvedValue({ data: { reclaimed: 0, jobIds: [] } });
+    wrap(<AdminPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Đưa lại vào hàng đợi/ }));
+    expect(await screen.findByRole('status')).toHaveTextContent(/chưa lượt thuê nào hết hạn/);
+  });
+
+  it('surfaces a connection failure on the reclaim (M11 shape)', async () => {
+    serve('admin');
+    post.mockRejectedValue(new TypeError('Failed to fetch'));
+    wrap(<AdminPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Đưa lại vào hàng đợi/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không kết nối được/);
+  });
+
+  it('reports a dashboard that will not load instead of rendering empty panels', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/auth/me') return Promise.resolve({ data: { username: 'root', displayName: 'Root', globalRole: 'admin' } });
+      if (path === '/contests') return Promise.resolve({ data: { items: [], nextCursor: null } });
+      if (path === '/admin/dashboard') return Promise.resolve({ error: { detail: 'nope' } });
+      return Promise.resolve({ data: undefined });
+    });
+    wrap(<AdminPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không tải được bảng vận hành/);
+  });
+
+  it('polls every fifteen seconds, so a stale board is never left on screen', async () => {
+    // Pinned as a literal: the refresh interval is the whole promise of the
+    // panel ("a live snapshot"), and a silently-dropped `refetchInterval`
+    // would leave a dashboard that looks right and never changes.
+    const source = readFileSync(resolve(process.cwd(), 'src/routes/admin.tsx'), 'utf8');
+    expect(source).toContain('refetchInterval: 15_000');
   });
 });

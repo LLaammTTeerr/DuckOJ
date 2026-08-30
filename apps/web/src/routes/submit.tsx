@@ -84,8 +84,14 @@ function caseLabel(t: TFunction, c: SubmissionCase): string {
  * a second copy of the same `.toLowerCase() / 'pend'` rule. "Verdicts use
  * the same badge glyph+colour system you already built" covers the mapper,
  * not just the CSS classes it feeds.
+ *
+ * Takes a bare `string | null`, not the DTO's own union: the admin
+ * dashboard's failure rows carry the verdict as plain text (an operations
+ * readout should not break because a future verdict code was added), and a
+ * widened parameter is cheaper than a cast at that one call site. An
+ * unrecognised code simply gets no `.badge` rule and renders as text.
  */
-export function verdictToken(verdict: SubmissionDetail['verdict']): string {
+export function verdictToken(verdict: string | null | undefined): string {
   return verdict ? verdict.toLowerCase() : 'pend';
 }
 
