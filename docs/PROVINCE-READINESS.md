@@ -2,7 +2,7 @@
 
 What a province IT team gets, what it must supply, and what is still open.
 Campaign record: `docs/superpowers/ledgers/2026-08-29-province-ready-ledger.md`;
-review: `docs/superpowers/briefs/final-review.md`; decisions D16–D30 in
+review: `docs/superpowers/briefs/final-review.md`; decisions D16–D105 in
 `docs/DECISIONS.md`.
 
 ## What works today (all proven on the live stack)
@@ -28,10 +28,14 @@ review: `docs/superpowers/briefs/final-review.md`; decisions D16–D30 in
 
 ## Measured capacity (one 16-core host)
 
-2000 closed-loop virtual users, no think time: **2,391 req/s, p95 1.2 s,
-0 errors**. Contest-day reality (~2000 students, one refresh per 5 s ≈ 400
-req/s) sits well inside that. Grading throughput is one DMOJ judge
-container; add judges per the runbook "Judging throughput".
+The load-test numbers — the 2000-VU contest-day profile, per-route p95, the
+soak run and CPU by container — live in **`load/RESULTS.md`** (latest tables
+dated 2026-08-30); read them there rather than a figure copied here that can go
+stale. Contest-day reality (~2000 students, one refresh per 5 s ≈ 400 req/s)
+sits well inside the measured throughput. Grading throughput is one DMOJ judge
+container (≈35 submissions/min); add judges with `corepack pnpm judge:node add`
+and compose's `scale` profile before a province-wide contest (runbook, "Judging
+throughput").
 
 ## What the province must supply
 
@@ -54,7 +58,7 @@ corepack pnpm bootstrap:admin <you>   # first admin (D19)
 # import problems: content/README.md
 ```
 
-## Added by the feature/bug loop (2026-08-29 → 2026-08-30)
+## Added by the feature/bug loop (2026-08-29 → 2026-08-31)
 
 Features: contest clarifications + announcements (D31) · problem tags,
 difficulty and filters (D35) · TOTP recovery codes (D39) · editorials (D43)
@@ -66,27 +70,45 @@ accounts with forced password change (D61) · classroom problem sets (D66)
 `judge:node` (D68) · results CSV/PDF + certificates (D71) · Vietnamese
 guides at `/help` · contest source-similarity report (D77).
 
+Later (F15–F25, → 2026-08-31), one line per area: student progress dashboard —
+heatmap, streak, rating (D83) · a real CodeMirror editor with per-(problem,
+language) drafts (D84) · browser-authored test data + problem/contest cloning
+(D87, D88) · read-only-by-default MCP server (D89) · one-command
+`prepare:problem` publish with editorial (D90, D97) · revision-aware problem
+reads and package-sourced samples (D92, D94) · organiser live monitor,
+counter-backed (D95, D100, D105) · ICPC-style team contests (D99, amended F25)
+with a DB-enforced one-seat-per-contest rule (D101, D104) · submission metering
+(D80) · CSRF origin checks (D82) · a safe per-service `scripts/deploy.sh` with a
+two-boot crash-loop breaker (D85, D103) · must-change-password token lockout
+(D102).
+
 Hardening: 13 bug-hunt passes (auth, contests, judging, web, API/ops,
 orgs/import, rating/realtime, whole-diff review, perf, security, newest
 features, soak), ~80 fixed defects incl. checker-based problems always
 IE'ing (D40), a double-join bricking scoreboards (D36), a booklet statement
 leak (D62), CSV injection in three exports, CSP/HSTS at the edge (D69).
 
-Measured (B-12, one 16-core host): 500 VUs → **p95 428 ms, 1716 req/s, 0
-errors**; 2000 VUs → 1557 req/s, 0 errors; **one judge grades ≈35
-submissions/min** (TTV p95 39 s under a 40/min storm) — add judges via
-`corepack pnpm judge:node add` + the `scale` compose profile before a
-province-wide contest.
+Measured: the current load and soak figures — read profile, judging, memory —
+are in `load/RESULTS.md` (latest tables 2026-08-30). One judge grades ≈35
+submissions/min; add judges with `corepack pnpm judge:node add` and the `scale`
+compose profile before a province-wide contest.
 
 ## Known gaps, in priority order
 
 1. The first real `restore.sh` against the live stack has not been
-   exercised (unit-tested against a stub compose) — watch it.
+   exercised (unit-tested against a stub compose) — watch it (D30).
 2. Registration hides a taken email behind a fake 201 (D26); full closure
    needs verify-before-create.
-3. TOTP has no recovery codes — the admin reset (M9) is the fallback.
-4. No problem tags, editorials, comments; rank names are placeholders (D6).
-   Contest clarifications and announcements shipped (D31), untested against
-   the live stack.
-5. `judged.live` keyed by job id (not attempt) — narrow stale-packet window,
-   documented in D29.
+3. `/users/me/progress` runs seven aggregates per cold miss, cached per user,
+   unmeasured at province size, and the heatmap's day is not sargable (D83).
+4. The new organiser routes — similarity, live monitor, teams — have no
+   Playwright coverage; the web tests mock the SDK.
+5. A team's roster is read live, never frozen; only a banner warns the teacher,
+   and same-instant edits rely on an advisory lock (D99, amended F25).
+6. `judged.live` keyed by job id (not attempt) — narrow stale-packet window,
+   documented in D29. Monitor `pending` and queue depth can honestly disagree
+   (D100).
+
+Closed since 2026-08-29: TOTP recovery codes (D39), problem tags (D35),
+editorials (D43), real rank names (D46), and the similarity stuck-run and
+team-name races (F15/F25).
