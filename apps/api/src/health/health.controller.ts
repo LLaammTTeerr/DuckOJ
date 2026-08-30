@@ -4,6 +4,7 @@ import type { Db } from '@duckoj/db';
 import { DB } from '../config/config.module.js';
 import { Public } from '../authn/auth.guard.js';
 import { MAILER, type Mailer } from '../mail/mailer.js';
+import { reportedWorkerCount } from '../worker-count.js';
 
 /**
  * How long `readyz` waits for the database before answering 503 anyway.
@@ -33,9 +34,25 @@ export class HealthController {
     @Inject(MAILER) private readonly mailer: Mailer,
   ) {}
 
+  /**
+   * Liveness — and, since D86, how many workers the primary has.
+   *
+   * The body is the point. `node:cluster` has the PRIMARY bind the port, so a
+   * probe that only checks "the connection was accepted" is checking the
+   * supervisor, not the application: on 2026-08-30 every worker was dead, the
+   * primary held the socket, and the healthcheck's request was accepted and
+   * never answered. This response can only be produced by a process running
+   * a route — and `workers` carries the one fact only the primary knows, so
+   * `docker-compose.yml`'s healthcheck can require `>= 1` rather than
+   * inferring it. See `../worker-count.ts`.
+   *
+   * Still touches nothing: no database, no Redis, no mailer. Liveness must
+   * stay answerable while every dependency is down, which is what `readyz`
+   * below is for.
+   */
   @Get('healthz')
-  live(): { status: 'ok' } {
-    return { status: 'ok' };
+  live(): { status: 'ok'; workers: number } {
+    return { status: 'ok', workers: reportedWorkerCount() };
   }
 
   @Get('readyz')

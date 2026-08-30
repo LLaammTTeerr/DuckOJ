@@ -44,7 +44,17 @@ describe('compose project resolution across scripts', () => {
     // its own project resolution has to show up here, rather than silently
     // being covered by a test that iterates over nothing.
     const names = scriptsResolvingAProject().map((s) => s.name).sort();
-    expect(names).toEqual(['backup.sh', 'e2e-contest.ts', 'e2e-problem.ts', 'restore.sh']);
+    // `deploy.sh` (B-15) joined the set: it EXPORTS `COMPOSE_PROJECT_NAME`
+    // because it builds images in a `git archive` export directory, where
+    // podman-compose would otherwise name them after a temp directory — the
+    // same M4 disagreement this file exists for, arriving by a new door.
+    expect(names).toEqual([
+      'backup.sh',
+      'deploy.sh',
+      'e2e-contest.ts',
+      'e2e-problem.ts',
+      'restore.sh',
+    ]);
   });
 
   it('reads COMPOSE_PROJECT_NAME first, everywhere', () => {
