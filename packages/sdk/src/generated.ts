@@ -7651,6 +7651,812 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orgs/{slug}/sets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An organization's problem sets, with the caller's own progress on each
+         * @description Members only. A caller who can see the organization but does not belong to it gets an EMPTY page rather than a refusal (D66): homework is for the class, and "no sets" is exactly what a school that has assigned none returns — the same blanked-never-signalled shape D35 uses. An organization the caller may not see is 404, unchanged.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of sets */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                slug: string;
+                                name: string;
+                                description: string | null;
+                                /** Format: date-time */
+                                deadline: string | null;
+                                itemCount: number;
+                                solvedCount: number;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such organization, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Assign a problem set (owner or admin) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        slug: string;
+                        name: string;
+                        /** @default null */
+                        description?: string | null;
+                        /**
+                         * Format: date-time
+                         * @default null
+                         */
+                        deadline?: string | null;
+                        /** @default [] */
+                        problems?: {
+                            code: string;
+                            /** @default 100 */
+                            points?: number;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The created set */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            slug: string;
+                            name: string;
+                            description: string | null;
+                            /** Format: date-time */
+                            deadline: string | null;
+                            itemCount: number;
+                            solvedCount: number;
+                            /** Format: date-time */
+                            createdAt: string;
+                            items: {
+                                code: string;
+                                name: string;
+                                order: number;
+                                points: number;
+                                visible: boolean;
+                                me: {
+                                    onTime: {
+                                        /** @enum {string} */
+                                        verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                        points: number | null;
+                                        maxPoints: number | null;
+                                        /** Format: date-time */
+                                        submittedAt: string;
+                                        /** Format: date-time */
+                                        solvedAt: string | null;
+                                    } | null;
+                                    late: {
+                                        /** @enum {string} */
+                                        verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                        points: number | null;
+                                        maxPoints: number | null;
+                                        /** Format: date-time */
+                                        submittedAt: string;
+                                        /** Format: date-time */
+                                        solvedAt: string | null;
+                                    } | null;
+                                } | null;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not an owner or admin of this organization */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such organization, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This organization already has a set with that slug (`problem_set_slug_taken`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation. `problem_set_problem_unknown` — a `code` no problem has; `problem_set_problem_private` — a problem the organization’s own members could not open, which is refused rather than assigned (the set would be homework half the class cannot read). */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{slug}/sets/{setSlug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One problem set, with the caller's own best submission on each problem
+         * @description Members only; a non-member gets the same 404 a set that does not exist gets. `me` is the caller's own best submission and is never masked — D23 exempts the submitter — but an on-time submission always beats a late one, and a late one is flagged `late` rather than hidden (D66).
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    setSlug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The set */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            slug: string;
+                            name: string;
+                            description: string | null;
+                            /** Format: date-time */
+                            deadline: string | null;
+                            itemCount: number;
+                            solvedCount: number;
+                            /** Format: date-time */
+                            createdAt: string;
+                            items: {
+                                code: string;
+                                name: string;
+                                order: number;
+                                points: number;
+                                visible: boolean;
+                                me: {
+                                    onTime: {
+                                        /** @enum {string} */
+                                        verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                        points: number | null;
+                                        maxPoints: number | null;
+                                        /** Format: date-time */
+                                        submittedAt: string;
+                                        /** Format: date-time */
+                                        solvedAt: string | null;
+                                    } | null;
+                                    late: {
+                                        /** @enum {string} */
+                                        verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                        points: number | null;
+                                        maxPoints: number | null;
+                                        /** Format: date-time */
+                                        submittedAt: string;
+                                        /** Format: date-time */
+                                        solvedAt: string | null;
+                                    } | null;
+                                } | null;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such set, one in an organization the caller may not see, or one in an organization the caller does not belong to — the three are indistinguishable (`problem_set_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Withdraw a problem set (owner or admin) */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    setSlug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not an owner or admin of this organization */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such set, one in an organization the caller may not see, or one in an organization the caller does not belong to — the three are indistinguishable (`problem_set_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Edit a problem set (owner or admin)
+         * @description `problems`, when present, replaces the whole list — order included.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                    setSlug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        slug?: string;
+                        name?: string;
+                        description?: string | null;
+                        /** Format: date-time */
+                        deadline?: string | null;
+                        problems?: {
+                            code: string;
+                            /** @default 100 */
+                            points?: number;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The updated set */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            slug: string;
+                            name: string;
+                            description: string | null;
+                            /** Format: date-time */
+                            deadline: string | null;
+                            itemCount: number;
+                            solvedCount: number;
+                            /** Format: date-time */
+                            createdAt: string;
+                            items: {
+                                code: string;
+                                name: string;
+                                order: number;
+                                points: number;
+                                visible: boolean;
+                                me: {
+                                    onTime: {
+                                        /** @enum {string} */
+                                        verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                        points: number | null;
+                                        maxPoints: number | null;
+                                        /** Format: date-time */
+                                        submittedAt: string;
+                                        /** Format: date-time */
+                                        solvedAt: string | null;
+                                    } | null;
+                                    late: {
+                                        /** @enum {string} */
+                                        verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                        points: number | null;
+                                        maxPoints: number | null;
+                                        /** Format: date-time */
+                                        submittedAt: string;
+                                        /** Format: date-time */
+                                        solvedAt: string | null;
+                                    } | null;
+                                } | null;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not an owner or admin of this organization */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such set, one in an organization the caller may not see, or one in an organization the caller does not belong to — the three are indistinguishable (`problem_set_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This organization already has a set with that slug (`problem_set_slug_taken`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation. `problem_set_problem_unknown` — a `code` no problem has; `problem_set_problem_private` — a problem the organization’s own members could not open, which is refused rather than assigned (the set would be homework half the class cannot read). */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/orgs/{slug}/sets/{setSlug}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The whole class against the whole set — one row per member, one column per problem
+         * @description Owner or admin of the organization, or a global admin. Rows are the roster, keyset-paged on username exactly as `GET /orgs/{slug}/members` is (D58). `?format=csv` answers `text/csv` with the WHOLE roster rather than one page, because a file that stops after twenty-five pupils is a file somebody would mark a class from. A submission whose contest participation window is still open is counted for nobody, the teacher included (D49).
+         */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                    format?: "json" | "csv";
+                };
+                header?: never;
+                path: {
+                    slug: string;
+                    setSlug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The grid */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            slug: string;
+                            name: string;
+                            /** Format: date-time */
+                            deadline: string | null;
+                            columns: {
+                                code: string;
+                                name: string;
+                                points: number;
+                            }[];
+                            rows: {
+                                username: string;
+                                displayName: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "member";
+                                cells: ({
+                                    onTime: {
+                                        /** @enum {string} */
+                                        verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                        points: number | null;
+                                        maxPoints: number | null;
+                                        /** Format: date-time */
+                                        submittedAt: string;
+                                        /** Format: date-time */
+                                        solvedAt: string | null;
+                                    } | null;
+                                    late: {
+                                        /** @enum {string} */
+                                        verdict: "AC" | "WA" | "TLE" | "MLE" | "OLE" | "RTE" | "IR" | "CE" | "IE";
+                                        points: number | null;
+                                        maxPoints: number | null;
+                                        /** Format: date-time */
+                                        submittedAt: string;
+                                        /** Format: date-time */
+                                        solvedAt: string | null;
+                                    } | null;
+                                } | null)[];
+                            }[];
+                            nextCursor: string | null;
+                        };
+                        "text/csv": string;
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not an owner or admin of this organization */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such set, one in an organization the caller may not see, or one in an organization the caller does not belong to — the three are indistinguishable (`problem_set_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {

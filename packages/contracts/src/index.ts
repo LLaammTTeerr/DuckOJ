@@ -15,3 +15,7 @@ export * from './tags.js';
 export * from './tokens.js';
 export * from './totp.js';
 export * from './notifications.js';
+// Last, deliberately: `registerPath` runs as an import side effect and the
+// emitted document's path order follows it, so appending here keeps a new
+// module's routes out of the middle of `openapi.json`'s diff.
+export * from './problem-sets.js';
