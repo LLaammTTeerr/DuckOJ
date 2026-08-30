@@ -185,3 +185,155 @@ registry.registerPath({
     },
   },
 });
+
+/* ------------------------------------------------- progress (F16, D83) --- */
+
+/**
+ * One bar of the tag or difficulty breakdown.
+ *
+ * `attempted` counts problems with at least one submission, `solved` those
+ * with at least one `AC` — **problems, never submissions**: eleven attempts
+ * at one problem is one attempt at one problem, which is the only reading
+ * under which a bar means "how much of this topic have I got through".
+ */
+export const ProgressBar = z.object({
+  attempted: z.number().int(),
+  solved: z.number().int(),
+});
+
+export const TagProgress = ProgressBar.extend({
+  slug: z.string(),
+  nameVi: z.string(),
+  nameEn: z.string(),
+});
+export type TagProgressDto = z.infer<typeof TagProgress>;
+
+/** `null` is the unrated bucket — exactly what an unrated problem carries. */
+export const DifficultyProgress = ProgressBar.extend({
+  difficulty: z.number().int().min(1).max(10).nullable(),
+});
+export type DifficultyProgressDto = z.infer<typeof DifficultyProgress>;
+
+/**
+ * One day of the activity heatmap. `date` is a calendar day in the SUBJECT's
+ * own zone (D57), not UTC and not the reader's — a day is where the person
+ * who did the work was standing.
+ */
+export const ActivityDay = z.object({
+  /** `YYYY-MM-DD`. */
+  date: z.string(),
+  count: z.number().int(),
+});
+export type ActivityDayDto = z.infer<typeof ActivityDay>;
+
+export const ActivityHeatmap = z.object({
+  /** The IANA zone the days were bucketed in — the client must not re-bucket. */
+  timezone: z.string(),
+  from: z.string(),
+  to: z.string(),
+  /** Sparse: a day with no submissions is absent, not a zero. */
+  days: z.array(ActivityDay),
+});
+export type ActivityHeatmapDto = z.infer<typeof ActivityHeatmap>;
+
+/**
+ * What a public profile's progress panel says. Counted over **public
+ * problems only**, exactly like `UserStats` and for its reason (§3/§4): a
+ * number that changed with who was reading it would leak, by arithmetic,
+ * that a private problem exists.
+ */
+export const UserProgress = z.object({
+  byTag: z.array(TagProgress),
+  byDifficulty: z.array(DifficultyProgress),
+  heatmap: ActivityHeatmap,
+});
+export type UserProgressDto = z.infer<typeof UserProgress>;
+
+/** Consecutive days with at least one counted `AC`, in the account's zone. */
+export const ProgressStreak = z.object({
+  current: z.number().int(),
+  longest: z.number().int(),
+  /** `YYYY-MM-DD` of the most recent day with an `AC`, or `null`. */
+  lastDate: z.string().nullable(),
+});
+export type ProgressStreakDto = z.infer<typeof ProgressStreak>;
+
+export const RecentVerdict = z.object({
+  id: z.number().int(),
+  problemCode: z.string(),
+  problemName: z.string(),
+  verdict: z.string().nullable(),
+  points: z.number().nullable(),
+  createdAt: Timestamp,
+});
+export type RecentVerdictDto = z.infer<typeof RecentVerdict>;
+
+/** A contest this person has joined whose own window has not closed yet. */
+export const UpcomingContest = z.object({
+  key: z.string(),
+  name: z.string(),
+  startTime: Timestamp,
+  endTime: Timestamp,
+  /** THEIR window's end — a virtual entrant's outlives the contest's (D22). */
+  endsAt: Timestamp,
+});
+export type UpcomingContestDto = z.infer<typeof UpcomingContest>;
+
+/** A dated homework set from one of this person's schools (D66). */
+export const UpcomingHomework = z.object({
+  orgSlug: z.string(),
+  orgName: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  deadline: Timestamp,
+  /** Problems in the set, and how many of them this pupil has solved. */
+  total: z.number().int(),
+  solved: z.number().int(),
+});
+export type UpcomingHomeworkDto = z.infer<typeof UpcomingHomework>;
+
+/**
+ * Your own progress page. Everything `UserProgress` has, over every problem
+ * you have submitted to rather than only the public ones, plus the four
+ * panels that are nobody else's business: your streak, your last verdicts,
+ * the contests you are sitting and the homework you owe.
+ */
+export const MyProgress = UserProgress.extend({
+  streak: ProgressStreak,
+  recent: z.array(RecentVerdict),
+  upcomingContests: z.array(UpcomingContest),
+  homework: z.array(UpcomingHomework),
+});
+export type MyProgressDto = z.infer<typeof MyProgress>;
+
+registry.registerPath({
+  method: 'get',
+  path: '/users/me/progress',
+  tags: ['Users'],
+  summary: 'Your own progress: bars, heatmap, streak, recent verdicts, what is due',
+  responses: {
+    200: {
+      description: 'The progress page',
+      content: { 'application/json': { schema: MyProgress } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/users/{username}/progress',
+  tags: ['Users'],
+  summary: 'A public profile’s tag and difficulty bars and activity heatmap',
+  request: { params: UsernameParam },
+  responses: {
+    200: {
+      description: 'The public half of the progress page',
+      content: { 'application/json': { schema: UserProgress } },
+    },
+    404: USER_NOT_FOUND,
+  },
+});

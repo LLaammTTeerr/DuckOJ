@@ -23,6 +23,7 @@ import {
 import { OrgAccessService } from './org.access.js';
 import { OrgImportService } from './org.import.js';
 import { ProblemAccessService } from './problem.access.js';
+import { ProgressService } from './progress.access.js';
 import {
   DEFAULT_PROGRESS_EXPORT_BOUNDS,
   PROGRESS_EXPORT_BOUNDS,
@@ -80,6 +81,10 @@ import {
     // so the cap is reachable in a test at three rows rather than twenty
     // thousand (`MAX_SUBSCRIPTIONS`'s precedent).
     { provide: PROGRESS_EXPORT_BOUNDS, useValue: DEFAULT_PROGRESS_EXPORT_BOUNDS },
+    // The student progress page (D83). In `authz/` for `UserAccessService`'s
+    // reason: it filters on `problems.visibility` and reads six guarded
+    // tables. It needs `ScoreboardCache` for its 60 s per-user entry.
+    ProgressService,
     RatingService,
     RejudgeService,
     // The admin operations dashboard (D47). It lives here, not in
@@ -113,6 +118,7 @@ import {
     OrgImportService,
     ProblemAccessService,
     ProblemSetAccessService,
+    ProgressService,
     RatingService,
     RejudgeService,
   ],

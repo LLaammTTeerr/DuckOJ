@@ -7675,6 +7675,198 @@ export interface paths {
         };
         trace?: never;
     };
+    "/users/me/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your own progress: bars, heatmap, streak, recent verdicts, what is due */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The progress page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            byTag: {
+                                attempted: number;
+                                solved: number;
+                                slug: string;
+                                nameVi: string;
+                                nameEn: string;
+                            }[];
+                            byDifficulty: {
+                                attempted: number;
+                                solved: number;
+                                difficulty: number | null;
+                            }[];
+                            heatmap: {
+                                timezone: string;
+                                from: string;
+                                to: string;
+                                days: {
+                                    date: string;
+                                    count: number;
+                                }[];
+                            };
+                            streak: {
+                                current: number;
+                                longest: number;
+                                lastDate: string | null;
+                            };
+                            recent: {
+                                id: number;
+                                problemCode: string;
+                                problemName: string;
+                                verdict: string | null;
+                                points: number | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            upcomingContests: {
+                                key: string;
+                                name: string;
+                                /** Format: date-time */
+                                startTime: string;
+                                /** Format: date-time */
+                                endTime: string;
+                                /** Format: date-time */
+                                endsAt: string;
+                            }[];
+                            homework: {
+                                orgSlug: string;
+                                orgName: string;
+                                slug: string;
+                                name: string;
+                                /** Format: date-time */
+                                deadline: string;
+                                total: number;
+                                solved: number;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{username}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A public profile’s tag and difficulty bars and activity heatmap */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    username: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The public half of the progress page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            byTag: {
+                                attempted: number;
+                                solved: number;
+                                slug: string;
+                                nameVi: string;
+                                nameEn: string;
+                            }[];
+                            byDifficulty: {
+                                attempted: number;
+                                solved: number;
+                                difficulty: number | null;
+                            }[];
+                            heatmap: {
+                                timezone: string;
+                                from: string;
+                                to: string;
+                                days: {
+                                    date: string;
+                                    count: number;
+                                }[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such user */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/tokens": {
         parameters: {
             query?: never;
