@@ -1594,6 +1594,52 @@ row of `GET /problems`. Visibility is exactly the problem's, decided by
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F6 brief),
 no human available to consult. Migration 0022.*
 
+### Amendment, 2026-08-30 (B9): the list counters are cached, keyed per problem
+
+The bullet above ends "The list counters are deliberately uncached: a page's
+ids differ per request, so the key would miss almost always." The premise is
+right and the conclusion only holds for a key over the SET. Keyed on a
+**problem**, a page of fifty problems nobody has ever requested together is
+still fifty hits — and the detail route and the list route warm each other's
+entries, which the set-key version could never do.
+
+What that cost, measured on a seeded database of 200 000 submissions against
+one problem: `loadCountsByProblem` reads **200 000 index rows and 201 620
+buffers in 126 ms**, uncached, on `GET /problems` and `GET /problems/{code}`
+— the two most public routes in the app. Migration 0022 is what keeps it an
+index scan rather than a sequential one; nothing kept it from being an index
+scan over every submission the problem had ever had. The number is a **floor**:
+that database held no contests, so the `NOT EXISTS` that excludes open contest
+windows collapsed to zero rows instead of probing once per submission.
+
+It survived F6, B4, B5 and B8 because it is invisible at fixture scale. The
+counters are correct at every size and slow at exactly one.
+
+- **`duckoj:pcounts:v1:<id>`, 30 s**, through the same read-through cache the
+  scoreboard, the booklet and the statistics use — and the same TTL as the
+  statistics beside it, for the same reason: these two numbers are a
+  difficulty hint on a catalogue page, not a live board. A solve appears
+  within half a minute.
+- **A cold page now runs N single-problem aggregates where it ran one grouped
+  one.** Deliberate, and not the N+1 this entry warned about: the same index
+  rows are read either way, `GROUP BY` was never what made it cheap, and the
+  entries a cold page writes are what make every later page free. The comment
+  in the code says not to fold it back, because the folded version is the one
+  with no cache.
+- **No `X-…-Cache` header**, deviating from D25 and from `getStats`. A page
+  mixes hits and misses per problem, so one boolean would have to lie about
+  one of them, and a header per problem is not a thing HTTP offers.
+- **A problem nobody has attempted caches ZEROS**, not an absent entry.
+  Otherwise the one problem a setter reloads constantly — the one they are
+  still writing — is the one that never has an entry to hit.
+- **The D35 mask is untouched and stays outside the cache.** Every call site
+  checks `contestHiddenProblemIds` and returns `BLANK_COUNTS` without reaching
+  the method at all, so what is stored is always the true count. That is this
+  entry's own rule for the statistics cache, unchanged.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B9 brief),
+no human available to consult. No migration.*
+
 ## D50 — A session holds every scope; `@RequireScope` governs tokens only
 
 `GET /packages/{hash}` carries `@RequireScope('packages:read')` and answers
