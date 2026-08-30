@@ -88,3 +88,4 @@
 - F-22 DONE_WITH_CONCERNS (393fe17..b10521c): structured samples (D94; fixed the sample-detection rule D87 got wrong), statement-samples package, MCP/oj/prepare use the field; deployed + pushed.
 - F-24 dispatched (main, opus): team contests (D99, migration 0036).
 - B-16 DONE_WITH_CONCERNS, merged: harness runs configureApp + loadConfig (867 call sites re-prefixed, D91), publishedVersion (D92), draft cap lock + sweeper hold (D93), LOG_LEVEL=silent crash, forced-password UX, Redis db collision; live authoring journey AC. Deployed via deploy.sh; pushed. Full api suite (>10 min now) runs in the background.
+- MISTAKE: the B-16 merge commit (031dbbc) swept F-24's uncommitted team files in (git add -A apps/api). HEAD fails tsc until F-24 commits; live stays on the F-22 build; deploy + api suite deferred to F-24's completion. Rule from now: merges stage only conflict files + generated artefacts by explicit path.
