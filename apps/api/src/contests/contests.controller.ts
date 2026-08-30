@@ -9,11 +9,13 @@ import {
   Post,
   Query,
   Res,
+  StreamableFile,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
   AnswerClarificationRequest,
   AskClarificationRequest,
+  BookletQuery,
   ContestListQuery,
   CreateContestRequest,
   PostAnnouncementRequest,
@@ -21,6 +23,7 @@ import {
   UpdateContestRequest,
   type AnswerClarificationRequestDto,
   type AskClarificationRequestDto,
+  type BookletQueryDto,
   type ClarificationDto,
   type ClarificationListDto,
   type ContestDetailDto,
@@ -39,6 +42,9 @@ import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { ContestAccessService } from '../authz/contest.access.js';
 import { ContestClarificationsService } from '../authz/contest.clarifications.js';
+import { ScoreboardCache } from '../authz/scoreboard.cache.js';
+import { STATEMENT_RENDERER, type StatementRenderer } from '../statements/statement-renderer.js';
+import { BOOKLET_CACHE_TTL_MS, bookletCacheKey } from '../statements/booklet.cache.js';
 
 /**
  * Anonymous callers are served on every `GET` here deliberately — they see
@@ -56,6 +62,8 @@ export class ContestsController {
     @Inject(ContestAccessService) private readonly contests: ContestAccessService,
     @Inject(ContestClarificationsService)
     private readonly clarifications: ContestClarificationsService,
+    @Inject(STATEMENT_RENDERER) private readonly statements: StatementRenderer,
+    @Inject(ScoreboardCache) private readonly cache: ScoreboardCache,
   ) {}
 
   // `@Public()` is marked per handler, never on the class: `Public()` only
@@ -99,6 +107,46 @@ export class ContestsController {
     // Operators and load tests read a header perfectly well.
     res.setHeader('X-Scoreboard-Cache', cache);
     return board;
+  }
+
+  /**
+   * Every problem of the contest as one printable PDF (D48).
+   *
+   * **Visibility before capability**, exactly as `GET
+   * /problems/{code}/statement.pdf` orders it: `getBookletDocument` decides
+   * who may see this contest's problem list — and 404s a contest that has
+   * not started for anyone who does not run it — BEFORE the renderer is
+   * asked for anything, so a server with no typst configured cannot answer
+   * 501 for a contest whose existence it should be concealing.
+   *
+   * `contests:read`, not a scope of its own: a caller who may read the
+   * contest's problems may read them on paper.
+   */
+  @Get(':key/booklet.pdf')
+  @Public()
+  @RequireScope('contests:read')
+  async booklet(
+    @MaybeActor() actor: Actor | null,
+    @Param('key') key: string,
+    @Query(new ZodValidationPipe(BookletQuery)) query: BookletQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { contestId, document } = await this.contests.getBookletDocument(actor, key, query.lang);
+    // Base64 through a JSON cache whose store speaks strings. A PDF is the
+    // one thing in this app that is not text, and teaching the store about
+    // buffers to save a third of a megabyte per contest per minute would
+    // buy a second serialization path for every cached thing in the app.
+    const { value, cache } = await this.cache.through(
+      bookletCacheKey(contestId, query.lang, document),
+      async () => ({ pdf: (await this.statements.renderDocument(document)).toString('base64') }),
+      BOOKLET_CACHE_TTL_MS,
+    );
+    // A HEADER, never a body field — there is no body to put it in, and it
+    // is D25's precedent either way.
+    res.setHeader('X-Booklet-Cache', cache);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${key}.pdf"`);
+    return new StreamableFile(Buffer.from(value.pdf, 'base64'));
   }
 
   /**

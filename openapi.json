@@ -1547,6 +1547,185 @@
         }
       }
     },
+    "/contests/{key}/booklet.pdf": {
+      "get": {
+        "tags": [
+          "Contests"
+        ],
+        "summary": "Every problem of the contest as one printable PDF booklet",
+        "description": "A cover page (name, window, per-problem time and memory limits), then each problem in contest order behind a page break, headed with its contest label. Visibility is exactly the contest's problem LIST: before the start it is concealed from everyone but the people who run the contest, and concealed means 404 — the same answer a contest you may not see gives, so the route is no more of an existence oracle than `GET /contests/{key}` is.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "key",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "vi",
+                "en"
+              ],
+              "default": "vi"
+            },
+            "required": false,
+            "name": "lang",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rendered booklet",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such contest, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "This server has no typst binary configured (`statement_pdf_unavailable`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/contests/{key}/join": {
       "post": {
         "tags": [

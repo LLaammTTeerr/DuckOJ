@@ -316,6 +316,41 @@ registry.registerPath({
   },
 });
 
+/**
+ * `?lang=` on the booklet — which half of a bilingual statement (D10) is
+ * printed. Defaults to `vi`, the province's own language; a statement with
+ * no `## English` / `## Tiếng Việt` split is printed whole under either
+ * value, because a monolingual statement is still the statement.
+ */
+export const BookletQuery = z.object({ lang: z.enum(['vi', 'en']).default('vi') });
+export type BookletQueryDto = z.infer<typeof BookletQuery>;
+
+registry.registerPath({
+  method: 'get',
+  path: '/contests/{key}/booklet.pdf',
+  tags: ['Contests'],
+  summary: 'Every problem of the contest as one printable PDF booklet',
+  description:
+    'A cover page (name, window, per-problem time and memory limits), then each problem in ' +
+    'contest order behind a page break, headed with its contest label. Visibility is exactly ' +
+    "the contest's problem LIST: before the start it is concealed from everyone but the people " +
+    'who run the contest, and concealed means 404 — the same answer a contest you may not see ' +
+    'gives, so the route is no more of an existence oracle than `GET /contests/{key}` is.',
+  request: { params: ContestKeyParam, query: BookletQuery },
+  responses: {
+    200: {
+      description: 'The rendered booklet',
+      content: { 'application/pdf': { schema: z.string() } },
+    },
+    404: CONTEST_NOT_FOUND,
+    501: {
+      description: 'This server has no typst binary configured (`statement_pdf_unavailable`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: VALIDATION_FAILED,
+  },
+});
+
 registry.registerPath({
   method: 'post',
   path: '/contests',

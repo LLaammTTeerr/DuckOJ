@@ -49,6 +49,11 @@ import {
   type ScoreboardCacheState,
 } from './scoreboard.cache.js';
 import { canViewProblem, loadProblemContext } from './problem.visibility.js';
+import {
+  bookletToTypst,
+  statementSection,
+  type StatementLang,
+} from '../statements/markdown-to-typst.js';
 
 const UNIQUE_VIOLATION = '23505';
 const CONTEST_KEY_CONSTRAINT = 'contests_key_lower_idx';
@@ -214,9 +219,88 @@ export class ContestAccessService {
     // stays uncached on purpose — a rating replay folding a board up to two
     // seconds stale into everybody's rating is the failure D22 was designed
     // against, and the cache must not reintroduce it by a side door.
-    return this.scoreboards.through(scoreboardCacheKey(contest, privileged, now), () =>
-      this.computeScoreboard(contest, privileged ? undefined : now),
+    const { value, cache } = await this.scoreboards.through(
+      scoreboardCacheKey(contest, privileged, now),
+      () => this.computeScoreboard(contest, privileged ? undefined : now),
     );
+    return { board: value, cache };
+  }
+
+  /**
+   * The whole contest as one typst document (D48) — the source the booklet
+   * route compiles, and the string its cache key is derived from.
+   *
+   * **Visibility is exactly the contest's problem LIST**, not the
+   * scoreboard's: `getVisible` conceals the problems pre-start from everyone
+   * but the people who run the contest, and this conceals the whole booklet
+   * the same way. It answers 404 rather than the scoreboard's 409
+   * `contest_not_started`: an empty booklet is not a thing to render, and a
+   * distinct code here would say "this contest exists and starts later",
+   * which is exactly what the concealment withholds. D22's freeze has no
+   * bearing on a statement.
+   *
+   * Returns the document rather than a PDF because the caller caches on its
+   * hash: the statement text lives on `problems`, not on a revision, so
+   * "the revision set" is not enough to notice an edited statement. Hashing
+   * what is actually about to be typeset is.
+   */
+  async getBookletDocument(
+    actor: Actor | null,
+    key: string,
+    lang: StatementLang,
+  ): Promise<{ contestId: number; document: string }> {
+    const contest = await this.loadVisible(actor, key);
+    if (new Date() < contest.startTime && !canRunContest(actor, contest)) throw NOT_FOUND;
+    const rows = await this.loadBookletRows(contest.id);
+    return {
+      contestId: contest.id,
+      document: bookletToTypst({
+        name: contest.name,
+        startTime: contest.startTime,
+        endTime: contest.endTime,
+        lang,
+        problems: rows.map((row) => ({
+          label: row.label,
+          name: row.name,
+          statement: statementSection(row.statement, lang),
+          timeMs: row.revisionId === null ? null : row.timeMs,
+          memoryKb: row.revisionId === null ? null : row.memoryKb,
+        })),
+      }),
+    };
+  }
+
+  /**
+   * The booklet's rows: the same order as `loadProblemRows`, plus the
+   * statement text and the published revision's limits.
+   *
+   * A query of its own, deliberately, rather than three columns added to
+   * `loadProblemRows`: that one runs inside every scoreboard fold, which
+   * D25 exists to keep cheap, and dragging a statement per problem through
+   * the hot path of the most-hit endpoint in the app to serve a PDF nobody
+   * asked for is the regression that cache was built against.
+   */
+  private async loadBookletRows(contestId: number) {
+    return this.db
+      .select({
+        name: problems.name,
+        statement: problems.statement,
+        label: contestProblems.label,
+        revisionId: problemRevisions.id,
+        timeMs: problemRevisions.timeMs,
+        memoryKb: problemRevisions.memoryKb,
+      })
+      .from(contestProblems)
+      .innerJoin(problems, eq(problems.id, contestProblems.problemId))
+      .leftJoin(
+        problemRevisions,
+        and(
+          eq(problems.currentRevisionId, problemRevisions.id),
+          eq(problemRevisions.state, 'published'),
+        ),
+      )
+      .where(eq(contestProblems.contestId, contestId))
+      .orderBy(asc(contestProblems.order), asc(contestProblems.id));
   }
 
   /**

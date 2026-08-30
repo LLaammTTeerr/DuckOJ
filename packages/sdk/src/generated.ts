@@ -632,6 +632,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/contests/{key}/booklet.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every problem of the contest as one printable PDF booklet
+         * @description A cover page (name, window, per-problem time and memory limits), then each problem in contest order behind a page break, headed with its contest label. Visibility is exactly the contest's problem LIST: before the start it is concealed from everyone but the people who run the contest, and concealed means 404 — the same answer a contest you may not see gives, so the route is no more of an existence oracle than `GET /contests/{key}` is.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    lang?: "vi" | "en";
+                };
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The rendered booklet */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/pdf": string;
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This server has no typst binary configured (`statement_pdf_unavailable`) */
+                501: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/contests/{key}/join": {
         parameters: {
             query?: never;
