@@ -14,6 +14,11 @@ import { DB, APP_CONFIG } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import { MAILER, type Mailer } from '../mail/mailer.js';
+import {
+  emailVerificationMail,
+  passwordResetMail,
+  resolveMailLocale,
+} from '../mail/templates.js';
 import { PasswordService } from './password.service.js';
 import { RateLimiter } from '../common/rate-limiter.js';
 
@@ -62,7 +67,10 @@ export class AccountRecoveryService {
       return;
     }
     const [user] = await this.db
-      .select({ id: schema.users.id, email: schema.users.email })
+      // `locale` too, since D57: this mail is the one piece of DuckOJ that
+      // reaches somebody who cannot sign in, so it is the one that most needs
+      // to arrive in their own language.
+      .select({ id: schema.users.id, email: schema.users.email, locale: schema.users.locale })
       .from(schema.users)
       // lower() = lower(), the same comparison login uses: registration
       // stores the address as typed, so an eq() against the lowercased input
@@ -75,12 +83,10 @@ export class AccountRecoveryService {
     const token = await this.issue(user.id, 'password_reset');
     await this.mailer.send({
       to: user.email,
-      subject: 'Reset your DuckOJ password',
-      text:
-        `Someone asked to reset the password for this account.\n\n` +
-        `${this.config.publicOrigin}/reset-password?token=${token}\n\n` +
-        `This link works once and expires in ${String(TTL_MINUTES.password_reset)} minutes. ` +
-        `If it was not you, nothing has changed and you can ignore this message.\n`,
+      ...passwordResetMail(resolveMailLocale(user.locale), {
+        url: `${this.config.publicOrigin}/reset-password?token=${token}`,
+        ttlMinutes: TTL_MINUTES.password_reset,
+      }),
     });
   }
 
@@ -113,7 +119,11 @@ export class AccountRecoveryService {
 
   async sendVerification(userId: number): Promise<void> {
     const [user] = await this.db
-      .select({ email: schema.users.email, verifiedAt: schema.users.emailVerifiedAt })
+      .select({
+        email: schema.users.email,
+        verifiedAt: schema.users.emailVerifiedAt,
+        locale: schema.users.locale,
+      })
       .from(schema.users)
       .where(eq(schema.users.id, userId))
       .limit(1);
@@ -125,11 +135,10 @@ export class AccountRecoveryService {
     const token = await this.issue(userId, 'email_verification');
     await this.mailer.send({
       to: user.email,
-      subject: 'Confirm your DuckOJ email address',
-      text:
-        `Confirm this address to finish setting up your DuckOJ account.\n\n` +
-        `${this.config.publicOrigin}/verify-email?token=${token}\n\n` +
-        `This link works once and expires in ${String(TTL_MINUTES.email_verification / 60)} hours.\n`,
+      ...emailVerificationMail(resolveMailLocale(user.locale), {
+        url: `${this.config.publicOrigin}/verify-email?token=${token}`,
+        ttlHours: TTL_MINUTES.email_verification / 60,
+      }),
     });
   }
 

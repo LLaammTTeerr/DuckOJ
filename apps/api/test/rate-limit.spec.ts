@@ -16,6 +16,7 @@ import { buildApp } from './app.harness.js';
 import { testDbUrl, withTestDb } from './db.harness.js';
 import { registerAndLogin } from './submissions.fixtures.js';
 import { MAILER, type LogMailer } from '../src/mail/mailer.js';
+import { passwordResetMail } from '../src/mail/templates.js';
 import { RateLimiter, refusalPurpose } from '../src/common/rate-limiter.js';
 
 function mailerOf(app: INestApplication): LogMailer {
@@ -70,11 +71,12 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
         for (let i = 0; i < 6; i++) await forgot(app, 'lam@example.com');
         await forgot(app, 'kim@example.com');
         // Filter on subject too: kim's registration mailed her a verification
-        // link, and this assertion is about the one *reset* mail.
+        // link, and this assertion is about the one *reset* mail. The subject
+        // comes from the template rather than a literal, because since D57 it
+        // is written in the reader's language and kim has chosen none.
+        const resetSubject = passwordResetMail('vi', { url: '', ttlMinutes: 0 }).subject;
         expect(
-          mailerOf(app).sent.filter(
-            (m) => m.to === 'kim@example.com' && m.subject === 'Reset your DuckOJ password',
-          ),
+          mailerOf(app).sent.filter((m) => m.to === 'kim@example.com' && m.subject === resetSubject),
         ).toHaveLength(1);
       } finally {
         await app.close();

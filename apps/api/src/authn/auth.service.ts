@@ -159,8 +159,12 @@ function syntheticMe(input: RegisterRequestDto): MeResponseDto {
     email: input.email,
     displayName: input.displayName,
     globalRole: 'user',
-    locale: 'vi',
-    timezone: 'Asia/Ho_Chi_Minh',
+    // `null`, matching a genuine registration byte for byte (D26): neither
+    // column has a default since 0023, so a real new row carries NULL here
+    // and a synthetic body that said 'vi' would be a perfect oracle for
+    // which of the two this is.
+    locale: null,
+    timezone: null,
     totpEnabled: false,
     // A fresh account has none, and this body must look exactly like the one
     // a genuine registration returns (D26) — so it is the same 0, not an

@@ -10,9 +10,21 @@ import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import { insertUser } from './submissions.fixtures.js';
 import { MAILER, type LogMailer } from '../src/mail/mailer.js';
+import { passwordResetMail } from '../src/mail/templates.js';
 
+/**
+ * The reset mail, in whichever language it went out in (D57). Matched on the
+ * subject built by `passwordResetMail` rather than on the English word
+ * "Reset", which stopped identifying it the moment the default became
+ * Vietnamese.
+ */
 function resetMailsOf(app: INestApplication) {
-  return app.get<LogMailer>(MAILER).sent.filter((m) => m.subject.includes('Reset'));
+  const subjects = new Set(
+    (['vi', 'en'] as const).map(
+      (locale) => passwordResetMail(locale, { url: '', ttlMinutes: 0 }).subject,
+    ),
+  );
+  return app.get<LogMailer>(MAILER).sent.filter((m) => subjects.has(m.subject));
 }
 
 describe('password reset finds mixed-case emails', () => {
