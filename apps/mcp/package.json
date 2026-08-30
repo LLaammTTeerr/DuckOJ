@@ -1,0 +1,32 @@
+{
+  "name": "@duckoj/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "duckoj-mcp": "./dist/main.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "typecheck": "tsc -b && tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint src test scripts",
+    "build": "tsc -b",
+    "start": "tsc -b && node dist/main.js",
+    "e2e": "tsx scripts/e2e.ts",
+    "test": "tsc -b && vitest run"
+  },
+  "dependencies": {
+    "@duckoj/api-prefix": "workspace:^",
+    "@duckoj/contracts": "workspace:^",
+    "@duckoj/sdk": "workspace:^",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12"
+  }
+}

@@ -12,9 +12,10 @@
     "typecheck": "tsc -b && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint src test",
     "build": "tsc -b",
-    "test": "tsc -b ../../packages/sdk && vitest run"
+    "test": "tsc -b ../mcp && vitest run"
   },
   "dependencies": {
+    "@duckoj/mcp": "workspace:^",
     "@duckoj/sdk": "workspace:^"
   }
 }
