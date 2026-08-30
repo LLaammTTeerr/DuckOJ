@@ -13,8 +13,8 @@
  * exactly one answer in this codebase, and a clarification feed must not
  * become the place a private contest's existence leaks.
  */
-import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ne, or, sql } from 'drizzle-orm';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { and, asc, desc, eq, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   contestClarifications,
@@ -53,7 +53,65 @@ const ASK_PURPOSE = 'clarification_ask';
  * for, and it bounds one INSERT rather than stating a product rule anybody
  * will meet.
  */
-const NOTIFY_CAP = 10_000;
+export const NOTIFY_CAP = 10_000;
+
+/**
+ * The recipients of one broadcast: every distinct participant of the contest
+ * except `excludeUserId`, in **user-id order**, and whether the cap cut the
+ * room short.
+ *
+ * The ordering is the point. `.limit(cap)` with no `ORDER BY` is not a cap,
+ * it is a lottery: Postgres is free to hand back whatever the scan reaches
+ * first, so a room over the cap notified an arbitrary — and, across two
+ * announcements, a *different* — subset, and nobody could say who had been
+ * told. Ordered, the truncation is at least deterministic and reproducible;
+ * `truncated` is what lets the caller say out loud that it happened, which
+ * a silent `.limit()` never could.
+ *
+ * `selectDistinct` matters independently: a person holding a live
+ * participation plus two virtual attempts is one recipient, not three. The
+ * ordering column is the selected column, which is what `SELECT DISTINCT`
+ * requires.
+ *
+ * Exported, and taking `cap` as a parameter, so the truncation can be proved
+ * against four rows instead of ten thousand.
+ */
+export async function broadcastRecipients(
+  tx: Db,
+  contestId: number,
+  excludeUserId: number,
+  cap: number,
+): Promise<{ userIds: number[]; truncated: boolean }> {
+  const rows = await broadcastRecipientsQuery(tx, contestId, excludeUserId, cap);
+  return { userIds: rows.slice(0, cap).map((row) => row.userId), truncated: rows.length > cap };
+}
+
+/**
+ * The query alone, unawaited.
+ *
+ * Split out because the `ORDER BY` has no black-box proof: `SELECT DISTINCT`
+ * over a handful of rows is planned as Sort+Unique, which happens to emit
+ * ascending order anyway, so a behavioural test passes with the clause
+ * deleted — it is the HashAggregate plan the planner picks on a *real*
+ * over-cap room that returns an arbitrary subset, and that plan cannot be
+ * summoned from a test fixture. The clause is asserted on the compiled SQL
+ * instead, which is deterministic and is exactly the property at issue.
+ */
+export function broadcastRecipientsQuery(tx: Db, contestId: number, excludeUserId: number, cap: number) {
+  return tx
+    .selectDistinct({ userId: contestParticipations.userId })
+    .from(contestParticipations)
+    .where(
+      and(
+        eq(contestParticipations.contestId, contestId),
+        ne(contestParticipations.userId, excludeUserId),
+      ),
+    )
+    .orderBy(asc(contestParticipations.userId))
+    // One past the cap, so "was anybody left out" is answered by this query
+    // rather than by a second COUNT that could disagree with it.
+    .limit(cap + 1);
+}
 
 const NOT_FOUND = new AppError(404, 'clarification_not_found', 'No such clarification.');
 const FORBIDDEN = new AppError(403, 'contest_forbidden', 'You do not run this contest.');
@@ -72,6 +130,8 @@ interface ContestRef {
 
 @Injectable()
 export class ContestClarificationsService {
+  private readonly logger = new Logger(ContestClarificationsService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(ContestAccessService) private readonly contests: ContestAccessService,
@@ -310,22 +370,27 @@ export class ContestClarificationsService {
     kind: string,
     excludeUserId: number,
   ): Promise<void> {
-    const recipients = await tx
-      .selectDistinct({ userId: contestParticipations.userId })
-      .from(contestParticipations)
-      .where(
-        and(
-          eq(contestParticipations.contestId, contest.id),
-          ne(contestParticipations.userId, excludeUserId),
-        ),
-      )
-      .limit(NOTIFY_CAP);
-    await this.notifications.notifyMany(
+    const { userIds, truncated } = await broadcastRecipients(
       tx,
-      recipients.map((row) => row.userId),
-      kind,
-      { contestKey: contest.key, contestName: contest.name, clarificationId },
+      contest.id,
+      excludeUserId,
+      NOTIFY_CAP,
     );
+    if (truncated) {
+      // A room over the cap is a room where somebody was NOT told, and the
+      // organiser has no way to know it from the response — the announcement
+      // succeeds either way. Said out loud here so it is at least in the
+      // log an operator reads when a competitor reports never seeing it.
+      this.logger.warn(
+        `contest ${contest.key}: announcement ${String(clarificationId)} notified only the first ` +
+          `${String(NOTIFY_CAP)} participants; the rest were not told`,
+      );
+    }
+    await this.notifications.notifyMany(tx, userIds, kind, {
+      contestKey: contest.key,
+      contestName: contest.name,
+      clarificationId,
+    });
   }
 
   /**

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PaginationQuery, ProblemDetails, Timestamp, cursorPage } from './common.js';
+import { DisplayName } from './auth.js';
 import { registry } from './registry.js';
 
 /**
@@ -107,7 +108,7 @@ function isWellFormedLocale(value: string): boolean {
  */
 export const UpdateMeRequest = z
   .object({
-    displayName: z.string().min(1).max(100).optional(),
+    displayName: DisplayName.optional(),
     about: z.string().max(4000).nullable().optional(),
     country: z.string().min(2).max(64).nullable().optional(),
     /**

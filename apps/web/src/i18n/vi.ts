@@ -442,6 +442,7 @@ export const vi = {
   'user.colRating': 'Rating',
   'user.colChange': 'Thay đổi',
   'user.notRated': 'Chưa được xếp hạng.',
+  'user.ratingLoadError': 'Không tải được lịch sử rating.',
   'user.theirSubmissions': 'Bài nộp của người này',
 
   // ── tokens ────────────────────────────────────────────────────────────

@@ -327,7 +327,14 @@ export function useSubmissionSocket(
 
       ws.addEventListener('open', () => {
         if (disposed) return;
-        attempt = 0;
+        // The backoff is NOT reset here. `open` is not evidence the
+        // connection is any good: an API restarting, a proxy draining and
+        // the gateway's own shutdown all accept the upgrade and then close
+        // it at once, and resetting on `open` made every one of those a
+        // once-a-second hammer from every open tab — the ladder past 1000 ms
+        // was unreachable in exactly the situation it exists for. It is
+        // reset on the `subscribed` ack below, the one frame that proves
+        // this connection did the thing it was opened to do.
         ws.send(JSON.stringify({ type: 'subscribe', submissionId: id }));
         // Provisional; the authoritative fetch fires on the 'subscribed' ack.
         safeFetch(id);
@@ -356,6 +363,9 @@ export function useSubmissionSocket(
         // they close the gap. An ack for a stale id is ignored like any
         // other frame for a different submission.
         if (frame.type === 'subscribed' && frame.id === id) {
+          // A connection that got this far worked, so the next drop is a
+          // blip and deserves the fast rung again.
+          attempt = 0;
           safeFetch(id);
           return;
         }

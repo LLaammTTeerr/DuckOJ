@@ -331,3 +331,78 @@ describe('useSubmissionSocket', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
   });
 });
+
+/**
+ * The reconnect storm.
+ *
+ * `attempt` was reset the moment the socket fired `open`, which is not
+ * evidence of anything: an API restarting, a proxy draining, or the
+ * gateway's own `onModuleDestroy` all accept the upgrade and then close it
+ * immediately. Each cycle reset the backoff, so every open tab hammered
+ * `/ws` once a second, forever, and the ladder past 1000 ms was unreachable
+ * in exactly the situation it exists for. The backoff is reset by the
+ * gateway's `subscribed` ack instead — the one frame that proves the
+ * connection did something useful.
+ */
+describe('useSubmissionSocket — reconnect backoff', () => {
+  function connectThenDrop(times: number, fetchSubmission: (id: number) => Promise<void>) {
+    const terminalRef = { current: false };
+    renderHook(() => useSubmissionSocket(7, fetchSubmission, terminalRef));
+    for (let i = 0; i < times; i += 1) {
+      const ws = FakeWebSocket.instances.at(-1)!;
+      act(() => {
+        ws.simulateOpen();
+        ws.simulateServerClose();
+      });
+      // Advance past the LONGEST rung so a connection is made whatever the
+      // delay was — the assertion is about how long it waited, not whether
+      // it eventually retried.
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+    }
+  }
+
+  it('backs off across accept-then-drop cycles instead of retrying every second', () => {
+    const fetchSubmission = vi.fn(async () => undefined);
+    connectThenDrop(3, fetchSubmission);
+
+    // Four sockets: the first, plus one per drop. The fourth must have been
+    // scheduled at the fourth rung of the ladder, not the first.
+    expect(FakeWebSocket.instances).toHaveLength(4);
+    const ws = FakeWebSocket.instances.at(-1)!;
+    act(() => {
+      ws.simulateOpen();
+      ws.simulateServerClose();
+    });
+    // 1000 ms is the FIRST rung. If the backoff had been reset by `open`,
+    // this would already have reconnected.
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(FakeWebSocket.instances).toHaveLength(4);
+    act(() => {
+      vi.advanceTimersByTime(9000);
+    });
+    expect(FakeWebSocket.instances).toHaveLength(5);
+  });
+
+  it('resets the backoff on the ack, which is what proves the connection worked', () => {
+    const fetchSubmission = vi.fn(async () => undefined);
+    connectThenDrop(3, fetchSubmission);
+
+    const ws = FakeWebSocket.instances.at(-1)!;
+    act(() => {
+      ws.simulateOpen();
+      // The gateway's proof that the subscription is live.
+      ws.simulateMessage({ type: 'subscribed', id: 7 });
+      ws.simulateServerClose();
+    });
+    // Back to the first rung: a connection that actually worked and then
+    // dropped is a network blip, and must recover quickly.
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(FakeWebSocket.instances).toHaveLength(5);
+  });
+});

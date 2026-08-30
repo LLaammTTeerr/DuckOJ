@@ -436,3 +436,74 @@ describe('packages — path collision rejection (A2)', () => {
     });
   }, 120_000);
 });
+
+/**
+ * D60. `upload` parsed the manifest and threw the result away, so a package
+ * whose manifest names a test answer or a checker source nobody shipped was
+ * stored, hashed and served — and only refused later, at
+ * `attachRevision`. The B6 report left this open as "one line to add if
+ * wanted".
+ */
+describe('packages — an incomplete manifest', () => {
+  /** A package whose manifest promises more than the archive holds. */
+  async function incompleteDir(extra: Record<string, unknown> = {}): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'pkg-bad-'));
+    await mkdir(join(dir, 'tests'), { recursive: true });
+    await writeFile(join(dir, 'manifest.json'), JSON.stringify({ ...VALID_MANIFEST, ...extra }));
+    await writeFile(join(dir, 'tests', '01.in'), '1 2\n');
+    // `tests/01.out` is deliberately absent.
+    return dir;
+  }
+
+  it('refuses a manifest naming a test file the archive does not contain, and stores nothing', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'uploader-incomplete');
+
+        const { archive, hash } = await buildPackage(await incompleteDir());
+        const res = await uploadTo(agent, hash, archive);
+        expect(res.status).toBe(422);
+        expect(res.body.code).toBe('package_manifest_incomplete');
+        // The message names what is missing: a refusal a setter can act on.
+        expect(res.body.detail).toContain('tests/01.out');
+
+        // Nothing was written — a package that cannot grade must not be
+        // storable as if it could.
+        expect(await db.select().from(schema.packages).where(eq(schema.packages.hash, hash))).toHaveLength(0);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('refuses a source checker whose source was never packed — the half nobody checked', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'uploader-nochecker');
+
+        // Every Polygon import plans a source checker, so this is squarely on
+        // the path the importer exists to serve.
+        const dir = await mkdtemp(join(tmpdir(), 'pkg-chk-'));
+        await mkdir(join(dir, 'tests'), { recursive: true });
+        await writeFile(
+          join(dir, 'manifest.json'),
+          JSON.stringify({ ...VALID_MANIFEST, checker: { kind: 'source', path: 'checker/check.cpp', language: 'cpp17' } }),
+        );
+        await writeFile(join(dir, 'tests', '01.in'), '1 2\n');
+        await writeFile(join(dir, 'tests', '01.out'), '3\n');
+
+        const { archive, hash } = await buildPackage(dir);
+        const res = await uploadTo(agent, hash, archive);
+        expect(res.status).toBe(422);
+        expect(res.body.code).toBe('package_manifest_incomplete');
+        expect(res.body.detail).toContain('checker/check.cpp');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});

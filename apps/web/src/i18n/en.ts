@@ -468,6 +468,7 @@ export const en = {
   'user.colRating': 'Rating',
   'user.colChange': 'Change',
   'user.notRated': 'Not rated yet.',
+  'user.ratingLoadError': 'Could not load the rating history.',
   'user.theirSubmissions': 'Their submissions',
 
   // ── tokens ────────────────────────────────────────────────────────────

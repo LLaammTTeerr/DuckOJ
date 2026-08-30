@@ -3,7 +3,11 @@ import { AuthnModule } from '../authn/authn.module.js';
 import { SubmissionsModule } from '../submissions/submissions.module.js';
 import { APP_CONFIG, ConfigModule } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
-import { SubmissionsGateway } from './submissions.gateway.js';
+import {
+  DEFAULT_MAX_SUBSCRIPTIONS,
+  MAX_SUBSCRIPTIONS,
+  SubmissionsGateway,
+} from './submissions.gateway.js';
 import { RedisSubscriber } from './redis-subscriber.js';
 
 /**
@@ -23,6 +27,7 @@ import { RedisSubscriber } from './redis-subscriber.js';
   providers: [
     SubmissionsGateway,
     RedisSubscriber,
+    { provide: MAX_SUBSCRIPTIONS, useValue: DEFAULT_MAX_SUBSCRIPTIONS },
     {
       provide: 'SESSION_COOKIE_NAME',
       useFactory: (config: AppConfig): string => config.sessionCookieName,

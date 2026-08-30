@@ -22,7 +22,7 @@ import {
   type CreateOrgRequestDto,
   type OrgJoinRequestListDto,
   type OrgJoinResultDto,
-  type OrgMemberDto,
+  type OrgMemberPageDto,
   type SetOrgMemberRoleRequestDto,
   type OrgPageDto,
   type OrgSummaryDto,
@@ -69,8 +69,12 @@ export class OrgsController {
   @Get(':slug/members')
   @Public()
   @RequireScope('orgs:read')
-  listMembers(@MaybeActor() actor: Actor | null, @Param('slug') slug: string): Promise<OrgMemberDto[]> {
-    return this.orgs.listMembers(actor, slug);
+  listMembers(
+    @MaybeActor() actor: Actor | null,
+    @Param('slug') slug: string,
+    @Query(new ZodValidationPipe(PaginationQuery)) query: PaginationQueryDto,
+  ): Promise<OrgMemberPageDto> {
+    return this.orgs.listMembers(actor, slug, query);
   }
 
   // Deliberately no @Public() below: every write requires authentication at
@@ -120,7 +124,7 @@ export class OrgsController {
     @CurrentActor() actor: Actor,
     @Param('slug') slug: string,
     @Param('id') id: string,
-  ): Promise<OrgMemberDto[]> {
+  ): Promise<OrgMemberPageDto> {
     return this.orgs.decideRequest(actor, slug, parseId(id), true);
   }
 
@@ -131,7 +135,7 @@ export class OrgsController {
     @CurrentActor() actor: Actor,
     @Param('slug') slug: string,
     @Param('id') id: string,
-  ): Promise<OrgMemberDto[]> {
+  ): Promise<OrgMemberPageDto> {
     return this.orgs.decideRequest(actor, slug, parseId(id), false);
   }
 
@@ -142,7 +146,7 @@ export class OrgsController {
     @CurrentActor() actor: Actor,
     @Param('slug') slug: string,
     @Body(new ZodValidationPipe(AddOrgMemberRequest)) body: AddOrgMemberRequestDto,
-  ): Promise<OrgMemberDto[]> {
+  ): Promise<OrgMemberPageDto> {
     return this.orgs.addMember(actor, slug, body);
   }
 
@@ -153,7 +157,7 @@ export class OrgsController {
     @CurrentActor() actor: Actor,
     @Param('slug') slug: string,
     @Param('username') username: string,
-  ): Promise<OrgMemberDto[]> {
+  ): Promise<OrgMemberPageDto> {
     return this.orgs.removeMember(actor, slug, username);
   }
 
@@ -164,7 +168,7 @@ export class OrgsController {
     @Param('slug') slug: string,
     @Param('username') username: string,
     @Body(new ZodValidationPipe(SetOrgMemberRoleRequest)) body: SetOrgMemberRoleRequestDto,
-  ): Promise<OrgMemberDto[]> {
+  ): Promise<OrgMemberPageDto> {
     return this.orgs.setMemberRole(actor, slug, username, body.role);
   }
 

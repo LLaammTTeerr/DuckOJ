@@ -6,6 +6,8 @@ import { withTestDb } from './db.harness.js';
 import { registerAndLogin, seedProblemAndLanguage } from './submissions.fixtures.js';
 import { SessionService } from '../src/authn/session.service.js';
 import { SubmissionAccessService } from '../src/authz/submission.access.js';
+import { MAX_SUBSCRIPTIONS } from '../src/realtime/submissions.gateway.js';
+import type { Db } from '@duckoj/db';
 
 function open(url: string, headers: Record<string, string>): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
@@ -396,6 +398,124 @@ describe('submission realtime', () => {
         const message = new Promise<string>((resolve) => socket.once('message', (d) => resolve(String(d))));
         await publish(created.body.id);
         expect(JSON.parse(await message)).toEqual({ type: 'submission', id: created.body.id });
+        socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});
+
+/**
+ * `client.subscriptions` was append-only and unbounded: nothing but closing
+ * the socket ever removed an id, and every `subscribe` frame ran a full
+ * `getVisible` detail read (three queries, the source, the whole case grid)
+ * to answer a yes/no question. One connection could spend a season of its
+ * own submissions in a burst and hold every one of them for the life of the
+ * socket.
+ */
+describe('submission realtime — the subscription set is bounded and releasable', () => {
+  /** A logged-in agent, a socket-ready url, and `count` of its own submissions. */
+  async function fixture(
+    db: Db,
+    username: string,
+    count: number,
+    overrides?: { provide: unknown; useValue: unknown }[],
+  ) {
+    const built = await buildAppWithRealtime(db, overrides ? { overrides } : {});
+    const agent = request.agent(built.app.getHttpServer());
+    const cookie = await registerAndLogin(agent, username);
+    const ids: number[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const created = await agent
+        .post('/submissions')
+        .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: `int main(){}//${String(i)}` });
+      ids.push(created.body.id as number);
+    }
+    return { ...built, agent, cookie, ids };
+  }
+
+  it('releases a subscription on `unsubscribe`, so a signal for it stops arriving', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { app, url, cookie, ids, publish } = await fixture(db, 'unsubber', 2);
+      try {
+        const socket = await open(`${url}/ws`, { cookie });
+        await subscribeAcked(socket, ids[0]!);
+        await subscribeAcked(socket, ids[1]!);
+
+        const dropped = new Promise<string>((resolve) => socket.once('message', (d) => resolve(String(d))));
+        socket.send(JSON.stringify({ type: 'unsubscribe', submissionId: ids[0]! }));
+        expect(JSON.parse(await dropped)).toEqual({ type: 'unsubscribed', id: ids[0]! });
+
+        // The next frame this socket sees must be for the id still held, not
+        // for the released one — before `unsubscribe` existed, the only way
+        // to stop watching anything was to drop the connection.
+        const next = new Promise<string>((resolve) => socket.once('message', (d) => resolve(String(d))));
+        await publish(ids[0]!);
+        await publish(ids[1]!);
+        expect(JSON.parse(await next)).toEqual({ type: 'submission', id: ids[1]! });
+
+        socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('refuses a subscription past the cap, and takes one again once a slot is released', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      // The bound at 2 rather than its production 256 — the cap is injected
+      // exactly so this needs three submissions, not two hundred and fifty
+      // seven.
+      const { app, url, cookie, ids } = await fixture(db, 'flooder', 3, [
+        { provide: MAX_SUBSCRIPTIONS, useValue: 2 },
+      ]);
+      try {
+        const socket = await open(`${url}/ws`, { cookie });
+        await subscribeAcked(socket, ids[0]!);
+        await subscribeAcked(socket, ids[1]!);
+
+        const refused = new Promise<string>((resolve) => socket.once('message', (d) => resolve(String(d))));
+        socket.send(JSON.stringify({ type: 'subscribe', submissionId: ids[2]! }));
+        // Its own code, not `submission_not_found`: this submission IS the
+        // caller's, and telling them otherwise would be a lie they would act
+        // on.
+        expect(JSON.parse(await refused)).toEqual({ type: 'error', code: 'subscription_limit' });
+
+        // A repeat of an id already held is re-acked and consumes no slot —
+        // a client that re-subscribes on every reconnect must not be walked
+        // into its own cap.
+        await subscribeAcked(socket, ids[0]!);
+
+        const released = new Promise<string>((resolve) => socket.once('message', (d) => resolve(String(d))));
+        socket.send(JSON.stringify({ type: 'unsubscribe', submissionId: ids[0]! }));
+        await released;
+        await subscribeAcked(socket, ids[2]!);
+
+        socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('ignores a subscribe whose id is not a positive integer, rather than parking it in the set', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      // Cap of 1: if a bogus id took a slot, the real subscribe below would
+      // be refused instead of acked — which is the whole point of refusing
+      // an id that can never match a `notify`.
+      const { app, url, cookie, ids } = await fixture(db, 'floaty', 1, [
+        { provide: MAX_SUBSCRIPTIONS, useValue: 1 },
+      ]);
+      try {
+        const socket = await open(`${url}/ws`, { cookie });
+        for (const bad of [1.5, -1, 0]) {
+          socket.send(JSON.stringify({ type: 'subscribe', submissionId: bad }));
+        }
+        await subscribeAcked(socket, ids[0]!);
         socket.close();
       } finally {
         await app.close();

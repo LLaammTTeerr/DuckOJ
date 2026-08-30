@@ -3,7 +3,7 @@ import request from 'supertest';
 import { eq } from 'drizzle-orm';
 import { organizations, orgMembers } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
-import { OrgMemberList, OrgSummary } from '@duckoj/contracts';
+import { OrgMemberPage, OrgSummary } from '@duckoj/contracts';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import { registerAndLogin } from './submissions.fixtures.js';
@@ -149,8 +149,9 @@ describe('GET /orgs/:slug/members over HTTP', () => {
 
         const anonPub = await request(app.getHttpServer()).get('/orgs/http-pub-members/members');
         expect(anonPub.status).toBe(200);
-        const list = OrgMemberList.parse(anonPub.body);
-        expect(list.map((m) => m.username)).toEqual(['orgs-http-member-viewer']);
+        const page = OrgMemberPage.parse(anonPub.body);
+        expect(page.items.map((m) => m.username)).toEqual(['orgs-http-member-viewer']);
+        expect(page.nextCursor).toBeNull();
 
         const anonPriv = await request(app.getHttpServer()).get('/orgs/http-priv-members/members');
         expect(anonPriv.status).toBe(404);
@@ -158,7 +159,7 @@ describe('GET /orgs/:slug/members over HTTP', () => {
 
         const memberPriv = await agent.get('/orgs/http-priv-members/members');
         expect(memberPriv.status).toBe(200);
-        expect(OrgMemberList.parse(memberPriv.body).map((m) => m.username)).toEqual(['orgs-http-member-viewer']);
+        expect(OrgMemberPage.parse(memberPriv.body).items.map((m) => m.username)).toEqual(['orgs-http-member-viewer']);
       } finally {
         await app.close();
       }

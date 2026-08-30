@@ -20,6 +20,11 @@ import { withTestDb } from './db.harness.js';
 import { insertUser, registerAndLogin, seedProblemAndLanguage, userIdOf } from './submissions.fixtures.js';
 import { NotificationsService } from '../src/notifications/notifications.service.js';
 import type { Actor } from '../src/authz/actor.js';
+import {
+  NOTIFY_CAP,
+  broadcastRecipients,
+  broadcastRecipientsQuery,
+} from '../src/authz/contest.clarifications.js';
 
 const START = '2026-03-01T09:00:00Z';
 const END = '2026-03-01T14:00:00Z';
@@ -507,6 +512,69 @@ describe('a malformed clarification id', () => {
       } finally {
         await app.close();
       }
+    });
+  }, 120_000);
+});
+
+/**
+ * The cap was `.limit(NOTIFY_CAP)` with no `ORDER BY` — which is not a cap
+ * but a lottery: an over-cap room notified whatever the scan reached first,
+ * a different arbitrary subset each time, and nothing said it had happened.
+ * B6's closing concern.
+ */
+describe('broadcastRecipients — the notification cap (D59)', () => {
+  it('truncates deterministically, in user-id order, and says so', async () => {
+    await withTestDb(async (db) => {
+      const organiser = await insertUser(db, 'cap-org');
+      const contestId = await seedContest(db, { key: 'cap-cup', createdBy: organiser.id });
+      // Joined in DESCENDING id order, so physical (insertion) order is the
+      // opposite of the answer: an ascending assertion cannot pass by luck.
+      const students = [];
+      for (const name of ['cap-e', 'cap-d', 'cap-c', 'cap-b', 'cap-a']) {
+        students.push(await insertUser(db, name));
+      }
+      for (let i = students.length - 1; i >= 0; i -= 1) {
+        await join(db, contestId, students[i]!.id);
+        // A second, virtual attempt: one person, still one recipient.
+        await join(db, contestId, students[i]!.id, 1);
+      }
+      const ordered = students.map((s) => s.id).sort((a, b) => a - b);
+
+      const capped = await broadcastRecipients(db, contestId, organiser.id, 3);
+      expect(capped.userIds).toEqual(ordered.slice(0, 3));
+      expect(capped.truncated).toBe(true);
+
+      const whole = await broadcastRecipients(db, contestId, organiser.id, 10);
+      expect(whole.userIds).toEqual(ordered);
+      // Exactly the cap is NOT truncation — an off-by-one here would log a
+      // warning about a room that was fully notified.
+      expect((await broadcastRecipients(db, contestId, organiser.id, 5)).truncated).toBe(false);
+    });
+  }, 120_000);
+
+  it('orders in SQL, not by the planner\'s goodwill', async () => {
+    await withTestDb(async (db) => {
+      // `SELECT DISTINCT` over a test-sized room is planned as Sort+Unique,
+      // which emits ascending order whether or not the clause is there; it
+      // is the HashAggregate plan on a real over-cap room that returns an
+      // arbitrary subset, and no fixture can summon it. So the clause is
+      // asserted where it is unambiguous: in the statement itself.
+      const { sql: text } = broadcastRecipientsQuery(db, 1, 2, 3).toSQL();
+      expect(text.toLowerCase()).toMatch(/order by/);
+    });
+  }, 120_000);
+
+  it('leaves the announcer out of their own broadcast, virtual attempts and all', async () => {
+    await withTestDb(async (db) => {
+      const organiser = await insertUser(db, 'cap-org2');
+      const contestId = await seedContest(db, { key: 'cap-cup2', createdBy: organiser.id });
+      await join(db, contestId, organiser.id);
+      const student = await insertUser(db, 'cap-student');
+      await join(db, contestId, student.id);
+
+      const all = await broadcastRecipients(db, contestId, organiser.id, NOTIFY_CAP);
+      expect(all.userIds).toEqual([student.id]);
+      expect(all.truncated).toBe(false);
     });
   }, 120_000);
 });

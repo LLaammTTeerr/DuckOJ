@@ -26,10 +26,15 @@ export function UserPage({ username }: { username: string }) {
   const rating = useQuery({
     queryKey: ['user-rating', username],
     queryFn: async (): Promise<RatingEvent[]> => {
-      const { data } = await api.GET('/users/{username}/rating', {
+      // Throws rather than folding a failure into `[]`. An empty history and
+      // a failed request look identical to `data ?? []`, and the screen
+      // renders the first as "has not been rated" — a statement about this
+      // person that a 500 or a dropped connection has no business making.
+      const result = await api.GET('/users/{username}/rating', {
         params: { path: { username } },
       });
-      return data ?? [];
+      if (result.error) throw apiError(result, t('user.ratingLoadError'));
+      return result.data;
     },
   });
 
@@ -124,6 +129,10 @@ export function UserPage({ username }: { username: string }) {
             ))}
           </tbody>
         </table>
+      ) : rating.error ? (
+        <p role="alert">{rating.error.message}</p>
+      ) : rating.isPending ? (
+        <p className="muted">{t('common.loading')}</p>
       ) : (
         <p className="muted">{t('user.notRated')}</p>
       )}

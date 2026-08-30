@@ -2,7 +2,7 @@
 
 Six commits, one migration (0023). Ritual green: **1513 tests / 181 files**,
 regen with no diff, `vite build`. **D56** rules the contests, **D57** the
-settings; twenty mutants run, nineteen killed, one equivalent (below).
+settings; twenty-one mutants run, twenty killed, one equivalent (below).
 
 ## A — organisation-restricted contests (D56)
 `contest_orgs` meant only "who may SEE an `org`-visible contest" since 4c, so
@@ -48,9 +48,9 @@ authority · merged check on the stored set · org edit inserting without
 removing · `?org=` ignored · summaries with no restriction · no
 already-attached exemption · 0023 leaving `locale NOT NULL DEFAULT 'vi'` ·
 mail locale ignored, and matched exactly not by prefix · `null` as absent.
-Web (18 tests), 7 killed: picker offering every org · create not sending
-`orgSlugs` · edit not seeding them · badges hidden · a cleared preference
-omitted not nulled · zone ignored · sync keyed on identity.
+Web (18 tests), 8 killed: picker offering every org · create not sending
+`orgSlugs` · edit not seeding them · badges hidden · cleared pref omitted not
+nulled · a null pref applied as a value · zone ignored · sync on identity.
 
 **Concerns.** The survivor is *equivalent*: dropping `PreferenceSync`'s
 applied-signature ref changes nothing observable — react-query's structural

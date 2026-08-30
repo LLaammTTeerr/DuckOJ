@@ -218,7 +218,7 @@ describe('deciding a request', () => {
 
         const approved = await owner.post(`/orgs/decorg/requests/${String(pending!.id)}/approve`);
         expect(approved.status).toBe(200);
-        expect((approved.body as { username: string }[]).map((m) => m.username)).toContain('decjoiner');
+        expect((approved.body as { items: { username: string }[] }).items.map((m) => m.username)).toContain('decjoiner');
         expect(await roleOf(db, 'decorg', 'decjoiner')).toBe('member');
 
         const [row] = await db

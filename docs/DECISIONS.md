@@ -1711,3 +1711,99 @@ chosen", and only a non-null value overrides anything.**
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F7 brief),
 no human available to consult. Migration 0023.*
+
+## D58 — A roster is a page, and the viewer's own standing rides on the row
+
+`GET /orgs/{slug}/members` served every row of `org_members` in one array,
+and so did the four writes that answer with the roster. `org_members` has no
+bound: a province's school with 5,000 accounts serialised 5,000 rows on every
+click, on the one shape every sibling list (`/problems`, `/contests`,
+`/orgs`, `/submissions`, `/users`) abandoned long ago. The B6 report named
+it; this closes it.
+
+- **Keyset on `username`, which is also the sort column.** The cursor is the
+  last username on the page, so it is stable under concurrent joins and
+  departures — a member added before the cursor cannot push a later one onto
+  a page already read, and one removed cannot make the walk skip a row.
+  `users.username` is unique, so no tiebreaker is needed, and `>` and
+  `ORDER BY` resolve under the same collation, so the walk cannot disagree
+  with the sort.
+- **The four writes answer the FIRST page**, with its own `nextCursor`. A
+  write's body is a convenience refresh, not the roster of record; a client
+  that needs the rest pages the read endpoint like anybody else.
+- **A cursor longer than a username is 422 `invalid_cursor`**, not a scan —
+  the same refusal every sibling list makes for a cursor its ordering column
+  could never hold.
+- **`OrgSummary` gains `myRole`, and that is required by the above, not a
+  bonus.** The org screen derived "am I in this?" by searching the roster it
+  had just downloaded whole. Once the roster is a page, a member sorted past
+  the first page reads as an outsider and is offered a "Join" button for an
+  organization they already belong to. The viewer's own standing is one fact
+  about one row, so it travels with the row. It leaks nothing — it says only
+  what the caller already knows about themselves — and the list computes it
+  for a whole page in ONE extra query (`rolesOf`), never one per row.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B7 brief),
+no human available to consult. No migration.*
+
+## D59 — A truncated broadcast is ordered, and it says so
+
+`broadcast` capped its recipient list with `.limit(NOTIFY_CAP)` and no
+`ORDER BY`. That is not a cap, it is a lottery: `SELECT DISTINCT … LIMIT n`
+lets Postgres return whatever the plan reaches first, so a room over the cap
+notified an arbitrary — and, between two announcements, a *different* —
+subset, and nothing anywhere said anybody had been left out. The B6 report
+named it; this closes it.
+
+- **Ordered by `user_id`.** Not because low ids deserve to be told first,
+  but because a deterministic truncation can be reproduced, explained and
+  re-run; an arbitrary one cannot. On a test-sized room the planner picks
+  Sort+Unique and emits that order anyway — which is why the clause is
+  asserted on the compiled statement rather than only on a result set: a
+  behavioural test passes with it deleted, and the plan that does not
+  (HashAggregate, on a real over-cap room) cannot be summoned from a
+  fixture.
+- **The truncation is logged at `warn`, with the contest key and the
+  clarification id.** The announcement still succeeds — refusing to post it
+  would be worse — so the organiser has no way to learn from the response
+  that part of the room was not told. The log is the only place that fact
+  can exist, and it is what an operator has to go on when a competitor
+  reports never seeing an announcement.
+- **`NOTIFY_CAP` stays 10,000, and the cap is a parameter.** The bound is
+  unchanged (four times the largest room this is built for); taking it as an
+  argument is what lets the truncation be proved against four participants
+  instead of ten thousand.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B7 brief),
+no human available to consult. No migration.*
+
+## D60 — `POST /packages` refuses a manifest that names files it does not have
+
+`upload()` parsed the manifest and threw the parsed value away: the archive's
+real file list and the manifest's promises were both in hand and never
+compared. So a package whose manifest names `tests/01.out`, or a
+`checker: { kind: 'source' }` whose source was never packed, was hashed,
+stored and served — and refused only much later at `attachRevision`, by the
+rule B6 added there. The B6 report left this open as "one line to add if
+wanted". It was wanted.
+
+- **The same `findMissingPackageFiles`**, not a second copy. Completeness is
+  a property of a package's contents, independent of whether it is checked
+  while building the archive, while uploading it, or while attaching a
+  revision — and two copies is exactly how the checker path came to be
+  checked nowhere at all.
+- **422 `package_manifest_incomplete`**, its own code rather than the
+  neighbouring `package_manifest_invalid`. The two have different fixes:
+  invalid means "correct the JSON", incomplete means "pack the file", and
+  the message names which files are missing so the second is actionable.
+  Deliberately NOT `attachRevision`'s 400 `package_invalid`: that is the
+  code vocabulary of the problem-revision endpoints, and this endpoint
+  answers 422 for every "this archive is not acceptable". The RULE is
+  shared; the wire code belongs to its own route.
+- **Refused before anything is stored.** A package that cannot be attached
+  to any revision is a dead blob with a permanent hash — garbage an eviction
+  pass has to reclaim, and a hash a client can hold and believe in.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B7 brief),
+no human available to consult. No migration.*
+

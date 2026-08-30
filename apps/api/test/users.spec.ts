@@ -327,3 +327,59 @@ describe('PATCH /users/me', () => {
     });
   }, 120_000);
 });
+
+/**
+ * Probed against the live stack: `PATCH /users/me {"displayName":"   "}`
+ * answered 200 and `GET /users/bh7-uni1` came back with
+ * `"displayName":"   "` — a name that renders as nothing at all wherever it
+ * is rendered. `z.string().min(1)` is satisfied by three spaces.
+ */
+describe('PATCH /users/me — a display name is a name', () => {
+  it('refuses a whitespace-only display name, and trims the one it accepts', async () => {
+    await withTestDb(async (db) => {
+      await seedCorpus(db);
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'namer');
+
+        for (const blank of ['   ', '\t', '\n\n']) {
+          const res = await agent.patch('/users/me').send({ displayName: blank });
+          expect(res.status, JSON.stringify(blank)).toBe(422);
+          expect(res.body.code).toBe('validation_failed');
+        }
+
+        const ok = await agent.patch('/users/me').send({ displayName: '  Đặng Thị Ánh  ' });
+        expect(ok.status).toBe(200);
+        // Trimmed, not merely accepted: the padding is invisible where the
+        // name is shown, and it is what lets two accounts wear one name.
+        expect(ok.body.displayName).toBe('Đặng Thị Ánh');
+        const [row] = await db
+          .select({ displayName: schema.users.displayName })
+          .from(schema.users)
+          .where(eq(schema.users.username, 'namer'));
+        expect(row?.displayName).toBe('Đặng Thị Ánh');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('refuses the same blank name at registration, where the rule used to differ', async () => {
+    await withTestDb(async (db) => {
+      await seedCorpus(db);
+      const app = await buildApp(db);
+      try {
+        const res = await request(app.getHttpServer()).post('/auth/register').send({
+          username: 'blankname',
+          email: 'blankname@example.com',
+          password: 'Str0ngPassw0rd!x',
+          displayName: '   ',
+        });
+        expect(res.status).toBe(422);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});

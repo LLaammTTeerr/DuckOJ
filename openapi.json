@@ -5340,7 +5340,7 @@
                   "displayName": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 64
+                    "maxLength": 100
                   }
                 },
                 "required": [
@@ -7218,40 +7218,74 @@
             "required": true,
             "name": "slug",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Every member, sorted by username",
+            "description": "A page of members, sorted by username",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "username": {
-                        "type": "string"
-                      },
-                      "role": {
-                        "type": "string",
-                        "enum": [
-                          "owner",
-                          "admin",
-                          "member"
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "owner",
+                              "admin",
+                              "member"
+                            ]
+                          },
+                          "joinedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "role",
+                          "joinedAt"
                         ]
-                      },
-                      "joinedAt": {
-                        "type": "string",
-                        "format": "date-time"
                       }
                     },
-                    "required": [
-                      "username",
-                      "role",
-                      "joinedAt"
-                    ]
-                  }
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
                 }
               }
             }
@@ -7353,32 +7387,47 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "username": {
-                        "type": "string"
-                      },
-                      "role": {
-                        "type": "string",
-                        "enum": [
-                          "owner",
-                          "admin",
-                          "member"
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "owner",
+                              "admin",
+                              "member"
+                            ]
+                          },
+                          "joinedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "role",
+                          "joinedAt"
                         ]
-                      },
-                      "joinedAt": {
-                        "type": "string",
-                        "format": "date-time"
                       }
                     },
-                    "required": [
-                      "username",
-                      "role",
-                      "joinedAt"
-                    ]
-                  }
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
                 }
               }
             }
@@ -8096,32 +8145,47 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "username": {
-                        "type": "string"
-                      },
-                      "role": {
-                        "type": "string",
-                        "enum": [
-                          "owner",
-                          "admin",
-                          "member"
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "owner",
+                              "admin",
+                              "member"
+                            ]
+                          },
+                          "joinedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "role",
+                          "joinedAt"
                         ]
-                      },
-                      "joinedAt": {
-                        "type": "string",
-                        "format": "date-time"
                       }
                     },
-                    "required": [
-                      "username",
-                      "role",
-                      "joinedAt"
-                    ]
-                  }
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
                 }
               }
             }
@@ -8339,32 +8403,47 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "username": {
-                        "type": "string"
-                      },
-                      "role": {
-                        "type": "string",
-                        "enum": [
-                          "owner",
-                          "admin",
-                          "member"
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "owner",
+                              "admin",
+                              "member"
+                            ]
+                          },
+                          "joinedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "role",
+                          "joinedAt"
                         ]
-                      },
-                      "joinedAt": {
-                        "type": "string",
-                        "format": "date-time"
                       }
                     },
-                    "required": [
-                      "username",
-                      "role",
-                      "joinedAt"
-                    ]
-                  }
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
                 }
               }
             }
@@ -8582,32 +8661,47 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "username": {
-                        "type": "string"
-                      },
-                      "role": {
-                        "type": "string",
-                        "enum": [
-                          "owner",
-                          "admin",
-                          "member"
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "owner",
+                              "admin",
+                              "member"
+                            ]
+                          },
+                          "joinedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "role",
+                          "joinedAt"
                         ]
-                      },
-                      "joinedAt": {
-                        "type": "string",
-                        "format": "date-time"
                       }
                     },
-                    "required": [
-                      "username",
-                      "role",
-                      "joinedAt"
-                    ]
-                  }
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
                 }
               }
             }
@@ -8846,32 +8940,47 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "username": {
-                        "type": "string"
-                      },
-                      "role": {
-                        "type": "string",
-                        "enum": [
-                          "owner",
-                          "admin",
-                          "member"
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "username": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "owner",
+                              "admin",
+                              "member"
+                            ]
+                          },
+                          "joinedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "username",
+                          "role",
+                          "joinedAt"
                         ]
-                      },
-                      "joinedAt": {
-                        "type": "string",
-                        "format": "date-time"
                       }
                     },
-                    "required": [
-                      "username",
-                      "role",
-                      "joinedAt"
-                    ]
-                  }
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextCursor"
+                  ]
                 }
               }
             }

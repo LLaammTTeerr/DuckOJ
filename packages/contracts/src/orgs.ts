@@ -92,8 +92,26 @@ export const OrgMember = z.object({
 });
 export type OrgMemberDto = z.infer<typeof OrgMember>;
 
-export const OrgMemberList = z.array(OrgMember);
-export type OrgMemberListDto = z.infer<typeof OrgMemberList>;
+/**
+ * A **page** of members, never the whole roster (D58).
+ *
+ * An organization is a province's school or club: `orgMembers` has no bound
+ * at all, and the unpaginated array this used to be would happily serialise
+ * every row of the largest one into a single response — the shape every
+ * sibling list (`/problems`, `/contests`, `/orgs`, `/submissions`, `/users`)
+ * abandoned long ago. The cursor is the last username on the page, which is
+ * exactly the column the roster is ordered by, so it is stable under
+ * concurrent joins and departures.
+ *
+ * The four *write* endpoints that answer with the roster (add, remove, set
+ * role, decide a join request) return the FIRST page of it, with its own
+ * `nextCursor`. Their body is a convenience refresh, not the roster of
+ * record — the client that needs the rest pages `GET .../members` like
+ * anybody else — and answering a bounded page there is what keeps a write
+ * to a 5,000-member organization from costing 5,000 rows on every click.
+ */
+export const OrgMemberPage = cursorPage(OrgMember);
+export type OrgMemberPageDto = z.infer<typeof OrgMemberPage>;
 
 /** A pending request to join, as an owner or admin sees it. */
 export const OrgJoinRequest = z.object({
@@ -224,9 +242,9 @@ registry.registerPath({
   path: '/orgs/{slug}/members',
   tags: ['Organizations'],
   summary: 'The members of an organization visible to the caller',
-  request: { params: OrgSlugParam },
+  request: { params: OrgSlugParam, query: PaginationQuery },
   responses: {
-    200: { description: 'Every member, sorted by username', content: { 'application/json': { schema: OrgMemberList } } },
+    200: { description: 'A page of members, sorted by username', content: { 'application/json': { schema: OrgMemberPage } } },
     404: ORG_NOT_FOUND,
   },
 });
@@ -284,7 +302,7 @@ for (const decision of ['approve', 'reject'] as const) {
     request: { params: z.object({ slug: z.string(), id: z.number().int() }) },
     summary: `${decision === 'approve' ? 'Approve' : 'Reject'} a pending join request`,
     responses: {
-      200: { description: 'Decided', content: { 'application/json': { schema: OrgMemberList } } },
+      200: { description: 'Decided', content: { 'application/json': { schema: OrgMemberPage } } },
       401: NOT_SIGNED_IN,
       403: FORBIDDEN,
       404: ORG_NOT_FOUND,
@@ -306,7 +324,7 @@ registry.registerPath({
     body: { content: { 'application/json': { schema: AddOrgMemberRequest } } },
   },
   responses: {
-    201: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberList } } },
+    201: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberPage } } },
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: ORG_NOT_FOUND,
@@ -322,7 +340,7 @@ registry.registerPath({
   summary: 'Remove a member, or leave by naming yourself',
   request: { params: OrgMemberParam },
   responses: {
-    200: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberList } } },
+    200: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberPage } } },
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: ORG_NOT_FOUND,
@@ -343,7 +361,7 @@ registry.registerPath({
     body: { content: { 'application/json': { schema: SetOrgMemberRoleRequest } } },
   },
   responses: {
-    200: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberList } } },
+    200: { description: 'The updated roster', content: { 'application/json': { schema: OrgMemberPage } } },
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: ORG_NOT_FOUND,
