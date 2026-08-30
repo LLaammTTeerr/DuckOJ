@@ -676,6 +676,22 @@ describe('GET /contests/{key}/certificates.pdf', () => {
           .get('/contests/certs/certificates.pdf?top=1&username=certs-an')
           .set('Cookie', cookie);
         expect(both.status).toBe(422);
+        // The bounds, on the path an organiser's typo actually takes: a
+        // `top` outside 1..1000, or one that is not a whole number at all,
+        // must be a validation refusal and never a 500 out of `z.coerce`
+        // (which turns `abc` into `NaN` and hands it to `.int()`).
+        for (const bad of ['top=0', 'top=1001', 'top=abc', 'top=1.5', 'top=-3']) {
+          const res = await agent
+            .get(`/contests/certs/certificates.pdf?${bad}`)
+            .set('Cookie', cookie);
+          expect(res.status, bad).toBe(422);
+        }
+        // And the edges of the range are accepted — a cap that refused its
+        // own boundary would be a cap of 999.
+        const edge = await agent
+          .get('/contests/certs/certificates.pdf?top=1000')
+          .set('Cookie', cookie);
+        expect(edge.status).toBe(501);
       } finally {
         await app.close();
       }
