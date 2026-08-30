@@ -23,6 +23,7 @@
     "@duckoj/api-prefix": "workspace:^",
     "@duckoj/contracts": "workspace:^",
     "@duckoj/sdk": "workspace:^",
+    "@duckoj/statement-samples": "workspace:^",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^4.4.3"
   },

@@ -219,6 +219,9 @@ importers:
       '@duckoj/sdk':
         specifier: workspace:^
         version: link:../../packages/sdk
+      '@duckoj/statement-samples':
+        specifier: workspace:^
+        version: link:../../packages/statement-samples
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.4.3)
@@ -274,6 +277,9 @@ importers:
       '@duckoj/sdk':
         specifier: workspace:^
         version: link:../../packages/sdk
+      '@duckoj/statement-samples':
+        specifier: workspace:^
+        version: link:../../packages/statement-samples
       '@lezer/highlight':
         specifier: ^1.2.3
         version: 1.2.3
@@ -421,6 +427,8 @@ importers:
         version: 7.13.0(typescript@5.9.3)
 
   packages/similarity: {}
+
+  packages/statement-samples: {}
 
 packages:
 

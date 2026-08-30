@@ -1,10 +1,24 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
-  "include": ["src"],
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../../packages/api-prefix" },
-    { "path": "../../packages/contracts" },
-    { "path": "../../packages/sdk" }
+    {
+      "path": "../../packages/api-prefix"
+    },
+    {
+      "path": "../../packages/contracts"
+    },
+    {
+      "path": "../../packages/sdk"
+    },
+    {
+      "path": "../../packages/statement-samples"
+    }
   ]
 }
