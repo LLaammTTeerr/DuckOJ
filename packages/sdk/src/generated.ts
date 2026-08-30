@@ -2753,11 +2753,17 @@ export interface paths {
                                 failed: number;
                                 oldestQueuedSeconds: number | null;
                             };
+                            blockedJobs: {
+                                reason: string;
+                                count: number;
+                            }[];
                             judges: {
                                 name: string;
                                 driver: string;
                                 lastSeen: string | null;
                                 online: boolean;
+                                gradingNow: number;
+                                gradedLastHour: number;
                             }[];
                             workers: {
                                 workerId: string;

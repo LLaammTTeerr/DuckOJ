@@ -52,6 +52,7 @@ const CONTEST = {
 /** An empty-but-healthy dashboard: every panel present, nothing to report. */
 const DASHBOARD = {
   queue: { queued: 0, running: 0, expiredLeases: 0, failed: 0, oldestQueuedSeconds: null },
+  blockedJobs: [],
   judges: [],
   workers: [],
   recentFailures: [],
@@ -261,8 +262,8 @@ describe('AdminPage operations dashboard (D47)', () => {
       ...DASHBOARD,
       queue: { queued: 3, running: 1, expiredLeases: 2, failed: 0, oldestQueuedSeconds: 300 },
       judges: [
-        { name: 'judge0', driver: 'dmoj', lastSeen: '2026-08-29T09:59:30Z', online: true },
-        { name: 'judge1', driver: 'dmoj', lastSeen: null, online: false },
+        { name: 'judge0', driver: 'dmoj', lastSeen: '2026-08-29T09:59:30Z', online: true, gradingNow: 1, gradedLastHour: 9 },
+        { name: 'judge1', driver: 'dmoj', lastSeen: null, online: false, gradingNow: 0, gradedLastHour: 0 },
       ],
       workers: [
         { workerId: 'judged-1#1', currentSubmissionId: 42, currentJobId: 7, gradedLastHour: 9, internalErrorsLastHour: 1 },
@@ -396,5 +397,69 @@ describe('AdminPage operations dashboard (D47)', () => {
     // would leave a dashboard that looks right and never changes.
     const source = readFileSync(resolve(process.cwd(), 'src/routes/admin.tsx'), 'utf8');
     expect(source).toContain('refetchInterval: 15_000');
+  });
+});
+
+/**
+ * The two questions a second judge makes askable, neither of which was on
+ * screen before (F11's own report says so): which machine is carrying the
+ * work, and why a queue that will not move is not moving.
+ */
+describe('AdminPage judge throughput and blocked jobs (D68)', () => {
+  const JUDGES = [
+    {
+      name: 'judge-1',
+      driver: 'dmoj',
+      lastSeen: '2026-08-29T09:59:30Z',
+      online: true,
+      gradingNow: 1,
+      gradedLastHour: 12,
+    },
+    {
+      name: 'judge-2',
+      driver: 'dmoj',
+      lastSeen: '2026-08-29T09:59:40Z',
+      online: true,
+      gradingNow: 0,
+      gradedLastHour: 0,
+    },
+  ];
+
+  it('says what each judge is grading now and what it finished this hour', async () => {
+    serve('admin', [CONTEST], { ...DASHBOARD, judges: JUDGES });
+    wrap(<AdminPage />);
+    expect(await screen.findByRole('row', { name: /judge-1/ })).toHaveTextContent('12');
+    // A judge that is up and taking none of the work is the whole point of
+    // the column, so "idle" has to be legible as a number rather than a gap.
+    expect(screen.getByRole('row', { name: /judge-2/ })).toHaveTextContent('0');
+    expect(screen.getByRole('columnheader', { name: 'Đang chấm' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Đã chấm (1 giờ)' })).toBeInTheDocument();
+  });
+
+  it('shows a blocked job with the reason the queue gave, verbatim', async () => {
+    serve('admin', [CONTEST], {
+      ...DASHBOARD,
+      queue: { queued: 3, running: 0, expiredLeases: 0, failed: 0, oldestQueuedSeconds: 900 },
+      judges: JUDGES,
+      blockedJobs: [{ reason: 'no connected judge supports language py3', count: 3 }],
+    });
+    wrap(<AdminPage />);
+    // The reason names the language nobody can run; paraphrasing it would
+    // throw away the only actionable fact on the panel.
+    expect(await screen.findByText('no connected judge supports language py3')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /kẹt/i })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /py3/ })).toHaveTextContent('3');
+  });
+
+  it('keeps the blocked panel off screen entirely when nothing is blocked', async () => {
+    // The ordinary state. A heading followed by "nothing" on every poll is a
+    // heading an operator learns to skip, which is the last thing this one
+    // should be.
+    serve('admin', [CONTEST], { ...DASHBOARD, judges: JUDGES });
+    wrap(<AdminPage />);
+    await screen.findByRole('row', { name: /judge-1/ });
+    // `/kẹt/`, not `/bị chặn/`: the refusals panel two headings down is
+    // "Lượt bị chặn bởi giới hạn tần suất", a different thing entirely.
+    expect(screen.queryByRole('heading', { name: /kẹt/i })).toBeNull();
   });
 });

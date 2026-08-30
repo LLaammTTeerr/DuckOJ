@@ -402,6 +402,13 @@ function Operations() {
                   <th>{t('admin.colDriver')}</th>
                   <th>{t('admin.colLastSeen')}</th>
                   <th>{t('admin.colStatus')}</th>
+                  {/* Counts, not links: a machine grading two things has no
+                      one submission to point at, and the drill-down from a
+                      judge is the worker table below. Its own column header
+                      (`colJudgeGrading`) rather than the worker table's
+                      `colNowGrading`, which labels a submission link. */}
+                  <th className="num">{t('admin.colJudgeGrading')}</th>
+                  <th className="num">{t('admin.colGradedHour')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -420,11 +427,46 @@ function Operations() {
                     {/* A word, not a colour: this table is read on a phone in
                         a corridor, and `.badge` is the verdict system. */}
                     <td>{judge.online ? t('admin.judgeOnline') : t('admin.judgeOffline')}</td>
+                    {/* Zero, never a blank: a judge that is up and taking
+                        none of the work is exactly what these two columns
+                        exist to show, and an empty cell reads as "no data"
+                        rather than "none". */}
+                    <td className="num">{judge.gradingNow}</td>
+                    <td className="num">{judge.gradedLastHour}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
+
+          {/* Rendered only when something IS blocked, unlike every other
+              panel here. Nothing blocked is the ordinary state, and a
+              heading followed by "none" on every fifteen-second poll is a
+              heading an operator stops reading — which is the last thing
+              this one should be. The reason is the driver's own sentence,
+              printed verbatim: it names the language nobody can run. */}
+          {data.blockedJobs.length > 0 ? (
+            <>
+              <h3>{t('admin.blockedHeading')}</h3>
+              <p className="muted">{t('admin.blockedNote')}</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t('admin.colBlockedReason')}</th>
+                    <th className="num">{t('admin.colBlockedCount')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.blockedJobs.map((blocked) => (
+                    <tr key={blocked.reason}>
+                      <td>{blocked.reason}</td>
+                      <td className="num">{blocked.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          ) : null}
 
           <h3>{t('admin.workersHeading')}</h3>
           {data.workers.length === 0 ? (

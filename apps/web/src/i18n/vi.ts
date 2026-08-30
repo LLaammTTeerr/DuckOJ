@@ -589,6 +589,12 @@ export const vi = {
   'admin.judgeOffline': 'ngoại tuyến',
   'admin.noJudges': 'Chưa đăng ký máy chấm nào.',
   'admin.judgeNever': 'chưa kết nối',
+  'admin.colJudgeGrading': 'Đang chấm',
+  'admin.blockedHeading': 'Việc kẹt trong hàng đợi',
+  'admin.blockedNote':
+    'Việc vẫn đang chờ nhưng không máy chấm nào đang kết nối chạy được — vẫn nằm trong số Đang chờ ở trên, và tự chạy lại ngay khi có máy chấm phù hợp nối vào.',
+  'admin.colBlockedReason': 'Lý do',
+  'admin.colBlockedCount': 'Số việc',
   'admin.workersHeading': 'Tiến trình chấm',
   'admin.colWorker': 'Tiến trình',
   'admin.colNowGrading': 'Đang chấm',

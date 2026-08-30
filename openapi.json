@@ -5641,6 +5641,24 @@
                         "oldestQueuedSeconds"
                       ]
                     },
+                    "blockedJobs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "reason": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "reason",
+                          "count"
+                        ]
+                      }
+                    },
                     "judges": {
                       "type": "array",
                       "items": {
@@ -5660,13 +5678,21 @@
                           },
                           "online": {
                             "type": "boolean"
+                          },
+                          "gradingNow": {
+                            "type": "integer"
+                          },
+                          "gradedLastHour": {
+                            "type": "integer"
                           }
                         },
                         "required": [
                           "name",
                           "driver",
                           "lastSeen",
-                          "online"
+                          "online",
+                          "gradingNow",
+                          "gradedLastHour"
                         ]
                       }
                     },
@@ -5815,6 +5841,7 @@
                   },
                   "required": [
                     "queue",
+                    "blockedJobs",
                     "judges",
                     "workers",
                     "recentFailures",

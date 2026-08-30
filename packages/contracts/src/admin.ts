@@ -209,9 +209,37 @@ export const AdminDashboardResponse = z.object({
     oldestQueuedSeconds: z.number().nullable(),
   }),
   /**
-   * The judge fleet, from `judge_nodes`. `lastSeen` is written on handshake
-   * and on every ping-response, so `online` is a clock comparison against
-   * the same 90-second silence the bridge itself drops a judge after.
+   * Queued jobs nobody connected can run, by the reason they are stuck
+   * (D68), busiest first. `blocked_reason` is a nullable text column on a
+   * job that is STILL `queued` rather than a state of its own, so these
+   * rows are also counted in `queue.queued` above — deliberately: a blocked
+   * job becomes runnable the instant a capable judge connects, and a queue
+   * panel that hid it would under-report the work waiting.
+   *
+   * Empty when nothing is blocked, which is the ordinary case. The reason
+   * is the driver's own sentence, carried verbatim: it names the language
+   * nobody can run, and paraphrasing it here would lose the only fact that
+   * makes it actionable.
+   */
+  blockedJobs: z.array(z.object({ reason: z.string(), count: z.number().int() })),
+  /**
+   * The judge fleet, from `judge_nodes`. `lastSeen` is written on any packet
+   * from the judge (throttled to 15 s, D68), so `online` is a clock
+   * comparison against the same 90-second silence the bridge itself drops a
+   * judge after.
+   *
+   * `gradingNow` and `gradedLastHour` are the per-MACHINE twins of the
+   * worker panel's counts, and they exist because migration 0027 gave
+   * `grading_jobs` a `judge_node_id`. D47 said this panel and `workers`
+   * below were "not joinable", which was true of the schema it was written
+   * against and stopped being true with 0027: a job now names the machine it
+   * was dispatched to. The division of labour is unchanged — a worker is one
+   * of judged's claim loops, a judge is a machine that grades — but each now
+   * carries its own throughput, which is the question a second judge makes
+   * askable ("is the new one taking any of it?").
+   *
+   * A job whose driver could not name a node (every in-process double)
+   * counts towards neither, rather than being attributed to a guess.
    */
   judges: z.array(
     z.object({
@@ -219,15 +247,21 @@ export const AdminDashboardResponse = z.object({
       driver: z.string(),
       lastSeen: z.string().nullable(),
       online: z.boolean(),
+      /** Jobs this node holds a LIVE lease on — what it is grading now. */
+      gradingNow: z.number().int(),
+      /** Jobs dispatched here whose verdict landed in the last hour. */
+      gradedLastHour: z.number().int(),
     }),
   ),
   /**
    * The grading workers, keyed on `grading_jobs.worker_id`.
    *
-   * Separate from `judges` and NOT joinable to it: a judge node is a DMOJ
-   * process that connects to judged's bridge, a worker is one of judged's
-   * own claim loops, and no column relates them (D47). Throughput therefore
-   * belongs here and liveness belongs there.
+   * Distinct from `judges`, though no longer unrelated to it: a judge node
+   * is a DMOJ process that connects to judged's bridge, a worker is one of
+   * judged's own claim loops, and a job now names both (`worker_id` since
+   * the first schema, `judge_node_id` since 0027). A worker with no judge
+   * (an in-process driver) and a judge with no worker (one whose claim loop
+   * has since exited) both exist, so neither panel subsumes the other.
    */
   workers: z.array(
     z.object({

@@ -37,13 +37,24 @@
 # a postgres/redis that never turns healthy, a migrate that exits non-zero,
 # or an api/judged/judge that never turns healthy.
 #
-# Usage: scripts/compose-up.sh
+# F14 added the second judge. `judge-2` sits behind compose's `scale`
+# profile (docker-compose.yml, D68), and podman-compose 1.5 honours a profile
+# ONLY as a `--profile` flag on its own command line: `COMPOSE_PROFILES`, the
+# variable docker compose reads, is silently ignored. Measured, not assumed —
+# `podman-compose config` lists `judge-2` under `--profile scale` and not
+# under `COMPOSE_PROFILES=scale`. So this script passes the flag itself, and
+# translates the variable an operator will reach for first, rather than
+# leaving a second judge that is "started" and never runs.
+#
+# Usage: scripts/compose-up.sh          (the default stack, one judge)
+#        SCALE=1 scripts/compose-up.sh  (adds judge-2, and waits on it)
 # Env overrides: COMPOSE (compose binary, default podman-compose),
-#   POSTGRES_TIMEOUT, REDIS_TIMEOUT, API_TIMEOUT, JUDGED_TIMEOUT, JUDGE_TIMEOUT
-#   (seconds to wait for healthy, default 60), SKIP_BUILD=1 (reuse existing
-#   images — boot-time unit), MIGRATE_TIMEOUT (seconds to
+#   POSTGRES_TIMEOUT, REDIS_TIMEOUT, API_TIMEOUT, JUDGED_TIMEOUT, JUDGE_TIMEOUT,
+#   JUDGE2_TIMEOUT (seconds to wait for healthy, default 60), SKIP_BUILD=1
+#   (reuse existing images — boot-time unit), MIGRATE_TIMEOUT (seconds to
 #   bound `up migrate` itself, default 120 — see the comment above that call
-#   for why this exists)
+#   for why this exists), SCALE=1 or COMPOSE_PROFILES=scale (bring up the
+#   second judge as well)
 
 set -eu
 
@@ -56,7 +67,46 @@ REDIS_TIMEOUT=${REDIS_TIMEOUT:-60}
 API_TIMEOUT=${API_TIMEOUT:-60}
 JUDGED_TIMEOUT=${JUDGED_TIMEOUT:-60}
 JUDGE_TIMEOUT=${JUDGE_TIMEOUT:-60}
+JUDGE2_TIMEOUT=${JUDGE2_TIMEOUT:-60}
 MIGRATE_TIMEOUT=${MIGRATE_TIMEOUT:-120}
+
+# Is the `scale` profile on? Either spelling: `SCALE=1` is this script's own,
+# `COMPOSE_PROFILES=scale` is the one an operator brings from docker compose
+# and the one podman-compose 1.5 ignores. The commas around the value are
+# what keep `COMPOSE_PROFILES=scaleup` from matching.
+SCALE_ON=0
+case ",${COMPOSE_PROFILES:-}," in
+  *,scale,*) SCALE_ON=1 ;;
+esac
+[ "${SCALE:-0}" = "1" ] && SCALE_ON=1
+
+# Every compose call goes through here, so the profile cannot be attached to
+# some of them and forgotten on the others. That is not tidiness: without the
+# flag podman-compose filters `judge-2` out of the file entirely, so `build`
+# would skip its image and an `up` naming it would fail — a bring-up that
+# reports success with one judge running is exactly the lie this script exists
+# to prevent.
+compose() {
+  if [ "$SCALE_ON" = "1" ]; then
+    "$COMPOSE" --profile scale "$@"
+  else
+    "$COMPOSE" "$@"
+  fi
+}
+
+# The same, wrapped in `timeout`. A separate function rather than a `timeout`
+# in front of `compose`: `timeout` execs a BINARY, so it cannot see a shell
+# function and would run whatever `compose` happens to be on PATH — on this
+# host, mailcap's, which "succeeds" at nothing.
+compose_timeout() {
+  seconds=$1
+  shift
+  if [ "$SCALE_ON" = "1" ]; then
+    timeout "${seconds}s" "$COMPOSE" --profile scale "$@"
+  else
+    timeout "${seconds}s" "$COMPOSE" "$@"
+  fi
+}
 
 # Finds the container podman-compose created for a given service, by the
 # compose labels it sets on every container it creates. More reliable than
@@ -86,7 +136,7 @@ wait_healthy() {
     fi
     if [ "$elapsed" -ge "$timeout" ]; then
       echo "FATAL: $service did not become healthy within ${timeout}s" >&2
-      "$COMPOSE" logs "$service" >&2 || true
+      compose logs "$service" >&2 || true
       exit 1
     fi
     sleep 2
@@ -101,11 +151,11 @@ if [ "${SKIP_BUILD:-0}" = "1" ]; then
   echo "==> Skipping image build (SKIP_BUILD=1)"
 else
   echo "==> Building images"
-  "$COMPOSE" build
+  compose build
 fi
 
 echo "==> Starting postgres and redis"
-"$COMPOSE" up -d postgres redis
+compose up -d postgres redis
 
 echo "==> Waiting for postgres to report healthy"
 wait_healthy postgres "$POSTGRES_TIMEOUT"
@@ -139,9 +189,9 @@ echo "==> Running migrations (blocking until migrate exits)"
 # tests green. A schema drift that announces success is the worst failure this
 # script can have — every other check downstream is then measuring the wrong
 # database.
-if ! timeout "${MIGRATE_TIMEOUT}s" "$COMPOSE" up --no-deps --force-recreate migrate; then
+if ! compose_timeout "$MIGRATE_TIMEOUT" up --no-deps --force-recreate migrate; then
   echo "FATAL: podman-compose up migrate failed (or exceeded ${MIGRATE_TIMEOUT}s)" >&2
-  "$COMPOSE" logs migrate >&2 || true
+  compose logs migrate >&2 || true
   exit 1
 fi
 
@@ -157,7 +207,7 @@ fi
 migrate_exit=$(podman inspect "$migrate_cid" --format '{{.State.ExitCode}}')
 if [ "$migrate_exit" != "0" ]; then
   echo "FATAL: migrate exited with code $migrate_exit" >&2
-  "$COMPOSE" logs migrate >&2 || true
+  compose logs migrate >&2 || true
   exit 1
 fi
 echo "==> migrate exited 0"
@@ -176,7 +226,7 @@ echo "==> migrate exited 0"
 # bring-up script itself. Recreating unconditionally costs a few seconds and
 # removes the entire question.
 echo "==> Starting api, judged and caddy (--no-deps: migrate/redis already up above, and this avoids re-running migrate and re-triggering the race)"
-"$COMPOSE" up -d --no-deps --force-recreate api judged caddy
+compose up -d --no-deps --force-recreate api judged caddy
 
 echo "==> Waiting for api to report healthy (restores the availability guarantee --no-deps drops from caddy's depends_on)"
 wait_healthy api "$API_TIMEOUT"
@@ -185,10 +235,24 @@ echo "==> Waiting for judged to report healthy"
 wait_healthy judged "$JUDGED_TIMEOUT"
 
 echo "==> Starting judge (after judged is healthy, so the bring-up log shows a clean first-attempt handshake rather than a retry backoff — judge itself does not require this ordering, see addendum E6)"
-"$COMPOSE" up -d --no-deps --force-recreate judge
+compose up -d --no-deps --force-recreate judge
 
 echo "==> Waiting for judge to report healthy (its judge-agent's own /healthz — see judge/entrypoint.sh)"
 wait_healthy judge "$JUDGE_TIMEOUT"
 
-echo "==> Stack is up: postgres healthy, redis healthy, migrate exited 0, api healthy, judged healthy, judge healthy, caddy started"
-"$COMPOSE" ps
+# The second judge last, and only under the profile. After `judge` for the
+# same reason `judge` comes after `judged` — a clean first-attempt handshake
+# in the bring-up log — and waited on with the same `wait_healthy`, so a
+# judge-2 whose token was never registered (its `judge_nodes` row is a
+# separate step: `corepack pnpm judge:node add judge-2`) fails the script
+# loudly here instead of idling in the fleet unnoticed.
+if [ "$SCALE_ON" = "1" ]; then
+  echo "==> Starting judge-2 (scale profile)"
+  compose up -d --no-deps --force-recreate judge-2
+  echo "==> Waiting for judge-2 to report healthy"
+  wait_healthy judge-2 "$JUDGE2_TIMEOUT"
+  echo "==> Stack is up: postgres healthy, redis healthy, migrate exited 0, api healthy, judged healthy, judge healthy, judge-2 healthy, caddy started"
+else
+  echo "==> Stack is up: postgres healthy, redis healthy, migrate exited 0, api healthy, judged healthy, judge healthy, caddy started"
+fi
+compose ps

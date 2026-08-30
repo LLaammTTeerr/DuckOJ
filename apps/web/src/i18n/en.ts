@@ -621,6 +621,12 @@ export const en = {
   'admin.judgeOffline': 'offline',
   'admin.noJudges': 'No judge node is registered.',
   'admin.judgeNever': 'never',
+  'admin.colJudgeGrading': 'Grading now',
+  'admin.blockedHeading': 'Jobs stuck in the queue',
+  'admin.blockedNote':
+    'Still queued, but no connected judge can run them — counted in Queued above, and claimed the moment a judge that can run them connects.',
+  'admin.colBlockedReason': 'Reason',
+  'admin.colBlockedCount': 'Jobs',
   'admin.workersHeading': 'Grading workers',
   'admin.colWorker': 'Worker',
   'admin.colNowGrading': 'Now grading',

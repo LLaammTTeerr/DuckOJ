@@ -1148,6 +1148,25 @@ Two consequences an operator will actually see:
    all. It stays `queued` and says why, in `grading_jobs.blocked_reason`; see
    "A queue that is not moving, with a judge connected" below.
 
+**Read all of this off `/admin` before reaching for psql.** The operations
+dashboard is where these two ceilings are visible side by side:
+
+- The **Judges** table carries a row per registered node with **Grading now**
+  and **Graded (1 h)** beside `online` — the per-machine counts, joined
+  through `grading_jobs.judge_node_id` (migration 0027). A second judge that
+  is online with `0` in both columns is a judge taking none of the work, which
+  is what `JUDGED_CONCURRENCY=1` looks like from the outside: raise it to 2.
+- **Jobs stuck in the queue** appears only when something is blocked, and
+  prints `blocked_reason` verbatim with a count per reason — the same
+  sentence the query below returns, without the psql. Those jobs are also
+  counted in **Queued**: blocked is a reason on a queued job, not a state.
+- **Grading workers** is the other ceiling, per claim loop rather than per
+  machine: **Now grading**, **Graded (1 h)**, **Internal errors (1 h)**.
+
+The two tables answer different questions and neither replaces the other — a
+worker with no judge (an in-process driver) and a judge with no worker (its
+claim loop has exited) both exist.
+
 ### Grep for the failure this replaced
 
     podman logs duckoj_judged_1 2>&1 | grep 'cancel for a submission no judge'
@@ -1182,7 +1201,21 @@ concurrently over the real wire protocol (D68).
          sh -c 'DATABASE_URL="postgres://duckoj:$POSTGRES_PASSWORD@postgres:5432/duckoj" \
                 packages/db/node_modules/.bin/tsx scripts/judge-node.ts add judge-2'
 
-2. **Start it.**
+2. **Start it** — the whole stack, second judge included:
+
+       SCALE=1 scripts/compose-up.sh
+
+   `SCALE=1` (or `COMPOSE_PROFILES=scale`, the spelling docker compose uses)
+   makes the script pass `--profile scale` on every compose call and wait on
+   `judge-2`'s healthcheck exactly as it waits on `judge`'s. Passing the flag
+   is not optional: podman-compose 1.5 reads a profile ONLY from its own
+   command line and ignores `COMPOSE_PROFILES` — measured with
+   `podman-compose config` — so the script translates the variable rather
+   than leaving a second judge that is never started.
+   `scripts/test/compose-up.test.sh` pins both halves against stubbed
+   binaries.
+
+   To start just the one container against an already-running stack:
 
        podman-compose --profile scale up -d judge-2
 
@@ -1196,11 +1229,16 @@ concurrently over the real wire protocol (D68).
    per judge. Until judge-2 is handshaking, the second loop cannot win a judge
    slot and the change is inert (D29).
 
-4. **Check it.** `scripts/compose-up.sh` waits on `judge`, not `judge-2` — a
-   profiled service is outside its wait set — so confirm this one by hand:
+4. **Check it.** `SCALE=1 scripts/compose-up.sh` already failed loudly if
+   `judge-2` never turned healthy, so what is left to confirm is that it is
+   ACCEPTED, not merely running — a rejected credential is a healthy
+   container that grades nothing:
 
        corepack pnpm judge:node list        # judge-2 present, revoked:false
        podman logs <project>_judged_1 2>&1 | grep judge-2
+
+   Then `/admin`: `judge-2` online, and **Grading now** / **Graded (1 h)**
+   moving off zero once work arrives.
 
    A rejected credential prints exactly one line, `judge handshake rejected`
    with `id: judge-2`. `judge:node list` also shows each node's recorded
@@ -1231,6 +1269,9 @@ and failing. `grading_jobs.blocked_reason` says why:
 
     select id, blocked_reason from grading_jobs
      where state = 'queued' and blocked_reason is not null;
+
+The **Jobs stuck in the queue** panel on `/admin` is the same information
+without the psql — reason and count, present only when something is blocked.
 
 `no connected judge supports language <key>` means exactly that: bring up a
 judge configured with that executor (the compose `judge` services pass

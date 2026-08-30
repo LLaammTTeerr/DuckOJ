@@ -49,6 +49,8 @@ async function seedJob(
     leaseSeconds?: number;
     submissionId?: number;
     ageSeconds?: number;
+    judgeNodeId?: number;
+    blockedReason?: string;
   },
 ): Promise<number> {
   const [revision] = await db
@@ -56,14 +58,25 @@ async function seedJob(
     .from(problemRevisions)
     .limit(1);
   const rows = await db.execute<{ id: number }>(sql`
-    insert into grading_jobs (revision_id, package_hash, state, worker_id, lease_until, submission_id, created_at)
+    insert into grading_jobs (revision_id, package_hash, state, worker_id, lease_until, submission_id, created_at,
+                              judge_node_id, blocked_reason)
     values (${revision!.id}, ${revision!.hash}, ${opts.state}, ${opts.workerId ?? null},
             ${opts.leaseSeconds === undefined ? null : sql`now() + make_interval(secs => ${opts.leaseSeconds}::double precision)`},
             ${opts.submissionId ?? null},
-            now() - make_interval(secs => ${opts.ageSeconds ?? 0}::double precision))
+            now() - make_interval(secs => ${opts.ageSeconds ?? 0}::double precision),
+            ${opts.judgeNodeId ?? null}, ${opts.blockedReason ?? null})
     returning id
   `);
   return Number(rows[0]!.id);
+}
+
+/** A `judge_nodes` row; the hash only has to be unique and hex-shaped. */
+async function seedNode(db: Db, name: string, hashChar: string): Promise<number> {
+  const [node] = await db
+    .insert(schema.judgeNodes)
+    .values({ name, tokenHash: hashChar.repeat(64), driver: 'dmoj' })
+    .returning({ id: schema.judgeNodes.id });
+  return node!.id;
 }
 
 async function seedProblemAndUser(db: Db): Promise<{ userId: number; problemId: number }> {
@@ -124,6 +137,105 @@ describe('GET /admin/dashboard — the judge panel', () => {
       // A judge that has never handshaken has no timestamp to show, and
       // that is not the same as one that checked in at the epoch.
       expect(judges.find((j) => j.name === 'judge-never')?.lastSeen).toBeNull();
+    });
+  }, 120_000);
+});
+
+/**
+ * F11 wrote `grading_jobs.judge_node_id` (migration 0027, D68) and nothing
+ * read it: the dashboard could say a queue was deep and a fleet was up, but
+ * not WHICH machine was carrying the contest — the question a second judge
+ * exists to make askable. The two counts here are the per-node twins of the
+ * worker panel's: what it is grading now, and what it finished this hour.
+ *
+ * The judge panel is where they belong rather than the worker panel, because
+ * a judge and a worker are still different things (D47): one is a machine
+ * that grades, the other one of judged's claim loops. 0027 joined jobs to
+ * the MACHINE, so the machine's row is where its throughput goes.
+ */
+describe('GET /admin/dashboard — what each judge is carrying (D68, 0027)', () => {
+  it('counts a node\'s live grades and its last hour, per node', async () => {
+    await withTestDb(async (db) => {
+      const { userId, problemId } = await seedProblemAndUser(db);
+      const one = await seedNode(db, 'judge-1', 'a');
+      const two = await seedNode(db, 'judge-2', 'b');
+
+      const live = await insertGradedSubmission(db, { userId, problemId });
+      const recent = await insertGradedSubmission(db, { userId, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
+      const old = await insertGradedSubmission(db, { userId, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
+      await db.update(submissions).set({ judgedAt: sql`now() - interval '5 minutes'` }).where(eq(submissions.id, recent));
+      await db.update(submissions).set({ judgedAt: sql`now() - interval '61 minutes'` }).where(eq(submissions.id, old));
+
+      // judge-1: one grade in flight, one finished inside the hour, one
+      // outside it. The last is the row that proves the window is real.
+      await seedJob(db, { state: 'leased', leaseSeconds: 45, workerId: 'w#1', submissionId: live, judgeNodeId: one });
+      await seedJob(db, { state: 'done', workerId: 'w#1', submissionId: recent, judgeNodeId: one });
+      await seedJob(db, { state: 'done', workerId: 'w#1', submissionId: old, judgeNodeId: one });
+      // judge-2 holds a LAPSED lease: the node is not grading it any more,
+      // whatever the row says — the same reading the worker panel takes.
+      await seedJob(db, { state: 'leased', leaseSeconds: -1, workerId: 'w#2', submissionId: live, judgeNodeId: two });
+
+      const { judges } = await new DashboardService(db, UP).snapshot(admin());
+      expect(judges.map((j) => [j.name, j.gradingNow, j.gradedLastHour])).toEqual([
+        ['judge-1', 1, 1],
+        ['judge-2', 0, 0],
+      ]);
+    });
+  }, 120_000);
+
+  it('leaves a job no driver could name off every node rather than guessing one', async () => {
+    await withTestDb(async (db) => {
+      const { userId, problemId } = await seedProblemAndUser(db);
+      await seedNode(db, 'judge-1', 'a');
+      const live = await insertGradedSubmission(db, { userId, problemId });
+      // `judge_node_id` is null for every in-process driver (D68). A count
+      // that quietly attributed those to the one node on the fleet would be
+      // worse than no count at all.
+      await seedJob(db, { state: 'leased', leaseSeconds: 45, workerId: 'w#1', submissionId: live });
+
+      const { judges } = await new DashboardService(db, UP).snapshot(admin());
+      expect(judges).toHaveLength(1);
+      expect(judges[0]).toMatchObject({ name: 'judge-1', gradingNow: 0, gradedLastHour: 0 });
+    });
+  }, 120_000);
+});
+
+/**
+ * `blocked_reason` (D68) is a nullable text column on a job that is still
+ * `queued` — "nobody connected can run this language". Until now the only
+ * way to read it was psql: the dashboard showed a queue that would not move
+ * and no reason, which is precisely the shape an operator cannot diagnose.
+ */
+describe('GET /admin/dashboard — blocked jobs (D68)', () => {
+  it('counts queued jobs by the reason they are stuck, busiest first', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      await seedJob(db, { state: 'queued', blockedReason: 'no connected judge supports language py3' });
+      await seedJob(db, { state: 'queued', blockedReason: 'no connected judge supports language py3' });
+      await seedJob(db, { state: 'queued', blockedReason: 'no connected judge supports language java' });
+      // Queued for ordinary reasons — waiting is not being blocked.
+      await seedJob(db, { state: 'queued' });
+      // A blocked job that has since been claimed is no longer blocked; the
+      // claim clears the reason, and a stale row must not be counted.
+      await seedJob(db, { state: 'leased', leaseSeconds: 60, blockedReason: 'no connected judge supports language py3' });
+
+      const { blockedJobs, queue } = await new DashboardService(db, UP).snapshot(admin());
+      expect(blockedJobs).toEqual([
+        { reason: 'no connected judge supports language py3', count: 2 },
+        { reason: 'no connected judge supports language java', count: 1 },
+      ]);
+      // Blocked is a REASON on a queued job, not a state of its own: the
+      // queue count still carries all four.
+      expect(queue.queued).toBe(4);
+    });
+  }, 120_000);
+
+  it('reports nothing blocked as an empty list, not as a null reason', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      await seedJob(db, { state: 'queued' });
+      const { blockedJobs } = await new DashboardService(db, UP).snapshot(admin());
+      expect(blockedJobs).toEqual([]);
     });
   }, 120_000);
 });

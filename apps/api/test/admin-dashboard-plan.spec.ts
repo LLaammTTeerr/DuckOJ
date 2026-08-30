@@ -180,6 +180,14 @@ const LOAD_BEARING = [
   `where s.verdict = 'IE' or s.state = 'errored'`,
   // workers(): the window that bounds the throughput half.
   `where s.judged_at > now() - interval '1 hour'`,
+  // judges(): the per-node "grading now" count. `state = 'leased'` alone
+  // would return the same rows; the `<> 'done'` term beside it is what the
+  // planner can prove implies grading_jobs_active_idx's predicate, and
+  // dropping it as redundant is how this panel goes back to a full scan.
+  `where state <> 'done'\n         and state = 'leased'`,
+  // blockedJobs(): the same bound, plus the `queued` term that keeps a
+  // reason left on a job that has since been claimed out of the count.
+  `where state <> 'done'\n         and state = 'queued'\n         and blocked_reason is not null`,
 ];
 
 describe('admin dashboard query plans (D47 amended, migration 0025)', () => {

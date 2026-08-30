@@ -152,6 +152,7 @@ export class DashboardService {
     // its queries anyway, so parallelism here would buy nothing and would
     // make a failure in one panel harder to attribute.
     const queue = await this.queue();
+    const blockedJobs = await this.blockedJobs();
     const judges = await this.judges();
     const workers = await this.workers();
     const recentFailures = await this.recentFailures();
@@ -160,6 +161,7 @@ export class DashboardService {
 
     return {
       queue,
+      blockedJobs,
       judges,
       workers,
       recentFailures,
@@ -259,25 +261,109 @@ export class DashboardService {
     };
   }
 
+  /**
+   * The judge fleet, and what each machine is carrying (D68, migration 0027).
+   *
+   * Three queries rather than one, for `workers()`'s reason and with its
+   * shape: the roster is `judge_nodes` (tiny, one row per machine ever
+   * registered), what a node is grading NOW is bounded by the work in
+   * flight, and what it finished is bounded by an hour. A single left join
+   * from `judge_nodes` to `grading_jobs` would put every job the deployment
+   * has ever run on the other side of it — the exact query 0025 removed from
+   * this file, reintroduced through a different column.
+   *
+   * The bounds:
+   *
+   * - **In flight** carries `state <> 'done'` alongside `state = 'leased'`.
+   *   The second implies the first, but the planner has to PROVE the
+   *   restriction implies `grading_jobs_active_idx`'s predicate to use the
+   *   index, and spelling the predicate out word for word is what makes that
+   *   proof trivial. Same rewrite, same reason, as `queue()`.
+   * - **The hour** is driven from `submissions.judged_at` through
+   *   `submissions_judged_at_idx` and reaches `judge_node_id` by an index
+   *   lookup per row, exactly as the worker panel's throughput half does.
+   *   `judged_at`, not `created_at`: "graded in the last hour" is about when
+   *   the verdict landed.
+   *
+   * A judge with no rows in either is reported with zeros rather than
+   * dropped — unlike `workers()`, the roster here is the `judge_nodes` table
+   * itself, and an idle judge is a fact an operator wants on screen. And a
+   * job with a null `judge_node_id` (every in-process driver, D68) is
+   * counted nowhere: a guess would be worse than a zero.
+   */
   private async judges(): Promise<AdminDashboardResponseDto['judges']> {
     const rows = await this.db.execute<{
+      id: string;
       name: string;
       driver: string;
       last_seen: Date | null;
       online: boolean;
     }>(sql`
-      select name, driver, last_seen,
+      select id, name, driver, last_seen,
              (last_seen is not null
               and last_seen > now() - make_interval(secs => ${JUDGE_SILENCE_SECONDS}::double precision)) as online
         from judge_nodes
        order by name
     `);
+
+    const live = await this.db.execute<{ judge_node_id: string; grading_now: string }>(sql`
+      select judge_node_id, count(*) as grading_now
+        from grading_jobs
+       where state <> 'done'
+         and state = 'leased'
+         and lease_until >= now()
+         and judge_node_id is not null
+       group by judge_node_id
+    `);
+
+    const throughput = await this.db.execute<{ judge_node_id: string; graded_last_hour: string }>(sql`
+      select j.judge_node_id, count(*) as graded_last_hour
+        from submissions s
+        join grading_jobs j on j.submission_id = s.id
+       where s.judged_at > now() - interval '1 hour'
+         and j.judge_node_id is not null
+       group by j.judge_node_id
+    `);
+
+    const gradingNow = new Map(live.map((row) => [String(row.judge_node_id), num(row.grading_now)]));
+    const gradedLastHour = new Map(
+      throughput.map((row) => [String(row.judge_node_id), num(row.graded_last_hour)]),
+    );
+
     return rows.map((row) => ({
       name: row.name,
       driver: row.driver,
       lastSeen: iso(row.last_seen),
       online: row.online === true,
+      gradingNow: gradingNow.get(String(row.id)) ?? 0,
+      gradedLastHour: gradedLastHour.get(String(row.id)) ?? 0,
     }));
+  }
+
+  /**
+   * Why the queue is not moving, in the queue's own words (D68).
+   *
+   * `blocked_reason` is text on a job that is still `queued`, so this is a
+   * `group by` over the reasons rather than a new state to count. The
+   * `state = 'queued'` term is what keeps it honest: `JobStore.claim` clears
+   * the reason in the same UPDATE that claims, but a reason left on a row
+   * that has since moved on must never be reported as a blockage.
+   *
+   * `state <> 'done'` leads for `queue()`'s reason — it is
+   * `grading_jobs_active_idx`'s predicate, spelled so the planner can prove
+   * it applies.
+   */
+  private async blockedJobs(): Promise<AdminDashboardResponseDto['blockedJobs']> {
+    const rows = await this.db.execute<{ reason: string; n: string }>(sql`
+      select blocked_reason as reason, count(*) as n
+        from grading_jobs
+       where state <> 'done'
+         and state = 'queued'
+         and blocked_reason is not null
+       group by 1
+       order by n desc, 1 asc
+    `);
+    return rows.map((row) => ({ reason: row.reason, count: num(row.n) }));
   }
 
   /**
