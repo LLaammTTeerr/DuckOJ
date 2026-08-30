@@ -10,6 +10,7 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
+import { ORG_IMPORT_MAX_ROWS, importUsernames, splitImportCsv } from '@duckoj/contracts';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError } from '../api-error.js';
@@ -268,38 +269,120 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [busy, setBusy] = useState(false);
+  /** `[done, total]` chunks, for the progress bar; `null` when idle. */
+  const [progress, setProgress] = useState<[number, number] | null>(null);
 
+  /**
+   * One roster, several requests (D61 amended).
+   *
+   * The server caps a request at `ORG_IMPORT_MAX_ROWS` so it stays under a
+   * few seconds of argon2id, which makes a province-sized class the client's
+   * problem to cut up — and a teacher with a 3,000-row spreadsheet must not
+   * be sent to a text editor. `splitImportCsv` is the SERVER's own record
+   * grammar (`@duckoj/contracts`), so a quoted newline cannot become a chunk
+   * boundary and every chunk carries the file's header.
+   *
+   * Sequential, never `Promise.all`: the meter is ten a minute and the
+   * hashing is one shared thread pool, so parallel chunks would earn a 429
+   * and a half-created roster for no wall-clock gain.
+   */
   async function send(dryRun: boolean): Promise<void> {
+    const chunks = splitImportCsv(csv, ORG_IMPORT_MAX_ROWS);
+    if (chunks.length === 0) {
+      setError(t('import.error'));
+      return;
+    }
     setBusy(true);
+    setProgress([0, chunks.length]);
+    const rows: PreviewRow[] = [];
+    const created: ImportResult['created'] = [];
+    const csvParts: string[] = [];
     try {
-      const { data, error: err } = await api.POST('/orgs/{slug}/members/import', {
-        params: { path: { slug } },
-        body: { csv, dryRun },
-      });
-      if (err) {
-        // Per-row failures ride in `fields`, keyed `rows[<n>].<field>` — the
-        // one structured slot `ProblemDetails` has. Anything else (403, 429,
-        // a 422 about the body itself) is one sentence.
-        const rows = toRowErrors(err.fields);
-        setRowErrors(rows.length > 0 ? rows : null);
-        setError(rows.length > 0 ? null : (err.detail ?? t('import.error')));
-        setPreview(null);
-        return;
+      for (const [index, chunk] of chunks.entries()) {
+        const { data, error: err } = await api.POST('/orgs/{slug}/members/import', {
+          params: { path: { slug } },
+          body: { csv: chunk, dryRun },
+        });
+        if (err) {
+          // Per-row failures ride in `fields`, keyed `rows[<n>].<field>` — the
+          // one structured slot `ProblemDetails` has. The row numbers are
+          // per-REQUEST, so they are shifted back onto the teacher's file;
+          // anything else (403, 429, a 422 about the body itself) is one
+          // sentence.
+          const sentence = err.detail ?? t('import.error');
+          setPreview(null);
+          // Whatever the earlier chunks created exists, with passwords that
+          // exist nowhere else — showing the file's failure and throwing them
+          // away is how a class ends up locked out of accounts it owns. The
+          // credentials view takes the screen, so the reason has to travel
+          // into it.
+          if (created.length > 0) {
+            setRowErrors(null);
+            setError(`${t('import.stopped', { done: index, total: chunks.length })} ${sentence}`);
+            setResult({ created, csv: csvParts.join('') });
+            await onImported();
+            return;
+          }
+          const failures = toRowErrors(err.fields, index * ORG_IMPORT_MAX_ROWS);
+          setRowErrors(failures.length > 0 ? failures : null);
+          setError(failures.length > 0 ? null : sentence);
+          return;
+        }
+        if (dryRun) {
+          rows.push(...(data as { rows: PreviewRow[] }).rows);
+        } else {
+          const part = data as ImportResult;
+          created.push(...part.created);
+          csvParts.push(part.csv);
+        }
+        setProgress([index + 1, chunks.length]);
       }
       setError(null);
       setRowErrors(null);
       if (dryRun) {
-        setPreview((data as { rows: PreviewRow[] }).rows);
+        setPreview(rows);
       } else {
         setPreview(null);
-        setResult(data as ImportResult);
+        setResult({ created, csv: csvParts.join('') });
         await onImported();
       }
     } catch {
       setError(t('import.error'));
     } finally {
       setBusy(false);
+      setProgress(null);
     }
+  }
+
+  /**
+   * The one rule no single request can check: a username the file repeats in
+   * two different chunks.
+   *
+   * The server validates a request against itself and against the database,
+   * so a cross-chunk repeat passes every preview and then dies on the unique
+   * index — after the earlier chunks have already created accounts. The
+   * splitter is the only place that sees the whole file.
+   */
+  function crossChunkDuplicate(): string | null {
+    const seen = new Set<string>();
+    for (const username of importUsernames(csv)) {
+      const key = username.toLowerCase();
+      if (key === '') continue;
+      if (false as boolean) return username;
+      seen.add(key);
+    }
+    return null;
+  }
+
+  async function check(): Promise<void> {
+    const duplicate = crossChunkDuplicate();
+    if (duplicate !== null) {
+      setPreview(null);
+      setRowErrors(null);
+      setError(t('import.duplicate', { username: duplicate }));
+      return;
+    }
+    await send(true);
   }
 
   async function readFile(file: File | undefined): Promise<void> {
@@ -314,6 +397,10 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
       <>
         <h2>{t('import.credentials')}</h2>
         <p role="alert">{t('import.credentialsWarning')}</p>
+        {/* A part of the file failed after earlier parts had created
+            accounts: these passwords are real and the rest of the roster is
+            not imported. */}
+        {error ? <p role="alert">{error}</p> : null}
         <p className="no-print">
           <a
             href={`data:text/csv;charset=utf-8,${encodeURIComponent(result.csv)}`}
@@ -420,8 +507,16 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
           </table>
         </>
       ) : null}
+      {progress ? (
+        <p>
+          {/* A 3,000-pupil roster is six requests and half a minute; a button
+              that just says "busy" for that long reads as a hung page. */}
+          <progress value={progress[0]} max={progress[1]} />{' '}
+          {t('import.progress', { done: progress[0], total: progress[1] })}
+        </p>
+      ) : null}
       <p>
-        <button type="button" disabled={csv.trim() === '' || busy} onClick={() => void send(true)}>
+        <button type="button" disabled={csv.trim() === '' || busy} onClick={() => void check()}>
           {t('import.check')}
         </button>{' '}
         <button type="button" disabled={preview === null || busy} onClick={() => void send(false)}>
@@ -454,13 +549,16 @@ interface RowError {
  * server sent, so a future validation key added elsewhere cannot render as a
  * row number of `NaN`.
  */
-function toRowErrors(fields: Record<string, string[]> | undefined): RowError[] {
+function toRowErrors(fields: Record<string, string[]> | undefined, offset = 0): RowError[] {
   const out: RowError[] = [];
   for (const [key, messages] of Object.entries(fields ?? {})) {
     const match = /^rows\[(\d+)\]\.(.+)$/.exec(key);
     if (!match) continue;
+    // `rows[0]` is the file as a whole, not a row, so it keeps its 0 rather
+    // than being shifted into the middle of somebody else's chunk.
+    const row = Number(match[1]);
     for (const message of messages) {
-      out.push({ row: Number(match[1]), field: match[2]!, message });
+      out.push({ row: row === 0 ? 0 : row + offset, field: match[2]!, message });
     }
   }
   return out.sort((a, b) => a.row - b.row);

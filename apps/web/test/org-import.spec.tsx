@@ -191,6 +191,119 @@ describe('the roster import panel', () => {
   });
 });
 
+describe('the roster import splits a large file (D61 amended)', () => {
+  /** `n` data rows, headerless, exactly what a mail merge produces. */
+  function roster(n: number, from = 0): string {
+    return (
+      Array.from({ length: n }, (_, i) => `hs${String(from + i).padStart(4, '0')},Pupil ${String(from + i)}`).join(
+        '\n',
+      ) + '\n'
+    );
+  }
+
+  function bodies(): { csv: string; dryRun: boolean }[] {
+    return post.mock.calls.map((call) => (call[1] as { body: { csv: string; dryRun: boolean } }).body);
+  }
+
+  it('sends 500 rows at a time and shows how far it has got', async () => {
+    serve('owner');
+    post.mockImplementation((_path: string, init: { body: { csv: string; dryRun: boolean } }) => {
+      const rows = init.body.csv.trim().split('\n').map((line) => {
+        const [username, displayName] = line.split(',');
+        return { username, displayName, email: 'e', emailProvided: false };
+      });
+      return init.body.dryRun
+        ? Promise.resolve({ data: { rows } })
+        : Promise.resolve({
+            data: {
+              created: rows.map((row) => ({ ...row, password: `pw-${row.username ?? ''}` })),
+              csv: rows.map((row) => `${row.username ?? ''},x,pw-${row.username ?? ''}`).join('\n') + '\n',
+            },
+          });
+    });
+    wrap(<OrgPage slug="thpt-a" />);
+    await screen.findByRole('heading', { name: en['import.title'] });
+
+    // 1,200 rows: over the server's 500-row cap, which used to be a 422 the
+    // teacher had to fix with a text editor.
+    await userEvent.click(screen.getByLabelText(en['import.csv']));
+    await userEvent.paste(roster(1200));
+    await userEvent.click(screen.getByRole('button', { name: en['import.check'] }));
+
+    await waitFor(() => {
+      expect(post).toHaveBeenCalledTimes(3);
+    });
+    const checks = bodies();
+    expect(checks.every((body) => body.dryRun)).toBe(true);
+    expect(checks.map((body) => body.csv.trim().split('\n').length)).toEqual([500, 500, 200]);
+
+    post.mockClear();
+    await userEvent.click(screen.getByRole('button', { name: en['import.confirm'] }));
+    await screen.findByRole('heading', { name: en['import.credentials'] });
+    const creates = bodies();
+    expect(creates).toHaveLength(3);
+    expect(creates.every((body) => !body.dryRun)).toBe(true);
+    // One merged table: a teacher must not be handed three lists to
+    // reconcile, and the copyable text is the whole class.
+    expect(screen.getByText('pw-hs0000')).toBeInTheDocument();
+    expect(screen.getByText('pw-hs1199')).toBeInTheDocument();
+    expect((screen.getByLabelText(en['import.copyLabel']) as HTMLTextAreaElement).value).toContain(
+      'hs1199',
+    );
+  }, 30_000);
+
+  it('refuses a username the file repeats across two chunks, before creating anything', async () => {
+    serve('owner');
+    post.mockResolvedValue({ data: { rows: [] } });
+    wrap(<OrgPage slug="thpt-a" />);
+    await screen.findByRole('heading', { name: en['import.title'] });
+
+    // The server validates one request against itself; a repeat that lands
+    // in a different chunk passes every check and then dies on the unique
+    // index, AFTER the earlier chunks have created accounts.
+    await userEvent.click(screen.getByLabelText(en['import.csv']));
+    await userEvent.paste(`${roster(600)}hs0001,Nguyễn Văn A lần hai\n`);
+    await userEvent.click(screen.getByRole('button', { name: en['import.check'] }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/hs0001/);
+    expect(post).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it('stops at the chunk that failed and keeps the accounts already created', async () => {
+    serve('owner');
+    let creates = 0;
+    post.mockImplementation((_path: string, init: { body: { csv: string; dryRun: boolean } }) => {
+      if (init.body.dryRun) return Promise.resolve({ data: { rows: [] } });
+      creates += 1;
+      if (creates === 1) {
+        return Promise.resolve({
+          data: {
+            created: [{ username: 'hs0000', displayName: 'A', password: 'pw-a' }],
+            csv: 'hs0000,A,pw-a\n',
+          },
+        });
+      }
+      return Promise.resolve({ error: { detail: 'An import ran in the last minute.' } });
+    });
+    wrap(<OrgPage slug="thpt-a" />);
+    await screen.findByRole('heading', { name: en['import.title'] });
+    await userEvent.click(screen.getByLabelText(en['import.csv']));
+    await userEvent.paste(roster(600));
+    await userEvent.click(screen.getByRole('button', { name: en['import.check'] }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: en['import.confirm'] })).toBeEnabled();
+    });
+    await userEvent.click(screen.getByRole('button', { name: en['import.confirm'] }));
+
+    // The passwords of the first chunk exist nowhere else. Losing them to a
+    // failure in the second is the F8 report's own concern.
+    expect(await screen.findByText('pw-a')).toBeInTheDocument();
+    expect(screen.getAllByRole('alert').map((el) => el.textContent ?? '').join(' ')).toMatch(
+      /last minute/,
+    );
+  }, 30_000);
+});
+
 describe('the forced password change (D61)', () => {
   function serveMe(mustChangePassword: boolean) {
     get.mockResolvedValue({
