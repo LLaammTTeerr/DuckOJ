@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, asc, eq, gt, gte, inArray, isNotNull, lte, notInArray, or, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
@@ -29,6 +29,7 @@ import {
   type ProblemDetailDto,
   type ProblemMeDto,
   type ProblemMemberDto,
+  type ProblemSampleDto,
   type ProblemPageDto,
   type ProblemStatsDto,
   type ProblemSummaryDto,
@@ -41,6 +42,11 @@ import {
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { PACKAGE_STORE, type PackageStore } from '../packages/package.store.js';
+import {
+  readPackageSamples,
+  SAMPLES_CACHE_TTL_MS,
+  samplesCacheKey,
+} from '../packages/samples.js';
 import {
   canCreateProblem,
   canEditProblem,
@@ -141,6 +147,8 @@ export function likeEscape(raw: string): string {
  */
 @Injectable()
 export class ProblemAccessService {
+  private readonly logger = new Logger(ProblemAccessService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(PACKAGE_STORE) private readonly store: PackageStore,
@@ -357,7 +365,21 @@ export class ProblemAccessService {
     return { items, nextCursor };
   }
 
-  async getVisible(actor: Actor | null, code: string): Promise<ProblemDetailDto> {
+  /**
+   * The problem itself, and the package hash whose samples belong to it —
+   * everything a `ProblemDetail` needs EXCEPT the samples.
+   *
+   * Split out of `getVisible` because `getStats` and `getEditorial` are both
+   * built on it (each needs the 404 this route already decides, and the
+   * cheapest way for two surfaces to agree about who may read a problem is
+   * for one of them to BE the other). Neither renders a sample, and neither
+   * should pay a Redis round trip — or, on a cold key, an archive inflate —
+   * to answer a question about submission counts.
+   */
+  private async loadVisible(
+    actor: Actor | null,
+    code: string,
+  ): Promise<{ detail: Omit<ProblemDetailDto, 'samples'>; packageHash: string | null }> {
     const revisionJoin = and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published'));
 
     // Same shape as `listVisible`: one statement either way, the lateral
@@ -381,6 +403,7 @@ export class ProblemAccessService {
           testCount: number | null;
           totalPoints: number | null;
           checkerKind: string | null;
+          packageHash: string | null;
           meVerdict?: string | null;
           mePoints?: number | null;
           meMaxPoints?: number | null;
@@ -407,6 +430,7 @@ export class ProblemAccessService {
             testCount: problemRevisions.testCount,
             totalPoints: problemRevisions.totalPoints,
             checkerKind: problemRevisions.checkerKind,
+            packageHash: problemRevisions.packageHash,
             meVerdict: meBest.verdict,
             mePoints: meBest.points,
             meMaxPoints: meBest.maxPoints,
@@ -437,6 +461,7 @@ export class ProblemAccessService {
             testCount: problemRevisions.testCount,
             totalPoints: problemRevisions.totalPoints,
             checkerKind: problemRevisions.checkerKind,
+            packageHash: problemRevisions.packageHash,
           })
           .from(problems)
           .leftJoin(problemRevisions, revisionJoin)
@@ -472,21 +497,60 @@ export class ProblemAccessService {
     const editorial = await this.resolveEditorial(actor, row, canEditProblem(actor, ctx), hidden.has(row.id));
 
     return {
-      ...toSummary(row, hint, counts),
-      ...editorial,
-      statement: row.statement,
-      // Not revision-derived, so unlike the three fields below it is never
-      // nulled out on a problem whose only revision is a draft: the flag
-      // lives on the problem itself and is meaningful before anything is
-      // published.
-      sourceAccess: row.sourceAccess,
-      testCount: row.revisionId === null ? null : row.testCount,
-      totalPoints: row.revisionId === null ? null : row.totalPoints,
-      checkerKind: row.revisionId === null ? null : row.checkerKind,
-      createdAt: row.createdAt.toISOString(),
-      members,
-      orgSlugs,
+      detail: {
+        ...toSummary(row, hint, counts),
+        ...editorial,
+        statement: row.statement,
+        // Not revision-derived, so unlike the three fields below it is never
+        // nulled out on a problem whose only revision is a draft: the flag
+        // lives on the problem itself and is meaningful before anything is
+        // published.
+        sourceAccess: row.sourceAccess,
+        testCount: row.revisionId === null ? null : row.testCount,
+        totalPoints: row.revisionId === null ? null : row.totalPoints,
+        checkerKind: row.revisionId === null ? null : row.checkerKind,
+        createdAt: row.createdAt.toISOString(),
+        members,
+        orgSlugs,
+      },
+      packageHash: row.revisionId === null ? null : row.packageHash,
     };
+  }
+
+  async getVisible(actor: Actor | null, code: string): Promise<ProblemDetailDto> {
+    const { detail, packageHash } = await this.loadVisible(actor, code);
+    return { ...detail, samples: await this.loadSamples(packageHash) };
+  }
+
+  /**
+   * The published revision's samples (D94), folded once per package and
+   * cached under its hash.
+   *
+   * **Every failure answers `[]`.** A missing blob, a package whose manifest
+   * this build cannot parse, a Redis that is down — none of them are reasons
+   * to fail the request that renders the problem statement. The samples are a
+   * convenience laid on top of the statement, which still carries its own
+   * example table; a problem page that 500s because a volume was unhappy
+   * would be a strictly worse outcome than one whose extra section is
+   * missing. The throw happens INSIDE `through`'s fold, so a failed read is
+   * never written to the cache and the next request tries again.
+   */
+  private async loadSamples(packageHash: string | null): Promise<ProblemSampleDto[]> {
+    if (packageHash === null) return [];
+    try {
+      const { value } = await this.cache.through(
+        samplesCacheKey(packageHash),
+        async () => readPackageSamples(await this.store.get(packageHash)),
+        SAMPLES_CACHE_TTL_MS,
+      );
+      return value;
+    } catch (error) {
+      this.logger.warn(
+        `could not read samples from package ${packageHash}: ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+      return [];
+    }
   }
 
   /**
@@ -508,7 +572,7 @@ export class ProblemAccessService {
     actor: Actor | null,
     code: string,
   ): Promise<{ stats: ProblemStatsDto; cache: ScoreboardCacheState }> {
-    const detail = await this.getVisible(actor, code);
+    const { detail } = await this.loadVisible(actor, code);
     const hidden = await this.contestHiddenProblemIds(actor, [detail.id]);
     const { value, cache } = await this.cache.through(
       `${STATS_CACHE_PREFIX}:${String(detail.id)}`,
@@ -740,7 +804,7 @@ export class ProblemAccessService {
    * unpublished and withheld share one code and one message.
    */
   async getEditorial(actor: Actor | null, code: string): Promise<EditorialResponseDto> {
-    const detail = await this.getVisible(actor, code);
+    const { detail } = await this.loadVisible(actor, code);
     if (detail.editorial === null) {
       throw new AppError(404, 'editorial_not_found', 'This problem has no editorial you can read.');
     }
@@ -1432,6 +1496,7 @@ export class ProblemAccessService {
       testCount: number | null;
       totalPoints: number | null;
       checkerKind: string | null;
+      packageHash: string | null;
       meVerdict?: string | null;
       mePoints?: number | null;
       meMaxPoints?: number | null;
@@ -1457,6 +1522,7 @@ export class ProblemAccessService {
             testCount: problemRevisions.testCount,
             totalPoints: problemRevisions.totalPoints,
             checkerKind: problemRevisions.checkerKind,
+            packageHash: problemRevisions.packageHash,
             meVerdict: meBest.verdict,
             mePoints: meBest.points,
             meMaxPoints: meBest.maxPoints,
@@ -1487,6 +1553,7 @@ export class ProblemAccessService {
             testCount: problemRevisions.testCount,
             totalPoints: problemRevisions.totalPoints,
             checkerKind: problemRevisions.checkerKind,
+            packageHash: problemRevisions.packageHash,
           })
           .from(problems)
           .leftJoin(problemRevisions, revisionJoin)
@@ -1527,6 +1594,7 @@ export class ProblemAccessService {
       createdAt: row.createdAt.toISOString(),
       members,
       orgSlugs,
+      samples: await this.loadSamples(row.revisionId === null ? null : row.packageHash),
     };
   }
 

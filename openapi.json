@@ -13985,6 +13985,35 @@
                     },
                     "editorialAvailable": {
                       "type": "boolean"
+                    },
+                    "samples": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "input": {
+                            "type": "string"
+                          },
+                          "output": {
+                            "type": "string"
+                          },
+                          "explanation": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "truncated": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "input",
+                          "output",
+                          "explanation",
+                          "truncated"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -14009,7 +14038,8 @@
                     "members",
                     "orgSlugs",
                     "editorial",
-                    "editorialAvailable"
+                    "editorialAvailable",
+                    "samples"
                   ]
                 }
               }
@@ -14399,6 +14429,35 @@
                     },
                     "editorialAvailable": {
                       "type": "boolean"
+                    },
+                    "samples": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "input": {
+                            "type": "string"
+                          },
+                          "output": {
+                            "type": "string"
+                          },
+                          "explanation": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "truncated": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "input",
+                          "output",
+                          "explanation",
+                          "truncated"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -14423,7 +14482,8 @@
                     "members",
                     "orgSlugs",
                     "editorial",
-                    "editorialAvailable"
+                    "editorialAvailable",
+                    "samples"
                   ]
                 }
               }
@@ -14767,6 +14827,35 @@
                     },
                     "editorialAvailable": {
                       "type": "boolean"
+                    },
+                    "samples": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "input": {
+                            "type": "string"
+                          },
+                          "output": {
+                            "type": "string"
+                          },
+                          "explanation": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "truncated": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "input",
+                          "output",
+                          "explanation",
+                          "truncated"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -14791,7 +14880,8 @@
                     "members",
                     "orgSlugs",
                     "editorial",
-                    "editorialAvailable"
+                    "editorialAvailable",
+                    "samples"
                   ]
                 }
               }
@@ -15371,6 +15461,35 @@
                     },
                     "editorialAvailable": {
                       "type": "boolean"
+                    },
+                    "samples": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "input": {
+                            "type": "string"
+                          },
+                          "output": {
+                            "type": "string"
+                          },
+                          "explanation": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "truncated": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "input",
+                          "output",
+                          "explanation",
+                          "truncated"
+                        ]
+                      }
                     }
                   },
                   "required": [
@@ -15395,7 +15514,8 @@
                     "members",
                     "orgSlugs",
                     "editorial",
-                    "editorialAvailable"
+                    "editorialAvailable",
+                    "samples"
                   ]
                 }
               }

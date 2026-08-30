@@ -239,6 +239,34 @@ export type ProblemSummaryDto = z.infer<typeof ProblemSummary>;
 export const ProblemPage = cursorPage(ProblemSummary);
 export type ProblemPageDto = z.infer<typeof ProblemPage>;
 
+/**
+ * One worked example, read out of the published revision's package rather
+ * than scraped back out of the statement's prose (D94).
+ *
+ * `input` and `output` are the sample test's own files, byte for byte —
+ * trailing newline included. That is deliberate and is the whole point of
+ * the field: an agent (or `oj`) feeds `input` to a program and compares its
+ * stdout against `output`, and a helpfully-trimmed string would fail that
+ * comparison on problems whose checker is not token-based.
+ *
+ * `explanation` is the setter's prose for this sample (Markdown, same
+ * vi+en shape as the statement), or `null` — the manifest's
+ * `samples[].explanation`, not a column, because it belongs to the revision
+ * that ships the files it explains.
+ *
+ * `truncated` says a file was longer than the API is willing to inline and
+ * has been cut; the sample is still shown, and the statement's own table (or
+ * the problem's test data) remains the complete record. A sample big enough
+ * to trip this is a sample nobody was going to read off a phone anyway.
+ */
+export const ProblemSample = z.object({
+  input: z.string(),
+  output: z.string(),
+  explanation: z.string().nullable(),
+  truncated: z.boolean(),
+});
+export type ProblemSampleDto = z.infer<typeof ProblemSample>;
+
 export const ProblemDetail = ProblemSummary.extend({
   statement: z.string(),
   // On the detail, not the summary: `PATCH /problems/:code` answers with a
@@ -279,6 +307,19 @@ export const ProblemDetail = ProblemSummary.extend({
    * `{ editorial: "...", editorialAvailable: false }`.
    */
   editorialAvailable: z.boolean(),
+  /**
+   * The published revision's samples, in manifest order (D94). Empty — never
+   * absent — for a problem with no published revision, for a package whose
+   * tests are all scored, and for a package whose blob could not be read:
+   * samples are a convenience on top of the statement, and a problem page
+   * that 500s because a cache or a volume was unhappy would be a far worse
+   * failure than a page whose example table is the only copy.
+   *
+   * Not masked by D35 like `tags` and `difficulty` are: a sample is part of
+   * the problem, not a hint about it, and a contestant sitting the round is
+   * exactly who needs it.
+   */
+  samples: z.array(ProblemSample),
 });
 export type ProblemDetailDto = z.infer<typeof ProblemDetail>;
 

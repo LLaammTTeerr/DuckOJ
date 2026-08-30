@@ -6772,6 +6772,12 @@ export interface paths {
                             orgSlugs: string[];
                             editorial: string | null;
                             editorialAvailable: boolean;
+                            samples: {
+                                input: string;
+                                output: string;
+                                explanation: string | null;
+                                truncated: boolean;
+                            }[];
                         };
                     };
                 };
@@ -6927,6 +6933,12 @@ export interface paths {
                             orgSlugs: string[];
                             editorial: string | null;
                             editorialAvailable: boolean;
+                            samples: {
+                                input: string;
+                                output: string;
+                                explanation: string | null;
+                                truncated: boolean;
+                            }[];
                         };
                     };
                 };
@@ -7035,6 +7047,12 @@ export interface paths {
                             orgSlugs: string[];
                             editorial: string | null;
                             editorialAvailable: boolean;
+                            samples: {
+                                input: string;
+                                output: string;
+                                explanation: string | null;
+                                truncated: boolean;
+                            }[];
                         };
                     };
                 };
@@ -7296,6 +7314,12 @@ export interface paths {
                             orgSlugs: string[];
                             editorial: string | null;
                             editorialAvailable: boolean;
+                            samples: {
+                                input: string;
+                                output: string;
+                                explanation: string | null;
+                                truncated: boolean;
+                            }[];
                         };
                     };
                 };
