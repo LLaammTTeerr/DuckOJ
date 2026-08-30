@@ -38,9 +38,36 @@ export function configureApp(
   // (the Compose healthcheck, the Caddyfile) rather than API surface, so they
   // must not move when the API version does.
   app.setGlobalPrefix(API_PREFIX, { exclude: ['healthz', 'readyz'] });
-  app.enableCors({ origin: config.publicOrigin, credentials: true });
+  app.enableCors({ origin: config.publicOrigin, credentials: true, exposedHeaders: EXPOSED_HEADERS });
   configureKeepAlive(app.getHttpServer() as Server);
 }
+
+/**
+ * Response headers a cross-origin browser client is allowed to read.
+ *
+ * `fetch` exposes only the CORS-safelisted response headers — `Cache-Control`,
+ * `Content-Language`, `Content-Length`, `Content-Type`, `Expires`,
+ * `Last-Modified`, `Pragma` — and nothing else, ever, unless it is named
+ * here. Every header below is one this API deliberately answers *with*, and
+ * without this list each one is invisible to the only client CORS exists
+ * for:
+ *
+ * - `Retry-After` is declared in the OpenAPI document itself for
+ *   `POST /auth/register` and `POST /auth/login`, so a 429 that a browser
+ *   cannot read the number from breaks a published contract: the client can
+ *   say "try again later" and nothing more.
+ * - `X-Scoreboard-Cache` is a header rather than a body field on purpose
+ *   (D25) — the goldens pin the body byte for byte — on the reasoning that
+ *   operators and load tests read a header perfectly well. Not from a
+ *   browser, they did not.
+ * - `x-request-id` is stamped on every response by `requestLogger` and
+ *   appears on every log line; it is the one value worth quoting in a bug
+ *   report, and a front end that cannot read it cannot show it.
+ *
+ * Same-origin traffic through Caddy never needed any of this, which is
+ * exactly why its absence went unnoticed.
+ */
+const EXPOSED_HEADERS = ['Retry-After', 'X-Scoreboard-Cache', 'X-Request-Id'];
 
 /**
  * How long an idle connection is kept open, in milliseconds.
