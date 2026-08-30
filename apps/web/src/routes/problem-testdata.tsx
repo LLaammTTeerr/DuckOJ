@@ -29,7 +29,7 @@ const DEFAULT_MEMORY_KB = 262_144;
 let nextCaseId = 0;
 function emptyCase(): CaseDraft {
   nextCaseId += 1;
-  return { id: `c${String(nextCaseId)}`, input: '', answer: '', points: 0, group: 0, sample: false };
+  return { id: `c${String(nextCaseId)}`, input: '', answer: '', points: 0, group: 0, sample: false, explanation: '' };
 }
 
 /** `File` -> its text, refusing anything past the per-file ceiling. */
@@ -220,6 +220,7 @@ export function ProblemTestDataTab(props: { code: string }) {
           points: c.points,
           group: c.group,
           sample: c.sample,
+          explanation: c.explanation,
         })),
       );
       setLoaded(target.version);
@@ -468,6 +469,20 @@ export function ProblemTestDataTab(props: { code: string }) {
                     checked={c.sample}
                     onChange={(e) => patchCase(c.id, { sample: e.target.checked })}
                   />
+                  {/* D94's explanation, offered only once the case IS a
+                      sample: the manifest refuses one on a graded case, and
+                      an input that silently drops what was typed into it is
+                      the same mistake the disabled points box avoids. What
+                      is typed here is Markdown, rendered under the sample on
+                      the problem page. */}
+                  {c.sample ? (
+                    <input
+                      aria-label={t('testData.explanationFor', { n: i + 1 })}
+                      placeholder={t('testData.explanation')}
+                      value={c.explanation}
+                      onChange={(e) => patchCase(c.id, { explanation: e.target.value })}
+                    />
+                  ) : null}
                 </td>
                 <td>
                   <button

@@ -8515,6 +8515,7 @@ export interface paths {
                                     points: number;
                                     group: number;
                                     sample: boolean;
+                                    explanation: string;
                                 }[];
                             };
                             fileCount: number;

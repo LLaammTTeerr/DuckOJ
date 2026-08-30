@@ -358,6 +358,77 @@ describe('ProblemPage', () => {
     expect(container.querySelector('script')).toBeNull();
   });
 
+  /**
+   * D94. The fixture makes the statement's table and the API's samples say
+   * exactly the same thing — modulo the trailing newline a test FILE has and
+   * a table cell cannot — so the assertions below cannot pass by accident.
+   */
+  const SAMPLED = {
+    ...PROBLEM_A,
+    statement: '## Bài toán\n\nCộng hai số.\n\n## Ví dụ\n\n| Dữ liệu vào | Kết quả |\n| --- | --- |\n| `2 3` | `5` |\n',
+    testCount: 3,
+    totalPoints: 100,
+    checkerKind: 'wcmp',
+    createdAt: '2026-01-01T00:00:00Z',
+    samples: [{ input: '2 3\n', output: '5\n', explanation: null, truncated: false }],
+  };
+
+  function mockDetail(detail: unknown): void {
+    mockedGet.mockResolvedValueOnce({ data: detail, error: undefined, response: new Response() } as never);
+  }
+
+  it("renders the samples from data and hides the statement's table that duplicates them", async () => {
+    mockDetail(SAMPLED);
+    const { container } = renderWithClient(<ProblemPage code="aplusb" />);
+
+    await screen.findByRole('heading', { name: 'Ví dụ 1' });
+    // The sample files, verbatim, in their own <pre> blocks.
+    expect(screen.getByText('2 3')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    // The duplicate table is gone — and so is the heading it was the whole
+    // body of, which would otherwise read as a section nobody wrote.
+    expect(container.querySelector('table')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Ví dụ', level: 3 })).toBeNull();
+    // Everything the statement actually said is still on the page.
+    expect(screen.getByText(/Cộng hai số\./)).toBeInTheDocument();
+  });
+
+  it('keeps a table that says something the samples do not', async () => {
+    mockDetail({
+      ...SAMPLED,
+      // The API knows one sample; the statement's table shows two. Hiding it
+      // would take away the reader's only copy of the second.
+      statement: SAMPLED.statement + '| `1 1` | `2` |\n',
+    });
+    const { container } = renderWithClient(<ProblemPage code="aplusb" />);
+
+    await screen.findByRole('heading', { name: 'Ví dụ 1' });
+    expect(container.querySelector('table')).not.toBeNull();
+  });
+
+  it('copies a sample file to the clipboard, byte for byte', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    mockDetail(SAMPLED);
+    renderWithClient(<ProblemPage code="aplusb" />);
+
+    await screen.findByRole('heading', { name: 'Ví dụ 1' });
+    await userEvent.click(screen.getAllByRole('button', { name: 'Sao chép' })[0]!);
+    // The newline the FILE has, not the trimmed cell the table showed.
+    expect(writeText).toHaveBeenCalledWith('2 3\n');
+    expect(await screen.findByRole('button', { name: 'Đã sao chép' })).toBeInTheDocument();
+  });
+
+  it('renders no samples section, and touches no table, against an API that sends no samples key', async () => {
+    const { samples: _unused, ...withoutSamples } = SAMPLED;
+    mockDetail(withoutSamples);
+    const { container } = renderWithClient(<ProblemPage code="aplusb" />);
+
+    await screen.findByText(/Cộng hai số\./);
+    expect(screen.queryByRole('heading', { name: 'Ví dụ 1' })).toBeNull();
+    expect(container.querySelector('table')).not.toBeNull();
+  });
+
   it('renders "No such problem." for a 404, without distinguishing absent from invisible', async () => {
     mockedGet.mockResolvedValueOnce({
       data: undefined,

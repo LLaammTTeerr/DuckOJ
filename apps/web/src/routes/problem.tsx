@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { hideDuplicateSampleTables } from '@duckoj/statement-samples';
 import { meQueryOptions } from '../me.js';
 import { api } from '../api.js';
 import { API_PREFIX } from '@duckoj/api-prefix';
@@ -63,6 +65,21 @@ export function ProblemPage(props: { code: string }) {
   // it, and `renderStatement(undefined)` would white-screen the whole
   // problem page over a section that is meant to be optional.
   const editorial = problem.editorial ?? null;
+  // `?? []` for the same reason `editorial` is read with `?? null`: this
+  // bundle can be talking to an API deployed before D94, which sends no
+  // `samples` key, and `.map` on undefined would white-screen the page a
+  // competitor came for over a section that is meant to be a bonus.
+  const samples = problem.samples ?? [];
+  // The shape `@duckoj/statement-samples` compares in: a table's third column
+  // is a `note`, and the manifest's is an `explanation`. Mapping them onto one
+  // key is what lets the duplicate check see that a table carrying the same
+  // sentence IS a duplicate — without it, every annotated sample would leave
+  // its table on screen.
+  const asTableRows = samples.map((sample) => ({
+    input: sample.input,
+    output: sample.output,
+    ...(sample.explanation === null ? {} : { note: sample.explanation }),
+  }));
   // Courtesy links only — both target pages re-decide authorization. A
   // member or a global setter/admin authors; everyone else just reads.
   const canAuthor =
@@ -107,8 +124,21 @@ export function ProblemPage(props: { code: string }) {
           (see markdown.ts) — this is the one place in the app that hands
           rendered HTML straight to the DOM, and it is only safe because
           renderStatement's output has already been through
-          DOMPurify.sanitize. */}
-      <div dangerouslySetInnerHTML={{ __html: renderStatement(problem.statement) }} />
+          DOMPurify.sanitize.
+
+          `hideDuplicateSampleTables` first (D94): when the API hands over
+          structured samples AND the statement's `## Ví dụ` table says exactly
+          the same thing, the table is dropped so the reader does not meet the
+          same two examples twice. A table that differs at all — an extra
+          example, an explanation the samples do not carry — is left alone;
+          hiding a reader's only copy of something is a far worse failure
+          than showing it twice. */}
+      <div
+        dangerouslySetInnerHTML={{
+          __html: renderStatement(hideDuplicateSampleTables(problem.statement, asTableRows)),
+        }}
+      />
+      <ProblemSamples samples={samples} />
       {/* The editorial (D43), behind a `<details>` a reader has to open:
           this is the one part of the page nobody should meet by accident,
           and the API deciding they MAY read it is not the same as them
@@ -172,6 +202,90 @@ export function ProblemPage(props: { code: string }) {
         ) : null}
       </p>
       <ProblemStatsSection code={problem.code} />
+    </section>
+  );
+}
+
+/**
+ * One sample file, with a button that copies it.
+ *
+ * A `<pre>` and not a table cell: what is shown is the file the judge feeds
+ * the program, whitespace and all, and a table would reflow it. The copy
+ * button is why the samples are worth rendering from data at all — the
+ * statement's table has always shown the same characters, but you cannot
+ * copy a cell out of it without picking up backticks.
+ */
+function SampleFile(props: { label: string; text: string }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+
+  async function copy(): Promise<void> {
+    try {
+      // `navigator.clipboard` is absent over plain HTTP and in some embedded
+      // browsers (security.tsx meets the same wall). The bytes are on screen
+      // either way, so a refusal must never look like a failure to show
+      // them: the button simply does not flip to "copied".
+      await navigator.clipboard.writeText(props.text);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div>
+      <p>
+        <strong>{props.label}</strong>{' '}
+        <button type="button" onClick={() => void copy()}>
+          {copied ? t('problem.sampleCopied') : t('problem.sampleCopy')}
+        </button>
+      </p>
+      <pre>
+        <code>{props.text}</code>
+      </pre>
+    </div>
+  );
+}
+
+/**
+ * "Ví dụ" — the samples, rendered from the package's own files (D94).
+ *
+ * Below the statement, not inside it: the statement is one Markdown string
+ * this page does not edit beyond hiding a table it can prove is a duplicate,
+ * and threading a React subtree into the middle of `dangerouslySetInnerHTML`
+ * would mean parsing and re-emitting the whole document.
+ *
+ * Renders nothing at all when there are no samples — for a problem with no
+ * published revision, and for one whose package could not be read, the API
+ * answers `[]` and the statement's own table is still there.
+ */
+function ProblemSamples(props: { samples: { input: string; output: string; explanation: string | null; truncated: boolean }[] }) {
+  const t = useT();
+  if (props.samples.length === 0) return null;
+  return (
+    <section className="samples">
+      <h2>{t('problem.samples')}</h2>
+      {props.samples.map((sample, index) => (
+        // The index IS the identity here: a sample has no id, and the list
+        // belongs to one published revision, so it never reorders on screen.
+        <div className="sample" key={index}>
+          <h3>
+            {t('problem.sampleN', { n: index + 1 })}
+            {sample.truncated ? ` (${t('problem.sampleTruncated')})` : ''}
+          </h3>
+          <div className="side-by-side">
+            <SampleFile label={t('problem.sampleInput')} text={sample.input} />
+            <SampleFile label={t('problem.sampleOutput')} text={sample.output} />
+          </div>
+          {/* The setter's prose, through the same Markdown + maths + DOMPurify
+              pipeline the statement goes through: an explanation routinely
+              carries `$1 + 2 + 3$`, and rendering it as plain text would make
+              hiding the table that showed it properly a downgrade. */}
+          {sample.explanation !== null ? (
+            <div dangerouslySetInnerHTML={{ __html: renderStatement(sample.explanation) }} />
+          ) : null}
+        </div>
+      ))}
     </section>
   );
 }

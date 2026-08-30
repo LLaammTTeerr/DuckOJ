@@ -267,12 +267,22 @@ export const DraftPrefillCase = z.object({
   group: z.number().int(),
   /**
    * Whether this case reads as a sample. Inferred, not stored: the manifest
-   * has no sample field (D87), so a case worth 0 points in group 0 — exactly
-   * what the tab writes for a sample — is reported as one. A deliberately
-   * zero-point ungrouped case that is not a sample is indistinguishable from
-   * a sample and comes back as one; it grades identically either way.
+   * has no sample FLAG (D87) and is not gaining one, so sample-ness is read
+   * back off the scoring — `isSampleTest`'s "worth nothing, in a group worth
+   * nothing" (D94), which recognises a Polygon package's zero-point `samples`
+   * group as well as the flat `group: 0` the tab itself writes. A
+   * deliberately zero-point ungrouped case that is not a sample is
+   * indistinguishable from one and comes back as a sample; it grades
+   * identically either way.
    */
   sample: z.boolean(),
+  /**
+   * The setter's prose for this sample (D94), or `''` for none — the
+   * manifest's `samples[].explanation`, keyed back to this case. Empty rather
+   * than absent so the tab can bind it straight to a text input, and empty on
+   * every non-sample case, which cannot carry one.
+   */
+  explanation: z.string(),
 });
 export type DraftPrefillCaseDto = z.infer<typeof DraftPrefillCase>;
 

@@ -6,7 +6,7 @@ function file(name: string, text: string) {
 }
 
 function caseDraft(over: Partial<CaseDraft> = {}): CaseDraft {
-  return { id: 'x', input: 'i', answer: 'a', points: 10, group: 0, sample: false, ...over };
+  return { id: 'x', input: 'i', answer: 'a', points: 10, group: 0, sample: false, explanation: '', ...over };
 }
 
 describe('pairByStem', () => {
@@ -81,6 +81,35 @@ describe('planPackage', () => {
     expect(manifest.tests[0]).toMatchObject({ points: 0, group: 0 });
     expect(manifest.tests[1]).toMatchObject({ points: 60, group: 1 });
     expect(plan.totalPoints).toBe(60);
+  });
+
+  it("writes a sample's explanation into the manifest, keyed by the sample's input path (D94)", () => {
+    const plan = planPackage({
+      name: 'abc',
+      timeMs: 1000,
+      memoryKb: 65536,
+      checker: { kind: 'standard', source: '', language: 'cpp17' },
+      cases: [
+        caseDraft({ id: 'a', sample: true, explanation: '  Cộng hai số.  ' }),
+        caseDraft({ id: 'b', sample: true, explanation: '' }),
+        // An explanation left behind on a case that was un-ticked: the
+        // manifest refuses one on a graded test, so it must not be written.
+        caseDraft({ id: 'c', points: 60, group: 1, explanation: 'stale' }),
+      ],
+    });
+    const manifest = plan.manifest as { samples?: { input: string; explanation: string }[] };
+    expect(manifest.samples).toEqual([{ input: '01.in', explanation: 'Cộng hai số.' }]);
+  });
+
+  it('omits the samples key entirely when nothing is explained, so the package hashes as it did before', () => {
+    const plan = planPackage({
+      name: 'abc',
+      timeMs: 1000,
+      memoryKb: 65536,
+      checker: { kind: 'standard', source: '', language: 'cpp17' },
+      cases: [caseDraft({ sample: true })],
+    });
+    expect(Object.hasOwn(plan.manifest as object, 'samples')).toBe(false);
   });
 
   it('packs a source checker as checker.cpp and names it in the manifest (D40)', () => {

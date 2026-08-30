@@ -126,6 +126,17 @@ export interface CaseDraft {
    * not a new field in the manifest.
    */
   sample: boolean;
+  /**
+   * The setter's prose for this sample (D94) — Markdown, rendered under the
+   * sample on the problem page. Empty means none, which is why it is a plain
+   * string rather than `string | null`: it is bound to a text input, and an
+   * input whose value can be null is an input React logs a warning about.
+   *
+   * Only meaningful on a sample, and only carried into the manifest for one:
+   * an explanation on a graded case would be a sentence the setter wrote that
+   * nothing ever renders, and `parseManifest` refuses it outright.
+   */
+  explanation: string;
 }
 
 export interface CheckerDraft {
@@ -186,6 +197,17 @@ export function planPackage(input: {
     };
   });
 
+  // D94's annotations, keyed by the sample's input path — the same join the
+  // API reads back. Only samples contribute, and only non-empty prose: an
+  // empty string here would be refused by `SampleAnnotation`'s `min(1)`, and
+  // an entry naming a graded case would be refused by the manifest's
+  // cross-check. Both refusals would surface as a build failure the setter
+  // cannot act on, so neither is ever constructed.
+  const samples = input.cases
+    .map((c, i) => ({ c, stem: draftCaseStem(i, input.cases.length) }))
+    .filter(({ c }) => c.sample && c.explanation.trim() !== '')
+    .map(({ c, stem }) => ({ input: `${stem}.in`, explanation: c.explanation.trim() }));
+
   const checker =
     input.checker.kind === 'source'
       ? { kind: 'source' as const, path: CHECKER_FILE_NAME, language: input.checker.language }
@@ -200,6 +222,11 @@ export function planPackage(input: {
     checker,
     limits: { timeMs: input.timeMs, memoryKb: input.memoryKb },
     tests,
+    // Omitted entirely rather than sent empty: a manifest with `samples: []`
+    // and one with no key at all mean the same thing, and they hash
+    // differently — a setter who typed an explanation and deleted it again
+    // must get back the package they started with.
+    ...(samples.length > 0 ? { samples } : {}),
   };
 
   // `manifest.json` first, so a build attempted against a half-uploaded

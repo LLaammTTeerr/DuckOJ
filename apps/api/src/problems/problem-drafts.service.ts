@@ -2,7 +2,13 @@ import { access, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Inject, Injectable } from '@nestjs/common';
-import { buildPackage, parseManifest, unpackArchive, type PackageManifestDto } from '@duckoj/package-format';
+import {
+  buildPackage,
+  isSampleTest,
+  parseManifest,
+  unpackArchive,
+  type PackageManifestDto,
+} from '@duckoj/package-format';
 import {
   DRAFT_CHECKER_FILE_NAME,
   DRAFT_MAX_FILES,
@@ -356,6 +362,9 @@ function planPrefill(manifest: PackageManifestDto): {
 } {
   const copies: { from: string; name: string }[] = [];
   const total = manifest.tests.length;
+  const isSample = isSampleTest(manifest.tests);
+  // Keyed by the package path, which is what `samples[].input` names.
+  const explanations = new Map((manifest.samples ?? []).map((s) => [s.input, s.explanation]));
   const cases: DraftPrefillCaseDto[] = manifest.tests.map((test, index) => {
     const stem = draftCaseStem(index, total);
     copies.push({ from: test.input, name: `${stem}.in` });
@@ -365,11 +374,13 @@ function planPrefill(manifest: PackageManifestDto): {
       answer: `${stem}.out`,
       points: test.points,
       group: test.group,
-      // Inferred, never stored: the manifest has no sample flag (D87), and a
-      // case worth nothing in group 0 is exactly what the tab writes for a
-      // sample. A deliberately zero-point ungrouped case comes back as a
-      // sample; it grades identically either way.
-      sample: test.points === 0 && test.group === 0,
+      // Inferred, never stored: the manifest has no sample FLAG (D87), so
+      // sample-ness is read back off the scoring — D94's rule, which also
+      // recognises a Polygon package's zero-point `samples` group. Reading
+      // `group === 0` alone here meant every imported problem's samples came
+      // back into the tab as graded cases.
+      sample: isSample(test),
+      explanation: explanations.get(test.input) ?? '',
     };
   });
 

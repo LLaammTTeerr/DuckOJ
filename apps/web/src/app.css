@@ -1957,3 +1957,30 @@ fieldset label {
     break-inside: avoid;
   }
 }
+
+/* --- a problem's samples (D94) -------------------------------------------
+ * Rendered from the package's own files, below the statement, so what is on
+ * screen is byte-for-byte what the judge feeds the program. The two blocks
+ * reuse `.side-by-side`'s grid — equal halves that stack on a phone — and
+ * the <pre> rule above already gives each one the inset well and the
+ * horizontal scroll a long line needs.
+ *
+ * `white-space: pre-wrap` on the code, not the default `pre`: a sample line
+ * longer than the column should wrap rather than push a scrollbar under
+ * every block on a phone, and a sample's own newlines are preserved either
+ * way. `margin: 0` on the <p> that carries the label and the copy button
+ * keeps the label attached to the block it names.
+ */
+.samples .sample {
+  margin: 0 0 var(--sp-4);
+}
+.samples .sample h3 {
+  margin: 0 0 var(--sp-2);
+}
+.samples .side-by-side p {
+  margin: 0 0 var(--sp-1);
+}
+.samples pre code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

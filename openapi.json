@@ -17858,6 +17858,9 @@
                               },
                               "sample": {
                                 "type": "boolean"
+                              },
+                              "explanation": {
+                                "type": "string"
                               }
                             },
                             "required": [
@@ -17865,7 +17868,8 @@
                               "answer",
                               "points",
                               "group",
-                              "sample"
+                              "sample",
+                              "explanation"
                             ]
                           }
                         }
