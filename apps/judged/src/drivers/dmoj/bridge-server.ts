@@ -55,6 +55,18 @@ export interface JudgeConnection {
 type PacketHandler = (connection: JudgeConnection, packet: JudgeToBridgePacket) => void;
 
 /**
+ * Called with a judge id the moment its registered connection leaves
+ * `connections` for any reason other than this server shutting down.
+ *
+ * Whoever is grading on that socket has to hear about it. Before this
+ * existed the `close` handler quietly deleted the map entries and told the
+ * driver nothing, so a judge that died mid-grade left `DmojDriver` holding a
+ * live job and `Worker` parked on a terminal event that would never come —
+ * until the grading ceiling fired, minutes later.
+ */
+type DisconnectHandler = (id: string) => void;
+
+/**
  * The TCP listener judges connect *out* to. judge-server dials us, not the
  * reverse — so `judged` must be reachable from the judge container, and
  * needs no ingress of its own.
@@ -75,6 +87,7 @@ export class BridgeServer {
    */
   private readonly problemSets = new Map<string, Set<string>>();
   private handler: PacketHandler = () => {};
+  private disconnectHandler: DisconnectHandler = () => {};
   private pingTimer: ReturnType<typeof setInterval> | undefined;
   private readonly pingIntervalMs: number;
 
@@ -84,6 +97,33 @@ export class BridgeServer {
 
   onPacket(handler: PacketHandler): void {
     this.handler = handler;
+  }
+
+  /**
+   * Registers the one handler told when a registered judge connection goes
+   * away — a FIN or reset, a connection reaped by `sweep()` for silence, or
+   * one displaced by the same judge redialling.
+   *
+   * Deliberately NOT fired from `close()`: that is this process shutting the
+   * bridge down on purpose, and its callers (`DmojDriver.stop`) are already
+   * tearing everything down. Firing there would report every judge as having
+   * abandoned its work on the way out, which would requeue jobs that are
+   * about to be requeued anyway by a cleaner path.
+   */
+  onDisconnect(handler: DisconnectHandler): void {
+    this.disconnectHandler = handler;
+  }
+
+  /**
+   * Drops one registered connection and reports it, in that order — the
+   * handler must observe the map as it will be, not as it was, because
+   * `DmojDriver` reacts by looking for another judge to take the work.
+   */
+  private retire(id: string): void {
+    this.connections.delete(id);
+    this.lastSeenAt.delete(id);
+    this.problemSets.delete(id);
+    this.disconnectHandler(id);
   }
 
   judgeCount(): number {
@@ -180,9 +220,12 @@ export class BridgeServer {
       const lastSeen = this.lastSeenAt.get(id) ?? now;
       if (now - lastSeen > this.pingIntervalMs * MISSED_PING_LIMIT) {
         connection.close();
-        this.connections.delete(id);
-        this.lastSeenAt.delete(id);
-        this.problemSets.delete(id);
+        // `retire`, not three deletes: the socket's own `close` handler will
+        // find the connection already gone from the map and stay silent, so
+        // this is the only place the disconnect can be reported for a reaped
+        // judge — and a judge silent for three ping intervals is exactly the
+        // one whose in-flight grade will never finish.
+        this.retire(id);
         continue;
       }
       connection.send({ name: 'ping', when: Math.floor(Date.now() / 1000) });
@@ -271,7 +314,17 @@ export class BridgeServer {
             // socket here retires it immediately and deterministically, rather
             // than leaving that eviction to race an unrelated close event.
             const displaced = this.connections.get(id);
-            if (displaced && displaced !== connection) displaced.close();
+            if (displaced && displaced !== connection) {
+              displaced.close();
+              // Reported before the new socket takes the slot, for the same
+              // reason `sweep` reports its own reap: the displaced socket's
+              // `close` handler will see a different connection under `id`
+              // and stay silent, so this is the only chance to say that
+              // whatever it was grading died with it. The driver's own
+              // `handshake` branch below then finds nothing stale left to
+              // release.
+              this.retire(id);
+            }
             this.connections.set(id, connection);
             connection.send({ name: 'handshake-success' });
             this.lastSeenAt.set(id, Date.now());
@@ -317,9 +370,7 @@ export class BridgeServer {
       // unguarded `delete(id)` would do if this stale socket's FIN arrives
       // after the new one has already taken `id`'s slot.
       if (id && this.connections.get(id) === connection) {
-        this.connections.delete(id);
-        this.lastSeenAt.delete(id);
-        this.problemSets.delete(id);
+        this.retire(id);
       }
     });
     socket.on('error', () => socket.destroy());

@@ -1,6 +1,7 @@
 import {
   DMOJ_FLAG,
   interpretFlags,
+  type AbandonJob,
   type DriverCapabilities,
   type EmitEvent,
   type GradingJob,
@@ -14,6 +15,12 @@ import type { BridgeServer, JudgeConnection } from './bridge-server.js';
 interface LiveJob {
   job: GradingJob;
   emit: EmitEvent;
+  /**
+   * Told when the judge holding this job disappears. Optional because
+   * `JudgeDriver.dispatch` makes it optional — a caller with no recovery to
+   * do (every driver test that only reads events) simply passes nothing.
+   */
+  abandon: AbandonJob | undefined;
   /**
    * The judge connection this submission is on, or undefined while it is
    * still queued behind a busy judge. `cancel` reads this to decide whether
@@ -113,6 +120,52 @@ export class DmojDriver implements JudgeDriver {
     private readonly agent: AgentClient,
   ) {
     this.bridge.onPacket((connection, packet) => this.handle(connection, packet));
+    this.bridge.onDisconnect((id) => this.onJudgeGone(id));
+  }
+
+  /**
+   * A judge connection went away. Whatever it was grading is not coming
+   * back: judge-server holds one `current_submission` per connection and
+   * keeps no state across a reconnect, so there is nothing to resume and
+   * nobody left to terminate.
+   *
+   * The job is retired locally and its caller told through `abandon`, which
+   * is the whole point — the caller's `dispatch` promise resolved when the
+   * request went on the wire, so without this the wait for a terminal event
+   * ends only at the grading ceiling (300 s at the floor, 30 minutes at the
+   * cap), with the lease lapse still to come after that.
+   *
+   * No `GradingEvent` is emitted, deliberately. `internalError` or
+   * `terminated` here would write a permanent IE onto a submission whose
+   * only misfortune was being on the judge that restarted — B2's failure
+   * shape, arrived at from the other direction.
+   */
+  private onJudgeGone(connectionId: string): void {
+    const assignment = this.assignments.get(connectionId);
+    if (!assignment) {
+      // An idle judge leaving frees no job, but it does change capacity, and
+      // a dispatch parked in `acquireConnection` must re-check rather than
+      // sleep on a connection list that has moved under it.
+      this.wake();
+      return;
+    }
+    const submissionId = assignment.submissionId;
+    // Frees the connection AND wakes parked dispatches.
+    this.releaseConnection(connectionId, submissionId);
+    const entry = this.live.get(submissionId);
+    if (!entry) return;
+    this.live.delete(submissionId);
+    console.warn(
+      JSON.stringify({
+        msg: 'judge disconnected while grading',
+        judge: connectionId,
+        jobId: entry.job.id,
+        attempt: entry.job.attempt,
+      }),
+    );
+    entry.abandon?.(
+      `judge ${connectionId} disconnected while grading job ${entry.job.id} attempt ${String(entry.job.attempt)}`,
+    );
   }
 
   async start(): Promise<void> {}
@@ -228,7 +281,7 @@ export class DmojDriver implements JudgeDriver {
    * a `tryAcquireSlot` reservation, in which case a connection is already
    * free and this never actually parks.
    */
-  async dispatch(job: GradingJob, emit: EmitEvent): Promise<void> {
+  async dispatch(job: GradingJob, emit: EmitEvent, abandon?: AbandonJob): Promise<void> {
     const submissionId = Number(job.id);
 
     // Before anything else is touched: a judge dispatched to without its
@@ -242,6 +295,7 @@ export class DmojDriver implements JudgeDriver {
     const entry: LiveJob = {
       job,
       emit,
+      abandon,
       connection: undefined,
       cancelled: false,
       batch: 0,

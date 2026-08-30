@@ -129,6 +129,40 @@ export class JobStore {
     return rows.length > 0;
   }
 
+  /**
+   * Hands a leased job straight back to the queue, without waiting for its
+   * lease to lapse.
+   *
+   * The lease exists because a worker is never *assumed dead* — it is only
+   * ever out of lease. Releasing is the one case where that inference is not
+   * needed: the worker is alive, it is the thing calling, and it knows the
+   * judge holding the job is gone (`JudgeDriver`'s `abandon` channel). Making
+   * it wait `LEASE_SECONDS` for a fact it already has just makes a student
+   * watch a spinner for another minute.
+   *
+   * `attempt` is bumped for exactly the reason `reclaimExpiredLeases` bumps
+   * it: `(id, attempt)` is the fencing token every event write consults, so
+   * moving it here cuts off any straggler packet from the old attempt the
+   * instant the job is requeued, instead of trusting that the vanished judge
+   * really has vanished.
+   *
+   * Fenced on `(id, attempt, state='leased')` like `complete`, so a release
+   * for a superseded attempt matches zero rows rather than requeueing
+   * somebody else's live grade.
+   */
+  async release(jobId: number, attempt: number): Promise<boolean> {
+    const rows = await this.db.execute<{ id: number }>(sql`
+      update grading_jobs
+         set state       = 'queued',
+             attempt     = attempt + 1,
+             worker_id   = null,
+             lease_until = null
+       where id = ${jobId} and attempt = ${attempt} and state = 'leased'
+      returning id
+    `);
+    return rows.length > 0;
+  }
+
   async complete(jobId: number, attempt: number): Promise<boolean> {
     const rows = await this.db.execute<{ id: number }>(sql`
       update grading_jobs

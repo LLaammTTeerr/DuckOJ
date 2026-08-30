@@ -35,6 +35,30 @@ export function gradingCeilingMs(job: { testCount: number | null; timeMs: number
 const POLL_MS = 500;
 
 /**
+ * Why the abandonment path is not just another `job failed`.
+ *
+ * `dispatch()` resolves when the request reaches the judge, not when grading
+ * ends, so a judge that dies mid-grade leaves this loop parked on a wrapper
+ * promise nothing will ever settle — until the grading ceiling fires (300 s
+ * at the floor, up to 30 minutes for a large dataset) and the lease then
+ * takes another minute to lapse. The driver now says so instead, through the
+ * `abandon` callback `dispatch` takes.
+ *
+ * The distinction this class carries is what the `catch` below reads to
+ * decide whether it may release the lease immediately. On every other
+ * failure — the watchdog especially — the judge may still be grading, and
+ * letting the lease lapse on its own is what gives it the chance to finish
+ * or be terminated first. On this one the judge is provably gone, so waiting
+ * buys nothing.
+ */
+class JobAbandoned extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'JobAbandoned';
+  }
+}
+
+/**
  * Claims one job at a time, dispatches it, and heartbeats until the driver
  * reports a terminal event.
  *
@@ -171,6 +195,12 @@ export class Worker {
                     resolve();
                   }
                 },
+                (reason) => {
+                  // The driver has given up on this attempt. Reject rather
+                  // than resolve: resolving would run `jobs.complete` and
+                  // mark a job `done` that produced no verdict at all.
+                  reject(new JobAbandoned(reason));
+                },
               )
               .catch(reject);
           });
@@ -213,6 +243,25 @@ export class Worker {
                 error: describeError(cancelError),
               }),
             );
+          }
+          // Only for an abandoned attempt — see `JobAbandoned`. Requeueing
+          // here is what turns "the judge container restarted" from a
+          // multi-minute stall into a re-dispatch as soon as some judge is
+          // free. A failed release is logged and ignored: the lease lapse is
+          // still behind it, so the worst case is the old behaviour.
+          if (error instanceof JobAbandoned) {
+            try {
+              await this.jobs.release(claimed.id, claimed.attempt);
+            } catch (releaseError: unknown) {
+              console.error(
+                JSON.stringify({
+                  msg: 'release after abandonment failed',
+                  jobId: claimed.id,
+                  attempt: claimed.attempt,
+                  error: describeError(releaseError),
+                }),
+              );
+            }
           }
         } finally {
           if (watchdog) clearTimeout(watchdog);

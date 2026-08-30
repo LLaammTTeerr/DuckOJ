@@ -91,7 +91,15 @@ describe('Worker', () => {
       }, 10_000);
       // The test's name promised the submission source reaches the driver —
       // assert it, so a `Worker` that dispatched `source: ''` would fail here.
-      expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ source }), expect.any(Function));
+      // Three arguments now: the job, the event sink, and the abandonment
+      // callback `dispatch` gained so a driver can report "the judge holding
+      // this is gone" — which is neither an acceptance nor a verdict, and so
+      // had nowhere to go in the two-argument shape.
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ source }),
+        expect.any(Function),
+        expect.any(Function),
+      );
       worker.stop();
       await Promise.race([run, new Promise((r) => setTimeout(r, 1000))]);
     });
