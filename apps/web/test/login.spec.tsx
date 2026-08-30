@@ -16,6 +16,7 @@ describe('LoginForm', () => {
       usernameOrEmail: 'kim',
       password: 'a-long-enough-password',
       totpCode: undefined,
+      recoveryCode: undefined,
     });
   });
 
@@ -30,5 +31,49 @@ describe('LoginForm', () => {
 
     rerender(<LoginForm onSubmit={vi.fn()} error="A two-factor code is required." needsTotp />);
     expect(screen.getByLabelText(/Mã xác thực hai lớp/)).toBeInTheDocument();
+  });
+
+  // D39. The toggle exists only on the second step: offering a recovery code
+  // to everyone at every sign-in is how people burn them for no reason.
+  it('offers no recovery-code toggle until the second factor is asked for', () => {
+    render(<LoginForm onSubmit={vi.fn()} error={null} />);
+    expect(screen.queryByRole('button', { name: /Dùng mã khôi phục/ })).toBeNull();
+  });
+
+  it('swaps the TOTP field for a recovery-code field, and back', async () => {
+    render(<LoginForm onSubmit={vi.fn()} error="A two-factor code is required." needsTotp />);
+
+    await userEvent.click(screen.getByRole('button', { name: /Dùng mã khôi phục/ }));
+    expect(screen.getByLabelText(/Mã khôi phục/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Mã xác thực hai lớp/)).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: /Dùng mã từ ứng dụng/ }));
+    expect(screen.getByLabelText(/Mã xác thực hai lớp/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Mã khôi phục/)).toBeNull();
+  });
+
+  it('submits recoveryCode instead of totpCode, never both', async () => {
+    const onSubmit = vi.fn(async () => {});
+    render(
+      <LoginForm onSubmit={onSubmit} error="A two-factor code is required." needsTotp />,
+    );
+
+    await userEvent.type(screen.getByLabelText(/Tên đăng nhập hoặc email/), 'kim');
+    await userEvent.type(screen.getByLabelText(/^Mật khẩu$/), 'a-long-enough-password');
+    // Typed into the TOTP box first, then abandoned for the recovery path —
+    // the stale six digits must not ride along, because the server prefers
+    // `totpCode` and would silently ignore the code the viewer actually
+    // meant to use.
+    await userEvent.type(screen.getByLabelText(/Mã xác thực hai lớp/), '123456');
+    await userEvent.click(screen.getByRole('button', { name: /Dùng mã khôi phục/ }));
+    await userEvent.type(screen.getByLabelText(/Mã khôi phục/), 'ABCDE-FGHJK');
+    await userEvent.click(screen.getByRole('button', { name: /^Đăng nhập$/ }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      usernameOrEmail: 'kim',
+      password: 'a-long-enough-password',
+      totpCode: undefined,
+      recoveryCode: 'ABCDE-FGHJK',
+    });
   });
 });

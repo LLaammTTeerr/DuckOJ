@@ -70,6 +70,11 @@ export const vi = {
   'auth.usernameOrEmail': 'Tên đăng nhập hoặc email',
   'auth.password': 'Mật khẩu',
   'auth.totpCode': 'Mã xác thực hai lớp',
+  'auth.recoveryCode': 'Mã khôi phục',
+  'auth.useRecoveryCode': 'Dùng mã khôi phục',
+  'auth.useTotpCode': 'Dùng mã từ ứng dụng',
+  'auth.recoveryCodeNote':
+    'Một trong các mã bạn đã lưu khi bật xác thực hai lớp. Mỗi mã chỉ dùng được một lần.',
   'auth.signIn': 'Đăng nhập',
   'auth.signInFailed': 'Đăng nhập không thành công.',
   'auth.forgotPassword': 'Quên mật khẩu?',
@@ -442,6 +447,22 @@ export const vi = {
     'Việc đăng ký chưa hoàn tất cho tới khi một mã từ ứng dụng được chấp nhận — trước đó tài khoản này vẫn chỉ đăng nhập bằng mật khẩu.',
   'security.codeLabel': 'Mã sáu chữ số ',
   'security.qrLabel': 'Mã QR chứa chuỗi bí mật xác thực hai lớp',
+  'security.enrolWarning':
+    'Sau khi bật, mỗi lần đăng nhập đều cần mã từ ứng dụng. Hãy lưu các mã khôi phục sắp hiện ra: không có chúng và cũng không có ứng dụng thì chỉ quản trị viên mới đưa bạn trở lại được.',
+  'security.recoveryTitle': 'Mã khôi phục',
+  'security.recoveryShownOnce':
+    'Hãy lưu ngay — đây là lần duy nhất các mã này hiện ra. Mỗi mã đăng nhập được một lần, thay cho mã từ ứng dụng. In ra, hoặc ghi lại ở chỗ khác với chiếc điện thoại đang cài ứng dụng.',
+  'security.recoveryCopy': 'Sao chép',
+  'security.recoveryCopied': 'Đã sao chép.',
+  'security.recoveryCopyError': 'Không sao chép được. Hãy bôi đen và tự sao chép.',
+  'security.recoverySaved': 'Tôi đã lưu',
+  'security.recoveryRemaining': 'Còn {n} mã khôi phục chưa dùng.',
+  'security.recoveryNoneLeft':
+    'Đã hết mã khôi phục. Hãy tạo bộ mới — trước khi tạo, mất ứng dụng xác thực đồng nghĩa với việc phải nhờ quản trị viên đặt lại.',
+  'security.recoveryRegenerate': 'Tạo bộ mã khôi phục mới',
+  'security.recoveryRegenerateNote':
+    'Bộ mới thay thế toàn bộ mã cũ, dù đã dùng hay chưa. Nhập một mã từ ứng dụng xác thực để chứng minh đó là bạn.',
+  'security.recoveryRegenerateError': 'Không tạo được bộ mã khôi phục mới.',
 
   // ── notifications ─────────────────────────────────────────────────────
   'notifications.title': 'Thông báo',
@@ -463,6 +484,8 @@ export const vi = {
   'notifications.contestAnnouncementSuffix': '.',
   'notifications.totpReset':
     'Quản trị viên đã tắt xác thực hai bước trên tài khoản của bạn. Nếu bạn không yêu cầu điều này, hãy báo cho ban tổ chức.',
+  'notifications.recoveryCodesExhausted':
+    'Đó là mã khôi phục cuối cùng của bạn. Hãy tạo bộ mã mới ở trang bảo mật — trước khi tạo, mất ứng dụng xác thực đồng nghĩa với việc phải nhờ quản trị viên đặt lại.',
 
   // ── administration ────────────────────────────────────────────────────
   'admin.title': 'Quản trị',

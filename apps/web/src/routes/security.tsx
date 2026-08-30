@@ -43,6 +43,17 @@ export function SecurityPage() {
   const [enrolment, setEnrolment] = useState<Enrolment | null>(null);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /**
+   * D39 — the recovery codes, held only for as long as this screen is open.
+   *
+   * They exist nowhere else: the server keeps hashes, so nothing can put them
+   * back on screen once this state is cleared. That is why the panel below
+   * takes over the whole screen and its only exit is the acknowledgement — a
+   * viewer who navigates away from a half-read list has genuinely lost them.
+   */
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   // One flag across begin/confirm/disable. `begin` in particular is
   // destructive on repeat — the endpoint upserts a FRESH secret and clears
   // `confirmedAt`, so a double click hands the viewer a QR for secret A while
@@ -72,7 +83,7 @@ export function SecurityPage() {
   async function confirm(): Promise<void> {
     setBusy(true);
     try {
-      const { error: err } = await api.POST('/auth/totp/confirm', { body: { code } });
+      const { data, error: err } = await api.POST('/auth/totp/confirm', { body: { code } });
       if (err) {
         // Deliberately keeps `enrolment` on screen. The server's pending
         // secret is untouched by a rejected code, so clearing it here would
@@ -85,11 +96,53 @@ export function SecurityPage() {
       setError(null);
       setEnrolment(null);
       setCode('');
+      setCopied(false);
+      setCodes(data?.recoveryCodes ?? []);
       await client.invalidateQueries({ queryKey: ['me'] });
     } catch {
       setError(t('common.networkError'));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * D39 — a fresh set, proved with a live code from the authenticator. The
+   * response is handled exactly like `confirm`'s, because it is the same
+   * once-only delivery.
+   */
+  async function regenerate(): Promise<void> {
+    setBusy(true);
+    try {
+      const { data, error: err } = await api.POST('/auth/totp/recovery/regenerate', {
+        body: { code },
+      });
+      if (err) {
+        setError(err.detail ?? t('security.recoveryRegenerateError'));
+        return;
+      }
+      setError(null);
+      setCode('');
+      setCopied(false);
+      setRegenerating(false);
+      setCodes(data?.recoveryCodes ?? []);
+      await client.invalidateQueries({ queryKey: ['me'] });
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyCodes(): Promise<void> {
+    try {
+      // `navigator.clipboard` is absent over plain HTTP and in some embedded
+      // browsers. The codes are on screen either way, so this is a
+      // convenience that must never look like a failure to produce them.
+      await navigator.clipboard.writeText((codes ?? []).join('\n'));
+      setCopied(true);
+    } catch {
+      setError(t('security.recoveryCopyError'));
     }
   }
 
@@ -123,6 +176,7 @@ export function SecurityPage() {
     return <p>{t('security.gate')}</p>;
   }
   const enabled = me.data.totpEnabled;
+  const remaining = me.data.recoveryCodesRemaining;
 
   return (
     <section className="panel">
@@ -132,12 +186,99 @@ export function SecurityPage() {
       <p role="status">{enabled ? t('security.on') : t('security.off')}</p>
       {error ? <p role="alert">{error}</p> : null}
 
-      {enabled ? (
-        <p>
-          <button type="button" disabled={busy} onClick={() => void disable()}>
-            {t('security.disable')}
-          </button>
-        </p>
+      {/* The codes take the whole screen, ahead of every other branch. They
+          are on screen exactly once and there is no second chance to read
+          them, so nothing else may compete for the reader's attention while
+          they are — including the Disable button, which would be a very
+          expensive misclick here. */}
+      {codes !== null ? (
+        <>
+          <h2>{t('security.recoveryTitle')}</h2>
+          <p role="alert">{t('security.recoveryShownOnce')}</p>
+          {/* A `<pre>`, not a list: it selects, copies and PRINTS as the plain
+              block of text somebody is going to fold into a wallet. */}
+          <pre>{codes.join('\n')}</pre>
+          <p>
+            <button type="button" onClick={() => void copyCodes()}>
+              {t('security.recoveryCopy')}
+            </button>{' '}
+            {copied ? <span className="muted">{t('security.recoveryCopied')}</span> : null}
+          </p>
+          <p>
+            <button
+              type="button"
+              onClick={() => {
+                setCodes(null);
+                setCopied(false);
+              }}
+            >
+              {t('security.recoverySaved')}
+            </button>
+          </p>
+        </>
+      ) : enabled ? (
+        <>
+          <p>
+            {remaining === 0
+              ? t('security.recoveryNoneLeft')
+              : t('security.recoveryRemaining', { n: remaining })}
+          </p>
+          {regenerating ? (
+            <>
+              <p className="muted">{t('security.recoveryRegenerateNote')}</p>
+              <p>
+                <label htmlFor="regen-code">{t('security.codeLabel')}</label>
+                <input
+                  id="regen-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="000000"
+                />
+              </p>
+              <p>
+                <button
+                  type="button"
+                  disabled={busy || !CODE_PATTERN.test(code)}
+                  onClick={() => void regenerate()}
+                >
+                  {t('security.recoveryRegenerate')}
+                </button>{' '}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setRegenerating(false);
+                    setCode('');
+                    setError(null);
+                  }}
+                >
+                  {t('common.cancel')}
+                </button>
+              </p>
+            </>
+          ) : (
+            <p>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setRegenerating(true);
+                  setCode('');
+                  setError(null);
+                }}
+              >
+                {t('security.recoveryRegenerate')}
+              </button>
+            </p>
+          )}
+          <p>
+            <button type="button" disabled={busy} onClick={() => void disable()}>
+              {t('security.disable')}
+            </button>
+          </p>
+        </>
       ) : enrolment === null ? (
         <p>
           <button type="button" disabled={busy} onClick={() => void begin()}>
@@ -161,6 +302,11 @@ export function SecurityPage() {
 
           <h2>{t('security.confirm')}</h2>
           <p className="muted">{t('security.confirmNote')}</p>
+          {/* Said BEFORE the button, not after: "an admin reset is the only
+              way back" is the fact that decides whether someone should turn
+              this on at all, and it is worthless as an explanation of what
+              already happened. */}
+          <p role="note">{t('security.enrolWarning')}</p>
           <p>
             <label htmlFor="totp-code">{t('security.codeLabel')}</label>
             <input

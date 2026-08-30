@@ -108,6 +108,10 @@ function line(t: TFunction, item: Item): React.ReactNode {
     }
     case 'totp_reset':
       return <>{t('notifications.totpReset')}</>;
+    // D39. No link: the security page is one nav click away, and the sentence
+    // is the whole of what the reader has to do.
+    case 'totp_recovery_codes_exhausted':
+      return <>{t('notifications.recoveryCodesExhausted')}</>;
     default:
       return <>{item.kind}</>;
   }

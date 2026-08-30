@@ -164,6 +164,7 @@ function useAuthGate() {
           usernameOrEmail: values.usernameOrEmail,
           password: values.password,
           ...(values.totpCode ? { totpCode: values.totpCode } : {}),
+          ...(values.recoveryCode ? { recoveryCode: values.recoveryCode } : {}),
         },
       });
     } catch {

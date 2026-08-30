@@ -78,6 +78,11 @@ export const en = {
   'auth.usernameOrEmail': 'Username or email',
   'auth.password': 'Password',
   'auth.totpCode': 'Two-factor code',
+  'auth.recoveryCode': 'Recovery code',
+  'auth.useRecoveryCode': 'Use a recovery code',
+  'auth.useTotpCode': 'Use a code from the app',
+  'auth.recoveryCodeNote':
+    'One of the codes you saved when you turned two-factor authentication on. Each one works once.',
   'auth.signIn': 'Sign in',
   'auth.signInFailed': 'Sign in failed.',
   'auth.forgotPassword': 'Forgotten your password?',
@@ -467,6 +472,22 @@ export const en = {
     'Enrolment is not finished until a code from the app is accepted — until then this account still signs in with a password alone.',
   'security.codeLabel': 'Six-digit code ',
   'security.qrLabel': 'QR code for the two-factor secret',
+  'security.enrolWarning':
+    'Once this is on, a code from the app is required at every sign-in. Save the recovery codes you are about to be shown: without them, and without the app, only an administrator can get you back in.',
+  'security.recoveryTitle': 'Recovery codes',
+  'security.recoveryShownOnce':
+    'Save these now — this is the only time they are shown. Each one signs in once, in place of a code from the app. Print them, or write them somewhere that is not the phone the app is on.',
+  'security.recoveryCopy': 'Copy',
+  'security.recoveryCopied': 'Copied.',
+  'security.recoveryCopyError': 'Could not copy. Select the codes and copy them by hand.',
+  'security.recoverySaved': 'I saved them',
+  'security.recoveryRemaining': '{n} of the recovery codes are unused.',
+  'security.recoveryNoneLeft':
+    'No recovery codes are left. Generate a new set — until you do, losing the authenticator means an administrator reset.',
+  'security.recoveryRegenerate': 'Generate new recovery codes',
+  'security.recoveryRegenerateNote':
+    'A new set replaces every existing code, used or not. Enter a code from the authenticator to prove it is you.',
+  'security.recoveryRegenerateError': 'Could not generate new recovery codes.',
 
   // ── notifications ─────────────────────────────────────────────────────
   'notifications.title': 'Notifications',
@@ -491,6 +512,8 @@ export const en = {
   'notifications.contestAnnouncementSuffix': '.',
   'notifications.totpReset':
     'An administrator turned off two-factor authentication on your account. If this was not at your request, tell an organiser.',
+  'notifications.recoveryCodesExhausted':
+    'That was your last recovery code. Generate a new set on the security page — until you do, losing your authenticator means an administrator reset.',
 
   // ── administration ────────────────────────────────────────────────────
   'admin.title': 'Administration',
