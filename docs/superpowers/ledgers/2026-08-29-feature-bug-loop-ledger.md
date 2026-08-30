@@ -104,3 +104,4 @@
 - Dispatched C-1 (worktree): residual sweep, make CI serial + a dist boot check (D106), re-baseline k6+soak (D107), fresh-DB migrate proof, standing-limitations index (D108). C-2 (main): guides/help/readiness refresh through D105, lock postdated probe accounts.
 - Process change: deploys now gate on the full SERIAL api suite of the merged tree (kicked off at merge, deploy waits) — closes the red-merge-base hole B-19 found.
 - C-2 DONE (5c55764..8846185): guides/help/readiness refreshed through the loop's features; 23 live probe accounts locked (duckadmin/hocsinh1 safe). web rebuilt, pushed.
+- C-1 DONE, merged: CI now test:ci (serial, one container at a time) + test:boot (dist DI check) D106; re-baseline D107 (500 VU p95 397 ms, judge 39.4/min, fresh-DB 33 migrations clean, goldens 27/27); standing-limitations index D108. 20 c1-soak accounts locked. Pushed.
