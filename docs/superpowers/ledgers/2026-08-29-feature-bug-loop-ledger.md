@@ -57,3 +57,4 @@
 - UI-2 DONE, merged (b843b7d): nav IA — grouped desktop bar, ≤5-item phone tab bar + Thêm sheet, D76; web rebuilt, pushed. help.tsx copy for the new bar owed to F-14's guide pass.
 - F-14 DONE_WITH_CONCERNS (06b5f19..ea1249a): guides/help refreshed incl. D76 nav copy, i18n parity+orphans, judge-2 in compose-up (SCALE=1) + dashboard node join/blocked panel, export tests, problem-set tests; api+web redeployed, pushed.
 - Dispatched F-15 similarity check (main, D77, migration 0028) and B-12 soak/load hunt (worktree, D78–D79, migration 0029 if justified). B-11 still running.
+- B-11 DONE, merged: 7 fixes (roster chunk-boundary loss, CSV injection in credential sheet + homework export, D73 password-check meter, one-header merged sheet, D74 tie-inclusive certificates, typst line-start escaping). api rebuilt from clean HEAD export (F-15 dirty on main), web rebuilt, pushed. Recorded-not-fixed: cross-chunk duplicate emails; revoked judge keeps its socket.
