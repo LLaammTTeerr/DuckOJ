@@ -8400,7 +8400,7 @@ export interface paths {
         };
         /**
          * The whole class against the whole set — one row per member, one column per problem
-         * @description Owner or admin of the organization, or a global admin. Rows are the roster, keyset-paged on username exactly as `GET /orgs/{slug}/members` is (D58). `?format=csv` answers `text/csv` with the WHOLE roster rather than one page, because a file that stops after twenty-five pupils is a file somebody would mark a class from. A submission whose contest participation window is still open is counted for nobody, the teacher included (D49).
+         * @description Owner or admin of the organization, or a global admin. Rows are the roster, keyset-paged on username exactly as `GET /orgs/{slug}/members` is (D58). `?format=csv` answers `text/csv` with the whole roster rather than one page, because a file that stops after twenty-five pupils is a file somebody would mark a class from — walked internally in cursor pages and capped at 20,000 rows, with a final `truncated,<rows>` line whenever the cap cut it short (`cursor` and `limit` are ignored on that branch). A submission whose contest participation window is still open is counted for nobody, the teacher included (D49).
          */
         get: {
             parameters: {

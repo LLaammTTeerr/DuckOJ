@@ -223,6 +223,14 @@ export type ProblemSetProgressDto = z.infer<typeof ProblemSetProgress>;
  * a paged grid cannot be handed to a spreadsheet, and a file that stops after
  * twenty-five pupils is a file a teacher would silently mark a class from.
  * The JSON grid stays paged exactly as D58 requires.
+ *
+ * "Whole" has a ceiling, though (D66 as amended): the server walks the
+ * roster in cursor pages and stops at **20,000 rows**, and a file that
+ * stopped early says so on a final line `truncated,<rows>` — `truncated` in
+ * the username column, which no account can hold, and the count of data rows
+ * the file does carry. A reader must treat a last line beginning `truncated,`
+ * as that marker rather than as a pupil. `cursor` and `limit` are ignored on
+ * this branch; they page the JSON grid only.
  */
 export const ProblemSetProgressQuery = PaginationQuery.extend({
   format: z.enum(['json', 'csv']).default('json'),
@@ -306,8 +314,10 @@ registry.registerPath({
   description:
     'Owner or admin of the organization, or a global admin. Rows are the roster, keyset-paged on ' +
     'username exactly as `GET /orgs/{slug}/members` is (D58). `?format=csv` answers `text/csv` ' +
-    'with the WHOLE roster rather than one page, because a file that stops after twenty-five ' +
-    'pupils is a file somebody would mark a class from. A submission whose contest participation ' +
+    'with the whole roster rather than one page, because a file that stops after twenty-five ' +
+    'pupils is a file somebody would mark a class from — walked internally in cursor pages and ' +
+    'capped at 20,000 rows, with a final `truncated,<rows>` line whenever the cap cut it short ' +
+    '(`cursor` and `limit` are ignored on that branch). A submission whose contest participation ' +
     'window is still open is counted for nobody, the teacher included (D49).',
   request: { params: SetParam, query: ProblemSetProgressQuery },
   responses: {
