@@ -1633,3 +1633,34 @@ it; this closes it.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B7 brief),
 no human available to consult. No migration.*
+
+## D59 — A truncated broadcast is ordered, and it says so
+
+`broadcast` capped its recipient list with `.limit(NOTIFY_CAP)` and no
+`ORDER BY`. That is not a cap, it is a lottery: `SELECT DISTINCT … LIMIT n`
+lets Postgres return whatever the plan reaches first, so a room over the cap
+notified an arbitrary — and, between two announcements, a *different* —
+subset, and nothing anywhere said anybody had been left out. The B6 report
+named it; this closes it.
+
+- **Ordered by `user_id`.** Not because low ids deserve to be told first,
+  but because a deterministic truncation can be reproduced, explained and
+  re-run; an arbitrary one cannot. On a test-sized room the planner picks
+  Sort+Unique and emits that order anyway — which is why the clause is
+  asserted on the compiled statement rather than only on a result set: a
+  behavioural test passes with it deleted, and the plan that does not
+  (HashAggregate, on a real over-cap room) cannot be summoned from a
+  fixture.
+- **The truncation is logged at `warn`, with the contest key and the
+  clarification id.** The announcement still succeeds — refusing to post it
+  would be worse — so the organiser has no way to learn from the response
+  that part of the room was not told. The log is the only place that fact
+  can exist, and it is what an operator has to go on when a competitor
+  reports never seeing an announcement.
+- **`NOTIFY_CAP` stays 10,000, and the cap is a parameter.** The bound is
+  unchanged (four times the largest room this is built for); taking it as an
+  argument is what lets the truncation be proved against four participants
+  instead of ten thousand.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B7 brief),
+no human available to consult. No migration.*
