@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
@@ -40,7 +41,10 @@ test.setTimeout(240_000);
 
 const RUN = Date.now();
 const PROBLEM = 'tong-hai-so';
-const PASSWORD = 'khong-phai-mat-khau-that-dau';
+// A fresh secret per run for the throwaway accounts this file creates. It was
+// a fixed string once, which a secret scanner rightly flagged: the repo is
+// public and the accounts outlive the run, so anyone could sign in as them.
+const PASSWORD = `e2e-${randomUUID()}`;
 
 /**
  * The AC source is the model solution ON DISK, not a copy typed into this
