@@ -65,3 +65,4 @@
 - F-16 DONE_WITH_CONCERNS (de08363..d82f8d4): similarity reaper, /me/progress + public progress (D83); deployed + pushed.
 - Dispatched F-17 CodeMirror editor (main, D84) and B-14 Playwright coverage of loop features (worktree, features.spec.ts). B-13 still running.
 - B-13 DONE on `worktree-agent-a305d6c802e57757b` (0891909..875b16f): typst 20 s/32 MiB bound, judge revoke poll (D81), cache outage log throttle + maxmemory warning, cross-chunk preview fix, submissions meter (D80), CSRF origin guard (D82). Merge blocked by F-17's dirty DECISIONS.md → after F-17.
+- F-17 DONE (f63c9ff..fb15870): CodeMirror 6 editor, drafts, templates, size gate (D84). B-13 merged (submit.tsx cooldown wired into the editor; three 429 tests ported to CodeMirror). api+judged+web redeployed; pushed.
