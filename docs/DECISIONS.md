@@ -1976,3 +1976,113 @@ is a lie a reader cannot detect.
 *Ruled by the reviewer during the 2026-08-29 feature/bug loop (B8 whole-diff
 review), no human available to consult. No migration.*
 
+
+## D67 — The interface is Apple's Liquid Glass, and every pane has a solid twin
+
+The retro terminal ("IBM Plex Mono only, no glass, no blur, no gradients, no
+shadows, no rounded corners", `app.css`'s old header) is replaced, by the
+owner's direction, with Apple's Liquid Glass: translucent layered surfaces
+over a quiet ground, hairline specular edges, soft depth, continuous-feeling
+corners, and short fluid motion. What did NOT change is what the terminal was
+actually protecting — colour still belongs to verdicts and to the one rank
+ramp D46 carved out, every verdict still carries a glyph as well as a hue,
+and the statement is still the only surface that is not dense.
+
+**Two files, and the split is meaning.** `apps/web/src/design/tokens.css` is
+new and owns the MATERIAL: neutrals, four glass depths (`bar`, `sheet`,
+`raised`, `inset`), radii, blur, shadows, spacing, motion, and the two font
+stacks. `app.css` owns the two SEMANTIC scales — the verdict hues and the
+D46 rank ramp — beside the `.badge`/`.case`/`.rank` rules that paint them,
+because a hue and the rule that paints it are one decision and because
+`test/user.spec.tsx` reads that file to prove the ramp matches
+`packages/glicko2`.
+
+- **Glass is chrome; data is not.** The floating nav, the page sheet, panels,
+  buttons, fields and chips are translucent. Tables, statements, code blocks
+  and case grids sit on an opaque-enough inset well inside them and never
+  blur their own backdrop: a blurred scoreboard is a scoreboard nobody can
+  scan, and a per-row `backdrop-filter` is the single most expensive thing
+  this app could ask a phone to composite.
+- **Every glass token has a solid twin, declared once.** Under
+  `prefers-reduced-transparency: reduce` AND under `@supports not
+  (backdrop-filter)`, every `--glass-*` resolves to `--panel` and every
+  `--blur-*` to `0px`, in the token layer. No component rule has to
+  remember, so a surface added later inherits the fallback for free.
+  `prefers-reduced-motion` flattens every duration the same way, which is
+  only sound because no component rule hardcodes a duration —
+  `test/app-css.spec.ts` fails if one ever does.
+- **Body prose moves to the system UI stack; data stays on IBM Plex Mono.**
+  This amends D18's "Fonts needed no change… app.css's IBM Plex Mono only
+  rule intact". `--font-ui` is `-apple-system, "SF Pro Text", "Segoe UI",
+  Roboto, "Noto Sans", sans-serif` — resolved entirely locally, no web font
+  added — and carries headings, prose, labels and nav. `--font-mono` is the
+  same vendored face as before and carries everything read as DATA: tables,
+  scoreboards, code, verdicts, case grids, field values, numbers. The
+  vietnamese subset therefore still covers every problem code, username and
+  org name that lands in a table, which is what it was self-hosted for.
+- **The ground is drawn, not photographed.** Three low-alpha radial washes
+  over a flat floor, `background-attachment: fixed`. That is a design choice
+  with a verification consequence: because the app controls every pixel
+  behind every pane, the composite under each glass surface is knowable, and
+  the contrast below is measured rather than hoped for.
+
+**Contrast, measured.** 22 text colours × 6 surfaces (`bar`, `sheet`,
+`raised`, inset-on-sheet, inset-on-raised, the solid twin), each composited
+over all four grounds the wash produces, worst case reported:
+
+| | light | dark |
+| --- | --- | --- |
+| worst of all pairings | **4.53:1** (`--tle` on `sheet`) | **4.53:1** (`--mle` on `raised`) |
+| `--fg` | 16.6–18.0 | 12.0–14.5 |
+| `--dim` (nav, labels, `.muted`) | 7.2–7.8 | 7.3–8.8 |
+| verdict hues | 4.53–6.7 | 4.53–7.0 |
+| rank ramp (all ten) | 5.5–9.0 | 5.8–12.0 |
+
+Getting there moved the MATERIAL, never a hue: light `--glass-sheet` 0.72 →
+0.79 and the wash alphas down, dark `--glass-raised` 0.74 → 0.82 and darker.
+`.badge` and `.case` gained an inset backing so a verdict's contrast is a
+property of the component instead of a property of whatever the page is over.
+
+Two honest exceptions:
+
+- **`--rte` in dark mode was wrong and is fixed.** It had been left at the
+  LIGHT palette's #cf222e since the dark scheme was written and measures
+  2.7–3.3:1 on every dark surface — a runtime-error verdict a reader with
+  normal vision could not see. It is #ef6a5f (4.8:1 worst case), still the
+  darkest of the three reds, and the three were already told apart by glyph.
+  This is a correction, not a re-palette: D46 reserves the SEMANTICS, and a
+  value that fails AA is not a semantic.
+- **The pessimistic bound is not met, and does not apply.** Over a backdrop
+  this app does not draw — pure black or pure white behind the glass —
+  `--dim` falls to 2.3–4.5:1. That is the honest limit of translucency, and
+  it is why the ground is a drawn wash and not user imagery. If a background
+  image is ever put behind this glass, these numbers must be re-measured.
+
+**Targets and focus.** 44px for anything a thumb aims at (nav items, form
+controls, page-level buttons); WCAG 2.2's 24px-with-spacing for the dense
+inline controls where 44px would destroy the scanning the table exists for
+(`td button`, `.tag`) and 36px for the twenty-five topic-filter labels, where
+the LABEL is the target and not the 13px box inside it. One focus ring,
+`--fg`, never removed. The floating bar is offset by `scroll-padding` at both
+edges so it cannot obscure a focused control (WCAG 2.2 Focus Not Obscured).
+
+**The phone gets the bar at the bottom**, fixed, safe-area aware — which is
+why `index.html` now carries `viewport-fit=cover`; without it
+`env(safe-area-inset-bottom)` is always 0 and the bar sits under the home
+indicator. The twelve nav items scroll sideways inside the bar rather than
+wrapping to three rows; `overflow-x` is on the bar's inner div and never on
+the document, so journey 6's `scrollWidth <= innerWidth` still holds at
+390×844 on every screen.
+
+**No JSX changed.** The whole design lands in CSS plus one meta tag. Three
+class names the routes were already emitting against nothing — `.panel`,
+`.muted`, `.field` — were given the meanings their names claim, which is what
+made that possible; `.shell-nav`, `.badge`, `.case`, `.num`, `.rank`, `.dq`,
+`.tag`, `.stats`/`.stat` and the print classes are unchanged. There is no
+toast component, because nothing in this app emits a transient message:
+`role="alert"` and `role="status"` are persistent lines rendered beside the
+control that produced them, and they are styled as banners.
+
+*Ruled by the implementer during the 2026-08-30 UI loop, on the owner's
+explicit direction ("Apple's Liquid Glass"), no human available to consult on
+the details. No migration: nothing persists a stylesheet.*
