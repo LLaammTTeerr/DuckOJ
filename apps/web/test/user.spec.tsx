@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -37,7 +38,7 @@ afterEach(() => get.mockReset());
 describe('UserPage', () => {
   it('shows the statistics and the peak beside the current rating', async () => {
     get.mockImplementation((path: string) =>
-      path === '/users/{username}' ? Promise.resolve({ data: PROFILE }) : Promise.resolve({ data: [] }),
+      path === '/users/{username}' ? Promise.resolve({ data: PROFILE }) : Promise.resolve({ data: { items: [], nextCursor: null } }),
     );
     wrap(<UserPage username="kim" />);
 
@@ -59,7 +60,7 @@ describe('UserPage', () => {
   // another band's colour.
   it('marks the title with its band class so the rank scale can colour it', async () => {
     get.mockImplementation((path: string) =>
-      path === '/users/{username}' ? Promise.resolve({ data: PROFILE }) : Promise.resolve({ data: [] }),
+      path === '/users/{username}' ? Promise.resolve({ data: PROFILE }) : Promise.resolve({ data: { items: [], nextCursor: null } }),
     );
     wrap(<UserPage username="kim" />);
     const title = await screen.findByText('Chuyên gia');
@@ -68,7 +69,7 @@ describe('UserPage', () => {
 
   it('renders the English half of the same row under the English locale', async () => {
     get.mockImplementation((path: string) =>
-      path === '/users/{username}' ? Promise.resolve({ data: PROFILE }) : Promise.resolve({ data: [] }),
+      path === '/users/{username}' ? Promise.resolve({ data: PROFILE }) : Promise.resolve({ data: { items: [], nextCursor: null } }),
     );
     wrap(
       <LocaleProvider initialLocale="en">
@@ -82,7 +83,7 @@ describe('UserPage', () => {
     get.mockImplementation((path: string) =>
       path === '/users/{username}'
         ? Promise.resolve({ data: { ...PROFILE, rating: null, maxRating: null } })
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: { items: [], nextCursor: null } }),
     );
     wrap(<UserPage username="kim" />);
     expect(await screen.findByRole('row', { name: /^Rating/ })).toHaveTextContent('chưa xếp hạng');
@@ -94,10 +95,13 @@ describe('UserPage', () => {
       path === '/users/{username}'
         ? Promise.resolve({ data: PROFILE })
         : Promise.resolve({
-            data: [
-              { contestKey: 'a', contestName: 'Alpha', endTime: '2026-02-01T00:00:00Z', rank: 1, ratingBefore: 1500, ratingAfter: 1580, delta: 80 },
-              { contestKey: 'b', contestName: 'Beta', endTime: '2026-03-01T00:00:00Z', rank: 9, ratingBefore: 1580, ratingAfter: 1520, delta: -60 },
-            ],
+            data: {
+              items: [
+                { contestKey: 'a', contestName: 'Alpha', endTime: '2026-02-01T00:00:00Z', rank: 1, ratingBefore: 1500, ratingAfter: 1580, delta: 80 },
+                { contestKey: 'b', contestName: 'Beta', endTime: '2026-03-01T00:00:00Z', rank: 9, ratingBefore: 1580, ratingAfter: 1520, delta: -60 },
+              ],
+              nextCursor: null,
+            },
           }),
     );
     wrap(<UserPage username="kim" />);
@@ -163,12 +167,68 @@ describe('UserPage — the rating history', () => {
   it('still says "not rated" when the history is genuinely empty', async () => {
     get.mockImplementation((path: string) =>
       path === '/users/{username}/rating'
-        ? Promise.resolve({ data: [] })
+        ? Promise.resolve({ data: { items: [], nextCursor: null } })
         : Promise.resolve({ data: PROFILE }),
     );
     wrap(<UserPage username="kim" />);
 
     expect(await screen.findByText('Chưa được xếp hạng.')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+/**
+ * The history is a page now (D58's shape): a four-year-old account is two
+ * hundred rows, and the profile used to serve every one of them on every
+ * view.
+ */
+describe('UserPage — the rating history is paged', () => {
+  const EVENT = (key: string, delta: number) => ({
+    contestKey: key,
+    contestName: key.toUpperCase(),
+    endTime: '2026-02-01T00:00:00Z',
+    rank: 1,
+    ratingBefore: 1500,
+    ratingAfter: 1500 + delta,
+    delta,
+  });
+
+  it('appends the next page and stops offering more when the walk is over', async () => {
+    get.mockImplementation((path: string, options?: { params?: { query?: { cursor?: string } } }) => {
+      if (path === '/users/{username}') return Promise.resolve({ data: PROFILE });
+      const cursor = options?.params?.query?.cursor;
+      return cursor === undefined
+        ? Promise.resolve({ data: { items: [EVENT('alpha', 10)], nextCursor: 'c1' } })
+        : Promise.resolve({ data: { items: [EVENT('beta', -5)], nextCursor: null } });
+    });
+    wrap(<UserPage username="kim" />);
+
+    expect(await screen.findByRole('row', { name: /alpha/i })).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /beta/i })).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: /Tải thêm/ }));
+    expect(await screen.findByRole('row', { name: /beta/i })).toBeInTheDocument();
+    // The first page is still on screen — a "load more" that replaces is a
+    // pager wearing the wrong label.
+    expect(screen.getByRole('row', { name: /alpha/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Tải thêm/ })).toBeNull();
+  });
+
+  it('asks for the cursor the server issued, not a page number', async () => {
+    get.mockImplementation((path: string, options?: { params?: { query?: { cursor?: string } } }) => {
+      if (path === '/users/{username}') return Promise.resolve({ data: PROFILE });
+      const cursor = options?.params?.query?.cursor;
+      return cursor === undefined
+        ? Promise.resolve({ data: { items: [EVENT('alpha', 10)], nextCursor: '1770000000000:42' } })
+        : Promise.resolve({ data: { items: [EVENT('beta', -5)], nextCursor: null } });
+    });
+    wrap(<UserPage username="kim" />);
+
+    await screen.findByRole('row', { name: /alpha/i });
+    await userEvent.click(screen.getByRole('button', { name: /Tải thêm/ }));
+    await screen.findByRole('row', { name: /beta/i });
+    expect(get).toHaveBeenCalledWith('/users/{username}/rating', {
+      params: { path: { username: 'kim' }, query: { cursor: '1770000000000:42' } },
+    });
   });
 });

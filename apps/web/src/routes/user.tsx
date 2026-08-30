@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { rankBand } from '@duckoj/glicko2';
 import type { paths } from '@duckoj/sdk';
@@ -8,8 +8,8 @@ import { formatPoints } from '../format.js';
 import { formatDate, rankTitle, useLocale, useT } from '../i18n/index.js';
 
 type Profile = paths['/users/{username}']['get']['responses'][200]['content']['application/json'];
-type RatingEvent =
-  paths['/users/{username}/rating']['get']['responses'][200]['content']['application/json'][number];
+type RatingPage =
+  paths['/users/{username}/rating']['get']['responses'][200]['content']['application/json'];
 
 export function UserPage({ username }: { username: string }) {
   const t = useT();
@@ -23,20 +23,31 @@ export function UserPage({ username }: { username: string }) {
     },
   });
 
-  const rating = useQuery({
+  // A page at a time, appended — the same `useInfiniteQuery` shape the
+  // problems, submissions and roster lists use. A rating history grows by a
+  // row per rated contest and never shrinks.
+  const rating = useInfiniteQuery({
     queryKey: ['user-rating', username],
-    queryFn: async (): Promise<RatingEvent[]> => {
+    queryFn: async ({ pageParam }: { pageParam: string | undefined }): Promise<RatingPage> => {
       // Throws rather than folding a failure into `[]`. An empty history and
       // a failed request look identical to `data ?? []`, and the screen
       // renders the first as "has not been rated" — a statement about this
       // person that a 500 or a dropped connection has no business making.
+      //
+      // `exactOptionalPropertyTypes`: an absent cursor is an omitted key,
+      // never `cursor: undefined` (problems.tsx documents the same rule).
+      const query: { cursor?: string } = {};
+      if (pageParam !== undefined) query.cursor = pageParam;
       const result = await api.GET('/users/{username}/rating', {
-        params: { path: { username } },
+        params: { path: { username }, query },
       });
       if (result.error) throw apiError(result, t('user.ratingLoadError'));
       return result.data;
     },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
+  const ratingEvents = rating.data?.pages.flatMap((page) => page.items) ?? [];
 
   if (profile.isPending) return <p className="muted">{t('common.loading')}</p>;
   if (profile.error) return <p role="alert">{profile.error.message}</p>;
@@ -102,7 +113,7 @@ export function UserPage({ username }: { username: string }) {
       </table>
 
       <h2>{t('user.ratingHistory')}</h2>
-      {rating.data && rating.data.length > 0 ? (
+      {ratingEvents.length > 0 ? (
         <table>
           <thead>
             <tr>
@@ -113,7 +124,7 @@ export function UserPage({ username }: { username: string }) {
             </tr>
           </thead>
           <tbody>
-            {rating.data.map((event) => (
+            {ratingEvents.map((event) => (
               <tr key={event.contestKey}>
                 <td>
                   <Link to="/contests/$key" params={{ key: event.contestKey }}>
@@ -136,6 +147,18 @@ export function UserPage({ username }: { username: string }) {
       ) : (
         <p className="muted">{t('user.notRated')}</p>
       )}
+
+      {rating.hasNextPage ? (
+        <p>
+          <button
+            type="button"
+            onClick={() => void rating.fetchNextPage()}
+            disabled={rating.isFetchingNextPage}
+          >
+            {t('common.loadMore')}
+          </button>
+        </p>
+      ) : null}
 
       <p>
         <Link to="/submissions" search={{ user: username }}>
