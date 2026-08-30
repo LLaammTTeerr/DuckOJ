@@ -427,7 +427,11 @@ tr:hover td {
    and a monochrome print. */
 .dq td {
   text-decoration: line-through;
-  color: var(--muted, inherit);
+  /* `--dim`, not `--muted`: no such variable is declared anywhere in this
+     file, so the `inherit` fallback always won and this declaration did
+     nothing. `test/app-css.spec.ts` now fails on any `var()` naming a
+     property the stylesheet does not define. */
+  color: var(--dim);
 }
 
 /* On a phone, a table that does not fit scrolls ITSELF — the page must not.
@@ -475,6 +479,31 @@ textarea {
   width: 100%;
   max-width: 32rem;
   outline: none;
+}
+
+/* A tick box is not a text box. The rule above carries no type filter, so
+   `width: 100%` also caught every `type="checkbox"` and `type="radio"` in
+   the app: on the problem list's topic filter each of the twenty-five boxes
+   was laid out 100–156px wide and 13px tall, painted straight over the
+   label text beside it, and the fieldset it sits in pushed the whole page
+   64px past a 390px viewport. The border/background/padding go too — a
+   checkbox drawn as a bordered box with a 9px inset is not the control any
+   phone user recognises. Measured on the live stack at 1280px and 390px
+   before and after; pinned by `test/app-css.spec.ts`. */
+input[type='checkbox'],
+input[type='radio'] {
+  width: auto;
+  max-width: none;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+/* The one place a numeric input shares a line with its own label: the
+   difficulty bounds on the problem filter. Left at 100% they wrapped onto
+   their own rows and stranded "TỪ"/"ĐẾN" beside the wrong box. */
+fieldset input[type='number'] {
+  width: 5rem;
 }
 
 textarea {
