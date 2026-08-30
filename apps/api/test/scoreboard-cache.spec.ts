@@ -173,7 +173,7 @@ describe('ScoreboardCache', () => {
 
     expect(first.cache).toBe('miss');
     expect(second.cache).toBe('hit');
-    expect(second.board).toEqual(first.board);
+    expect(second.value).toEqual(first.value);
     expect(compute).toHaveBeenCalledTimes(1);
   });
 
@@ -209,7 +209,7 @@ describe('ScoreboardCache', () => {
     // header describes where the body came from, and a coalesced waiter
     // waited on a fold.
     expect(results.map((result) => result.cache)).toEqual(['miss', 'miss', 'miss']);
-    for (const result of results) expect(result.board).toEqual(board('a'));
+    for (const result of results) expect(result.value).toEqual(board('a'));
   });
 
   it('does not coalesce across different keys', async () => {
@@ -278,7 +278,7 @@ describe('ScoreboardCache', () => {
     store.entries.set('k', 'not json');
     const result = await cache.through('k', () => Promise.resolve(board('a')));
     expect(result.cache).toBe('miss');
-    expect(result.board).toEqual(board('a'));
+    expect(result.value).toEqual(board('a'));
   });
 
   it('deletes exactly the keys it is handed, and survives a dead store', async () => {

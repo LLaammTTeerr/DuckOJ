@@ -99,7 +99,14 @@ function renderInline(line: string): { typst: string; usedMath: boolean } {
   return { typst, usedMath };
 }
 
-export function markdownToTypst(name: string, markdown: string): string {
+/**
+ * The body of one Markdown document, lowered. Split out of
+ * `markdownToTypst` so the booklet (D48) can lower several statements into
+ * ONE document without either re-implementing this loop or compiling each
+ * problem separately — `usedMath` travels back out because the mitex import
+ * has to be hoisted to the top of whatever document the caller assembles.
+ */
+function lowerBody(markdown: string): { typst: string; usedMath: boolean } {
   const lines = markdown.split('\n');
   const body: string[] = [];
   let usedMath = false;
@@ -147,13 +154,199 @@ export function markdownToTypst(name: string, markdown: string): string {
   // An unterminated fence still prints its content rather than eating it.
   if (fence !== null) body.push(rawBlock(fence.join('\n')));
 
+  return { typst: body.join('\n'), usedMath };
+}
+
+export function markdownToTypst(name: string, markdown: string): string {
+  const body = lowerBody(markdown);
   const title = renderInline(name);
-  usedMath ||= title.usedMath;
+  const usedMath = body.usedMath || title.usedMath;
   return (
     (usedMath ? MITEX_IMPORT : '') +
     '#set page(margin: 2cm)\n#set text(11pt)\n' +
     `= ${title.typst}\n\n` +
-    body.join('\n') +
+    body.typst +
     '\n'
   );
+}
+
+/* ------------------------------------------------------------------ D48 */
+
+/**
+ * The two languages a statement is written in (D10).
+ */
+export type StatementLang = 'vi' | 'en';
+
+/**
+ * The heading that splits a bilingual statement, in either direction. The
+ * corpus in `content/problems/` already writes Vietnamese first and then a
+ * `## English` heading, so D48 codifies that shape rather than inventing a
+ * marker nothing uses; `## Tiếng Việt` is accepted for a statement drafted
+ * the other way round.
+ */
+const SECTION_HEADINGS: ReadonlyArray<{ re: RegExp; lang: StatementLang }> = [
+  { re: /^##\s+English\s*$/i, lang: 'en' },
+  { re: /^##\s+Tiếng\s+Việt\s*$/i, lang: 'vi' },
+];
+
+/** A trailing thematic break — `---`, `***`, `___` — and the blank lines round it. */
+const TRAILING_RULE = /\n\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
+
+/**
+ * One language's half of a statement (D48).
+ *
+ * The split is on the FIRST top-level `## English` / `## Tiếng Việt`
+ * heading: what follows it is in the language it names, what precedes it is
+ * in the other one. A statement carrying no such heading is returned whole
+ * for **either** language — a monolingual statement is still the statement,
+ * and returning nothing would print an empty problem into a booklet.
+ *
+ * Fence-aware, using the same ``` tracking the lowering does: a `## English`
+ * line inside a code block is sample data, not a section marker, and
+ * splitting there would silently truncate the document.
+ *
+ * The thematic break the corpus writes above the heading is dropped from the
+ * first section. `escapeText` escapes `-`, so a surviving `---` renders as
+ * three literal dashes at the foot of every Vietnamese booklet page.
+ */
+export function statementSection(markdown: string, lang: StatementLang): string {
+  const lines = markdown.split('\n');
+  let inFence = false;
+  for (const [index, line] of lines.entries()) {
+    if (/^```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const marker = SECTION_HEADINGS.find((heading) => heading.re.test(line));
+    if (!marker) continue;
+    if (marker.lang === lang) return lines.slice(index + 1).join('\n').trim();
+    return lines.slice(0, index).join('\n').replace(TRAILING_RULE, '').trim();
+  }
+  return markdown.trim();
+}
+
+/** One problem in the booklet, in contest order, statement already language-picked. */
+export interface BookletProblem {
+  /** The contest's own label — "A", "B", "1"… — printed in the heading. */
+  label: string;
+  name: string;
+  statement: string;
+  timeMs: number | null;
+  memoryKb: number | null;
+}
+
+export interface BookletInput {
+  name: string;
+  startTime: Date;
+  endTime: Date;
+  lang: StatementLang;
+  problems: BookletProblem[];
+}
+
+/**
+ * The province is in Indochina Time, and a booklet printed for a room in
+ * Vietnam dated in UTC states the wrong hour to everyone holding it. Fixed
+ * rather than configurable: there is no per-deploy timezone anywhere else in
+ * this codebase, and inventing one for a cover page would be the first.
+ */
+const BOOKLET_TZ = 'Asia/Ho_Chi_Minh';
+
+const BOOKLET_WORDS = {
+  vi: {
+    heading: 'Bài',
+    window: 'Thời gian thi',
+    colLabel: 'Bài',
+    colName: 'Tên bài',
+    colTime: 'Thời gian',
+    colMemory: 'Bộ nhớ',
+  },
+  en: {
+    heading: 'Problem',
+    window: 'Contest window',
+    colLabel: 'Problem',
+    colName: 'Title',
+    colTime: 'Time',
+    colMemory: 'Memory',
+  },
+} as const;
+
+/** `2026-08-29 09:00` — `sv-SE` is ISO-shaped, so this needs no hand formatting. */
+function formatInstant(at: Date): string {
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: BOOKLET_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(at);
+}
+
+/** A cell of the cover's limits table, escaped. */
+function cell(text: string): string {
+  return `[${escapeText(text)}]`;
+}
+
+/**
+ * The whole contest as ONE typst document (D48).
+ *
+ * One document, not one compile per problem and a merge: `typst compile`
+ * is the expensive part, page numbering has to run across the whole booklet,
+ * and concatenating PDFs would need a second dependency to do worse.
+ *
+ * The mitex import is hoisted here rather than emitted per statement,
+ * because a typst import is only legal at the top of a document — and it is
+ * still emitted only when some statement actually carries math, so a
+ * mathless booklet never reaches for packages.typst.org.
+ */
+export function bookletToTypst(input: BookletInput): string {
+  const words = BOOKLET_WORDS[input.lang];
+  const bodies = input.problems.map((problem) => ({
+    problem,
+    title: renderInline(`${words.heading} ${problem.label}. ${problem.name}`),
+    body: lowerBody(problem.statement),
+  }));
+  const cover = renderInline(input.name);
+  const usedMath =
+    cover.usedMath || bodies.some((entry) => entry.title.usedMath || entry.body.usedMath);
+
+  const limitRows = input.problems
+    .map((problem) =>
+      [
+        cell(problem.label),
+        cell(problem.name),
+        cell(problem.timeMs === null ? '—' : `${String(problem.timeMs)} ms`),
+        cell(problem.memoryKb === null ? '—' : `${String(problem.memoryKb)} KB`),
+      ].join(', '),
+    )
+    .join(',\n    ');
+
+  const head = [
+    usedMath ? MITEX_IMPORT.trimEnd() : null,
+    // `numbering` on the page, not a footer of our own: every page of a
+    // printed booklet has to be findable by number when a competitor asks
+    // "which page is C on".
+    '#set page(margin: 2cm, numbering: "1")',
+    '#set text(11pt)',
+    `#align(center)[#text(20pt, weight: "bold")[${cover.typst}]]`,
+    `#align(center)[${escapeText(`${words.window}: ${formatInstant(input.startTime)} – ${formatInstant(input.endTime)} (GMT+7)`)}]`,
+    '#v(1em)',
+    '#table(',
+    '  columns: 4,',
+    `  ${cell(words.colLabel)}, ${cell(words.colName)}, ${cell(words.colTime)}, ${cell(words.colMemory)}${limitRows === '' ? '' : ','}`,
+    limitRows === '' ? null : `    ${limitRows}`,
+    ')',
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
+
+  // The break goes BEFORE each problem, so a booklet never ends on a blank
+  // page — and a contest with no problems yet is a cover page, not a cover
+  // page plus an empty one.
+  const sections = bodies.map(
+    (entry) => `#pagebreak()\n= ${entry.title.typst}\n\n${entry.body.typst}`,
+  );
+  return [head, ...sections].join('\n') + '\n';
 }

@@ -17,6 +17,14 @@ export const STATEMENT_RENDERER = Symbol('STATEMENT_RENDERER');
 export interface StatementRenderer {
   /** The problem's statement as a PDF. Throws `AppError` when it cannot. */
   render(name: string, statementMarkdown: string): Promise<Buffer>;
+  /**
+   * An already-lowered typst document as a PDF (D48). The booklet assembles
+   * several statements into ONE document — page numbering runs across the
+   * whole thing, and merging separately-compiled PDFs would need a second
+   * dependency to do it worse — so it needs a way in that is not
+   * "one problem's Markdown".
+   */
+  renderDocument(document: string): Promise<Buffer>;
 }
 
 export const PDF_UNAVAILABLE = new AppError(
@@ -30,13 +38,20 @@ export class NullStatementRenderer implements StatementRenderer {
   render(): Promise<Buffer> {
     return Promise.reject(PDF_UNAVAILABLE);
   }
+
+  renderDocument(): Promise<Buffer> {
+    return Promise.reject(PDF_UNAVAILABLE);
+  }
 }
 
 export class TypstStatementRenderer implements StatementRenderer {
   constructor(private readonly typstBin: string) {}
 
   render(name: string, statementMarkdown: string): Promise<Buffer> {
-    const document = markdownToTypst(name, statementMarkdown);
+    return this.renderDocument(markdownToTypst(name, statementMarkdown));
+  }
+
+  renderDocument(document: string): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
       const child = spawn(this.typstBin, ['compile', '-', '-'], {
         stdio: ['pipe', 'pipe', 'pipe'],

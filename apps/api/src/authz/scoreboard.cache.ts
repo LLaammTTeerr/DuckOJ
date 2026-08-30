@@ -30,7 +30,6 @@
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { freezeAtMs, isFrozenAt } from '@duckoj/contest-formats';
-import type { Scoreboard } from '@duckoj/contest-formats';
 import { APP_CONFIG } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 
@@ -121,6 +120,15 @@ export interface ScoreboardCacheStore {
 
 export const SCOREBOARD_CACHE_STORE = Symbol('SCOREBOARD_CACHE_STORE');
 
+/**
+ * Named for the board it was built for (D25) and generic since D48: the
+ * contest booklet and the problem statistics are the same read-through
+ * shape — an expensive computation, a key that changes when the answer
+ * does, a short TTL — and a second copy of the coalescing, the
+ * swallow-every-store-failure rule and the never-cache-a-throw rule is
+ * exactly how two of the three quietly stop holding. `ttlMs` is per call,
+ * because 2 s is right for a live board and wrong for a PDF.
+ */
 @Injectable()
 export class ScoreboardCache {
   /**
@@ -128,7 +136,7 @@ export class ScoreboardCache {
    * Redis, deliberately — a distributed lock would add a round trip and a
    * lease to every read to save at most `API_WORKERS − 1` folds per TTL.
    */
-  private readonly inFlight = new Map<string, Promise<Scoreboard>>();
+  private readonly inFlight = new Map<string, Promise<unknown>>();
 
   constructor(@Inject(SCOREBOARD_CACHE_STORE) private readonly store: ScoreboardCacheStore) {}
 
@@ -139,34 +147,33 @@ export class ScoreboardCache {
    * `cache` says where the *body* came from. A coalesced waiter reports
    * `miss`: it did not read the store, it waited on a fold.
    */
-  async through(
+  async through<T>(
     key: string,
-    compute: () => Promise<Scoreboard>,
-  ): Promise<{ board: Scoreboard; cache: ScoreboardCacheState }> {
+    compute: () => Promise<T>,
+    ttlMs: number = SCOREBOARD_CACHE_TTL_MS,
+  ): Promise<{ value: T; cache: ScoreboardCacheState }> {
     const cached = await this.store.get(key).catch(() => null);
     if (cached !== null) {
-      const parsed = parse(cached);
-      if (parsed) return { board: parsed, cache: 'hit' };
+      const parsed = parse<T>(cached);
+      if (parsed !== null) return { value: parsed, cache: 'hit' };
       // An entry this process cannot read is an entry that does not exist.
       // Answering 500 because a cache holds garbage would make the cache the
       // most dangerous component in the request path.
     }
 
-    const pending = this.inFlight.get(key);
-    if (pending) return { board: await pending, cache: 'miss' };
+    const pending = this.inFlight.get(key) as Promise<T> | undefined;
+    if (pending) return { value: await pending, cache: 'miss' };
 
     // The write is inside the shared promise so a coalesced waiter cannot
     // return before the entry exists — and a fold that THREW never writes,
     // which is what keeps a 409 out of the cache.
-    const fold = compute().then(async (board) => {
-      await this.store
-        .set(key, JSON.stringify(board), SCOREBOARD_CACHE_TTL_MS)
-        .catch(() => undefined);
-      return board;
+    const fold = compute().then(async (value) => {
+      await this.store.set(key, JSON.stringify(value), ttlMs).catch(() => undefined);
+      return value;
     });
     this.inFlight.set(key, fold);
     try {
-      return { board: await fold, cache: 'miss' };
+      return { value: await fold, cache: 'miss' };
     } finally {
       this.inFlight.delete(key);
     }
@@ -188,9 +195,9 @@ export class ScoreboardCache {
   }
 }
 
-function parse(value: string): Scoreboard | null {
+function parse<T>(value: string): T | null {
   try {
-    return JSON.parse(value) as Scoreboard;
+    return JSON.parse(value) as T;
   } catch {
     return null;
   }
