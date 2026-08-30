@@ -21,6 +21,8 @@ a different thing — those are already-built DuckOJ package directories that
     problem.xml     the Polygon descriptor — the only file that decides what
                     reaches a package (see "What gets copied" below)
     statement.md    Vietnamese statement with an English section (D10)
+    editorial.md    the write-up, same vi+en shape — optional, and only
+                    `tong-hai-so` has one so far (step 7 below)
     solution.cpp    the model solution; every tests/NN.a is its own output
     gen.py          regenerates tests/ from scratch, deterministically
     tests/01 .. 12  inputs, and 01.a .. 12.a their answers
@@ -109,6 +111,17 @@ the runbook for `corepack pnpm bootstrap:admin`, which mints one.
       jq -c --arg code "$code" '.[$code] + {visibility:"public"}' content/tags.json \
         | curl -sk -b oj.cookies -X PATCH "$BASE/problems/$code" \
             -H 'content-type: application/json' --data-binary @-
+
+      # 7. The editorial, if this directory has one. Published in the same
+      #    PATCH that stores it: nothing here writes a draft nobody will come
+      #    back to publish. D43 keeps it away from anyone sitting a live
+      #    contest on the problem, so publishing it now is not a leak.
+      if [ -f "content/problems/$code/editorial.md" ]; then
+        jq -n --rawfile editorial "content/problems/$code/editorial.md" \
+              '{editorial:$editorial, editorialPublished:true}' \
+          | curl -sk -b oj.cookies -X PATCH "$BASE/problems/$code" \
+              -H 'content-type: application/json' --data-binary @-
+      fi
     done
 
 ## Topics and difficulty
@@ -129,6 +142,24 @@ Note what a tag is NOT for: **D35 hides both tags and difficulty from a
 viewer who is sitting a running contest that uses the problem**, because a
 tag is a third of the hint on a hard problem. Classifying the demo set does
 not leak anything into a contest built from it.
+
+## Editorials
+
+`editorial.md`, where a directory has one, is the solution write-up in the
+same Vietnamese-then-English shape as `statement.md` (D10). Only
+`tong-hai-so` carries one today; step 7 skips silently for the rest, which is
+why it is a `[ -f ]` test rather than a required file.
+
+It is **published** by that step, not left as a draft. **D43** decides who
+then reads it: a viewer sitting a contest that is running right now and uses
+the problem does not, unless they already hold an AC on it or organise the
+contest — the same clock-driven mask D35 puts over the tags, and for the same
+reason. Publishing a demo set's editorials therefore cannot spoil a contest
+built from that set.
+
+Like `tags.json`, this is **data, not a step that runs itself**: nothing in
+the seed path reads `editorial.md`, and the loop applies it through the
+ordinary `PATCH /problems/{code}` any setter can call.
 
 Step 3 is separate from step 4 on purpose: uploading a package and having
 standing to attach it to a problem are different permissions, and the
