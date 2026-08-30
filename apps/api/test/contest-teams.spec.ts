@@ -19,16 +19,18 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { INestApplication } from '@nestjs/common';
 import {
   contestOrgs,
   contestParticipations,
   contestProblems,
+  contestSeats,
   contestSubmissions,
   contests,
   organizations,
   problems,
+  teamMembers,
   teams,
 } from '@duckoj/db/guarded';
 import { createDb, schema, type Db } from '@duckoj/db';
@@ -471,9 +473,16 @@ describe('entering a team contest', () => {
 
         // `join` refuses the second team that shares a member — but a PATCH
         // is the same collision arriving by the back door, exactly as a
-        // rename was, and any admin of any of the contest's schools can make
-        // one while the round runs.
-        const clash = await school.teacher
+        // rename was.
+        //
+        // The editor is the ADMIN, not the school's owner: B-18 wrote this
+        // test when any admin of any of the contest's schools could edit a
+        // roster mid-round, and F-25 landed `assertRosterUnlocked` after it,
+        // which refuses that with `team_locked_during_contest` BEFORE the
+        // double-seat check is ever reached. Both are right and they merged
+        // without meeting; keeping the owner here would leave the check this
+        // test exists for untested behind a 409 about something else.
+        const clash = await school.admin
           .patch('/api/v1/orgs/school/teams/doi-2')
           .send({ members: ['binh', 'anh'] });
         expect(clash.status, JSON.stringify(clash.body)).toBe(409);
@@ -481,18 +490,18 @@ describe('entering a team contest', () => {
         expect(clash.body.detail).toContain('anh');
 
         // A pupil competing in nothing is added freely…
-        const fine = await school.teacher
+        const fine = await school.admin
           .patch('/api/v1/orgs/school/teams/doi-1')
           .send({ members: ['anh', 'cuong'] });
         expect(fine.status, JSON.stringify(fine.body)).toBe(200);
 
         // …and so is somebody who competes only on THIS team's own row: the
         // captain taken off by mistake has to be able to come back.
-        const off = await school.teacher
+        const off = await school.admin
           .patch('/api/v1/orgs/school/teams/doi-1')
           .send({ members: ['cuong'] });
         expect(off.status, JSON.stringify(off.body)).toBe(200);
-        const back = await school.teacher
+        const back = await school.admin
           .patch('/api/v1/orgs/school/teams/doi-1')
           .send({ members: ['cuong', 'anh'] });
         expect(back.status, JSON.stringify(back.body)).toBe(200);
@@ -592,8 +601,12 @@ describe('a member submits, and the team is what scores', () => {
         expect(joined.status, JSON.stringify(joined.body)).toBe(201);
 
         // The pupil who did not turn up is taken off the roster mid-round —
-        // the one edit an organiser actually makes on contest day (D99).
-        const edited = await school.teacher
+        // the one edit an organiser actually makes on contest day (D99). By
+        // the ADMIN: F-25's roster lock landed after this test and makes
+        // this edit the organiser's alone, which is the rule it meant to
+        // state. The school's own owner now gets
+        // `team_locked_during_contest` here, correctly.
+        const edited = await school.admin
           .patch('/api/v1/orgs/school/teams/doi-1')
           .send({ members: ['binh'] });
         expect(edited.status, JSON.stringify(edited.body)).toBe(200);
@@ -962,6 +975,266 @@ describe('every member of a team may read the contest’s problems', () => {
   }, 180_000);
 });
 
+/* ------------------------------------------------------ the monitor feed */
+
+/**
+ * Who the contest-day feed names when a team submits (D105).
+ *
+ * D95's feed is the invigilator's "what is happening right now", and the one
+ * thing it is FOR is deciding whether to walk over to a machine. D99 landed
+ * after it and made a team one participation held by whoever pressed Join, so
+ * the feed's `join users on participation.user_id` started naming the captain
+ * for every teammate's submission — a person who may not have touched a
+ * keyboard, on the screen an invigilator uses to find the one who did.
+ */
+describe('the monitor feed in a team round (D105)', () => {
+  it('names the pupil who submitted, and the team the row scores for', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'feed-school', ['faa', 'fbb']);
+        await school.teacher
+          .post('/api/v1/orgs/feed-school/teams')
+          .send({ slug: 'doi-f', name: 'Đội F', members: ['faa', 'fbb'] });
+        await seedContest(db, {
+          key: 'feed-c',
+          problemId: await problemId(db),
+          orgSlug: 'feed-school',
+        });
+
+        // `faa` presses Join, so the team's one row is on `fa`'s account…
+        const joined = await school.pupils
+          .get('faa')!
+          .post('/api/v1/contests/feed-c/join')
+          .send({ teamSlug: 'doi-f' });
+        expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+
+        // …and `fbb` is the one who actually submits.
+        await clearSubmissionMeter(db);
+        const sent = await school.pupils
+          .get('fbb')!
+          .post('/api/v1/submissions')
+          .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}', contestKey: 'feed-c' });
+        expect(sent.status, JSON.stringify(sent.body)).toBe(201);
+
+        const monitor = await school.admin.get('/api/v1/contests/feed-c/monitor');
+        expect(monitor.status, JSON.stringify(monitor.body)).toBe(200);
+        expect(monitor.body.feed).toHaveLength(1);
+        expect(monitor.body.feed[0].username).toBe('fbb');
+        // The team is carried beside the name rather than instead of it: the
+        // board is keyed by team (D99), so without it the invigilator cannot
+        // tell which row a submission scored on.
+        expect(monitor.body.feed[0].team).toBe('Đội F');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('leaves `team` null for an individual round', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'feed-solo', ['fss']);
+        await seedContest(db, {
+          key: 'feed-s',
+          problemId: await problemId(db),
+          orgSlug: 'feed-solo',
+          mode: 'individual',
+        });
+        await school.pupils.get('fss')!.post('/api/v1/contests/feed-s/join').send({});
+        await clearSubmissionMeter(db);
+        await school.pupils
+          .get('fss')!
+          .post('/api/v1/submissions')
+          .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}', contestKey: 'feed-s' });
+
+        const monitor = await school.admin.get('/api/v1/contests/feed-s/monitor');
+        expect(monitor.body.feed[0].username).toBe('fss');
+        expect(monitor.body.feed[0].team).toBeNull();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
+/* ------------------------------------------------------- the seat (D104) */
+
+/**
+ * One pupil, one seat per contest — enforced by the DATABASE (D104).
+ *
+ * B-18 finding 3 closed the roster PATCH's back door with a check, and said
+ * what it could not close: a PATCH and a `join` run in two transactions that
+ * do not serialise, so both can read a clean world and both can write. The
+ * cost is D99's own list — `actingParticipations` picking between two rows by
+ * id, `setDisqualified` moving both, one pupil's work counted twice on one
+ * board — and no ordering of app-level reads and writes can prevent it,
+ * because the fact being made unique spans two tables.
+ *
+ * `contest_seats` is that fact, materialised: one row per (contest, person)
+ * for every LIVE participation, written by every path that seats anybody, and
+ * unique.
+ */
+describe('one pupil holds one seat per contest (D104)', () => {
+  async function seatsOf(db: Db, contestId: number): Promise<{ userId: number; participationId: number }[]> {
+    return db
+      .select({ userId: contestSeats.userId, participationId: contestSeats.participationId })
+      .from(contestSeats)
+      .where(eq(contestSeats.contestId, contestId))
+      .orderBy(contestSeats.userId);
+  }
+
+  it('seats every member of a team that joins, on the team\u2019s one row', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'seat-a', ['sa1', 'sa2', 'sa3']);
+        await school.teacher
+          .post('/api/v1/orgs/seat-a/teams')
+          .send({ slug: 'doi-a', name: 'Đội A', members: ['sa1', 'sa2'] });
+        const { contestId } = await seedContest(db, {
+          key: 'seat-ca',
+          problemId: await problemId(db),
+          orgSlug: 'seat-a',
+          mode: 'team',
+        });
+
+        const joined = await school.pupils
+          .get('sa1')!
+          .post('/api/v1/contests/seat-ca/join')
+          .send({ teamSlug: 'doi-a' });
+        expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+
+        const seats = await seatsOf(db, contestId);
+        // Both members, not just the one who pressed the button: the seat is
+        // "this person is competing here", and D99 makes every member of the
+        // team competing on its single row.
+        expect(seats).toHaveLength(2);
+        expect(seats.map((seat) => seat.participationId)).toEqual([
+          seats[0]!.participationId,
+          seats[0]!.participationId,
+        ]);
+        // The pupil who is on no team is seated by nothing.
+        const [outsider] = await db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.username, 'sa3'));
+        expect(seats.some((seat) => seat.userId === outsider!.id)).toBe(false);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('seats an individual join, and unseats nobody else', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'seat-b', ['sb1']);
+        const { contestId } = await seedContest(db, {
+          key: 'seat-cb',
+          problemId: await problemId(db),
+          orgSlug: 'seat-b',
+          mode: 'individual',
+        });
+
+        const joined = await school.pupils.get('sb1')!.post('/api/v1/contests/seat-cb/join').send({});
+        expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+
+        const seats = await seatsOf(db, contestId);
+        expect(seats).toHaveLength(1);
+        expect(seats[0]!.userId).toBe(await userIdOf(db, 'sb1'));
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('moves the seat with the roster: added members gain one, removed members lose theirs', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'seat-c', ['sc1', 'sc2', 'sc3']);
+        await school.teacher
+          .post('/api/v1/orgs/seat-c/teams')
+          .send({ slug: 'doi-c', name: 'Đội C', members: ['sc1', 'sc2'] });
+        // Not started yet, so the roster is still editable (F-25's lock).
+        const { contestId } = await seedContest(db, {
+          key: 'seat-cc',
+          problemId: await problemId(db),
+          orgSlug: 'seat-c',
+          mode: 'team',
+          startsInMs: HOUR,
+          endsInMs: 2 * HOUR,
+        });
+        const seeded = await school.admin
+          .post('/api/v1/contests/seat-cc/participants')
+          .send({ teamSlug: 'doi-c' });
+        expect(seeded.status, JSON.stringify(seeded.body)).toBe(201);
+        expect(await seatsOf(db, contestId)).toHaveLength(2);
+
+        const patched = await school.teacher
+          .patch('/api/v1/orgs/seat-c/teams/doi-c')
+          .send({ members: ['sc1', 'sc3'] });
+        expect(patched.status, JSON.stringify(patched.body)).toBe(200);
+
+        const seats = await seatsOf(db, contestId);
+        const ids = new Set(seats.map((seat) => seat.userId));
+        expect(ids.has(await userIdOf(db, 'sc1'))).toBe(true);
+        expect(ids.has(await userIdOf(db, 'sc3'))).toBe(true);
+        // A pupil taken off the roster stops competing on that row (D99), so
+        // their seat goes with them — otherwise they could never be seated
+        // anywhere else in this contest again.
+        expect(ids.has(await userIdOf(db, 'sc2'))).toBe(false);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('answers 409, never 500, when the seat is already taken', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'seat-d', ['sd1', 'sd2']);
+        const { contestId } = await seedContest(db, {
+          key: 'seat-cd',
+          problemId: await problemId(db),
+          orgSlug: 'seat-d',
+          mode: 'individual',
+        });
+        const other = await school.pupils.get('sd2')!.post('/api/v1/contests/seat-cd/join').send({});
+        expect(other.status).toBe(201);
+
+        // The state a racing transaction leaves behind: a seat for sd1 that
+        // no `contest_participations` row of theirs explains, so every
+        // app-level check passes and only the index refuses.
+        await db.insert(contestSeats).values({
+          contestId,
+          userId: await userIdOf(db, 'sd1'),
+          participationId: (await db
+            .select({ id: contestParticipations.id })
+            .from(contestParticipations)
+            .where(eq(contestParticipations.contestId, contestId)))[0]!.id,
+        });
+
+        const joined = await school.pupils.get('sd1')!.post('/api/v1/contests/seat-cd/join').send({});
+        expect(joined.status, JSON.stringify(joined.body)).toBe(409);
+        expect(joined.body.code).toBe('contest_already_joined');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
 /* ------------------------------------------------------------- the race */
 
 describe('two teammates pressing Join at the same instant', () => {
@@ -1009,6 +1282,114 @@ describe('two teammates pressing Join at the same instant', () => {
           ),
         );
       expect(rows).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
+  }, 180_000);
+});
+
+describe('a roster PATCH racing a join (D104)', () => {
+  const opened: (() => Promise<void>)[] = [];
+  afterAll(async () => {
+    for (const close of opened) await close();
+  });
+
+  /**
+   * The interleaving, written as the two transactions' WRITES.
+   *
+   * It cannot be driven through the two HTTP routes: each service opens its
+   * own transaction and commits it before returning, so nothing outside them
+   * can hold one open across the other's read. What CAN be reproduced exactly
+   * is the pair of write sets, in the order that defeats both app-level
+   * checks — each transaction read a world in which the other had not
+   * happened, and each check said yes. Only the database sees both.
+   */
+  it('cannot seat one pupil on two rows of one board', async () => {
+    const url = await testDbUrl();
+    const { db, close } = createDb(url);
+    opened.push(close);
+
+    const app = await buildApp(db);
+    try {
+      // This database is COMMITTED and shared with the block above, which has
+      // already seeded a problem and a language; a second `aplusb` is a
+      // unique violation rather than a fixture.
+      const [seeded] = await db.select({ id: problems.id }).from(problems).limit(1);
+      if (!seeded) await seedProblemAndLanguage(db);
+      const school = await makeSchool(app, db, 'seat-race', ['sr1', 'sr2']);
+      await school.teacher
+        .post('/api/v1/orgs/seat-race/teams')
+        .send({ slug: 'doi-x', name: 'Đội X', members: ['sr1'] });
+      await school.teacher
+        .post('/api/v1/orgs/seat-race/teams')
+        .send({ slug: 'doi-y', name: 'Đội Y', members: ['sr2'] });
+      const { contestId } = await seedContest(db, {
+        key: 'seat-race-c',
+        problemId: await problemId(db),
+        orgSlug: 'seat-race',
+        mode: 'team',
+      });
+      // Đội X is already competing; sr2 is on Đội Y, which is not.
+      const entered = await school.pupils
+        .get('sr1')!
+        .post('/api/v1/contests/seat-race-c/join')
+        .send({ teamSlug: 'doi-x' });
+      expect(entered.status, JSON.stringify(entered.body)).toBe(201);
+
+      const [x] = await db.select({ id: teams.id }).from(teams).where(eq(teams.slug, 'doi-x'));
+      const [y] = await db.select({ id: teams.id }).from(teams).where(eq(teams.slug, 'doi-y'));
+      const [xRow] = await db
+        .select({ id: contestParticipations.id })
+        .from(contestParticipations)
+        .where(
+          and(eq(contestParticipations.contestId, contestId), eq(contestParticipations.teamId, x!.id)),
+        );
+      const sr2 = await userIdOf(db, 'sr2');
+
+      const a = createDb(url);
+      const b = createDb(url);
+      opened.push(a.close, b.close);
+
+      // A: the roster PATCH puts sr2 on Đội X — whose participation already
+      // exists, so the PATCH seats them on it.
+      const patchDone = a.db.transaction(async (tx) => {
+        await tx.insert(teamMembers).values({ teamId: x!.id, userId: sr2 });
+        await tx
+          .insert(contestSeats)
+          .values({ contestId, userId: sr2, participationId: xRow!.id });
+        await tx.execute(sql`select pg_sleep(0.4)`);
+      });
+
+      // B: meanwhile Đội Y joins, seating sr2 on its own new row. One of the
+      // two has to lose.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const joinDone = b.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(contestParticipations)
+          .values({
+            contestId,
+            userId: sr2,
+            teamId: y!.id,
+            virtual: 0,
+            startTime: new Date(),
+            isDisqualified: false,
+          })
+          .returning({ id: contestParticipations.id });
+        await tx
+          .insert(contestSeats)
+          .values({ contestId, userId: sr2, participationId: row!.id });
+      });
+
+      const outcomes = await Promise.allSettled([patchDone, joinDone]);
+      const refused = outcomes.filter((outcome) => outcome.status === 'rejected');
+      expect(refused, JSON.stringify(outcomes.map((o) => o.status))).toHaveLength(1);
+
+      // And the board is intact: sr2 sits on exactly one row.
+      const seats = await db
+        .select({ id: contestSeats.participationId })
+        .from(contestSeats)
+        .where(and(eq(contestSeats.contestId, contestId), eq(contestSeats.userId, sr2)));
+      expect(seats).toHaveLength(1);
     } finally {
       await app.close();
     }

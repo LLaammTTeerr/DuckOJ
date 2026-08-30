@@ -7,7 +7,8 @@ import { clearSubmissionMeter, registerAndLogin, seedProblemAndLanguage } from '
 import { SessionService } from '../src/authn/session.service.js';
 import { SubmissionAccessService } from '../src/authz/submission.access.js';
 import { MAX_SUBSCRIPTIONS } from '../src/realtime/submissions.gateway.js';
-import type { Db } from '@duckoj/db';
+import { eq } from 'drizzle-orm';
+import { schema, type Db } from '@duckoj/db';
 
 function open(url: string, headers: Record<string, string>): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
@@ -82,6 +83,31 @@ describe('submission realtime', () => {
         const socket = await open(`${url}/ws`, { cookie });
         expect(socket.readyState).toBe(WebSocket.OPEN);
         socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('refuses a flagged account\'s token with 409, not 500 (D102)', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { app, url } = await buildAppWithRealtime(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'flagged');
+        const minted = await agent.post('/api/v1/auth/tokens').send({ name: 'cli', scopes: [] });
+        await db
+          .update(schema.users)
+          .set({ mustChangePassword: true })
+          .where(eq(schema.users.username, 'flagged'));
+
+        // The refusal is a RULING, and the upgrade handler's `.catch` used
+        // to report every throw as `500 Internal Server Error` — which tells
+        // a client to retry the one thing that can never work.
+        await expect(open(`${url}/ws`, { authorization: `Bearer ${minted.body.token}` })).rejects.toThrow(
+          /409/,
+        );
       } finally {
         await app.close();
       }

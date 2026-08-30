@@ -7073,6 +7073,12 @@
                           "username": {
                             "type": "string"
                           },
+                          "team": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "problemCode": {
                             "type": "string"
                           },
@@ -7096,6 +7102,7 @@
                         "required": [
                           "submissionId",
                           "username",
+                          "team",
                           "problemCode",
                           "problemLabel",
                           "state",
@@ -20248,6 +20255,51 @@
           },
           "403": {
             "description": "Signed in, but authenticated by an access token rather than an interactive session (`session_required`) — credential management is session-only",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The account still carries `mustChangePassword` (`password_change_required`, D102). An imported account holds a password it never chose, printed on a sheet handed round a classroom; a token minted before that password is replaced would outlive the replacement. Change the password first (`POST /auth/password/change`) — the same refusal is returned to any request that authenticates with an already-minted token.",
             "content": {
               "application/problem+json": {
                 "schema": {

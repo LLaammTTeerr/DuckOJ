@@ -33,6 +33,7 @@ import type {
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
+import { seat, toSeatConflict } from './contest.seats.js';
 import { isAdmin, type Actor } from './actor.js';
 import {
   canCreateContest,
@@ -1146,20 +1147,35 @@ export class ContestAccessService {
     // still clears every row, this one included.
     const isDisqualified = existing.some((participation) => participation.isDisqualified);
 
-    const [inserted] = await this.db
-      .insert(contestParticipations)
-      .values({ contestId: contest.id, userId: actor.userId, virtual, startTime: now, isDisqualified })
-      // Concurrent live joins race to the same `(contest, user, 0)` key. The
-      // loser reads the winner's row rather than surfacing a 500, which is
-      // what makes the idempotency claim above true under concurrency and not
-      // merely in sequence.
-      .onConflictDoNothing()
-      .returning({
-        id: contestParticipations.id,
-        virtual: contestParticipations.virtual,
-        startTime: contestParticipations.startTime,
-        isDisqualified: contestParticipations.isDisqualified,
-        teamId: contestParticipations.teamId,
+    // One transaction, because of the seat (D104): the row and the seat that
+    // says this person is competing here have to be one write or neither, or
+    // a crash between them leaves a competitor the index does not know about.
+    const inserted = await this.db
+      .transaction(async (tx) => {
+        const [row] = await tx
+          .insert(contestParticipations)
+          .values({ contestId: contest.id, userId: actor.userId, virtual, startTime: now, isDisqualified })
+          // Concurrent live joins race to the same `(contest, user, 0)` key. The
+          // loser reads the winner's row rather than surfacing a 500, which is
+          // what makes the idempotency claim above true under concurrency and not
+          // merely in sequence.
+          .onConflictDoNothing()
+          .returning({
+            id: contestParticipations.id,
+            virtual: contestParticipations.virtual,
+            startTime: contestParticipations.startTime,
+            isDisqualified: contestParticipations.isDisqualified,
+            teamId: contestParticipations.teamId,
+          });
+        // Only a LIVE row is seated; a virtual attempt is a replay, and the
+        // identity index deliberately admits several of those per person.
+        if (row && virtual === LIVE_VIRTUAL) {
+          await seat(tx as Db, contest.id, row.id, [actor.userId]);
+        }
+        return row;
+      })
+      .catch((error: unknown) => {
+        throw toSeatConflict(error);
       });
     if (inserted) return this.participationDto(contest, inserted);
 
@@ -1312,7 +1328,8 @@ export class ContestAccessService {
       );
     }
 
-    return this.db.transaction(async (tx) => {
+    return this.db
+      .transaction(async (tx) => {
       const db = tx as Db;
       await db.execute(
         sql`select pg_advisory_xact_lock(${contest.id}::int4, hashtext(lower(${team.name})))`,
@@ -1350,12 +1367,24 @@ export class ContestAccessService {
           isDisqualified: contestParticipations.isDisqualified,
           teamId: contestParticipations.teamId,
         });
-      if (inserted) return inserted;
+      if (inserted) {
+        // D104. EVERY member, not the captain alone: a team is one
+        // participant and its whole roster competes on this row, which is
+        // exactly what `assertMembersFree` above was asserting and what the
+        // racing roster PATCH could get past.
+        await seat(db, contest.id, inserted.id, memberIds);
+        return inserted;
+      }
 
       const raced = await this.teamParticipation(contest.id, team.id, db);
       if (!raced) throw new AppError(409, 'contest_join_conflict', 'Try joining again.');
       return raced;
-    });
+      })
+      .catch((error: unknown) => {
+        // The seat's index is the only thing that can refuse here which the
+        // checks above did not, and it must not read as a 500 (D104).
+        throw toSeatConflict(error);
+      });
   }
 
   /** The one participation a team holds in a contest, if it holds one. */

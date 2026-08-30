@@ -358,6 +358,16 @@ export function ContestMonitorPage({ contestKey }: { contestKey: string }) {
                       <Link to="/users/$username" params={{ username: entry.username }}>
                         {entry.username}
                       </Link>
+                      {/* The team the row scores for, when there is one
+                          (D105). Not a link to `/users/`: a team name is not
+                          an account, which is the 404 B-18 found twice on the
+                          similarity screens. */}
+                      {entry.team === null ? null : (
+                        <>
+                          {' '}
+                          <span className="muted">{entry.team}</span>
+                        </>
+                      )}
                     </td>
                     <td>
                       <Link to="/problems/$code" params={{ code: entry.problemCode }}>

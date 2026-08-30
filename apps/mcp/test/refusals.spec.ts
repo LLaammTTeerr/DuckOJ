@@ -79,6 +79,50 @@ describe('a refused resource read', () => {
   });
 });
 
+/**
+ * D102. Every request this server makes carries an access token, and a
+ * flagged account's token is refused with `409 password_change_required` —
+ * the one refusal whose remedy is not reachable from here at all. An agent
+ * that reads `409` and nothing else retries; an agent that reads the code and
+ * the sentence stops and tells the person to open a browser. Pinned in all
+ * three doors, because the three go through different translations.
+ */
+describe('D102 — the password-change refusal reaches the agent whole', () => {
+  const body = {
+    code: 'password_change_required',
+    detail: 'This account still holds the password it was issued. Change your password in the web interface first.',
+  };
+
+  it('through a tool call', async () => {
+    const { client, server } = await connect(() => problemResponse(409, body));
+    const result = await client.callTool({ name: 'problems_get', arguments: { code: 'p' } });
+    expect(result.isError).toBe(true);
+    const content = result.content as { type: string; text: string }[];
+    expect(content[0]!.text).toContain('password_change_required');
+    expect(content[0]!.text).toContain('web interface');
+    expect(content[0]!.text).toContain('"status":409');
+    await server.close();
+  });
+
+  it('through a resource read', async () => {
+    const { client, server } = await connect(() => problemResponse(409, body));
+    const message = await refusalOf(() => client.readResource({ uri: 'duckoj://tags' }));
+    expect(message).toContain('password_change_required');
+    expect(message).toContain('web interface');
+    await server.close();
+  });
+
+  it('through a prompt', async () => {
+    const { client, server } = await connect(() => problemResponse(409, body));
+    const message = await refusalOf(() =>
+      client.getPrompt({ name: 'solve-problem', arguments: { code: 'p' } }),
+    );
+    expect(message).toContain('password_change_required');
+    expect(message).toContain('web interface');
+    await server.close();
+  });
+});
+
 describe('a refused prompt', () => {
   it('carries the machine code too', async () => {
     const { client, server } = await connect(() =>

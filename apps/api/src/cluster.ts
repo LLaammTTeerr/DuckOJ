@@ -66,6 +66,28 @@ const STABLE_UPTIME_MS = 30_000;
  */
 export const CRASH_LOOP_WINDOW_MS = 60_000;
 
+/**
+ * How many failed-to-boot worker exits the breaker needs before it trips
+ * (D103).
+ *
+ * D85 asked only for "zero live workers inside the window", and reasoned
+ * about it with four workers in mind, where four simultaneous deaths are
+ * four exits and the rule is exactly right. At `API_WORKERS=1` — which
+ * `resolveWorkerCount` treats as a supported mode, and which is what a small
+ * deployment runs — "a worker died" and "every worker is dead" are the SAME
+ * event. So one transient crash in the first minute (an OOM on a busy host,
+ * a port the kernel had not released yet, a dependency that was slow rather
+ * than absent) exited the primary, and `scripts/deploy.sh` — whose entire
+ * job is to notice a non-zero exit — rolled back a build that was fine.
+ * The breaker is meant to catch a build that CANNOT boot, and the evidence
+ * for that is repetition: one crash is an incident, two in a minute is a
+ * pattern that the next fork will repeat.
+ *
+ * Two, not more: the point of the rule is that the deploy sees a failure
+ * fast, and a build that dies on boot dies again about a second later.
+ */
+export const CRASH_LOOP_MIN_EXITS = 2;
+
 /** The exit code the primary uses when the breaker trips. */
 export const CRASH_LOOP_EXIT_CODE = 1;
 
@@ -152,11 +174,12 @@ export function resolveWorkerCount(env: NodeJS.ProcessEnv, parallelism: number):
  * startup (a bad `DATABASE_URL`, say) does not become a fork bomb.
  *
  * Never returns — the primary stays alive as long as the container does,
- * **unless** the crash-loop breaker trips (D85, {@link CRASH_LOOP_WINDOW_MS}):
- * a build whose every worker is dead within a minute of start makes the
- * primary exit non-zero, so the container's restart policy, the compose
- * healthcheck and `scripts/deploy.sh`'s poll all see a failure instead of a
- * process that holds the port and answers nothing.
+ * **unless** the crash-loop breaker trips (D85 as amended by D103,
+ * {@link CRASH_LOOP_WINDOW_MS} and {@link CRASH_LOOP_MIN_EXITS}): a build
+ * whose workers are dead within a minute of start, twice, makes the primary
+ * exit non-zero, so the container's restart policy, the compose healthcheck
+ * and `scripts/deploy.sh`'s poll all see a failure instead of a process that
+ * holds the port and answers nothing.
  */
 export function runPrimary(count: number, options: RunPrimaryOptions = {}): void {
   const log = options.log ?? defaultLog;
@@ -181,8 +204,20 @@ export function runPrimary(count: number, options: RunPrimaryOptions = {}): void
   let shuttingDown = false;
   /** Fork time per worker id, to tell "crashed on boot" from "ran for a day". */
   const startedAt = new Map<number, number>();
-  /** Worker ids currently believed alive — the breaker's whole input. */
+  /** Worker ids currently believed alive — half the breaker's input. */
   const alive = new Set<number>();
+  /**
+   * Workers that died inside the window WITHOUT ever having booted — the
+   * other half (D103).
+   *
+   * "Without ever having booted" is `STABLE_UPTIME_MS`, the same threshold
+   * the backoff already uses to tell a crash-on-startup from an unrelated
+   * death, rather than a second number meaning nearly the same thing. A
+   * worker that served for half a minute and then died is not evidence that
+   * this build cannot boot — it demonstrably did — so it is counted by
+   * neither rule.
+   */
+  let failedBoots = 0;
 
   /**
    * Tells every live worker how many of them there are (D86).
@@ -222,16 +257,27 @@ export function runPrimary(count: number, options: RunPrimaryOptions = {}): void
     broadcastWorkerCount();
 
     /**
-     * D85. Checked before the re-fork is scheduled, because the re-fork is
-     * the thing being refused: with every worker dead this early, the next
-     * fork runs the same image against the same environment and dies the
-     * same way, and the loop's only effect is to keep the primary — and so
-     * the container, and so the deploy — looking alive.
+     * D85, as amended by D103. Checked before the re-fork is scheduled,
+     * because the re-fork is the thing being refused: with every worker dead
+     * this early and this repeatedly, the next fork runs the same image
+     * against the same environment and dies the same way, and the loop's
+     * only effect is to keep the primary — and so the container, and so the
+     * deploy — looking alive.
+     *
+     * Three conditions, and each one is a different failure being excluded:
+     * `alive.size === 0` excludes one crashed worker out of four (what a
+     * supervisor is FOR), `withinWindow` excludes a fleet lost after a day
+     * of service (an OOM sweep, a host hiccup), and `failedBoots` excludes
+     * the single transient crash that `API_WORKERS=1` could not otherwise
+     * distinguish from a build that never started.
      */
-    if (alive.size === 0 && now() - primaryStartedAt < CRASH_LOOP_WINDOW_MS) {
+    const withinWindow = now() - primaryStartedAt < CRASH_LOOP_WINDOW_MS;
+    if (withinWindow && uptimeMs < STABLE_UPTIME_MS) failedBoots += 1;
+    if (alive.size === 0 && withinWindow && failedBoots >= CRASH_LOOP_MIN_EXITS) {
       log(
         `api primary: all ${String(count)} workers are dead within ` +
-          `${String(Math.round((now() - primaryStartedAt) / 1000))}s of start ` +
+          `${String(Math.round((now() - primaryStartedAt) / 1000))}s of start, after ` +
+          `${String(failedBoots)} failed boots ` +
           `(last exit code=${String(code)} signal=${String(signal)}) — this build cannot boot; ` +
           `exiting ${String(CRASH_LOOP_EXIT_CODE)} instead of re-forking`,
       );

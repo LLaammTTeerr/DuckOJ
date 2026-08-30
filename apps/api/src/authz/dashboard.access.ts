@@ -23,7 +23,11 @@
  *   it counts are non-done — through `grading_jobs_active_idx`: 150 rows,
  *   0.9 ms.
  * - `workers()` hash-joined all 200 000 jobs to all 200 000 submissions
- *   (88.3 ms). It is now TWO bounded queries merged here in JavaScript.
+ *   (88.3 ms). It is now TWO bounded queries merged here in JavaScript, and
+ *   since B-19 the plan spec asserts BOTH of them: the live half was
+ *   rewritten in the same commit as the throughput half and then pinned by
+ *   nothing, which is why "workers() is unbounded" survived three review
+ *   loops after it had stopped being true.
  * - `recentFailures()` walked 151 501 clean submissions backwards to find
  *   twenty failures (18.5 ms) — and got slower the LONGER judging stayed
  *   healthy. Its SQL is unchanged; `submissions_failed_idx` now serves both

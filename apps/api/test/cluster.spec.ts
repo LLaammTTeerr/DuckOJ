@@ -244,10 +244,66 @@ describe('runPrimary — the crash-loop breaker', () => {
     expect(h.scheduled.map((s) => s.ms)).toEqual([10_000]);
   });
 
-  it('trips as soon as the fleet is empty, whatever the fleet size', () => {
-    const h = start(1);
-    h.advance(20);
-    h.cluster.die(h.cluster.created[0]!, 1, null);
+  /**
+   * D103. `API_WORKERS=1` is one worker, so "every worker is dead" and "a
+   * worker died" are the SAME event, and D85's breaker fired on the first
+   * one: a single transient crash in the first minute — an OOM on a busy
+   * box, a socket the kernel had not released yet — took the primary down,
+   * and `deploy.sh`, whose whole job is to notice a non-zero exit, rolled
+   * back a build that was fine. The breaker exists to catch a build that
+   * cannot boot, and one crash is not evidence of that.
+   */
+  describe('with a single worker (D103)', () => {
+    it('re-forks after ONE early exit instead of exiting', () => {
+      const h = start(1);
+      h.advance(20);
+      h.cluster.die(h.cluster.created[0]!, 1, null);
+
+      expect(h.exits).toEqual([]);
+      expect(h.scheduled.map((s) => s.ms)).toEqual([1_000]);
+      // And the re-fork really happens when its timer fires.
+      h.scheduled[0]!.fn();
+      expect(h.cluster.created).toHaveLength(2);
+    });
+
+    it('trips on the SECOND early exit — a build that cannot boot dies twice', () => {
+      const h = start(1);
+      h.advance(20);
+      h.cluster.die(h.cluster.created[0]!, 1, null);
+      h.scheduled[0]!.fn();
+      h.advance(20);
+      h.cluster.die(h.cluster.created[1]!, 1, null);
+
+      expect(h.exits).toEqual([CRASH_LOOP_EXIT_CODE]);
+      expect(h.logs.at(-1)).toMatch(/cannot boot/);
+      // Nothing further was queued: the re-fork is the thing being refused.
+      expect(h.scheduled).toHaveLength(1);
+    });
+
+    it('does not count a worker that actually served before dying', () => {
+      const h = start(1);
+      // Up for longer than `STABLE_UPTIME_MS`, so it booted — twice. Both
+      // deaths are still inside the 60 s window, and neither is evidence
+      // about whether this build can boot.
+      h.advance(40_000);
+      h.cluster.die(h.cluster.created[0]!, 1, null);
+      h.scheduled.at(-1)!.fn();
+      h.advance(19_000);
+      h.cluster.die(h.cluster.created[1]!, 1, null);
+
+      expect(h.exits).toEqual([]);
+      expect(h.cluster.created).toHaveLength(2);
+    });
+  });
+
+  it('still trips on a four-worker fleet that empties, on the exits inside the window', () => {
+    // The counter is not a per-worker rule: four workers dying on boot is
+    // four exits, so the fleet-size case D85 shipped for is unchanged.
+    const h = start(4);
+    for (const worker of h.cluster.created.slice()) {
+      h.advance(20);
+      h.cluster.die(worker, 1, null);
+    }
     expect(h.exits).toEqual([CRASH_LOOP_EXIT_CODE]);
   });
 

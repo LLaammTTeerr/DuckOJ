@@ -22,6 +22,37 @@ export interface Io {
 
 export class CliError extends Error {}
 
+/**
+ * D102 — the one refusal whose remedy is not in this CLI.
+ *
+ * An imported account (D61) holds a password it never chose, and until it is
+ * replaced the API refuses every request a token makes with `409
+ * password_change_required`. Each command below has its own guess at what a
+ * failure means — "check your token", "could not list problems", "submission
+ * refused" — and for this refusal every one of those guesses sends the reader
+ * to fix the wrong thing. So the check is here, ahead of the guess, and the
+ * message names the browser: nothing typed at this prompt can clear the flag.
+ *
+ * Structural rather than typed: `openapi-fetch`'s error is a per-route union
+ * and this reads one field out of every arm of it.
+ */
+export function refusalCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+/** `fail`, with D102's refusal answered before the caller's own message. */
+export function refuse(io: Io, error: unknown, fallback: string): never {
+  if (refusalCode(error) === 'password_change_required') {
+    io.fail(
+      'this account still holds the password it was issued — change it in the DuckOJ web ' +
+        'interface first; access tokens are refused until you do',
+    );
+  }
+  io.fail(fallback);
+}
+
 /** `.cpp` files overwhelmingly mean the default toolchain; anything else is explicit. */
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
   cpp: 'cpp17',
@@ -41,13 +72,15 @@ export function inferLanguage(filename: string, explicit: string | undefined, io
 
 export async function whoami(client: Client, io: Io): Promise<void> {
   const { data, error } = await client.GET('/auth/me');
-  if (error || !data) io.fail('not signed in — check your token (oj login --url ... --token ...)');
+  if (error || !data) {
+    refuse(io, error, 'not signed in — check your token (oj login --url ... --token ...)');
+  }
   io.print(`${data.username} (${data.globalRole})`);
 }
 
 export async function listProblems(client: Client, io: Io): Promise<void> {
   const { data, error } = await client.GET('/problems', {});
-  if (error || !data) io.fail('could not list problems');
+  if (error || !data) refuse(io, error, 'could not list problems');
   for (const problem of data.items) {
     io.print(`${problem.code}\t${problem.name}`);
   }
@@ -70,7 +103,7 @@ export async function listProblems(client: Client, io: Io): Promise<void> {
  */
 export async function showProblem(client: Client, io: Io, code: string): Promise<void> {
   const { data, error } = await client.GET('/problems/{code}', { params: { path: { code } } });
-  if (error || !data) io.fail(`could not read problem ${code}`);
+  if (error || !data) refuse(io, error, `could not read problem ${code}`);
   io.print(`${data.code}\t${data.name}`);
   io.print(
     `limits: ${data.timeMs === null ? '—' : `${String(data.timeMs)} ms`}, ` +
@@ -97,7 +130,7 @@ export async function showProblem(client: Client, io: Io, code: string): Promise
 
 export async function listLanguages(client: Client, io: Io): Promise<void> {
   const { data, error } = await client.GET('/languages');
-  if (error || !data) io.fail('could not list languages');
+  if (error || !data) refuse(io, error, 'could not list languages');
   for (const language of data.items) {
     io.print(`${language.key}\t${language.name}`);
   }
@@ -131,7 +164,7 @@ export async function submit(
           (wait === null ? '' : ` — try again in ${String(wait)}s`),
       );
     }
-    io.fail(`submission refused: ${error?.detail ?? 'unknown error'}`);
+    refuse(io, error, `submission refused: ${error?.detail ?? 'unknown error'}`);
   }
   io.print(`submitted #${String(data.id)}`);
   return data.id;
@@ -167,17 +200,24 @@ export async function watch(
     // before either can be judged transient.
     let data: Awaited<ReturnType<Client['GET']>>['data'];
     let status: number | undefined;
+    let failure: unknown;
     let ok = false;
     try {
       const result = await client.GET('/submissions/{id}', { params: { path: { id } } });
       data = result.data;
       status = result.response?.status;
+      failure = result.error;
       ok = !result.error && result.data !== undefined;
     } catch {
       ok = false;
     }
 
     if (!ok) {
+      // D102 is final too, and it is the one refusal this loop would
+      // otherwise mistake for a flaky judge: five polls, ten seconds, and a
+      // message about consecutive failures for an account whose remedy is a
+      // browser.
+      if (refusalCode(failure) === 'password_change_required') refuse(io, failure, '');
       // A refused credential and a submission that does not exist are both
       // final answers. Retrying either five times only delays the message,
       // and "could not read submission #7" describes neither of them.

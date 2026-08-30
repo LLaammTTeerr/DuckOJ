@@ -58,6 +58,51 @@ describe('whoami', () => {
   });
 });
 
+/**
+ * D102. Every command's failure message used to be its own guess at what
+ * went wrong, and for this refusal every one of those guesses is wrong: an
+ * imported pupil's token is not "bad" and their problem is not "could not
+ * list problems". The fix is three clicks away in a browser they are not
+ * looking at, so the message has to say so — this is the only refusal in the
+ * CLI whose remedy is not in the CLI.
+ */
+describe('password_change_required (D102)', () => {
+  const refusal = {
+    data: undefined,
+    error: { code: 'password_change_required', detail: 'Change your password first.' },
+    response: { headers: new Headers() },
+  };
+
+  it('names the web interface instead of the command\'s own guess', async () => {
+    const get = vi.fn().mockResolvedValue(refusal);
+    await expect(whoami(clientWith({ GET: get }), fakeIo())).rejects.toThrow(/web interface/i);
+    await expect(listProblems(clientWith({ GET: get }), fakeIo())).rejects.toThrow(/web interface/i);
+    await expect(showProblem(clientWith({ GET: get }), fakeIo(), 'aplusb')).rejects.toThrow(
+      /web interface/i,
+    );
+  });
+
+  it('stops watch on the first poll instead of calling it a flaky judge', async () => {
+    const io = fakeIo();
+    const get = vi.fn().mockResolvedValue({ ...refusal, response: { status: 409 } });
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await expect(watch(clientWith({ GET: get }), io, 7, sleep)).rejects.toThrow(/web interface/i);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('says it on submit too, rather than "submission refused"', async () => {
+    const post = vi.fn().mockResolvedValue(refusal);
+    await expect(
+      submit(clientWith({ POST: post }), fakeIo(), {
+        problemCode: 'aplusb',
+        source: 'int main(){}',
+        languageKey: 'cpp17',
+      }),
+    ).rejects.toThrow(/web interface/i);
+  });
+});
+
 describe('submit', () => {
   it('posts the contract body and prints the id', async () => {
     const io = fakeIo();

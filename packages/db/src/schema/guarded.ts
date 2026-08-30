@@ -648,6 +648,71 @@ export const contestParticipations = pgTable(
   ],
 );
 
+/**
+ * One row per (contest, person) for every LIVE participation — the seat
+ * (D104).
+ *
+ * **Why a table.** "A person holds at most one participation per contest" is
+ * D99's rule and the whole board depends on it: `actingParticipations` has to
+ * choose between two rows for every submission, `setDisqualified` moves both,
+ * and one pupil's work is counted twice under two names. It was enforced by
+ * checks — at `join`, and after B-18 at the roster PATCH as well — and a
+ * check cannot close it, because the two paths run in two transactions that
+ * do not serialise: each reads a world in which the other has not happened,
+ * each says yes, and both write. B-18 recorded exactly that as the residual.
+ *
+ * A unique index would be the natural answer, and there is nothing to put one
+ * ON: for a TEAM row `contest_participations.user_id` is only the captain,
+ * and the people it seats live in `team_members`. The fact being made unique
+ * spans two tables, so it is materialised into a third — the same move
+ * `contest_problem_solvers` (D100) makes for a distinct count a counter
+ * cannot maintain.
+ *
+ * **Live only.** `virtual <> 0` is a replay, and the identity index above
+ * deliberately admits several per person; seating them here would break
+ * virtual attempts to fix a rule that is only ever about the live board.
+ *
+ * **Every path that seats somebody writes here, in the same transaction:**
+ * `ContestAccessService.join` (individual), `enterTeam` (every member — used
+ * by both the pupil's Join and the organiser's seed), and
+ * `TeamAccessService.update`, which adds seats for members joining a roster
+ * that is already competing and DELETES them for members leaving it. The
+ * delete is not tidiness: D99 says a removed member stops competing for the
+ * team, and a seat left behind would bar them from this contest forever.
+ *
+ * Guarded, because it is a projection of guarded rows: who is competing in a
+ * contest is exactly what `contest_participations` says, and a caller who may
+ * not read those may not read this either.
+ */
+export const contestSeats = pgTable(
+  'contest_seats',
+  {
+    contestId: bigint('contest_id', { mode: 'number' })
+      .notNull()
+      .references(() => contests.id, { onDelete: 'cascade' }),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /**
+     * The row this person competes on. `cascade`, so a participation deleted
+     * for any reason takes its seats with it and cannot leave a pupil barred
+     * from a contest by a row that no longer exists.
+     */
+    participationId: bigint('participation_id', { mode: 'number' })
+      .notNull()
+      .references(() => contestParticipations.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.contestId, t.userId] }),
+    /**
+     * The foreign key's own index, under `ON DELETE CASCADE` — the missing
+     * one D47 and D95 each paid for once. Without it every deleted
+     * participation scans this table for its children.
+     */
+    index('contest_seats_participation_idx').on(t.participationId),
+  ],
+);
+
 export const contestSubmissions = pgTable(
   'contest_submissions',
   {

@@ -1490,6 +1490,19 @@ directions are proved on identical rows on every CI run.
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B9 brief),
 no human available to consult. Migration 0025.*
 
+**Measured again 2026-08-31 (B-19).** B-8's "`workers()` is unbounded" was
+carried forward as still-open through B-16, B-17 and B-18 without being
+re-asked; it was closed by this amendment, and the reason it kept being
+believed is that only the throughput half was ever ASSERTED. Both halves are
+now in `admin-dashboard-plan.spec.ts`, on the same 100 000-row fixture and
+with the same drop-the-index red direction. The live half — "what is each
+worker carrying now" — reads `grading_jobs_active_idx` for 40 rows in
+**0.058 ms**; drop the index and the identical statement sequentially scans
+`grading_jobs` and discards 99 960 rows to find them (**6.15 ms**). The
+throughput half nests `submissions_judged_at_idx` into
+`grading_jobs_submission_idx` for 276 rows in **0.423 ms**. No migration was
+needed, and 0038 was NOT spent here.
+
 ## D48 — The contest booklet is one typst document, and `## English` is the language split
 
 `GET /contests/{key}/booklet.pdf` prints the whole contest: a cover page (name,
@@ -3452,6 +3465,12 @@ exists to pin.
 *Ruled by the implementer during the 2026-08-30 deploy-safety loop (B-15
 brief), no human available to consult. No migration, no API change.*
 
+**Amended 2026-08-31 (B-19, D103):** "zero live workers" is not enough on its
+own. At `API_WORKERS=1` it is the same event as "a worker died", so one
+transient crash rolled a healthy build back. The breaker now also requires two
+exits inside the window from workers that never reached `STABLE_UPTIME_MS`.
+See D103.
+
 ## D86 — The api healthcheck must be ANSWERED by a worker, and must count them
 
 `node:cluster` has the **primary** bind port 3000 and hand accepted
@@ -4601,3 +4620,210 @@ drives it with.
 *Ruled by the reviewer during the 2026-08-30 feature/bug loop (B-18 whole-diff
 review), no human available to consult. No migration.*
 
+
+## D102 — While `must_change_password` is set, the API mints no token and honours none
+
+D61 put the forced password change on the web alone, and said why: gating the
+API "would mean auditing every endpoint for a new refusal code that a client
+can already avoid, in exchange for stopping a pupil who would have to be
+driving the API by hand to reach it." That last clause was true when it was
+written. It is not true now — `oj login` and the MCP server (D89) are the
+documented way to drive this API by hand, and they take an access token that
+`POST /auth/tokens` hands out to any session, including the session a pupil
+opens on the password printed on a classroom sheet. The exposure is not the
+token; a change revokes every one of them. The exposure is that the change
+then never happens: the pupil has what they came for.
+
+- **`POST /auth/tokens` is `409 password_change_required` while the flag is
+  set.** 409, not 403: nothing is wrong with the credential or the caller's
+  rights — the account is in a state that this request conflicts with, and the
+  state is one the caller can leave.
+- **The check is in `TokenService.issue`, not in `TokensController`.** The
+  controller is not the only door: anything that later mints a token for a
+  user passes through this method, and a rule written one layer above it is a
+  rule the next caller forgets. The same argument D61 itself makes for
+  `org-import.core.ts`.
+- **A token that already exists is refused too, on reads as well as writes.**
+  With the mint closed, the only way to hold a token and the flag at once is
+  to have minted it BEFORE this rule — a token predating the deploy. That is
+  precisely the population the mint check cannot reach, and it is the whole
+  incident: a pupil who ran `oj login` once keeps a credential the forced
+  change was supposed to have ended. `TokenService.resolve` therefore throws
+  the same refusal. Reads are refused with writes because a token is ONE
+  credential, and splitting the refusal by HTTP verb would make every new
+  write route inherit its protection from its method — the exact shape the
+  deny-by-default `AuthGuard` exists to avoid.
+- **The session is deliberately untouched.** It is how the change is made:
+  `PasswordGate` needs `GET /auth/me` to know it must swap the page, and
+  `POST /auth/password/change` is `@SessionOnly`. Listing and revoking tokens
+  stay available too — revoking a credential is never the thing to block
+  while an account is in a state this defensive.
+- **Nothing new had to be published for the bearer flow to LEARN the
+  obligation.** `LoginResponse` is `{ user: MeResponse }` and `MeResponse`
+  has carried `mustChangePassword` since D61, so a non-browser client is told
+  at login and again on every `/auth/me`. Pinned by a test rather than
+  assumed, because it is now load-bearing rather than incidental.
+- **The refusal names a browser, because no client that can see it is one.**
+  `oj` gave each command its own guess at a failure — "check your token",
+  "could not list problems", "submission refused" — and every one of those
+  guesses sends the reader to fix the wrong thing. One `refuse()` answers
+  D102 ahead of the guess, in `whoami`, `problems`, `problems show`,
+  `languages`, `submit` and `watch`; `watch` needed it most, since a 409 was
+  otherwise five polls and ten seconds before a message about a flaky judge.
+  The MCP server needed no change — B-17's `asHandlerError` already carries
+  `code` and `detail` through all three doors — and now has a test saying so.
+- **The WebSocket upgrade reports a refusal with its own status.** The
+  gateway's `.catch` turned any throw from `authenticate` into `500 Internal
+  Server Error`, which for a ruling tells a client to retry the one thing
+  that can never work. An `AppError` now writes its own status line.
+
+**What is not gated, and why that is the whole audit.** D61 feared "auditing
+every endpoint". No endpoint was audited, because the gate is not on
+endpoints: it is on the two operations that make a token exist and make a
+token work. Every route reached by a token is covered by construction, and no
+route reached by a session is affected at all.
+
+*Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
+no human available to consult. No migration, one new refusal code.*
+
+## D103 — The crash-loop breaker needs two failed boots, not one dead fleet
+
+D85's rule is "zero live workers within 60 s of primary start". It was reasoned
+about with four workers in mind, where a build that cannot boot produces four
+exits and the rule reads exactly right. `API_WORKERS=1` is a supported mode —
+`resolveWorkerCount` documents it as "no clustering", and it is what a single
+small deployment runs — and there "a worker died" and "every worker is dead"
+are the same event. One transient crash in the first minute therefore exited
+the primary, and `scripts/deploy.sh`, whose entire job is to notice a non-zero
+exit, rolled back a healthy build.
+
+- **The breaker now needs `CRASH_LOOP_MIN_EXITS` (2) failed boots inside the
+  window, as well as an empty fleet.** A build that cannot boot dies again
+  about a second later, so the deploy still sees a real exit code well inside
+  its 45 s poll. One crash is an incident; two in a minute is the pattern the
+  next fork will repeat.
+- **A "failed boot" is an exit before `STABLE_UPTIME_MS` (30 s)** — the
+  threshold already in this file, the one that decides whether a death resets
+  the re-fork backoff, rather than a second number meaning nearly the same
+  thing. A worker that served for half a minute and then died is not evidence
+  that the build cannot boot: it demonstrably did. This makes the breaker
+  slightly *narrower* than D85 in one more case — a fleet that booted, served,
+  and then died all at once inside the first minute is now re-forked — which
+  is what D85's own text asks for ("a process that served for a day and then
+  loses its whole fleet at once is a different incident"); the only thing
+  special about the first minute was that D85 had no way to tell the two
+  apart.
+- **Multi-worker behaviour is unchanged**, deliberately: four workers dying on
+  boot is four exits, so the fleet-size case D85 shipped for still trips on
+  the death that empties the fleet. Pinned by a test that starts four.
+- **Counted from primary start, still.** D85's reason holds: this rule is
+  about a build that never booted, and a window anchored on the last death
+  would slide forward forever under a slow crash loop.
+- **The log line names the count**, because the number is the evidence: "after
+  2 failed boots" is what distinguishes this from the transient exit the same
+  line used to report.
+
+*Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
+no human available to consult. No migration, no API change; amends D85.*
+
+## D104 — A seat is a row: one pupil, one entry per contest, decided by the database
+
+D99's rule is "a person holds at most one participation per contest", and the
+board depends on it completely: `actingParticipations` has to choose between
+two rows for every submission, `setDisqualified` (keyed by username, D37)
+moves both, and one pupil's work is counted twice under two names. It was
+enforced by two checks — `assertMembersFree` at `join`, and, after B-18 found
+the back door, `assertAddedMembersFree` at the roster PATCH. B-18's own report
+recorded what neither check could reach: the two run in separate transactions
+that do not serialise, so a PATCH and a `join` each read a world in which the
+other has not happened, each says yes, and both write.
+
+- **There is nothing to put a unique index on, so the fact is materialised.**
+  For a team row `contest_participations.user_id` is only the captain and the
+  people it seats live in `team_members`; the uniqueness spans two tables, and
+  no index, `EXCLUDE` constraint or `CHECK` can state it. `contest_seats
+  (contest_id, user_id) PRIMARY KEY`, with `participation_id` naming the row
+  the person competes on, is that statement — the same move D100 makes with
+  `contest_problem_solvers` for a distinct count a counter cannot maintain.
+- **Live rows only (`virtual = 0`).** A virtual attempt is a replay and the
+  identity index deliberately admits several per person; seating them would
+  break a working feature to fix a rule that is only ever about the live
+  board.
+- **The checks stay, and are still the primary gate.** They are what produce a
+  refusal naming the PUPIL — "anh is already competing in a contest this team
+  has entered" — which a unique violation cannot, because at that point the
+  loser of a race knows a seat was taken and nothing about by whom. The index
+  is the backstop, and its violation maps to the same `409
+  contest_already_joined` so a client has one code to branch on either way.
+  Never a 500.
+- **Three writers, one module.** `contest.seats.ts` is the only thing that
+  writes the table: `join` (individual, now inside a transaction so the row
+  and its seat are one write or neither), `enterTeam` (**every member**, which
+  is what makes a team one participant), and `TeamAccessService.update`, which
+  reseats the roster inside the same transaction that replaces it.
+- **A roster change DELETES seats as well as adding them.** D99 rules that a
+  member taken off stops competing for the team from that moment; a seat left
+  behind would bar that pupil from the rest of the contest on a row they have
+  no part in. Keyed on the participation as well as the person, so a roster
+  edit can only ever release the seats its own row holds.
+- **`onConflictDoNothing` is deliberately absent from the seat insert.** A
+  conflict here IS the race this table exists to catch; swallowing it would
+  restore the bug with extra steps.
+- **The backfill uses `ON CONFLICT DO NOTHING`, and that is a ruling.** The
+  defect has been reachable since D99 shipped, so a live judge may already
+  hold a double seat — and `runMigrations` runs at boot, so a unique violation
+  in the backfill is an API that will not start rather than a data problem
+  reported. The backfill therefore seats the first row it finds and leaves the
+  second unseated; the app-level checks go on refusing that pupil everywhere
+  else in the contest, and repairing the duplicate gets the seat for free on
+  the next write. The table is a guarantee about the future, not a proof about
+  history, and it says so here rather than in a comment nobody reads.
+- **The race is pinned by a test, on two connections against a committed
+  database.** It cannot be driven through the two HTTP routes — each service
+  opens and commits its own transaction before returning, so nothing outside
+  can hold one open across the other's read — so the test issues the two write
+  sets in the order that defeats both checks. Remove the primary key from
+  migration 0038 and both transactions commit and the pupil is seated twice;
+  with it, exactly one is refused.
+
+- **One interaction, checked rather than assumed.** An organiser may seed a
+  team before the gun (D99 as amended by F-25) and may swap
+  `participationMode` right up to the start, so a contest CAN hold team seats
+  and then become individual. A pupil already seated on that team row is then
+  refused their individual join with `409 contest_already_joined` — which is
+  the true answer, since the seeded row is still on the board. The stale team
+  participation itself is D99's gap, not this table's, and the seat now makes
+  it visible instead of silently double-counting the pupil.
+
+*Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
+no human available to consult. Migration 0038.*
+
+## D105 — The monitor's feed names the pupil who submitted, and the team beside them
+
+Found by probing the live stack as two real pupils (B-19): `bh19-b1` submitted,
+and the invigilator's feed said `bh19-a1`. D95's feed joins `users` through
+`contest_participations.user_id`, which was the submitter until D99 made a team
+ONE participation held by whoever pressed Join. From then on the feed named the
+captain for every teammate's work — a pupil who may not have touched a keyboard
+— on the one screen whose purpose is deciding which machine to walk to.
+
+- **`submissions.user_id`, not the participation's.** The submission knows who
+  wrote it; the participation knows which row it scores on. They are different
+  questions and the feed had been answering the second while labelling it with
+  the first's column name.
+- **`team` is added beside the name, not instead of it.** The board is keyed by
+  team (D99), so the username alone cannot say which row a submission landed
+  on; the team alone cannot say who to talk to. An invigilator needs both, and
+  every other screen that had to choose (the scoreboard, the similarity report)
+  chose team because it is *ranking*. This one is not ranking anything.
+- **`null` in an individual round**, from a `left join`, rather than the
+  competitor's own name repeated: a client can then tell "no team" from "team
+  whose name happens to match the pupil".
+- **The web prints the team as plain text, never a `/users/{name}` link.** A
+  team name is not an account — the 404 B-18 found twice on the similarity
+  screens.
+- **Not frozen, unchanged.** D22 gives the people running a contest the live
+  board and this route is gated on exactly that set.
+
+*Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
+no human available to consult. No migration; one added contract field.*
