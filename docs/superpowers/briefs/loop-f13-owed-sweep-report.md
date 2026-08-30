@@ -27,12 +27,10 @@ no-diff, `vite build`. Red first, then mutated: **17 mutants, 17 killed**.
    part that stopped and keeping what it created) using the SERVER's record
    grammar, moved to `@duckoj/contracts/org-import-csv.ts` so the two cannot
    disagree about a quoted newline. Meter reshaped to `allow` 10/org/min —
-   the same rows a minute as before; `consumeOnce` is not missed, since the
-   duplicate submission it guarded dies on `users.username` inside
-   `runImport`'s transaction (F8's collision test pins that).
+   the same rows a minute; `consumeOnce` is not missed, since the duplicate
+   it guarded dies on `users.username` inside `runImport`'s transaction.
 5. **Freeze reminder** (`2b7d2db`). A `role="note"` line beside the organiser
-   answer controls while the freeze window is open; no mechanism change — an
-   organiser sometimes must say "you are failing test 3".
+   answer controls while the freeze window is open; no mechanism change.
 6. **Dashboard** (`6350d49`·`0354486`). `judgedConcurrency: null` is an em dash
    with the reason as a tooltip. The hidden-tab pause needed no code —
    TanStack's `refetchIntervalInBackground` defaults false and its focus
@@ -46,8 +44,8 @@ no-diff, `vite build`. Red first, then mutated: **17 mutants, 17 killed**.
   cannot see across requests, so a raw API caller can still strand a
   half-created sequence. Accepted, not fixed.
 - B-9's `poll-visibility.spec.tsx` landed mid-session covering the hidden-tab
-  rule generically; mine pins `AdminPage`. Mild overlap, kept.
-- Under `-r test` contention `packages/db` failed 13/13 once ("relation users
-  does not exist" — the container race) and `contest-booklet` /
-  `contest-scoreboard-cache` (TTL-timed) once; all pass alone, none of mine.
+  rule generically; mine pins `AdminPage`. Overlap kept deliberately.
+- Under `-r test` contention `packages/db` failed 13/13 once (the container
+  race) and `contest-booklet` / `contest-scoreboard-cache` (TTL-timed) once;
+  all pass alone, none of mine.
 - Live stack untouched, nothing pushed.
