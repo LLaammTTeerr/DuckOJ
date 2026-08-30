@@ -59,6 +59,17 @@ it in the same run, so a test and its answer can never come from different
 versions of the solution. The seeds are fixed, so re-running reproduces the
 committed files byte for byte.
 
+## One command instead of the loop below
+
+`corepack pnpm prepare content/problems/<code>` runs the gate over one of
+these directories — statement in both locales, every answer present, the model
+solution rebuilt and re-checked against every `.a` — and
+`corepack pnpm prepare publish content/problems/<code> --publish` does steps
+1–7 below in one run, reading `tags.json` itself and re-running safely
+(D90: an unchanged package attaches no new revision). See
+`docs/guide/chuan-bi-de.md`. The loop below is still the explanation of what
+those steps ARE, and is what to reach for when one of them needs doing by hand.
+
 ## Importing all five into a running stack
 
 The sequence below is `polygon:import` → `package:build` → upload → attach →

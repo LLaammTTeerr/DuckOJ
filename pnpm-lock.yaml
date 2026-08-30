@@ -20,6 +20,9 @@ importers:
       '@duckoj/polygon-import':
         specifier: workspace:*
         version: link:packages/polygon-import
+      '@duckoj/prepare':
+        specifier: workspace:*
+        version: link:packages/prepare
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(postgres@3.4.9)
@@ -364,6 +367,18 @@ importers:
       '@duckoj/package-format':
         specifier: workspace:^
         version: link:../package-format
+      fast-xml-parser:
+        specifier: ^4.5.0
+        version: 4.5.7
+
+  packages/prepare:
+    dependencies:
+      '@duckoj/package-format':
+        specifier: workspace:^
+        version: link:../package-format
+      '@duckoj/polygon-import':
+        specifier: workspace:^
+        version: link:../polygon-import
       fast-xml-parser:
         specifier: ^4.5.0
         version: 4.5.7

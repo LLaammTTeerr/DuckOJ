@@ -17,6 +17,7 @@
     "seed": "tsx scripts/seed-problem.ts",
     "package:build": "tsx scripts/package-build.ts",
     "polygon:import": "tsx scripts/polygon-import.ts",
+    "prepare": "tsx scripts/prepare.ts",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
     "judge:node": "tsx scripts/judge-node.ts",
     "org:import": "tsx scripts/org-import.ts"
@@ -26,6 +27,7 @@
     "@duckoj/db": "workspace:*",
     "@duckoj/package-format": "workspace:*",
     "@duckoj/polygon-import": "workspace:*",
+    "@duckoj/prepare": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
