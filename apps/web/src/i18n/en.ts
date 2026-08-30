@@ -139,6 +139,7 @@ export const en = {
   'auth.errDisplayName': 'Between 1 and 64 characters.',
   'auth.errPasswordLength': 'At least 10 characters.',
   'auth.errPasswordMismatch': 'The two passwords do not match.',
+  'auth.errorSummaryTitle': 'Please fix the following',
 
   // ── home ──────────────────────────────────────────────────────────────
   'home.intro':

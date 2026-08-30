@@ -12,7 +12,7 @@
  *    not in a general banner where a user has to guess which of five inputs
  *    is wrong.
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -122,6 +122,26 @@ describe('RegisterPage validation', () => {
     await submit();
     expect(screen.getByLabelText(/^Email$/)).toHaveAccessibleDescription(/không giống một địa chỉ email/);
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it('raises a focusable error summary that links each bad field on a failed submit', async () => {
+    wrap();
+    await fillValid({ username: 'ab', email: 'not-an-address' });
+    await submit();
+
+    // The inline aria-describedby errors already existed, but a screen-reader
+    // or keyboard user who pressed submit was told nothing and left nowhere:
+    // no announcement, no focus move. A focusable summary at the top of the
+    // form fixes both (WCAG 3.3.1 + Focusable Error Summary).
+    const summary = screen.getByRole('alert');
+    expect(summary).toHaveTextContent('Vui lòng sửa các lỗi sau');
+    expect(summary).toHaveFocus();
+
+    // Each item links to its field and moving to it focuses the input — jsdom
+    // does not act on a hash href, so the click handler is what carries it.
+    const link = within(summary).getByRole('link', { name: /Từ 3 đến 32 ký tự/ });
+    await userEvent.click(link);
+    expect(screen.getByLabelText(/^Tên đăng nhập$/)).toHaveFocus();
   });
 });
 

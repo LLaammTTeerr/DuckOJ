@@ -4998,3 +4998,41 @@ notifications, no organiser team-seeding UI (F-24).
 
 *Indexed by the implementer during the 2026-08-31 consolidation loop (c1
 brief), no human available to consult. A pointer entry; no migration, no code.*
+
+
+## D110 — A form that fails validation announces it and moves focus: the Focusable Error Summary
+
+The register form already attributed each objection to its field
+(`aria-describedby`, `aria-invalid`) — correct, but silent: a screen-reader
+or keyboard user who pressed *Đăng ký* on an invalid form was told nothing
+and left nowhere. Inline field errors are a *description* a reader only hears
+if focus is already on that field, and a failed submit moved focus onto
+nothing.
+
+So a failed submit now raises a **Focusable Error Summary** at the top of the
+form: `role="alert"` (the failure is announced), `tabIndex={-1}` and focused
+programmatically (a keyboard reader lands on the list of problems), with each
+item a link that puts focus on the field it names. It **complements** the
+inline errors, never replaces them — the pattern's whole point is that a
+reader gets both the overview and the per-field objection.
+
+- **Focus moves once per failed attempt, never mid-typing.** `fieldErrors`
+  changes only inside `handleSubmit` (editing a field touches `values`, not
+  the errors), so an effect that focuses the summary whenever it is non-empty
+  cannot steal focus while someone types. A `submitCount` bump on every
+  attempt is what makes a *second* submit with the identical set of errors
+  re-take focus — the errors object reference alone would not have changed.
+- **The links carry a real `#field` fragment for a pointer AND an `onClick`
+  that focuses the input.** A hash href alone does not move DOM focus (and
+  jsdom does not act on it at all), so the handler is what actually carries a
+  keyboard reader to the field.
+- **Neutral chrome, not a verdict hue.** D67 reserves colour for verdicts and
+  the rank ramp; the summary is an inset well with a hairline, so it stands
+  out without borrowing a meaning it does not have.
+
+Two catalogue keys (`auth.errorSummaryTitle`, vi+en) and the `.error-summary`
+rule in `app.css`. The banner for an *unattributable* server refusal
+(`setError`) is unchanged and stays a separate `role="alert"`.
+
+*Ruled by the implementer during the 2026-08-31 a11y loop (b20 brief), no
+human available to consult. `apps/web` only; no migration.*

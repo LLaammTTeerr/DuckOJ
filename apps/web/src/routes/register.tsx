@@ -22,7 +22,7 @@
  * such field, because confirming a password is a typo guard for humans, not
  * a property of the account being created.
  */
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api } from '../api.js';
@@ -34,6 +34,13 @@ type Field = 'username' | 'email' | 'displayName' | 'password' | 'confirm';
 type Values = Record<Field, string>;
 
 const EMPTY: Values = { username: '', email: '', displayName: '', password: '', confirm: '' };
+
+/**
+ * The fields in the order they appear on screen, so the error summary lists
+ * its links top-to-bottom the way a reader tabs through the form rather than
+ * in whatever order `fieldErrors`' keys happen to iterate.
+ */
+const FIELD_ORDER: readonly Field[] = ['username', 'email', 'displayName', 'password', 'confirm'];
 
 /**
  * `Username`'s regex, copied from the contract verbatim rather than
@@ -161,6 +168,22 @@ export function RegisterPage() {
    */
   const registered = useRef<{ username: string; password: string } | null>(null);
 
+  /**
+   * The error summary. `fieldErrors` only ever changes on a submit attempt
+   * (typing edits `values`, never the errors), so focusing the summary
+   * whenever it becomes non-empty moves focus exactly once per failed submit
+   * — the behaviour the Focusable Error Summary pattern asks for — without
+   * ever stealing focus mid-typing. `submitCount` is what makes a SECOND
+   * failed submit with the identical set of errors re-focus: the object
+   * reference alone would not change if the same fields fail again.
+   */
+  const summaryRef = useRef<HTMLDivElement>(null);
+  const [submitCount, setSubmitCount] = useState(0);
+  const hasFieldErrors = Object.keys(fieldErrors).length > 0;
+  useEffect(() => {
+    if (hasFieldErrors) summaryRef.current?.focus();
+  }, [submitCount, hasFieldErrors]);
+
   function set(field: Field): (value: string) => void {
     return (value: string) => {
       setValues((current) => ({ ...current, [field]: value }));
@@ -169,6 +192,9 @@ export function RegisterPage() {
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
+    // Bumped on every attempt so the summary re-takes focus even when the
+    // same fields fail twice in a row (see `summaryRef`'s effect).
+    setSubmitCount((count) => count + 1);
     const invalid = validateRegistration(values, t);
     setFieldErrors(invalid);
     setError(null);
@@ -240,6 +266,34 @@ export function RegisterPage() {
           `validateRegistration`'s job, in the active locale, beside the
           field. */}
       <form noValidate onSubmit={(event) => void handleSubmit(event)}>
+        {/* The Focusable Error Summary (WCAG 3.3.1 + guideline). It
+            complements the inline per-field errors, never replaces them: it
+            is `role="alert"` so a failed submit is announced, `tabIndex={-1}`
+            so focus can be moved onto it, and each item is a link that puts
+            focus on the field it names — a keyboard reader lands on the list
+            of problems and steps straight to the first one. `#${id}` is a
+            real fragment for a pointer, and the click handler carries the
+            focus that a hash href does not move on its own. */}
+        {hasFieldErrors ? (
+          <div className="error-summary" role="alert" tabIndex={-1} ref={summaryRef}>
+            <strong>{t('auth.errorSummaryTitle')}</strong>
+            <ul>
+              {FIELD_ORDER.filter((field) => fieldErrors[field]).map((field) => (
+                <li key={field}>
+                  <a
+                    href={`#${field}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      document.getElementById(field)?.focus();
+                    }}
+                  >
+                    {fieldErrors[field]}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <TextField
           id="username"
           label={t('common.username')}

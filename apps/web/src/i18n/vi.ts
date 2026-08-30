@@ -128,6 +128,7 @@ export const vi = {
   'auth.errDisplayName': 'Từ 1 đến 64 ký tự.',
   'auth.errPasswordLength': 'Ít nhất 10 ký tự.',
   'auth.errPasswordMismatch': 'Hai mật khẩu không khớp nhau.',
+  'auth.errorSummaryTitle': 'Vui lòng sửa các lỗi sau',
 
   // ── home ──────────────────────────────────────────────────────────────
   'home.intro':

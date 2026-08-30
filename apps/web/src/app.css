@@ -1241,6 +1241,27 @@ textarea:disabled {
   border-color: var(--fg);
 }
 
+/* The register form's Focusable Error Summary (loop-b20 a11y). A neutral
+   inset well, not a verdict hue: D67 reserves colour for verdicts and the
+   rank ramp, and this is chrome. The list items carry the objections; the
+   `.field` inline errors below still stand on their own. */
+.error-summary {
+  background: var(--glass-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: var(--sp-3) var(--sp-4);
+  margin: 0 0 var(--sp-4);
+}
+.error-summary > strong {
+  font-family: var(--font-ui);
+  display: block;
+  margin-bottom: var(--sp-2);
+}
+.error-summary ul {
+  margin: 0;
+  padding-left: var(--sp-4);
+}
+
 /* The draft notice and the size counter are both status text, not data. */
 .editor-note {
   font-family: var(--font-ui);
