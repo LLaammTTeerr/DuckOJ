@@ -25,3 +25,4 @@
 - B-5 dispatched (worktree, opus): API contracts/guard/ops incl. judge-disconnect abandonment, D50–D52 reserved.
 - B-5 DONE on `worktree-agent-a63e7273f1335258b` (7504842..0c93bc2): Caddy lb retry (redeploy 502s), keep-alive pin, D50 sessions hold scopes (design), judge-disconnect abandon → requeue <15 s, e2e scripts COMPOSE_PROJECT_NAME, migration journal proven from zero, readyz deadline, 72-route fuzz clean, CORS expose headers. Merge blocked by F-6 dirty tree → after F-6.
 - B-6 dispatched (worktree, opus): orgs/notifications/import/oj CLI, D53–D55 reserved.
+- F-6 DONE (84b1faa..fc5d9bb): booklet (D48), stats (D49), migration 0022. B-5 merged (7587bf2). Deployed api/judged/caddy/migrate/web; pushed. Live smoke: stats 200, **booklet 500 "typst: unclosed delimiter"** → fixer dispatched (main, opus).
