@@ -508,6 +508,16 @@ export class ContestMonitorService {
    * and it is a floor rather than a roster — a competitor reading a statement
    * with no socket open is not counted.
    *
+   * **A TEAM's members all count** (D99). A team is one participant with ONE
+   * participation, on the account of whichever member pressed Join, so
+   * `contest_participations.user_id` names one person per squad and the
+   * other two are invisible to it. "Participants online" is the invigilator's
+   * "is the room here" number: in a team round it would have reported a third
+   * of the people actually sitting the paper, and reported them leaving when
+   * only the captain closed a tab. The union is over the two ways a
+   * connected user competes here — they hold a row, or they are on the team
+   * that holds one.
+   *
    * Bounded twice over: the presence set is trimmed to a five-minute window
    * by its own store, and an empty one short-circuits before any query at
    * all, which is the state every deployment that is not mid-contest is in.
@@ -515,11 +525,20 @@ export class ContestMonitorService {
   private async participantsOnline(contestId: number): Promise<number> {
     const userIds = await this.presence.recent();
     if (userIds.length === 0) return 0;
+    const connected = sql`string_to_array(${userIds.join(',')}, ',')::bigint[]`;
     const rows = await this.db.execute<{ n: string }>(sql`
-      select count(distinct user_id) as n
-        from contest_participations
-       where contest_id = ${contestId}
-         and user_id = any(string_to_array(${userIds.join(',')}, ',')::bigint[])
+      select count(*) as n from (
+        select part.user_id
+          from contest_participations part
+         where part.contest_id = ${contestId}
+           and part.user_id = any(${connected})
+         union
+        select tm.user_id
+          from contest_participations part
+          join team_members tm on tm.team_id = part.team_id
+         where part.contest_id = ${contestId}
+           and tm.user_id = any(${connected})
+      ) present
     `);
     return num(rows[0]?.n);
   }

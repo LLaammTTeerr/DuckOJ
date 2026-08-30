@@ -6,6 +6,7 @@ import {
   problemMembers,
   problemOrgs,
   problems,
+  teamMembers,
 } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { isAdmin, type Actor } from './actor.js';
@@ -33,7 +34,16 @@ export interface ProblemViewContext {
   actorOrgIds: number[];
   /**
    * Whether the actor holds a participation in a contest containing this
-   * problem (4d design §5).
+   * problem (4d design §5) — **their own row, or one held by a team they
+   * are on** (D99).
+   *
+   * The team half is not a widening for convenience. A team is ONE
+   * participant with ONE participation, on the account of whichever member
+   * pressed Join; asking this as `user_id = you` alone answers "no" for every
+   * other member of every team in the province. A contest's problems are
+   * private until the round is over — that is what this clause exists for —
+   * so without it two of three teammates can neither open the statement nor
+   * submit to it, and the round is unrunnable for them.
    *
    * A contest whose problems are already public is a contest whose problems
    * leaked before it started, so joining has to grant access to them.
@@ -99,6 +109,32 @@ export function canCreateProblem(actor: Actor | null): boolean {
 }
 
 /**
+ * "Is this `contest_participations` row one this user competes on?" — their
+ * own, or one held by a team they are on (D99).
+ *
+ * ONE predicate, used by both twins below, for the reason those two live
+ * eight lines apart: the row-wise `loadProblemContext` and the list-query
+ * `visibleProblemsWhere` must agree, and a team clause written into one of
+ * them is the split-predicate bug this codebase has paid for three times.
+ *
+ * Deliberately NOT narrowed to a roster that is still current, unlike
+ * `actingParticipations`: that function decides whether a submission may land
+ * on the team's row *now*, while this one decides what a competitor may READ,
+ * and `inJoinedContest` is already not gated on the window still being open
+ * — after a contest you may re-read what you competed on.
+ */
+function actingParticipationWhere(db: Db, userId: number): SQL {
+  const myTeams = db
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId));
+  return or(
+    eq(contestParticipations.userId, userId),
+    inArray(contestParticipations.teamId, myTeams),
+  )!;
+}
+
+/**
  * The list-query form of `canViewProblem`. The condition's *shape* is
  * `visibleRowsWhere`'s, shared with contests; this supplies the two problem
  * subqueries it cannot know about. Kept in the same file as the row-wise form
@@ -117,7 +153,7 @@ export function visibleProblemsWhere(db: Db, actor: Actor | null): SQL {
       contestParticipations,
       eq(contestParticipations.contestId, contestProblems.contestId),
     )
-    .where(eq(contestParticipations.userId, userId));
+    .where(actingParticipationWhere(db, userId));
 
   return or(
     inArray(problems.id, inJoinedContest),
@@ -178,7 +214,7 @@ export async function loadProblemContext(
       .where(
         and(
           eq(contestProblems.problemId, problemId),
-          eq(contestParticipations.userId, actor.userId),
+          actingParticipationWhere(db, actor.userId),
         ),
       )
       .limit(1),

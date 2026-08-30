@@ -4530,3 +4530,74 @@ one fixture so the improvement is measured rather than remembered.
 
 *Ruled by the implementer during the 2026-08-31 F-25 loop, no human available
 to consult. Migration 0037.*
+
+## D101 — Being on a team is what lets you ACT for it; having competed on it is what lets you READ it
+
+D99 gave a team one participation, held by whichever member pressed Join, and
+said two things that the code then asked with one predicate: every member's
+submissions land on that row, and "a member removed mid-round stops being able
+to submit for the team from that moment". Four surfaces answered "does this
+person compete here?" and three different things were wrong at once. **The
+rule is that there are TWO questions, and they take different answers.**
+
+- **Acting for the team — submitting, asking a clarification, reading
+  `GET /contests/{key}/me` — requires CURRENT membership.**
+  `actingParticipations` matched `user_id = you OR team_id in (your teams)`,
+  and the first half never expires: the captain is the one member a roster
+  edit could not remove, because the row is on their account. That is the
+  likeliest person to be taken off (they are sitting at the machine that
+  entered) and the exact case D99 says must stop. `user_id` now matches only
+  rows that are NOT a team's; a team row is reached only through membership.
+- **Reading the round's problems does NOT.** `inJoinedContest` is the clause
+  that makes a contest's private problems readable to the people sitting it,
+  and D99 broke it in the other direction: asked as `user_id = you`, it was
+  false for every member of every team except the one who pressed the button,
+  so two of three teammates got 404 from `GET /problems/{code}`, an empty
+  booklet (D62 filters it through `visibleProblemsWhere`), and 404 from
+  `POST /submissions`. It is now "your own row, or one your team holds" — and
+  deliberately **not** narrowed to current membership, because that predicate
+  is already not gated on the contest window still being open: after a round
+  you may re-read what you competed on, and a pupil taken off a roster
+  competed on it.
+- **One predicate for the read, declared once.** `actingParticipationWhere`
+  in `problem.visibility.ts` serves both the row-wise `loadProblemContext`
+  and the list-query `visibleProblemsWhere`. The two live eight lines apart
+  precisely because they must agree, and a team clause written into one of
+  them is the split-predicate bug D22, D23 and D25 each record paying for.
+- **"Participants online" counts PEOPLE, not rows.** D95 intersects the
+  presence set with `contest_participations.user_id`, which names one person
+  per squad; the invigilator's "is the room here" number was a third of the
+  room, and fell to zero when captains closed tabs. It is now the union of
+  the two ways a connected user competes here — they hold the row, or they
+  are on the team that holds it. D95 calls the number a floor rather than a
+  roster, which is about a competitor with no socket open, not about two
+  thirds of the entrants being structurally invisible.
+- **The invariant D99 enforces at join is enforced wherever it can be
+  broken.** "A person holds at most one participation per contest" was
+  checked at `join` and nowhere else, so `PATCH /orgs/{slug}/teams/{teamSlug}`
+  — an ordinary roster edit any admin of any of the contest's schools can
+  make mid-round — could add a pupil who was already competing, on their own
+  row or another team's. This is the same back door D99 closed for the team
+  NAME and left open for membership. `assertAddedMembersFree` closes it, 409
+  `contest_already_joined`, scoped to the contests this team competes in and
+  excluding this team's own rows so a captain removed by mistake can be put
+  back.
+- **The report labels by team, so the web must not treat the label as an
+  account.** The scoreboard already refused to make a team's name a
+  `/users/{name}` link; the similarity pair table and the side-by-side view
+  did not, on the screen an organiser opens when they think somebody cheated.
+  One `CompetitorLabel`, used by both.
+
+**Residuals, stated rather than fixed.** A pupil removed from the team that
+holds a row still cannot join another team in that contest: `assertMembersFree`
+sees their `user_id` on the row they left, and refuses. That is the safe
+direction — one person, one entry — and unpicking it would mean deciding
+whether a mid-round transfer is a thing a contest allows, which is a product
+question and not a defect. `setDisqualified` still keys on the captain's
+username (D99's own ruling) and answers 404 `participation_not_found` for any
+other member, which is honest; the board's `captain` sidecar is what the web
+drives it with.
+
+*Ruled by the reviewer during the 2026-08-30 feature/bug loop (B-18 whole-diff
+review), no human available to consult. No migration.*
+

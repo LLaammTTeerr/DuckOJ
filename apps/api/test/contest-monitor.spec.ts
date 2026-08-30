@@ -14,13 +14,17 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import {
   contestClarifications,
+  contestOrgs,
   contestParticipations,
   contestProblems,
   contestSubmissions,
   contests,
+  organizations,
   problemRevisions,
   problems,
   submissions,
+  teamMembers,
+  teams,
 } from '@duckoj/db/guarded';
 import { recomputeContestProblemStats, schema, type Db } from '@duckoj/db';
 import { CONTEST_PRESENCE, type ContestPresence } from '../src/realtime/contest-presence.js';
@@ -580,6 +584,80 @@ describe('GET /contests/{key}/monitor — what it shows (D95)', () => {
           } finally {
             await scoped.close();
           }
+        }
+      } finally {
+        await app.close();
+      }
+    });
+  }, 240_000);
+
+  it('counts every member of a competing TEAM, not only the one who joined', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        const cookie = await registerAndLogin(agent, 'monteam');
+        const ownerId = await userIdOf(db, 'monteam');
+        const seeded = await seedMonitorContest(db, 'monteam', ownerId);
+
+        // A team contest: ONE participation for the whole squad (D99), on the
+        // account of whichever member pressed Join.
+        await db
+          .update(contests)
+          .set({ participationMode: 'team', maxTeamSize: 3 })
+          .where(eq(contests.id, seeded.contestId));
+        const [org] = await db
+          .insert(organizations)
+          .values({ slug: 'monteam-school', name: 'Trường' })
+          .returning({ id: organizations.id });
+        await db.insert(contestOrgs).values({ contestId: seeded.contestId, orgId: org!.id });
+        const [team] = await db
+          .insert(teams)
+          .values({ orgId: org!.id, slug: 'doi-1', name: 'Đội 1', createdBy: ownerId })
+          .returning({ id: teams.id });
+
+        const captain = await userIdOf(db, 'monteam-an');
+        const second = await userIdOf(db, 'monteam-binh');
+        const third = await userIdOf(db, 'monteam-cuong');
+        await db.insert(teamMembers).values(
+          [captain, second, third].map((userId) => ({ teamId: team!.id, userId })),
+        );
+        // The three individual rows the fixture made become the one row the
+        // team competes on, held by the captain.
+        await db
+          .delete(contestParticipations)
+          .where(eq(contestParticipations.contestId, seeded.contestId));
+        await db.insert(contestParticipations).values({
+          contestId: seeded.contestId,
+          userId: captain,
+          teamId: team!.id,
+          virtual: 0,
+          startTime: new Date(Date.now() - 55 * MINUTE),
+        });
+
+        // All three are in the room with a page open. The invigilator's
+        // number is how many competitors are here, not how many pressed a
+        // button an hour ago.
+        const scoped = await buildApp(db, withPresence([captain, second, third]));
+        try {
+          const res = await request(scoped.getHttpServer())
+            .get('/api/v1/contests/monteam/monitor')
+            .set('Cookie', cookie);
+          expect(res.status, JSON.stringify(res.body)).toBe(200);
+          expect(res.body.participantsOnline).toBe(3);
+        } finally {
+          await scoped.close();
+        }
+
+        // …and somebody on no team of this contest still counts for nothing.
+        const stray = await buildApp(db, withPresence([ownerId, 999_999]));
+        try {
+          const res = await request(stray.getHttpServer())
+            .get('/api/v1/contests/monteam/monitor')
+            .set('Cookie', cookie);
+          expect(res.body.participantsOnline).toBe(0);
+        } finally {
+          await stray.close();
         }
       } finally {
         await app.close();

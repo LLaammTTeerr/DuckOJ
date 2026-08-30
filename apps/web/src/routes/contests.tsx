@@ -293,21 +293,27 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
   /**
    * The teams this viewer may enter with (D99, amended by F-25).
    *
-   * **One request**, `GET /users/me/teams?contest=`. It used to be one per
-   * organization the contest named — fine at two schools, twenty round trips
-   * at twenty, on the page a whole province opens at the same minute. The
-   * `?contest=` also makes the server say WHY a team may not enter, with the
-   * same code the join would refuse with, so a choice is greyed out here for
-   * the server's reason rather than a rule this file re-derived.
+   * **One request**, `GET /users/me/teams?contest=` (F-25). It used to be one
+   * per organization the contest named — twenty round trips at twenty schools,
+   * on the page a whole province opens at the same minute. The `?contest=`
+   * also makes the server say WHY a team may not enter, with the same code the
+   * join would refuse with, so a choice is greyed out here for the server's
+   * reason rather than a rule this file re-derived.
+   *
+   * `read()`, not `data?.items ?? []` (B-18): `openapi-fetch` resolves on an
+   * HTTP error, so the bare form turns a 500 into an empty roster and tells a
+   * competitor at the bell that they belong to no team — a fact asserted from
+   * a question never answered.
    */
   const myTeams = useQuery({
     queryKey: ['my-teams', contestKey],
     enabled: me.data != null && contest.data?.participationMode === 'team',
     queryFn: async () => {
-      const { data } = await api.GET('/users/me/teams', {
-        params: { query: { contest: contestKey } },
-      });
-      return data?.items ?? [];
+      const page = read(
+        await api.GET('/users/me/teams', { params: { query: { contest: contestKey } } }),
+        t('contest.teamsLoadError'),
+      );
+      return page?.items ?? [];
     },
   });
   const [pickedTeam, setPickedTeam] = useState('');
@@ -429,7 +435,13 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         </>
       ) : (
         <>
-          {isTeamContest ? (
+          {isTeamContest && myTeams.error ? (
+            // Never the "you are on no team" line: this reader's teams are
+            // unknown, which is a different thing to say and a different
+            // thing to do about it.
+            <p role="alert">{myTeams.error.message}</p>
+          ) : null}
+          {isTeamContest && !myTeams.error ? (
             teamChoices.length > 0 ? (
               <p>
                 <label>
@@ -532,7 +544,12 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
           similarity routes refuse on. A competitor never sees this section,
           and there is no screen anywhere that shows them their own score
           (D77). */}
-      {contest.data.canEdit ? <SimilarityPanel contestKey={contestKey} /> : null}
+      {contest.data.canEdit ? (
+        <SimilarityPanel
+          contestKey={contestKey}
+          byTeam={contest.data.participationMode === 'team'}
+        />
+      ) : null}
 
       <p>
         <Link to="/contests/$key/scoreboard" params={{ key: contestKey }}>
@@ -1141,7 +1158,32 @@ function percent(value: number): string {
  * change, and an organiser leaving this tab open for an afternoon must not
  * be a request every two seconds for the afternoon.
  */
-function SimilarityPanel({ contestKey }: { contestKey: string }) {
+/**
+ * A competitor's label on the similarity report, as a link only when it names
+ * an account.
+ *
+ * D99 labels a team contest's report by TEAM — `loadCandidates` substitutes
+ * the team's name for the captain's username, precisely so three teammates'
+ * attempts at one problem are one entry rather than three suspiciously
+ * similar competitors. A team's name names no account, so `/users/{name}`
+ * 404s: the same thing the scoreboard's own row already refuses to do, on
+ * the screen an organiser opens when they think somebody cheated.
+ *
+ * Plain text rather than a link to the team's school, which the scoreboard
+ * can offer: a pair carries only the label the run recorded, and inventing a
+ * second lookup to hyperlink it would put a query on a table for a link
+ * nobody asked for.
+ */
+function CompetitorLabel({ name, byTeam }: { name: string; byTeam: boolean }) {
+  if (byTeam) return <span>{name}</span>;
+  return (
+    <Link to="/users/$username" params={{ username: name }}>
+      {name}
+    </Link>
+  );
+}
+
+function SimilarityPanel({ contestKey, byTeam }: { contestKey: string; byTeam: boolean }) {
   const t = useT();
   const { locale, timeZone } = useLocale();
   const client = useQueryClient();
@@ -1253,14 +1295,11 @@ function SimilarityPanel({ contestKey }: { contestKey: string }) {
                   </Link>
                 </td>
                 <td>
-                  {/* Every entity is a hyperlink, competitors included. */}
-                  <Link to="/users/$username" params={{ username: pair.a }}>
-                    {pair.a}
-                  </Link>
+                  {/* Every entity is a hyperlink, competitors included — but
+                      a team is not a competitor with an account (D99). */}
+                  <CompetitorLabel name={pair.a} byTeam={byTeam} />
                   {' · '}
-                  <Link to="/users/$username" params={{ username: pair.b }}>
-                    {pair.b}
-                  </Link>
+                  <CompetitorLabel name={pair.b} byTeam={byTeam} />
                 </td>
                 <td className="num">{percent(pair.containment)}</td>
                 <td className="num">{percent(pair.jaccard)}</td>
@@ -1348,6 +1387,20 @@ export function SimilarityPairPage({
   problem?: string | undefined;
 }) {
   const t = useT();
+  // The pair view names its two sides the way the run recorded them, which
+  // for a team contest is the TEAM's name (D99) — so this page has to know
+  // which kind of contest it is showing before it can decide whether either
+  // name is a profile. The same query key the contest page uses, so opening
+  // this from there costs no second request.
+  const contest = useQuery({
+    queryKey: ['contest', contestKey],
+    queryFn: async (): Promise<ContestDetail> => {
+      const result = await api.GET('/contests/{key}', { params: { path: { key: contestKey } } });
+      if (result.error) throw apiError(result, t('contest.notFound'));
+      return result.data;
+    },
+  });
+  const byTeam = contest.data?.participationMode === 'team';
   const query = useQuery({
     queryKey: ['similarity-pair', contestKey, a, b, problem ?? ''],
     queryFn: async (): Promise<SimilarityPairView> => {
@@ -1390,9 +1443,7 @@ export function SimilarityPairPage({
             {[query.data.a, query.data.b].map((side) => (
               <div key={side.submissionId}>
                 <h2>
-                  <Link to="/users/$username" params={{ username: side.username }}>
-                    {side.username}
-                  </Link>
+                  <CompetitorLabel name={side.username} byTeam={byTeam} />
                 </h2>
                 <p className="muted">
                   <Link to="/submissions/$id" params={{ id: String(side.submissionId) }}>

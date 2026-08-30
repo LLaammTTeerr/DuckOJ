@@ -1001,6 +1001,7 @@ export const en = {
   'contest.teamMode': 'Team contest',
   'contest.teamPick': 'Enter as',
   'contest.teamNone': 'You are not on a team of this contest’s organizations.',
+  'contest.teamsLoadError': 'Could not load the teams you may enter with.',
   'contest.teamAs': 'Competing as {name} ({members}).',
   'contest.colMode': 'Entry',
   'contest.modeIndividual': 'Individual',
