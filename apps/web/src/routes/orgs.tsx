@@ -461,7 +461,7 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
           className="no-print"
           readOnly
           rows={8}
-          value={result.csv.replace(/^﻿/, '')}
+          value={result.csv.replace(/^\ufeff/, '')}
           aria-label={t('import.copyLabel')}
         />
       </>
