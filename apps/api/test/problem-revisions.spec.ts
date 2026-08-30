@@ -329,7 +329,7 @@ describe('a manifest that names files the package does not contain', () => {
       const { id } = await seedProblem(db, { code: 'incomplete1', createdBy: owner.id });
       await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
       const hash = await seedPackage(db, store, await incompletePackageDir());
-      const service = new ProblemAccessService(db, store);
+      const service = new ProblemAccessService(db, store, bypassCache());
 
       await expect(
         service.attachRevision(actorFor(owner.id), 'incomplete1', { packageHash: hash }),
