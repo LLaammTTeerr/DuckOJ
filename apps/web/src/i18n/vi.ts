@@ -946,6 +946,7 @@ export const vi = {
   'contest.teamMode': 'Thi đồng đội',
   'contest.teamPick': 'Thi với đội',
   'contest.teamNone': 'Bạn không thuộc đội nào của các tổ chức tổ chức kỳ thi này.',
+  'contest.teamsLoadError': 'Không tải được danh sách đội bạn có thể thi cùng.',
   'contest.teamAs': 'Đang thi với đội {name} ({members}).',
   'contest.colMode': 'Hình thức',
   'contest.modeIndividual': 'Cá nhân',

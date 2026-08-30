@@ -300,6 +300,15 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
    * filter this page applies. A team contest always names at least one
    * organization (422 `contest_team_orgs_required`), so this is never a
    * request for nothing.
+   *
+   * `read()`, with NO status in the "nothing here" list. B-4 wrote the rule
+   * and B-8 found nine survivors of it: `openapi-fetch` resolves on an HTTP
+   * error, so `data?.items ?? []` turns a 500 into an empty roster and the
+   * page then tells a competitor, at the bell, that they belong to no team —
+   * a fact about the world, asserted from a question that was never
+   * answered. Every refusal this route can make is a real one: a school the
+   * caller cannot see 404s, and a caller who is on no team of a school they
+   * CAN see is served an empty page with a 200.
    */
   const myTeams = useQuery({
     queryKey: ['contest-teams', contestKey],
@@ -308,10 +317,11 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
       const orgs = contest.data?.orgs ?? [];
       const pages = await Promise.all(
         orgs.map(async (org) => {
-          const { data } = await api.GET('/orgs/{slug}/teams', {
-            params: { path: { slug: org.slug } },
-          });
-          return data?.items ?? [];
+          const page = read(
+            await api.GET('/orgs/{slug}/teams', { params: { path: { slug: org.slug } } }),
+            t('contest.teamsLoadError'),
+          );
+          return page?.items ?? [];
         }),
       );
       return pages.flat();
@@ -433,7 +443,13 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         </>
       ) : (
         <>
-          {isTeamContest ? (
+          {isTeamContest && myTeams.error ? (
+            // Never the "you are on no team" line: this reader's teams are
+            // unknown, which is a different thing to say and a different
+            // thing to do about it.
+            <p role="alert">{myTeams.error.message}</p>
+          ) : null}
+          {isTeamContest && !myTeams.error ? (
             teamChoices.length > 0 ? (
               <p>
                 <label>

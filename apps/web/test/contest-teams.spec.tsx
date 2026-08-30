@@ -126,6 +126,29 @@ describe('joining a team contest', () => {
     expect(screen.getByRole('button', { name: 'Tham gia' })).toBeDisabled();
   });
 
+  it('does not read a failed team list as "you are on no team"', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}') return Promise.resolve({ data: contest() });
+      if (path === '/auth/me') return Promise.resolve({ data: { username: 'anh', globalRole: 'user' } });
+      // The school's team list is down. `openapi-fetch` RESOLVES on an HTTP
+      // error, so `data?.items ?? []` reads a 500 as an empty roster — and
+      // the competitor is told, at the bell, that they belong to no team.
+      if (path === '/orgs/{slug}/teams')
+        return Promise.resolve({
+          error: { code: 'internal_error', detail: 'boom' },
+          response: { status: 500 },
+        });
+      return Promise.resolve({
+        error: { code: 'participation_not_found', detail: 'x' },
+        response: { status: 404 },
+      });
+    });
+    wrap(<ContestPage contestKey="doi" />);
+
+    expect(await screen.findByText('boom')).toBeInTheDocument();
+    expect(screen.queryByText(/không thuộc đội nào/i)).toBeNull();
+  });
+
   it('sends no team at all for an individual contest', async () => {
     get.mockImplementation((path: string) => {
       if (path === '/contests/{key}')
