@@ -35,11 +35,11 @@ import { RedisSubscriber } from './redis-subscriber.js';
       inject: [APP_CONFIG],
     },
     {
-      // The one origin a browser is allowed to open the /ws socket from — the
-      // same value CORS pins for HTTP (app.setup.ts). See the gateway's
+      // The origins a browser may open the /ws socket from — PUBLIC_ORIGIN
+      // (the value CORS pins for HTTP, app.setup.ts) plus WS_EXTRA_ORIGINS. See the gateway's
       // origin check for why this is defence-in-depth on top of SameSite.
       provide: ALLOWED_WS_ORIGIN,
-      useFactory: (config: AppConfig): string => config.publicOrigin,
+      useFactory: (config: AppConfig): readonly string[] => config.wsAllowedOrigins,
       inject: [APP_CONFIG],
     },
   ],

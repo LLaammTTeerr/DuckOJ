@@ -9,6 +9,11 @@ const EnvSchema = z.object({
   SESSION_TTL_HOURS: z.coerce.number().int().min(1).default(720),
   TOTP_ENC_KEY: z.string().regex(/^[0-9a-f]{64}$/, 'must be 32 bytes of lowercase hex'),
   PUBLIC_ORIGIN: z.string().url(),
+  // Extra browser origins allowed to open the /ws socket besides PUBLIC_ORIGIN
+  // (comma-separated) — the e2e host `http://localhost:8080` on a box that
+  // publishes under a tailnet name. CORS is unaffected: same-origin HTTP
+  // needs none, and the WebSocket Origin check (D70) is the only consumer.
+  WS_EXTRA_ORIGINS: z.string().default(''),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   PACKAGE_STORE_DIR: z.string().min(1).default('/var/lib/duckoj/packages'),
   // 256 MiB. Injectable per-environment (and per-test) rather than a
@@ -43,6 +48,8 @@ export interface AppConfig {
   sessionTtlHours: number;
   totpEncKey: Buffer;
   publicOrigin: string;
+  /** `PUBLIC_ORIGIN` plus `WS_EXTRA_ORIGINS` — the WebSocket Origin allow-list (D70). */
+  wsAllowedOrigins: readonly string[];
   logLevel: string;
   packageStoreDir: string;
   packageUploadMaxBytes: number;
@@ -81,6 +88,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     sessionTtlHours: e.SESSION_TTL_HOURS,
     totpEncKey: Buffer.from(e.TOTP_ENC_KEY, 'hex'),
     publicOrigin: e.PUBLIC_ORIGIN,
+    wsAllowedOrigins: [
+      e.PUBLIC_ORIGIN,
+      ...e.WS_EXTRA_ORIGINS.split(',').map((o) => o.trim()).filter((o) => o.length > 0),
+    ],
     logLevel: e.LOG_LEVEL,
     packageStoreDir: e.PACKAGE_STORE_DIR,
     packageUploadMaxBytes: e.PACKAGE_UPLOAD_MAX_BYTES,

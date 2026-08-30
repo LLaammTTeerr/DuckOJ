@@ -30,4 +30,17 @@ describe('loadConfig', () => {
     const { REDIS_URL: _omitted, ...rest } = valid;
     expect(() => loadConfig(rest)).toThrow(/REDIS_URL/);
   });
+
+  it('allows the /ws Origin list to grow past PUBLIC_ORIGIN via WS_EXTRA_ORIGINS (D70)', () => {
+    expect(loadConfig(valid).wsAllowedOrigins).toEqual(['http://localhost:5173']);
+    const config = loadConfig({
+      ...valid,
+      WS_EXTRA_ORIGINS: ' http://localhost:8080 ,, https://oj.example ',
+    });
+    expect(config.wsAllowedOrigins).toEqual([
+      'http://localhost:5173',
+      'http://localhost:8080',
+      'https://oj.example',
+    ]);
+  });
 });

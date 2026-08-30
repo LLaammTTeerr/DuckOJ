@@ -55,6 +55,7 @@ export const TEST_CONFIG: AppConfig = {
   sessionTtlHours: 720,
   totpEncKey: Buffer.alloc(32, 1),
   publicOrigin: 'http://localhost:5173',
+  wsAllowedOrigins: ['http://localhost:5173'],
   logLevel: 'silent',
   // `buildApp` overrides this with a fresh temp directory per call (mirrors
   // how `buildAppWithRealtime` overrides `redisUrl`), so tests that actually

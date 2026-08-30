@@ -125,7 +125,7 @@ export class SubmissionsGateway implements OnModuleDestroy {
     // to abuse and authenticates by bearer token — allowed, exactly as CORS
     // lets a header-less request through.
     const origin = req.headers.origin;
-    if (origin !== undefined && origin !== this.allowedOrigin) {
+    if (origin !== undefined && !this.allowedOrigins.includes(origin)) {
       socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
       return;
     }
@@ -161,7 +161,7 @@ export class SubmissionsGateway implements OnModuleDestroy {
     @Inject(SubmissionAccessService) private readonly submissions: SubmissionAccessService,
     @Inject('SESSION_COOKIE_NAME') private readonly cookieName: string,
     @Inject(MAX_SUBSCRIPTIONS) private readonly maxSubscriptions: number,
-    @Inject(ALLOWED_WS_ORIGIN) private readonly allowedOrigin: string,
+    @Inject(ALLOWED_WS_ORIGIN) private readonly allowedOrigins: readonly string[],
   ) {}
 
   attach(server: HttpServer): void {

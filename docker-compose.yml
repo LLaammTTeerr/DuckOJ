@@ -57,6 +57,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       TOTP_ENC_KEY: ${TOTP_ENC_KEY:?set TOTP_ENC_KEY}
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost}
+      # Extra browser origins for the /ws Origin check (D70), e.g. the e2e host.
+      WS_EXTRA_ORIGINS: ${WS_EXTRA_ORIGINS:-}
       LOG_LEVEL: info
       # How many worker processes the API forks (apps/api/src/cluster.ts).
       # A Node process is single-threaded, so before this the whole API was
