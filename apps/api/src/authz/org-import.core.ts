@@ -25,21 +25,30 @@
  */
 import { randomInt } from 'node:crypto';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
-import { DisplayName, Username } from '@duckoj/contracts';
+import {
+  DEFAULT_IMPORT_COLUMNS,
+  DisplayName,
+  ORG_IMPORT_MAX_ROWS,
+  Username,
+  importHeaderColumns,
+  importRecords,
+  type ImportColumn,
+} from '@duckoj/contracts';
 import { schema, type Db } from '@duckoj/db';
 import { orgMembers, organizations } from '@duckoj/db/guarded';
 import { hashPassword } from '../authn/password.hash.js';
 
 /**
- * The largest roster one call may carry.
+ * The largest roster one call may carry — the contract's own number, not a
+ * copy of it, so the two cannot drift.
  *
- * A province seats thousands of pupils, and 2,000 is one big school's whole
- * intake — past that the answer is two calls, not a longer one. The bound is
- * not cosmetic: every row costs one argon2id hash at the parameters every
- * other account is held to (19 MiB, 2 passes), so a full import occupies the
- * libuv thread pool for tens of seconds. See `PREPARE_CONCURRENCY`.
+ * The bound is not cosmetic: every row costs one argon2id hash at the
+ * parameters every other account is held to (19 MiB, 2 passes), so a request
+ * occupies the libuv thread pool for as long as it takes to hash them all.
+ * Five hundred is about six seconds here; see `ORG_IMPORT_MAX_ROWS` for why
+ * that ceiling, and `PREPARE_CONCURRENCY` for what shares the pool.
  */
-export const IMPORT_MAX_ROWS = 2000;
+export const IMPORT_MAX_ROWS = ORG_IMPORT_MAX_ROWS;
 
 /**
  * How many passwords are hashed at once.
@@ -126,95 +135,12 @@ export interface ImportedCredential {
 // ---------------------------------------------------------------------------
 
 /**
- * RFC 4180 with the concessions a spreadsheet export actually needs: CRLF or
- * LF, `""` for a literal quote inside a quoted field, and a trailing newline
- * that does not invent an empty final row.
- *
- * Hand-written rather than a dependency because the whole grammar is thirty
- * lines and the alternative is a parser with its own options, its own
- * type-coercion opinions and its own idea of what a header is — three things
- * that would each need pinning down here anyway.
+ * The record grammar, the header aliases and the BOM strip live in
+ * `@duckoj/contracts` (`org-import-csv.ts`): the web panel has to cut a large
+ * roster along the SAME record boundaries the server will read it back on,
+ * and a second parser in the browser is a parser that disagrees about where
+ * a quoted newline ends.
  */
-export function parseCsvRecords(text: string): string[][] {
-  const records: string[][] = [];
-  let record: string[] = [];
-  let field = '';
-  let quoted = false;
-  let sawAnyChar = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]!;
-    if (quoted) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          quoted = false;
-        }
-      } else {
-        field += ch;
-      }
-      continue;
-    }
-    if (ch === '"' && field === '') {
-      quoted = true;
-      sawAnyChar = true;
-      continue;
-    }
-    if (ch === ',' || ch === ';' || ch === '\t') {
-      record.push(field);
-      field = '';
-      sawAnyChar = true;
-      continue;
-    }
-    if (ch === '\r') continue;
-    if (ch === '\n') {
-      record.push(field);
-      if (sawAnyChar || record.some((cell) => cell.trim() !== '')) records.push(record);
-      record = [];
-      field = '';
-      sawAnyChar = false;
-      continue;
-    }
-    field += ch;
-    sawAnyChar = true;
-  }
-  record.push(field);
-  if (sawAnyChar || record.some((cell) => cell.trim() !== '')) records.push(record);
-  return records;
-}
-
-/**
- * Header names this recognises, in both languages a teacher's spreadsheet is
- * likely to be in. A file with none of them is read positionally
- * (`username, displayName, email`), which is what a file pasted out of a
- * mail merge looks like.
- */
-const HEADER_ALIASES: Record<string, 'username' | 'displayName' | 'email'> = {
-  username: 'username',
-  user: 'username',
-  tendangnhap: 'username',
-  taikhoan: 'username',
-  displayname: 'displayName',
-  display_name: 'displayName',
-  name: 'displayName',
-  fullname: 'displayName',
-  hoten: 'displayName',
-  email: 'email',
-  mail: 'email',
-  thudientu: 'email',
-};
-
-/** Lowercased, stripped of spaces, punctuation and Vietnamese diacritics. */
-function headerKey(cell: string): string {
-  return cell
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/gi, 'd')
-    .toLowerCase()
-    .replace(/[^a-z_]/g, '');
-}
 
 /**
  * A CSV roster as `ImportRowInput[]`.
@@ -226,19 +152,15 @@ function headerKey(cell: string): string {
  * hand.
  */
 export function parseImportCsv(text: string): ImportRowInput[] {
-  const records = parseCsvRecords(text.replace(/^\ufeff/, ''));
+  const records = importRecords(text);
   if (records.length === 0) return [];
 
-  let columns: Array<'username' | 'displayName' | 'email' | null> = ['username', 'displayName', 'email'];
-  let body = records;
-  const first = records[0]!.map((cell) => HEADER_ALIASES[headerKey(cell)] ?? null);
-  if (first.includes('username')) {
-    columns = first;
-    body = records.slice(1);
-  }
+  const declared = importHeaderColumns(records[0]!);
+  const columns = declared ?? DEFAULT_IMPORT_COLUMNS;
+  const body = declared === null ? records : records.slice(1);
 
   return body.map((record) => {
-    const cell = (want: 'username' | 'displayName' | 'email'): string => {
+    const cell = (want: ImportColumn): string => {
       const at = columns.indexOf(want);
       return at === -1 ? '' : (record[at] ?? '').trim();
     };
@@ -295,7 +217,9 @@ export async function validateImportRows(
       row: 0,
       field: 'file',
       code: 'import_too_many_rows',
-      message: `At most ${String(IMPORT_MAX_ROWS)} rows may be imported at once; this list has ${String(rows.length)}.`,
+      message:
+        `At most ${String(IMPORT_MAX_ROWS)} rows may be imported at once; this list has ` +
+        `${String(rows.length)}. Split the file and send it in several imports.`,
     });
     throw new ImportValidationError(errors);
   }

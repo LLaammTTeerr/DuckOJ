@@ -20,6 +20,7 @@ import { RateLimiter } from '../src/common/rate-limiter.js';
 import { AuthService } from '../src/authn/auth.service.js';
 import { PasswordService } from '../src/authn/password.service.js';
 import { AppError } from '../src/common/app.error.js';
+import { ORG_IMPORT_MAX_ROWS } from '@duckoj/contracts';
 import { parseImportCsv, credentialsCsv, runImport } from '../src/authz/org-import.core.js';
 import type { Actor } from '../src/authz/actor.js';
 import { testDbUrl, withTestDb } from './db.harness.js';
@@ -194,7 +195,7 @@ describe('importing a roster', () => {
     });
   }, IMPORT_TEST_TIMEOUT_MS);
 
-  it('meters a real import at one per organization per minute, and exempts a preview', async () => {
+  it('admits a sequence of chunks and stops at ten a minute, exempting previews', async () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'hieutruong');
       await seedOrg(db, 'thpt-a', [{ userId: owner.id, role: 'owner' }]);
@@ -210,7 +211,18 @@ describe('importing a roster', () => {
         expect(preview.created).toBe(false);
       }
 
-      await service.importMembers(actorFor(owner.id), 'thpt-a', { rows: ROWS, dryRun: false });
+      // A 2,000-pupil roster is now four requests, not one (D61 amended), so
+      // a meter of exactly one per minute would refuse the second chunk of
+      // every large import. Ten a minute is the same work per minute the old
+      // single 2,000-row call could do.
+      for (let i = 0; i < 10; i++) {
+        const done = await service.importMembers(actorFor(owner.id), 'thpt-a', {
+          rows: [{ username: `hs10${String(i)}`, displayName: `Chunk ${String(i)}` }],
+          dryRun: false,
+        });
+        expect(done.created).toBe(true);
+      }
+
       const refused = (await service
         .importMembers(actorFor(owner.id), 'thpt-a', {
           rows: [{ username: 'hs900', displayName: 'Sau đó' }],
@@ -224,6 +236,31 @@ describe('importing a roster', () => {
       // The refusal created nothing.
       const stragglers = await db.select().from(schema.users).where(eq(schema.users.username, 'hs900'));
       expect(stragglers).toHaveLength(0);
+    });
+  }, IMPORT_TEST_TIMEOUT_MS);
+
+  it('refuses more than five hundred rows in one request, and says to split the file', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'hieutruong');
+      await seedOrg(db, 'thpt-a', [{ userId: owner.id, role: 'owner' }]);
+      const service = importService(db);
+
+      // 501 rows, validated only — nothing is hashed, so this is cheap.
+      const rows = Array.from({ length: ORG_IMPORT_MAX_ROWS + 1 }, (_, i) => ({
+        username: `hs${String(i).padStart(4, '0')}`,
+        displayName: `Pupil ${String(i)}`,
+      }));
+      const failure = (await service
+        .importMembers(actorFor(owner.id), 'thpt-a', { rows, dryRun: true })
+        .catch((error: unknown) => error)) as AppError;
+
+      expect(ORG_IMPORT_MAX_ROWS).toBe(500);
+      expect(failure.status).toBe(422);
+      expect(failure.fields?.['rows[0].file']?.[0]).toContain('500');
+      // The hint is the whole point of the cap: a teacher with a province's
+      // worth of pupils has to be told what to do next.
+      expect(failure.fields?.['rows[0].file']?.[0]).toMatch(/split|chia/i);
+      expect(await userCount(db)).toBe(1);
     });
   }, IMPORT_TEST_TIMEOUT_MS);
 

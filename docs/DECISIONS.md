@@ -1908,6 +1908,24 @@ implementer with nobody available to ask:
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F8 brief),
 no human available to consult. Migration 0024.*
 
+**Amended 2026-08-30 (F13 owed sweep):** a request carries **at most 500
+rows**, not 2,000. The F8 report's own concern was wall time — 2,000 argon2id
+hashes is twenty-odd seconds, and a proxy or browser timeout there strands
+accounts whose passwords nobody ever received. Five hundred keeps a request
+near six seconds; over that the 422 now says to split the file. The teacher
+never has to: **the web panel splits it**, sequentially, with a progress bar
+and one merged credentials table, using the SERVER's own record grammar
+(`@duckoj/contracts/org-import-csv.ts`, moved there from the API so the two
+cannot disagree about where a quoted newline ends) with the file's header
+repeated in every chunk. Two consequences: the meter becomes **ten imports
+per organization per minute** (`allow`), which is the same 5,000 rows a
+minute the old single call could do — losing `consumeOnce` costs nothing,
+because the duplicate submission it guarded is refused by the unique index
+inside `runImport`'s transaction anyway — and the panel refuses a username
+the FILE repeats across two chunks before sending anything, since no single
+request can see that. A chunk that fails mid-sequence shows the credentials
+the earlier chunks did create, beside the reason it stopped.
+
 ## D62 — A contest booklet carries the problems the reader may read, not the contest's whole list
 
 `GET /contests/{key}/booklet.pdf` (D48) read `problems.statement` for every

@@ -32,21 +32,29 @@ import {
 } from './org-import.core.js';
 
 /**
- * One real import per organization per minute (D61).
+ * Ten imports per organization per minute (D61, amended by the F13 owed
+ * sweep).
+ *
+ * It was one per minute, made race-free with `consumeOnce`, when one request
+ * carried a whole 2,000-pupil roster. With the 500-row cap a large roster is
+ * a SEQUENCE of requests, and a meter of exactly one would refuse the second
+ * chunk of every import that needed chunking — so the shape has to change,
+ * and `allow` is the shape for a limit above one.
+ *
+ * Ten × 500 is the same 5,000 rows a minute the old single call could
+ * sustain, so nothing is throttled less than it was. Losing `consumeOnce`
+ * costs nothing that mattered: what it defended against — the same roster
+ * submitted twice at once — is refused anyway by the unique index on
+ * `users.username`, inside the one transaction `runImport` writes, which the
+ * mid-flight-collision test already pins as a 422 naming the row.
  *
  * Keyed on the organization ID, never the slug: a slug is patchable
  * (`UpdateOrgRequest`), so a meter keyed on one could be reset by renaming
- * the school. `consumeOnce` rather than `allow(..., 1, ...)` — the limiter's
- * own doc comment explains why: a limit of exactly one has to be race-free,
- * and `allow`'s count-then-insert is not.
- *
- * A minute, not an hour: the thing being throttled is tens of seconds of
- * argon2id on a shared thread pool, and the legitimate repeat — a teacher
- * importing 9A then 9B — must not be told to come back after lunch. A
- * `dryRun` consumes nothing at all.
+ * the school. A `dryRun` consumes nothing at all.
  */
 const IMPORT_PURPOSE = 'org_member_import';
 const IMPORT_WINDOW_MS = 60_000;
+const IMPORT_LIMIT_PER_WINDOW = 10;
 
 @Injectable()
 export class OrgImportService {
@@ -77,26 +85,30 @@ export class OrgImportService {
       return { created: false, preview: { rows: validated } };
     }
 
-    // `consumeOnce`, not `allow(..., 1, ...)`: two owners hitting "import"
-    // on the same roster within the same second is the case this exists to
-    // refuse, and `allow`'s unlocked count-then-insert would let both through
-    // — which is two thousand accounts created twice, half of them with the
-    // second run's passwords. The seconds for `Retry-After` are read back
-    // afterwards; that second call leaves a duplicate refusal marker, the
-    // same harmless wart `RateLimiter.retryAfterSeconds` already documents
-    // for login's two keys.
+    // `allow` records the refused attempt too, so a client looping past the
+    // limit keeps burning its own window. The seconds for `Retry-After` are
+    // read back afterwards; that second call leaves a duplicate refusal
+    // marker, the same harmless wart `RateLimiter.retryAfterSeconds` already
+    // documents for login's two keys.
     const meterKey = `org:${String(org.id)}`;
-    if (!(await this.limiter.consumeOnce(IMPORT_PURPOSE, meterKey, IMPORT_WINDOW_MS))) {
+    if (
+      !(await this.limiter.allow(
+        IMPORT_PURPOSE,
+        meterKey,
+        IMPORT_LIMIT_PER_WINDOW,
+        IMPORT_WINDOW_MS,
+      ))
+    ) {
       const retryAfter = await this.limiter.retryAfterSeconds(
         IMPORT_PURPOSE,
         meterKey,
-        1,
+        IMPORT_LIMIT_PER_WINDOW,
         IMPORT_WINDOW_MS,
       );
       throw new AppError(
         429,
         'member_import_rate_limited',
-        'An import for this organization has already run in the last minute.',
+        'Too many imports for this organization in the last minute.',
         undefined,
         { 'Retry-After': String(retryAfter ?? 1) },
       );
