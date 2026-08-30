@@ -16,7 +16,8 @@ const USAGE = `usage:
   oj problems
   oj languages
   oj submit <problemCode> <file> [--language <key>] [--contest <key>] [--watch]
-  oj watch <submissionId>`;
+  oj watch <submissionId>
+  oj mcp                (Model Context Protocol server on stdio; DUCKOJ_MCP_WRITES=1 for write tools)`;
 
 const io: Io = {
   print: (line) => console.log(line),
@@ -70,6 +71,32 @@ async function run(argv: string[]): Promise<void> {
         ...(contestKey !== undefined ? { contestKey } : {}),
       });
       if (args.switches.has('watch')) await watch(client, io, id, sleep);
+      return;
+    }
+    case 'mcp': {
+      // The saved credential, handed to the MCP server — the whole point of
+      // the subcommand is that somebody who has run `oj login` does not
+      // manage a second copy of their token in a host's config file.
+      //
+      // Imported dynamically, not at the top: `@duckoj/mcp` pulls in the MCP
+      // SDK, and every other `oj` subcommand would pay that startup cost to
+      // reach code it never runs.
+      //
+      // NOTHING here may print to stdout — the stdio transport owns it from
+      // the moment the server connects, and one stray line desyncs the
+      // host's JSON-RPC parser. The banner is the server's own, on stderr.
+      const config = await loadConfig();
+      if (!config) {
+        throw new CliError(`no credentials — run: oj login --url <baseUrl> --token <token>\n(config: ${configPath()})`);
+      }
+      const { normalizeBaseUrl, runMcpServer, writesEnabled } = await import('@duckoj/mcp');
+      await runMcpServer({
+        baseUrl: normalizeBaseUrl(config.baseUrl),
+        token: config.token,
+        writes: writesEnabled(),
+      });
+      // Deliberately no `return` into process exit: the transport keeps the
+      // event loop alive for as long as the host holds stdin open.
       return;
     }
     case 'watch': {

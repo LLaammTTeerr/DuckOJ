@@ -3489,3 +3489,87 @@ without reopening the door the 7a ruling (2026-08-22) shut.
 *Ruled by the implementer during the 2026-08-30 feature loop (F18 brief), no
 human available to consult. No migration — the filesystem is the whole
 record.*
+
+
+## D89 — The MCP server is read-only until told otherwise, and admin is not a switch away
+
+`apps/mcp` puts DuckOJ behind the Model Context Protocol: an agent gets
+nineteen tools, four resources and two prompts over stdio, authenticated by
+one personal access token. The question that needed a ruling is not which
+routes to expose — it is what an agent may do with them while nobody is
+looking.
+
+- **Read tools are on; write tools are OFF unless `DUCKOJ_MCP_WRITES=1`.**
+  Not a per-call confirmation, not a scope check at call time: the write
+  tools are NEVER REGISTERED, so they do not appear in `tools/list` and an
+  agent cannot call something it was never told about. A tool an agent can
+  see is a tool it will spend a turn trying, and "the server refused" is a
+  worse answer than "there is no such tool" because it reads as a transient
+  failure worth retrying. The switch is `=== '1'` exactly — `true`, `yes` and
+  a stray space are all off, because every value that is not the documented
+  one is a typo, and a typo must fail closed.
+- **"Write" means the route changes server state, which is exactly the set
+  whose scope ends `:write` or `:publish`.** So `submissions_submit` is
+  behind the switch alongside the authoring tools. It enqueues a grading
+  container, it is the one route in the API with its own meter (D80), and a
+  contest submission is a scored, irreversible act attributed to the token's
+  owner. The gate is not about danger to data; it is about an agent acting on
+  somebody's behalf in a session they are not watching.
+- **Admin tools are absent, not withheld.** There is no `DUCKOJ_MCP_ADMIN`.
+  Every `/admin` route is `@SessionOnly` and this server authenticates with a
+  bearer token, which `SessionOnlyGuard` refuses (D50) — an admin tool could
+  only ever return 403, so registering one would advertise a capability that
+  does not exist. A future admin surface would need a session, which is a
+  different credential model and a different ruling.
+- **Every tool declares its scope, in its own description.** The scope is a
+  field on the tool table (typed as `Scope` from `packages/contracts`, so a
+  typo does not compile) and `defineTool` appends "Requires the `x:y` token
+  scope" to the prose. A 403 from a token minted without `submissions:write`
+  is otherwise indistinguishable from a permissions problem on the judge, and
+  the fix — mint a wider token — is not something an agent can guess.
+- **Tool names are underscored (`problems_search`), never dotted.** A host
+  does not expose a server's tool name unchanged: Claude Code composes
+  `mcp__<server>__<tool>`, and the Anthropic API's own tool-name rule is
+  `^[a-zA-Z0-9_-]{1,128}$`. A dot makes the composed name invalid and the
+  failure lands on the host, at request time, naming a tool nobody typed.
+  `TOOL_NAME_PATTERN` refuses one at construction instead.
+- **One line of prose, then compact JSON, in one text block.** A host renders
+  the first line in its transcript and the model reads all of it: a
+  summary-only result is unusable by the model, a JSON-only result is
+  unreadable by the person watching. The JSON is a PROJECTION of the API
+  response, not the response — an agent choosing a problem needs the code,
+  the name, the difficulty and the tags, and handing it `hasPublishedRevision`
+  and `orgSlugs` on every row buries those four.
+- **A refusal carries `code`, `detail` and — for D80 — `retryAfterSeconds`.**
+  The `Retry-After` header becomes a number in the JSON, for the reason `oj`
+  learned it: "submission refused" with no wait tells something driving the
+  API in a loop nothing about how to stop being refused, and an agent loops
+  harder than a person does.
+- **`submissions_watch` answers `timedOut: true` rather than failing.** `oj
+  watch` polls 150 times and only then complains; an MCP host cancels a tool
+  call that outlives its patience, and a cancelled call teaches the agent
+  neither the verdict nor that it should ask again. So the deadline is an
+  argument, the timeout is a normal result, and the summary says to call
+  again. A 401/403/404 is still immediate: retrying a refused credential five
+  times only delays the message.
+- **Samples are parsed out of the statement, and say so.** The API models no
+  `samples` field anywhere — the examples live in a Markdown table in the
+  prose. An agent needs them as data, so `problems_get` returns
+  `samples: { source, items }`, where `source: 'none'` means "read the
+  statement yourself", NOT "this problem has no samples". The extractor knows
+  exactly the table every DuckOJ statement uses and returns nothing for
+  anything else: a wrong sample sends an agent hunting a bug in a correct
+  program, which is worse than no sample at all.
+- **The credential is `oj`'s.** `DUCKOJ_URL`/`DUCKOJ_TOKEN` win, otherwise
+  `~/.config/duckoj/config.json` is read, so somebody who has run `oj login`
+  manages no second copy of their token — and `oj mcp` launches the server
+  with it directly. `apps/mcp` duplicates that ~25-line reader rather than
+  importing it, because `oj mcp` makes `@duckoj/oj` depend on `@duckoj/mcp`
+  and importing back would close the cycle. A base URL that names only an
+  origin gains `/api/v1`: pointed at the origin, the SDK asks Caddy for
+  `/problems`, which falls through to the SPA and answers `200 text/html` —
+  a success that is not an error anywhere and a parse failure five frames
+  away.
+
+*Ruled by the implementer during the 2026-08-30 feature loop (F20 brief), no
+human available to consult. No migration — the server holds no state.*
