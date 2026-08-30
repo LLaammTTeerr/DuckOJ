@@ -45,7 +45,6 @@ import {
   actingParticipations,
   listParticipations,
   participationWindow,
-  teamIdsOf,
   type ContestWindowRow,
   type ParticipationRow,
 } from './participation.js';

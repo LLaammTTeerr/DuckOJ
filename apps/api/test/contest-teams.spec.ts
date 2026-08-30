@@ -620,7 +620,7 @@ describe('the team row is what an organiser acts on', () => {
 
         const csv = await organiser.get('/api/v1/contests/team-c/results.csv');
         expect(csv.status, csv.text).toBe(200);
-        const [header, first] = csv.text.replace(/^﻿/, '').trimEnd().split('\r\n');
+        const [header, first] = csv.text.replace(/^\ufeff/, '').trimEnd().split('\r\n');
         // The `members` column exists only for a team contest: the header row
         // is the file's contract with whatever reads it next (D71).
         expect(header!.split(',').slice(0, 5)).toEqual([
