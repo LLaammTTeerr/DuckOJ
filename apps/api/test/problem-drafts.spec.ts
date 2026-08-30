@@ -6,7 +6,7 @@ import type { INestApplication } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { schema } from '@duckoj/db';
 import type { Db } from '@duckoj/db';
-import { problemRevisions, problems } from '@duckoj/db/guarded';
+import { problemMembers, problemRevisions, problems } from '@duckoj/db/guarded';
 import { DRAFT_MAX_FILES, DRAFT_MAX_TOTAL_BYTES, DraftFileName } from '@duckoj/contracts';
 import { DRAFT_LOCK_STALE_MS, DRAFT_STORE, type DraftStore } from '../src/packages/draft.store.js';
 import { DraftSweeper } from '../src/problems/draft.sweeper.js';
@@ -211,6 +211,14 @@ describe('problem package drafts (D87)', () => {
         const spaced = await putFile(agent, 'draft-path', draftId, 'a b.in', 'x');
         expect(spaced.status).toBe(422);
 
+        // Non-ASCII, percent-encoded on the wire and decoded into the param:
+        // a Vietnamese file name is the one a provincial setter is most
+        // likely to try, and the character class is ASCII by design — the
+        // draft's names become the package's paths, which every judge on
+        // every filesystem has to reproduce byte for byte.
+        const unicode = await putFile(agent, 'draft-path', draftId, encodeURIComponent('đề.in'), 'x');
+        expect(unicode.status).toBe(422);
+
         // `.` and `..` are spelled only with characters the class ADMITS —
         // `.` and `-` are both members of it — which is why the schema
         // refuses those two names BY NAME as well as by pattern. They are
@@ -283,6 +291,47 @@ describe('problem package drafts (D87)', () => {
         // And an anonymous caller never gets past the guard.
         const anon = request.agent(app.getHttpServer());
         expect((await anon.post('/api/v1/problems/draft-authz/drafts').send()).status).toBe(401);
+      });
+    });
+  }, 180_000);
+
+
+  /**
+   * The member-role matrix, which the stranger/anonymous test above does not
+   * reach: authoring is `canEditProblem`, so an `author` or a `curator` on
+   * this problem may open a draft and a `tester` may not — even though a
+   * tester CAN read the revision history (`canViewRevisions`), which exists
+   * precisely so they can review drafts. A role that may look at unreleased
+   * tests is not thereby a role that may replace them.
+   */
+  it('lets a co-setter author, and refuses a tester on the same problem', async () => {
+    await withTestDb(async (db) => {
+      await withApp(db, async (app) => {
+        await setterWithProblem(db, app, 'draft-roleowner', 'draft-roles');
+        await db.update(problems).set({ visibility: 'public' }).where(eq(problems.code, 'draft-roles'));
+        const [problem] = await db.select().from(problems).where(eq(problems.code, 'draft-roles'));
+
+        async function member(username: string, role: 'curator' | 'tester') {
+          const agent = request.agent(app.getHttpServer());
+          await registerAndLogin(agent, username);
+          const [user] = await db.select().from(schema.users).where(eq(schema.users.username, username));
+          await db.insert(problemMembers).values({ problemId: problem!.id, userId: user!.id, role });
+          return agent;
+        }
+
+        const curator = await member('draft-curator', 'curator');
+        const opened = await curator.post('/api/v1/problems/draft-roles/drafts').send();
+        expect(opened.status).toBe(201);
+        const draftId = opened.body.draftId as string;
+        expect((await putFile(curator, 'draft-roles', draftId, '01.in', '1 2\n')).status).toBe(200);
+
+        // 403 rather than 404: the problem is public, so a tester can
+        // already see that it exists and hiding it now would say nothing.
+        const tester = await member('draft-tester', 'tester');
+        expect((await tester.post('/api/v1/problems/draft-roles/drafts').send()).status).toBe(403);
+        // And the co-setter's draft is not reachable through the tester's
+        // hands either — the id is not a capability.
+        expect((await putFile(tester, 'draft-roles', draftId, '02.in', 'x')).status).toBe(403);
       });
     });
   }, 180_000);
