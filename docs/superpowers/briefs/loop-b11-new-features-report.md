@@ -55,6 +55,6 @@ fails rather than completing).
 
 ## Verification
 Per-package, sequential (prior reports document flakes under `-r test` contention):
-typecheck and lint, both incl. `:scripts`; the api and web suites; the other
-packages; contracts/SDK regen, no diff; `vite build`. Live stack never stopped,
-nothing pushed.
+**api 852/852 (97 files), web 398/398 (41), db 48, judged 118, contracts 36**, every
+other package green; typecheck and lint incl. `:scripts`; regen leaves no diff;
+`vite build` OK. Live stack never stopped, nothing pushed.
