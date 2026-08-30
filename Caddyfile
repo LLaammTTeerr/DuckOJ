@@ -1,6 +1,36 @@
 {$SITE_ADDRESS:localhost} {
 	encode gzip zstd
 
+	# Security response headers, applied to EVERY response Caddy serves — the
+	# proxied API, the docs viewer and the SPA alike. Set at the edge rather
+	# than in the app because the SPA's `index.html` is served by `file_server`
+	# below and never touches Node, so a header the API sets would miss exactly
+	# the document that runs author-controlled statement HTML (see
+	# apps/web/src/markdown.ts). The Content-Security-Policy is NOT here: it is
+	# scoped to the SPA `handle` block, because the Scalar docs viewer under
+	# /api/v1/docs needs a laxer one and the JSON API needs none.
+	#
+	# `test/security-headers.spec.ts` (apps/api) pins every line below by
+	# reading this file, the same way proxy-keepalive.spec.ts pins `keepalive`.
+	header {
+		# HSTS: ignored by browsers over plain HTTP (localhost dev), enforced
+		# over the HTTPS the tag deployment terminates. One year, subdomains.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Stops a browser from MIME-sniffing a response into a type it was not
+		# sent as — the classic "upload a .txt that sniffs to text/html" XSS.
+		X-Content-Type-Options "nosniff"
+		# A statement page carries a token in no URL, but the referrer of an
+		# outbound link in a problem statement should not leak the full path.
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Clickjacking: no framing at all. `frame-ancestors 'none'` in the SPA
+		# CSP is the modern half; this covers browsers that predate it.
+		X-Frame-Options "DENY"
+		# Version/tech disclosure. Express' own `x-powered-by` is also disabled
+		# in app.setup.ts; stripping it here covers it at the edge regardless.
+		-X-Powered-By
+		-Server
+	}
+
 	handle /api/* {
 		reverse_proxy api:3000 {
 			# A dial failure must not become a 502. `reverse_proxy api:3000`
@@ -76,6 +106,26 @@
 	}
 
 	handle {
+		# Content-Security-Policy for the SPA document — the one response that
+		# runs author-controlled statement HTML through `dangerouslySetInnerHTML`
+		# (apps/web/src/markdown.ts sanitises it, this is the second wall).
+		#
+		# - `script-src 'self'`: the Vite build emits only external, hashed
+		#   module scripts and NO inline scripts (see apps/web/index.html), so
+		#   no `'unsafe-inline'`/nonce is needed and injected `<script>` cannot run.
+		# - `style-src 'self' 'unsafe-inline'`: KaTeX emits inline `style="…"`
+		#   attributes on every rendered formula, so inline styles must be
+		#   allowed or maths renders unstyled (double MathML). This is the one
+		#   concession the statement renderer forces.
+		# - `img-src 'self' data: https:`: statements embed images (`![](…)`)
+		#   that may be data URIs or remote https, and KaTeX/inline SVG stay
+		#   same-origin.
+		# - `connect-src 'self'`: the SPA calls /api and the same-origin /ws
+		#   WebSocket; both are 'self'.
+		# - `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`,
+		#   `form-action 'self'`: no plugins, no `<base>` hijack, no framing,
+		#   no cross-origin form posts.
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 		root * /srv/web
 		try_files {path} /index.html
 		file_server

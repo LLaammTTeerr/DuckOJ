@@ -1976,3 +1976,76 @@ is a lie a reader cannot detect.
 *Ruled by the reviewer during the 2026-08-29 feature/bug loop (B8 whole-diff
 review), no human available to consult. No migration.*
 
+
+## D69 — Security response headers are set at the edge, and the CSP allows inline styles because KaTeX needs them
+
+The deployment served **no** security response headers at all. Verified
+against the live stack: `curl -sD - http://localhost:8080/` carried no
+`Content-Security-Policy`, no `Strict-Transport-Security`, no
+`X-Content-Type-Options`, no `Referrer-Policy` and no `X-Frame-Options` —
+and the SPA's `index.html` is the one document that runs author-controlled
+statement HTML through `dangerouslySetInnerHTML` (`apps/web/src/markdown.ts`).
+
+**They go in the `Caddyfile`, not in `app.setup.ts`.** The SPA document is
+served by Caddy's `file_server` and never touches Node, so a header the API
+set would miss exactly the response that matters. The always-on four
+(`HSTS`, `nosniff`, `Referrer-Policy`, `X-Frame-Options`) are site-level;
+the CSP is scoped to the SPA `handle` block, because the Scalar docs viewer
+at `/api/v1/docs` needs a laxer one and the JSON API needs none.
+
+**The CSP, and the one concession it makes.** `script-src 'self'` with **no**
+`'unsafe-inline'`: the Vite build emits only external hashed module scripts
+and no inline script (see `apps/web/index.html`), so an injected `<script>`
+cannot run even if it survived DOMPurify. `style-src` **does** carry
+`'unsafe-inline'`, and that is forced rather than lazy — KaTeX writes an
+inline `style="…"` attribute on essentially every rendered formula, so
+without it every statement's maths renders unstyled, which per
+`markdown.ts`'s own comment means the MathML copy renders *as well as* the
+visible one: wrong content, not merely ugly content. The concession is on
+`style-src` only and never reaches `script-src`, which is where it would
+matter. `img-src 'self' data: https:` admits the data-URI and remote images
+statements legitimately embed; `object-src 'none'`, `base-uri 'self'`,
+`frame-ancestors 'none'` and `form-action 'self'` close the plugin, `<base>`
+hijack, clickjacking and cross-origin-form doors.
+
+**Why not `helmet`.** It would set the app-level half and still leave the
+`file_server` response bare, so the CSP would have to be duplicated at the
+edge anyway — one place is better than two that can disagree.
+
+Pinned by `apps/api/test/security-headers.spec.ts`, which reads the
+`Caddyfile` the way `proxy-keepalive.spec.ts` does, and verified empirically
+against a throwaway `caddy:2-alpine` container serving this exact file.
+
+*Ruled by the implementer during the 2026-08-30 security loop (B10 brief),
+no human available to consult. No migration.*
+
+## D70 — The WebSocket upgrade checks `Origin`; a missing one is a non-browser client
+
+`SubmissionsGateway` authenticates a browser by its **session cookie**, and a
+`new WebSocket()` from an attacker's page is not subject to CORS — the
+handshake is a plain HTTP upgrade the browser will happily send cookies on.
+The only thing standing between a malicious origin and a victim's live
+submission feed was that the cookie is `SameSite=Lax`. That is one control,
+and it is a real one; it is not the standard *second* one, and the gateway's
+own header comment already concedes that everything it does about
+authentication is "load-bearing rather than defence in depth".
+
+**The rule: a present-but-wrong `Origin` is refused with 403.** A real
+browser always stamps `Origin` on an upgrade, so a wrong one is a cross-site
+attempt with no legitimate reading.
+
+**A MISSING `Origin` is allowed**, and that is the deliberate half. The `oj`
+CLI, the judge agent and every test client are non-browser callers: they set
+no `Origin`, they carry no ambient cookie for an attacker to abuse, and they
+authenticate with a bearer token in a header a hostile page cannot set. This
+is exactly the shape CORS itself has — a header-less request is not a
+cross-origin one — and refusing it would break every programmatic client to
+guard against an attacker who, by construction, cannot reach this path.
+
+The permitted origin is `publicOrigin`, injected as `ALLOWED_WS_ORIGIN`
+rather than read from config in the gateway, so a test can pin the bound
+without standing up a second deployment — the same shape `MAX_SUBSCRIPTIONS`
+(and `MAX_UNPACKED_BYTES`, D53) already uses.
+
+*Ruled by the implementer during the 2026-08-30 security loop (B10 brief),
+no human available to consult. No migration.*
