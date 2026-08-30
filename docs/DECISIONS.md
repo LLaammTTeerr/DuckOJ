@@ -4998,3 +4998,52 @@ notifications, no organiser team-seeding UI (F-24).
 
 *Indexed by the implementer during the 2026-08-31 consolidation loop (c1
 brief), no human available to consult. A pointer entry; no migration, no code.*
+
+## D109 — A comment is a discussion that can leak the solution, so the thread is withheld from the room still solving it
+
+Problems grow a flat discussion (`problem_comments`, migration 0039) — a
+top-level thread with exactly one level of replies (a reply's parent must
+itself be top-level, else 422 `comment_bad_parent`). `GET
+/problems/{code}/comments` is visible to anyone who may see the problem
+(keyset by id, D58); the three writes are authenticated and reuse
+`problems:write`, exactly as a contest clarification reuses `contests:write`
+— a user comment is not authoring, but there is no discussion scope and one
+is not worth minting for this. Bodies are raw Markdown rendered client-side
+through the same DOMPurify path as statements (`apps/web/src/markdown.ts`);
+the API never emits HTML for a comment. Writing is metered at 10 per user per
+hour (429 `comment_rate_limited`, with `Retry-After`), checked *after* parent
+validation so a malformed reply never burns the window.
+
+**The spoiler rule.** While a viewer is competing in a running contest that
+uses this problem — D35's own hidden-set predicate, now shared out of
+`problem.visibility.ts` so the mask cannot drift from the one that hides tags
+and stats — the discussion is withheld from them *entirely*: a comment is a
+discussion that can leak the solution. The read returns an empty page, and
+every write is refused 403 `comment_hidden_contest` — a participant who
+cannot read the thread must not be able to post into it and leak the solution
+to everyone outside the room. Organisers (the contest's creator) and admins
+are never hidden anything, and after the contest ends the thread appears.
+
+**The read is signalled (`hiddenDuringContest: true`), the one place this
+breaks D35's "blank, never distinguishable" rule** — justified because the
+viewer already knows they joined a contest that contains this problem (that
+is what let them open the statement at all), so the flag discloses nothing
+new, and the web needs it to show a note rather than an empty thread the
+brief requires.
+
+**Rulings made building it** (no human to consult):
+- **Deletion is a soft delete** (`deleted_at`), author or admin only — not a
+  curator: a comment is its author's words, and moderation beyond the author
+  is an admin act, not an authoring one. Editing (`edited_at`) is author-only.
+- **A deleted comment is a tombstone only while it anchors a visible reply**;
+  with none it is omitted from the list outright — a tombstone anchoring
+  nothing is noise. A deleted *reply* is always omitted (it anchors nothing).
+  Replying to a deleted parent is refused.
+- **A reply notifies the top-level comment's author** (D14,
+  `problem_comment_reply`), never on a self-reply.
+- **The keyset cursor is the walk position** (the last top-level row
+  examined, not displayed), so an omitted tombstone never skips or repeats a
+  comment across pages.
+
+*Ruled by the implementer during the 2026-08-31 feature loop (f26 brief), no
+human available to consult. Migration 0039.*
