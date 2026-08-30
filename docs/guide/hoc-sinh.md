@@ -91,7 +91,20 @@ Tắt xác thực hai lớp cũng xoá luôn toàn bộ mã khôi phục.
 1. Mở **Bài tập** → chọn một bài. Trang bài có đề, giới hạn thời gian và bộ
    nhớ, và liên kết **PDF** nếu máy chủ dựng được bản in.
 2. Bấm **Nộp bài giải**.
-3. Chọn **Ngôn ngữ**, dán **Mã nguồn**, bấm **Nộp bài**.
+3. Chọn **Ngôn ngữ**, viết hoặc dán bài vào **Mã nguồn**, bấm **Nộp bài**.
+
+Ô **Mã nguồn** là một trình soạn thảo thật: có số dòng, tô màu cú pháp, tự thụt
+lề, và bấm `Tab` để thụt thêm. Dòng nhắc ngay dưới ô ghi **Ctrl/Cmd + Enter để
+nộp · Tab để thụt lề**. Bấm **Mở tệp** để nạp bài từ một tệp trên máy; hai nút
+bên cạnh phóng to và thu nhỏ cỡ chữ cho vừa mắt. Ô đếm ký tự cho biết bạn còn
+cách giới hạn bao xa — vượt giới hạn thì nút nộp bị khoá.
+
+DuckOJ **tự lưu bản nháp** ngay trong trình duyệt này, theo từng cặp (bài, ngôn
+ngữ). Lỡ đóng tab hay tải lại trang, mở lại đúng bài đó là thấy dòng
+**Khôi phục bản nháp bạn để lại ở đây** cùng bài cũ hiện lại. Bản nháp chỉ bị
+xoá khi bài được **nhận** — nộp bị từ chối thì bài vẫn còn nguyên. Đổi ngôn ngữ
+**không** xoá bài đang viết dở. Bản nháp nằm trong trình duyệt này thôi, nên mở
+máy khác sẽ không thấy.
 
 Bài nộp được chấm theo **phiên bản đề đang công bố lúc bạn gửi**, bằng bộ test
 của người ra đề, trong môi trường cách ly.
@@ -244,7 +257,28 @@ xuất.
 Sau này muốn đổi mật khẩu, vào **Mật khẩu** (`/account/password`) — lúc đó
 phải nhập cả **Mật khẩu hiện tại**.
 
-## 12. Cài đặt và những chỗ còn lại
+## 12. Tiến độ
+
+**Tiến độ** (`/me/progress`) là bảng theo dõi việc luyện tập của riêng bạn —
+trên máy tính nó nằm ở cụm tài khoản bên phải, trên điện thoại thì trong bảng
+**Thêm**.
+
+- Các ô đầu trang: **Số bài đã giải**, **Số bài đã thử**, **Chuỗi hiện tại**,
+  **Chuỗi dài nhất** (tính trong mười hai tháng gần nhất) và **Rating**.
+- **Hoạt động** — lịch nhiệt 365 ngày, mỗi ô một ngày, càng nhiều bài nộp thì
+  ô càng đậm. Ngày tính theo **múi giờ trong Cài đặt** của bạn.
+- **Theo chủ đề** và **Theo độ khó** — số bài đã giải trên số bài đã thử, đếm
+  **theo bài** chứ không theo lượt nộp. Khi còn trống, trang ghi rõ rằng *một
+  bài chỉ vào bảng này sau khi kỳ thi của nó khép lại*, nên giữa một kỳ thi
+  đang chạy, các thanh này chưa cộng bài bạn vừa giải trong đó.
+- **Kỳ thi đang diễn ra**, **Bài tập về nhà** (kèm hạn và số bài đã xong) và
+  **Kết quả gần đây** (mười bài nộp mới nhất).
+
+Trang **hồ sơ** công khai của bạn (bấm vào tên mình) chỉ hiện lịch nhiệt và hai
+bảng chủ đề / độ khó — chuỗi, kỳ thi đang dự và bài tập về nhà là của riêng bạn,
+người khác không thấy.
+
+## 13. Cài đặt và những chỗ còn lại
 
 - **Cài đặt** (`/account/settings`) — **Tên hiển thị**, **Ngôn ngữ** và **Múi
   giờ**. Ngôn ngữ chọn ở đây đi theo tài khoản trên mọi thiết bị và cũng là
@@ -326,9 +360,22 @@ destroys the recovery codes.
 ### 4. Submitting
 
 Open **Problems**, pick one, press **Submit a solution**, choose a
-**Language**, paste your **Source code** and press **Submit**. Your submission
-is judged against the statement revision published at the moment you sent it,
-with the setter's own tests, in a sandbox.
+**Language**, write or paste your **Source code** and press **Submit**. Your
+submission is judged against the statement revision published at the moment you
+sent it, with the setter's own tests, in a sandbox.
+
+The **Source code** box is a real editor — line numbers, syntax colours,
+auto-indent, `Tab` to indent — and the hint under it reads **Ctrl/Cmd + Enter
+submits · Tab indents**. **Open a file** loads a solution from disk, and the two
+buttons beside it grow or shrink the font. A counter shows how far you are from
+the size limit; past it the submit button is disabled.
+
+DuckOJ **saves a draft** in this browser as you type, keyed per (problem,
+language). Close the tab or reload, reopen that problem, and it offers to
+restore the draft you left — **Restored the draft you left here.** The draft is
+cleared only once a submission is **accepted** (a refused one keeps it), and
+switching language does **not** wipe what you are writing. It lives in this
+browser alone, so another machine will not see it.
 
 The page follows the job live — *Queued* → *Compiling* → *Grading* → *Done*.
 If it says live updates are unavailable, just reload; grading is unaffected.
@@ -426,7 +473,28 @@ you set your own: type a new password (10 characters or more) twice and press
 **Change password**. Every other device is signed out. Later changes go
 through **Password** (`/account/password`) and ask for your current password.
 
-### 12. Settings, and the rest
+### 12. Progress
+
+**Progress** (`/me/progress`) is your own practice dashboard — in the account
+cluster on a computer, inside the **More** sheet on a phone.
+
+- The tiles across the top: **Problems solved**, **Problems attempted**,
+  **Current streak**, **Longest streak** (within the last twelve months) and
+  **Rating**.
+- **Activity** — a 365-day heatmap, one cell per day, darker for more
+  submissions, counted in the time zone from your **Settings**.
+- **By topic** and **By difficulty** — solved over attempted, counted **per
+  problem**, not per submission. While they are empty the page says so, and that
+  *a problem joins these bars once its contest window has closed* — so
+  mid-contest they do not yet count what you just solved in it.
+- **Contests under way**, **Homework due** (with deadlines and how many you have
+  done) and **Recent verdicts** (your last ten submissions).
+
+Your public **profile** (click your own name) shows only the heatmap and the two
+topic/difficulty tables — the streak, your live contests and your homework are
+yours alone.
+
+### 13. Settings, and the rest
 
 **Settings** (`/account/settings`) holds your display name, **Language** and
 **Time zone**; a language chosen there follows your account onto every device

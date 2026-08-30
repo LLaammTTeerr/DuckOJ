@@ -295,8 +295,78 @@ lượt thi của người nộp đã kết thúc.** Vì vậy giữa giờ thi,
 giải đầu tiên" chưa phản ánh phòng thi đang chạy, và sẽ tự đúng lại khi hết
 giờ. Số liệu này giống nhau với mọi người xem, kể cả quản trị viên.
 
-Muốn theo dõi phòng thi ngay lúc đang thi thì dùng **Bảng điểm** (không đóng
-băng với bạn) và **Tất cả bài nộp** của kỳ thi, chứ không phải mục Thống kê.
+Muốn theo dõi phòng thi ngay lúc đang thi thì dùng màn **Theo dõi trực tiếp**
+(mục 12), hoặc **Bảng điểm** (không đóng băng với bạn) và **Tất cả bài nộp** của
+kỳ thi — chứ không phải mục Thống kê.
+
+## 12. Theo dõi trực tiếp
+
+Trang kỳ thi có nút **Theo dõi trực tiếp** (chỉ người tạo kỳ thi và quản trị
+viên thấy) dẫn tới màn hình `/contests/{mã}/monitor` — bảng điều khiển phòng thi
+đang chạy, **tự cập nhật mỗi 5 giây** và nhận thêm tín hiệu tức thời khi có bài
+nộp mới.
+
+- Các ô trên cùng: **Thí sinh đang kết nối**, **Đang chờ chấm**, **Chờ lâu
+  nhất**, **Máy chấm hoạt động** (toàn hệ thống, không riêng kỳ thi), **Câu hỏi
+  chưa trả lời** và **Lượt nộp bị từ chối (10 phút)**.
+- Bảng **Các bài**: mỗi bài kèm **Lượt nộp**, **Được chấp nhận**, **Số người
+  giải được**, **Đang chấm** và thanh **Tỉ lệ đạt**.
+- **Bài nộp mới nhất** — năm mươi bài gần nhất, **kèm kết quả thật**: đóng băng
+  bảng điểm không giấu gì với ban tổ chức ở màn này.
+- **Câu hỏi đang chờ** — các câu chưa trả lời; bấm để sang trang kỳ thi trả lời.
+
+Đây là màn để trực phòng thi lúc đang chạy. Khác với mục **Thống kê** (mục 11) —
+vốn chỉ tính một bài nộp sau khi lượt thi của người nộp đã kết thúc — màn theo
+dõi hiện đúng những gì đang diễn ra ngay lúc này.
+
+## 13. Kiểm tra trùng lặp
+
+Cuối trang một kỳ thi, người tạo kỳ thi và quản trị viên thấy mục **Kiểm tra
+trùng lặp** — báo cáo mức giống nhau giữa các bài nộp, để soi gian lận. **Chỉ
+ban tổ chức xem được**, và nó **không** tự huỷ tư cách, không báo cho ai, không
+lọt ra màn hình thí sinh.
+
+1. Đặt **Ngưỡng** rồi bấm **Chạy kiểm tra**. Trang tự cập nhật trong lúc chạy.
+2. Xong, bảng liệt kê từng cặp thí sinh theo bài, kèm hai con số: **Phần chung**
+   (một bài nằm gọn trong bài kia bao nhiêu — bắt được kiểu chèn thêm rác cho
+   khác đi) và **Tổng thể**. Bấm **So sánh** để xem hai bài đặt cạnh nhau, phần
+   trùng được tô sáng.
+
+Điểm cao là **lý do để đọc lại hai bài làm**, không phải là kết luận: hai em
+được dạy cùng một kỹ thuật vẫn có thể giống nhau mà trong sạch. Báo cáo chỉ so
+các bài cùng một họ ngôn ngữ với nhau.
+
+## 14. Thi đồng đội
+
+DuckOJ chấm được kỳ thi **đồng đội** kiểu ICPC: một đội nộp chung và đứng chung
+một dòng trên bảng điểm.
+
+**Lập đội.** Trang tổ chức của trường có mục **Đội tuyển**; chủ sở hữu hoặc quản
+trị viên của tổ chức thấy nút **Lập đội** với **Định danh**, **Tên đội** và
+**Thành viên** (gõ tên tài khoản, cách nhau bởi dấu phẩy hoặc khoảng trắng — ai
+được nêu cũng phải đã là thành viên của tổ chức này).
+
+**Ra kỳ thi đồng đội.** Ở màn tạo/sửa kỳ thi, đặt chế độ **Thi đồng đội** và
+**Số thành viên mỗi đội** (ba người là đội hình ICPC). Kỳ thi đồng đội **bắt
+buộc giới hạn theo tổ chức** (mục 4) và **không tính rating**.
+
+**Học sinh vào thi** bằng ô **Thi với đội** trên trang kỳ thi rồi chọn đội của
+mình; sau đó trang ghi **Đang thi với đội …**. Người bấm tham gia giữ lượt thi
+của cả đội — mỗi đội đúng một lượt, không có thi ảo.
+
+Vài điều khi trực:
+
+- **Danh sách thành viên bị khoá trong lúc đội đang thi**: sửa đội giữa kỳ thi
+  bị từ chối, kèm dòng *Đội này đang thi, nên danh sách thành viên được giữ
+  nguyên cho tới khi kỳ thi kết thúc.* Đổi tên đội thì vẫn được.
+- Bảng điểm in **tên đội**; huỷ tư cách và giấy chứng nhận đi theo đội, còn tệp
+  **Kết quả (CSV/PDF)** có thêm cột thành viên.
+- Báo cáo **Kiểm tra trùng lặp** gắn nhãn theo đội, nên hai người cùng một đội
+  không bao giờ bị đem ra so với nhau.
+- Xếp sẵn một đội vào kỳ thi bằng đường dẫn `POST
+  /api/v1/contests/{mã}/participants` với thân `{ "teamSlug": "…" }`, mở khi
+  đang đăng nhập bằng tài khoản chạy kỳ thi — tiện khi cần ghi danh cả đội trước
+  giờ thi.
 
 ## English
 
@@ -518,5 +588,73 @@ counted once its submitter's contest window has closed.** During a live
 contest the figures, and the "first solver", do not describe the room in front
 of you; they correct themselves at the bell. The numbers are identical for
 every viewer, administrators included. To watch a live round, use the
-**Scoreboard** (unfrozen for you) and the contest's **All submissions** list
-instead.
+**Live monitor** (§12), or the **Scoreboard** (unfrozen for you) and the
+contest's **All submissions** list, instead.
+
+### 12. The live monitor
+
+A contest page carries a **Live monitor** button (creator and administrators
+only) to `/contests/{key}/monitor` — a dashboard of the running room that
+**refreshes every 5 seconds** and takes an instant nudge whenever a submission
+lands.
+
+- The tiles: **Competitors connected**, the queue depth and its oldest wait,
+  **judges online** (system-wide, not this contest), **Questions unanswered**
+  and refusals in the last 10 minutes.
+- A per-problem table with **Attempts**, **Accepted**, **Solvers**, **Judging**
+  and a **Pass rate** bar.
+- **Latest submissions** — the newest fifty, **with their true verdicts**: the
+  scoreboard freeze hides nothing from the organisers here.
+- **Questions unanswered**, each a link to answer on the contest page.
+
+This is the screen to invigilate from. Unlike **Statistics** (§11), which counts
+a submission only after its submitter's window closes, the monitor shows exactly
+what is happening right now.
+
+### 13. The duplicate-source check
+
+At the foot of a contest page, the creator and administrators see a
+**Duplicate-source check** — a report of how alike the submissions are, for
+spotting cheating. It is **visible to the organisers only**, and it disqualifies
+nobody, notifies nobody, and never reaches a competitor's screen.
+
+Set a **Threshold** and press **Run the check**; the page updates while it runs.
+The table then lists each pair of competitors per problem with two numbers:
+**Shared** (how far one program sits inside the other — the measure that catches
+padding added to look different) and **Overall**. **Compare** shows the two
+sources side by side with the matches highlighted.
+
+A high score is a **reason to read the two programs**, never a verdict: two
+pupils taught the same technique can look alike and be innocent. Only sources in
+the same language family are compared.
+
+### 14. Team contests
+
+DuckOJ runs ICPC-style **team contests**: a team submits together and holds one
+row on the scoreboard.
+
+**Assembling a team.** Your school's organisation page carries **Teams**; an org
+owner or administrator gets **Assemble a team** with a **Slug**, a **Name** and
+**Members** (usernames separated by commas or spaces — everyone named must
+already be a member of this organisation).
+
+**Running one.** On the contest form set the mode to **Team contest** and
+**Members per team** (three is the ICPC roster). A team contest **must be
+restricted to organisations** (§4) and is **never rated**.
+
+**Pupils enter** through the **Enter as** picker on the contest page, choosing
+their team; the page then reads **Competing as …**. Whoever pressed Join holds
+the whole team's participation — one per team, and no virtual replays.
+
+While invigilating:
+
+- **A team's roster is locked while it is competing**: a mid-contest edit is
+  refused with *This team is competing right now, so its roster is fixed until
+  the round ends.* Renaming still works.
+- The scoreboard prints the **team name**; disqualification and certificates
+  follow the team, and the **Results (CSV/PDF)** gain a members column.
+- The **duplicate-source check** labels by team, so two teammates are never
+  compared with each other.
+- Seed a team into a contest with `POST /api/v1/contests/{key}/participants` and
+  a `{ "teamSlug": "…" }` body, signed in as the person who runs the contest —
+  handy for enrolling a team before the start.

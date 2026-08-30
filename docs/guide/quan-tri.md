@@ -219,10 +219,21 @@ Hàng đợi không nhúc nhích, theo thứ tự này:
 3. *Lượt thuê hết hạn* > 0 → bấm **Đưa lại vào hàng đợi**.
 4. `podman ps` — container nào chết?
 
-Trước một kỳ thi quy mô tỉnh, **thêm một container máy chấm thứ hai** —
-`docs/runbook.md`, mục *Adding a second judge container*, ghi từng bước (mỗi
-máy chấm cần một `JUDGE_TOKEN` riêng: `judge_nodes` có ràng buộc duy nhất trên
-băm của token).
+Trước một kỳ thi quy mô tỉnh, **thêm một container máy chấm thứ hai**. Mỗi máy
+chấm cần một danh tính riêng trong bảng `judge_nodes`; đăng ký bằng lệnh chuyên
+dụng thay cho việc gõ tay `insert ... sha256(...)` vào `psql` như trước:
+
+```
+corepack pnpm judge:node add <tên>     # sinh token và IN RA MỘT LẦN
+corepack pnpm judge:node list
+corepack pnpm judge:node revoke <tên>   # đốt băm token, giữ lại lịch sử chấm
+```
+
+`add` **tự sinh token** và in ra đúng một lần — nó không nhận `--token`, để
+token máy chấm không bao giờ lọt vào lịch sử dòng lệnh. Dán token đó vào
+`judge/judge.yml` của máy chấm mới rồi bật container thứ hai qua profile `scale`
+của compose (`SCALE=1 scripts/compose-up.sh`). Từng bước đầy đủ ở
+`docs/runbook.md`, mục *Adding a second judge container* (D68).
 
 ## 9. Nhật ký và khởi động lại
 
@@ -252,6 +263,24 @@ scripts/compose-up.sh          # không đặt SKIP_BUILD — lần này có bui
 động chạy với `SKIP_BUILD=1` và sẽ dựng lại stack từ ảnh cũ — trang báo khoẻ
 mạnh trong khi vẫn chạy mã cũ.
 
+Cách trên dựng lại **toàn bộ** stack. Để đổi **một vài dịch vụ** trên một stack
+đang chạy mà không phải hạ tất cả, dùng:
+
+```
+scripts/deploy.sh api            # một dịch vụ
+scripts/deploy.sh api judged
+```
+
+`deploy.sh` build từ một bản **xuất sạch của HEAD** (`git archive`, không phải
+cây làm việc — sửa chưa commit không lọt vào ảnh), **chạy migration trước** khi
+thư mục `migrations` có thay đổi, dựng lại dịch vụ, rồi **theo dõi** khoảng 45
+giây: container phải khoẻ, `GET /api/v1/languages` phải trả 200 **qua Caddy**,
+và log `api` không được có dòng worker chết. Hỏng bất kỳ điều nào, nó **tự lùi
+về ảnh `:previous`** rồi thoát khác 0. Nó **không** thay `compose-up.sh` — cái
+đó mới dựng cả stack từ số không. (Máy chấm thứ hai nằm sau profile `scale` nên
+`deploy.sh judge-2` cố tình báo lỗi; dùng `SCALE=1 scripts/compose-up.sh` cho
+dịch vụ đó.)
+
 ## 10. Những gì đơn vị vận hành phải tự lo
 
 1. **SMTP** (`SMTP_*` trong `.env`) — thiếu nó thì thư xác nhận địa chỉ và thư
@@ -259,6 +288,17 @@ mạnh trong khi vẫn chạy mã cũ.
 2. **Tên miền công khai và TLS** (`SITE_ADDRESS`, `PUBLIC_ORIGIN`).
 3. **Bản sao lưu để ở nơi khác** — xem mục 6.
 4. **Máy chấm thứ hai** trước kỳ thi lớn — xem mục 8.
+
+## 11. Máy chủ MCP và chuẩn bị đề
+
+Hai việc dành cho người ra đề và trợ lý AI có hướng dẫn riêng trong kho mã
+nguồn, không nằm trên trang `/help`:
+
+- **Máy chủ MCP** (`docs/guide/mcp.md`) — cho một trợ lý AI đọc đề, nộp bài và
+  theo dõi kết quả bằng chính **mã truy cập** của người dùng; mặc định chỉ có
+  công cụ đọc, công cụ ghi chỉ bật khi đặt `DUCKOJ_MCP_WRITES=1` (D89).
+- **Chuẩn bị đề** (`docs/guide/chuan-bi-de.md`) — kiểm tra một thư mục đề rồi
+  đưa lên bằng một lệnh `corepack pnpm prepare:problem` (D90, D97).
 
 ## English
 
@@ -413,9 +453,21 @@ queued and time out as `IE` after 300 s.
 When the queue stalls, in order: the **Judges** panel (anything *online*?);
 `podman logs duckoj_judged_1` (any handshake?); expired leases > 0 → press
 **Requeue**; `podman ps` (anything dead?). Before a province-scale contest, add
-a **second judge container** — the runbook's *Adding a second judge container*
-has the steps, and each judge needs its own `JUDGE_TOKEN` because `judge_nodes`
-is unique on the token hash.
+a **second judge container**. Each judge needs its own row in `judge_nodes`;
+register it with the dedicated CLI rather than the hand-typed
+`insert ... sha256(...)` of old:
+
+```
+corepack pnpm judge:node add <name>     # generates the token, PRINTS IT ONCE
+corepack pnpm judge:node list
+corepack pnpm judge:node revoke <name>   # burns the token hash, keeps the history
+```
+
+`add` **generates the token itself** and prints it once — it takes no `--token`,
+so a judge token never lands in a shell history. Paste it into the new judge's
+`judge/judge.yml`, then bring the second container up through compose's `scale`
+profile (`SCALE=1 scripts/compose-up.sh`). The runbook's *Adding a second judge
+container* has the full steps (D68).
 
 ### 9. Logs and restarts
 
@@ -444,6 +496,24 @@ scripts/compose-up.sh          # no SKIP_BUILD — this one rebuilds
 with `SKIP_BUILD=1` and brings the stack back from the old images, reporting
 healthy while serving the previous build.
 
+That rebuilds the **whole** stack. To change **a few services** on a stack that
+is already running, without taking it all down:
+
+```
+scripts/deploy.sh api            # one service
+scripts/deploy.sh api judged
+```
+
+`deploy.sh` builds from a **clean export of HEAD** (`git archive`, never the
+working tree — an uncommitted edit cannot reach the image), **migrates first**
+when `migrations` has changed, recreates the services, then **watches** for
+about 45 s: every container healthy, `GET /api/v1/languages` answering 200
+**through Caddy**, and no dying-worker lines in the api log. On any failure it
+**rolls back to the `:previous` image** and exits non-zero. It does **not**
+replace `compose-up.sh`, which brings the whole stack up from nothing. (The
+second judge sits behind the `scale` profile, so `deploy.sh judge-2` fails on
+purpose; use `SCALE=1 scripts/compose-up.sh` for it.)
+
 ### 10. What the operator must supply
 
 1. **SMTP** (`SMTP_*` in `.env`) — without it, verification and password-reset
@@ -451,3 +521,15 @@ healthy while serving the previous build.
 2. **A public hostname and TLS** (`SITE_ADDRESS`, `PUBLIC_ORIGIN`).
 3. **Off-host copies of the backups** — see §6.
 4. **A second judge container** before a large contest — see §8.
+
+### 11. The MCP server and preparing problems
+
+Two things for setters and AI assistants have their own guides in the
+repository, and are not on the `/help` page:
+
+- **The MCP server** (`docs/guide/mcp.md`) — lets an AI assistant read problems,
+  submit and watch verdicts with the user's own **access token**; read-only by
+  default, the write tools appear only under `DUCKOJ_MCP_WRITES=1` (D89).
+- **Preparing problems** (`docs/guide/chuan-bi-de.md`) — checks a problem
+  directory and publishes it with one `corepack pnpm prepare:problem` command
+  (D90, D97).
