@@ -138,6 +138,31 @@ const QUEUE = sql`
    where state <> 'done'
 `;
 
+/**
+ * The OTHER half of `workers()`, and the one nothing pinned until B-19.
+ *
+ * B-8 recorded `workers()` as unbounded and B-9's migration 0025 answered
+ * the half that was measured — the throughput join below. This half was
+ * rewritten in the same commit and then asserted by nothing, so the only
+ * evidence that "bounded by the work in flight" is true of the SHIPPED query
+ * (rather than of the sentence in D47's amendment) was that somebody had
+ * read it. It reaches `grading_jobs` through the same partial index the
+ * queue panel does, and it carries one extra restriction — `worker_id is not
+ * null` — which is exactly the kind of addition that can cost a partial
+ * index without anybody noticing.
+ */
+const WORKERS_LIVE = sql`
+  select worker_id,
+         max(case when state = 'leased' and lease_until >= now()
+                  then submission_id end) as current_submission_id,
+         max(case when state = 'leased' and lease_until >= now()
+                  then id end)            as current_job_id
+    from grading_jobs
+   where state <> 'done'
+     and worker_id is not null
+   group by worker_id
+`;
+
 const WORKERS_THROUGHPUT = sql`
   select j.worker_id,
          count(*)                                 as graded_last_hour,
@@ -180,6 +205,14 @@ const LOAD_BEARING = [
   `where s.verdict = 'IE' or s.state = 'errored'`,
   // workers(): the window that bounds the throughput half.
   `where s.judged_at > now() - interval '1 hour'`,
+  // workers(): the restriction that bounds the LIVE half. `worker_id is not
+  // null` rides along; `state <> 'done'` is what the planner proves against
+  // grading_jobs_active_idx's predicate. Measured, so it is not a guess:
+  // spelling it `state in ('queued', 'leased', 'failed')` still gets the
+  // index (Postgres proves the implication), but dropping the state term as
+  // redundant — `worker_id is not null` alone, which returns the same rows
+  // on today's data — parallel-seq-scans all 100 000.
+  `where state <> 'done'\n         and worker_id is not null`,
   // judges(): the per-node "grading now" count. `state = 'leased'` alone
   // would return the same rows; the `<> 'done'` term beside it is what the
   // planner can prove implies grading_jobs_active_idx's predicate, and
@@ -215,6 +248,7 @@ describe('admin dashboard query plans (D47 amended, migration 0025)', () => {
       await seedHistory(db);
 
       const queueWith = await plan(db, QUEUE);
+      const liveWith = await plan(db, WORKERS_LIVE);
       const throughputWith = await plan(db, WORKERS_THROUGHPUT);
       const failuresWith = await plan(db, RECENT_FAILURES);
 
@@ -235,6 +269,7 @@ describe('admin dashboard query plans (D47 amended, migration 0025)', () => {
 
       await dropIndexes(db);
       const queueWithout = await plan(db, QUEUE);
+      const liveWithout = await plan(db, WORKERS_LIVE);
       const throughputWithout = await plan(db, WORKERS_THROUGHPUT);
       const failuresWithout = await plan(db, RECENT_FAILURES);
 
@@ -243,6 +278,17 @@ describe('admin dashboard query plans (D47 amended, migration 0025)', () => {
       expect(queueWith, 'queue panel should not scan all of grading_jobs').not.toContain('Seq Scan on grading_jobs');
       // Same rows, same SQL, no index: this is what D47 shipped.
       expect(queueWithout, 'without 0025 the queue panel scans the whole table').toContain('Seq Scan on grading_jobs');
+
+      // --- the worker panel's live half -------------------------------------
+      expect(liveWith, 'the live half should read grading_jobs_active_idx').toContain(
+        'grading_jobs_active_idx',
+      );
+      expect(liveWith, 'the live half should not scan all of grading_jobs').not.toContain(
+        'Seq Scan on grading_jobs',
+      );
+      expect(liveWithout, 'without 0025 the live half scans the whole table').toContain(
+        'Seq Scan on grading_jobs',
+      );
 
       // --- the worker panel's throughput half -------------------------------
       expect(throughputWith, 'throughput should drive off the judged_at window').toContain('submissions_judged_at_idx');

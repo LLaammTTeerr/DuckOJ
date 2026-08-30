@@ -1490,6 +1490,19 @@ directions are proved on identical rows on every CI run.
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B9 brief),
 no human available to consult. Migration 0025.*
 
+**Measured again 2026-08-31 (B-19).** B-8's "`workers()` is unbounded" was
+carried forward as still-open through B-16, B-17 and B-18 without being
+re-asked; it was closed by this amendment, and the reason it kept being
+believed is that only the throughput half was ever ASSERTED. Both halves are
+now in `admin-dashboard-plan.spec.ts`, on the same 100 000-row fixture and
+with the same drop-the-index red direction. The live half — "what is each
+worker carrying now" — reads `grading_jobs_active_idx` for 40 rows in
+**0.058 ms**; drop the index and the identical statement sequentially scans
+`grading_jobs` and discards 99 960 rows to find them (**6.15 ms**). The
+throughput half nests `submissions_judged_at_idx` into
+`grading_jobs_submission_idx` for 276 rows in **0.423 ms**. No migration was
+needed, and 0038 was NOT spent here.
+
 ## D48 — The contest booklet is one typst document, and `## English` is the language split
 
 `GET /contests/{key}/booklet.pdf` prints the whole contest: a cover page (name,
