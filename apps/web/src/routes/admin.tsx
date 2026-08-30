@@ -275,7 +275,7 @@ function agePhrase(t: TFunction, seconds: number): string {
  * an em dash alone says "nothing here", and the reader deserves to be told
  * WHY there is nothing (D47: a null is "judged never said", not "zero").
  */
-function Stat({ label, value, title }: { label: string; value: string; title?: string }) {
+function Stat({ label, value, title }: { label: string; value: string; title?: string | undefined }) {
   return (
     <div className="stat">
       <span>{label}</span>
