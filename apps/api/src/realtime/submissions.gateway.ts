@@ -20,6 +20,35 @@ const BEARER_SCHEME = /^Bearer\s+/i;
 // with `notify` writing frames into a socket nobody is reading.
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
+/**
+ * How many submissions one connection may watch at once.
+ *
+ * `subscriptions` was append-only and unbounded, and nothing but closing the
+ * socket ever removed an id from it. Two consequences, both reachable by any
+ * ordinary signed-in caller:
+ *
+ *  - **Cost.** Every `subscribe` frame runs `getVisible`, which is three
+ *    queries and loads the submission's SOURCE and its whole case grid — a
+ *    full detail read, done only to answer a yes/no authorization question.
+ *    A client with a few thousand of its own submissions (a season of
+ *    practice) can spend them all in one burst down a single socket, with no
+ *    rate limit anywhere on this path.
+ *  - **Memory.** The Set grows for the life of the connection, and a
+ *    half-open connection lives until the heartbeat sweep notices.
+ *
+ *  256 is far more than any real page watches — the web opens ONE socket per
+ *  submission — and small enough that a thousand connections at the cap is
+ *  bookkeeping rather than a leak. A client that legitimately needs more
+ *  releases what it no longer needs with `unsubscribe`, which is what makes
+ *  a cap fair rather than merely a wall.
+ *
+ * Injected through `MAX_SUBSCRIPTIONS` rather than read as a module
+ * constant, for the same reason `MAX_UNPACKED_BYTES` is a parameter (D53): a
+ * test can then prove the bound at 2 instead of standing up 257 submissions.
+ */
+export const MAX_SUBSCRIPTIONS = Symbol('MAX_SUBSCRIPTIONS');
+export const DEFAULT_MAX_SUBSCRIPTIONS = 256;
+
 interface Client {
   actor: Actor;
   subscriptions: Set<number>;
@@ -107,6 +136,7 @@ export class SubmissionsGateway implements OnModuleDestroy {
     @Inject(TokenService) private readonly tokens: TokenService,
     @Inject(SubmissionAccessService) private readonly submissions: SubmissionAccessService,
     @Inject('SESSION_COOKIE_NAME') private readonly cookieName: string,
+    @Inject(MAX_SUBSCRIPTIONS) private readonly maxSubscriptions: number,
   ) {}
 
   attach(server: HttpServer): void {
@@ -191,8 +221,40 @@ export class SubmissionsGateway implements OnModuleDestroy {
       return;
     }
 
-    const submissionId = readSubscribeMessage(parsed);
-    if (submissionId === null) return;
+    const message = readClientMessage(parsed);
+    if (message === null) return;
+
+    if (message.type === 'unsubscribe') {
+      // Never authorized and never an error: releasing a subscription you do
+      // not hold is a no-op, and answering anything else would make this
+      // frame an existence oracle for ids the caller cannot see.
+      client.subscriptions.delete(message.submissionId);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'unsubscribed', id: message.submissionId }));
+      }
+      return;
+    }
+
+    const submissionId = message.submissionId;
+
+    // Re-acked without touching the database. A client that re-subscribes on
+    // every reconnect (the web does) must not pay a full detail read for a
+    // subscription it already holds, and this is also what keeps a flood of
+    // repeats from being an amplifier.
+    if (client.subscriptions.has(submissionId)) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribed', id: submissionId }));
+      }
+      return;
+    }
+
+    // Checked BEFORE `getVisible`, deliberately: past the cap a flood must
+    // cost this process nothing at all, and a refusal that first ran three
+    // queries would be the cheapest half of the attack it exists to stop.
+    if (client.subscriptions.size >= this.maxSubscriptions) {
+      ws.send(JSON.stringify({ type: 'error', code: 'subscription_limit' }));
+      return;
+    }
 
     try {
       // Authorizing the SUBSCRIPTION, not merely the connection. Without this
@@ -251,11 +313,23 @@ export class SubmissionsGateway implements OnModuleDestroy {
  * so it becomes an unhandled rejection: the same crash class as an
  * unauthenticated client sending a malformed cookie, except reachable by any
  * already-authenticated one sending a single WebSocket frame.
+ *
+ * Two frames are understood. `unsubscribe` is the release half of
+ * `subscribe`: without it the only way to stop watching a submission was to
+ * drop the connection, which is why `subscriptions` could only ever grow.
  */
-function readSubscribeMessage(value: unknown): number | null {
+function readClientMessage(
+  value: unknown,
+): { type: 'subscribe' | 'unsubscribe'; submissionId: number } | null {
   if (typeof value !== 'object' || value === null) return null;
   const { type, submissionId } = value as { type?: unknown; submissionId?: unknown };
-  return type === 'subscribe' && typeof submissionId === 'number' ? submissionId : null;
+  if (type !== 'subscribe' && type !== 'unsubscribe') return null;
+  // `Number.isInteger` rather than `typeof === 'number'`: `NaN`, `Infinity`
+  // and `1.5` are all numbers, and none of them is a submission id — an id
+  // that reaches the Set but can never match a `notify` is a subscription
+  // that occupies a slot and can never fire.
+  if (!Number.isInteger(submissionId) || (submissionId as number) <= 0) return null;
+  return { type, submissionId: submissionId as number };
 }
 
 function parseCookie(header: string): Record<string, string> {
