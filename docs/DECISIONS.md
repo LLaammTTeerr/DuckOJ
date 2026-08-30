@@ -4026,3 +4026,54 @@ page every competitor has open. The link on the contest page is gated on
 *Ruled by the implementer during the 2026-08-30 F-23 loop, no human available
 to consult. Migration 0035.*
 
+
+## D96 — A problem statement is untrusted input, and `solve-problem` renders it inside a marked region
+
+`apps/mcp`'s `solve-problem` prompt fetched a problem and spliced its
+statement straight into a **user-role** message — the one place a host shows
+text to a model as though the person at the keyboard had typed it. A DuckOJ
+statement is written by whoever set the problem: on a province deployment that
+is every teacher in the province and any account holding `problems:write`, and
+a statement arriving through `polygon:import` was written somewhere else
+entirely. Spliced in raw, it was indistinguishable from the prompt's own
+prose, so a statement that opened `## How to finish` wrote the section that
+tells the agent what to do next — and the agent it was instructing might be
+running with `DUCKOJ_MCP_WRITES=1`.
+
+- **The statement and its samples go inside `<<<DUCKOJ-UNTRUSTED-CONTENT>>>`
+  … `<<</DUCKOJ-UNTRUSTED-CONTENT>>>`, and the content's own copies of those
+  markers are defanged.** Markers rather than a Markdown fence because the
+  content IS Markdown and carries fences of its own. Defanged rather than
+  refused, because a statement that happens to contain the string is still a
+  statement and showing it inert beats showing nothing.
+- **The markers are named, never spelled out, in the sentence that explains
+  them.** Delimiters with nothing explaining them are decoration; the guard
+  sentence is what tells the model the region is data. Writing the literals
+  inside it would put a second copy of each in the message, and "the region
+  runs from the marker to the marker" would stop being something a reader —
+  or a test — could locate.
+- **The instructions come BEFORE the region.** A forged heading inside it is
+  then a second copy of a section the model has already read, arriving from a
+  place it has just been told is data.
+- **A title is flattened to one line.** `problem.name` and the tag slugs are
+  rendered outside the region because they are a title and a vocabulary, not
+  prose — and a title with a newline in it can write a heading, which is
+  exactly how this message distinguishes an instruction from content.
+- **A code fence is one backtick longer than the longest run inside it**
+  (CommonMark's own nesting rule). This became load-bearing when the prompt
+  started rendering D94's sample FILES: a sample is arbitrary test data, and a
+  line of three backticks in one is a line of three backticks.
+- **The samples come from `resolveSamples`, not from the statement table.**
+  D94 put the graded sample files on `GET /problems/{code}`; this prompt — the
+  one surface whose whole job is handing a model a runnable example — was
+  still scraping the prose beside them, so it gave a trimmed copy where
+  `problems_get` gave the real bytes, and "no sample table could be parsed"
+  for every statement shaped differently. Two readings of one question inside
+  one server is the drift D94 exists to end.
+
+None of this makes a model immune; no delimiter does. What it buys is that the
+boundary is unambiguous and stated, so a statement that tries to cross it is
+visible as an attempt rather than invisible as a section.
+
+*Ruled by the implementer during the 2026-08-30 B-17 bug-hunt loop, no human
+available to consult. No migration.*
