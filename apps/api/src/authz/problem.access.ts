@@ -2,9 +2,6 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, asc, eq, gt, gte, inArray, isNotNull, lte, notInArray, or, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
-  contestParticipations,
-  contestProblems,
-  contests,
   organizations,
   problemMembers,
   problemOrgs,
@@ -52,6 +49,7 @@ import {
   canEditProblem,
   canViewProblem,
   canViewRevisions,
+  contestHiddenProblemIds,
   loadProblemContext,
   visibleProblemsWhere,
   type ProblemViewContext,
@@ -141,9 +139,12 @@ export function likeEscape(raw: string): string {
 }
 
 /**
- * The ONLY module permitted to import `@duckoj/db/guarded` for problems,
- * exactly as `org.access.ts` is for organizations — with the single
- * exception carved out for `SubmissionAccessService` (spec §3).
+ * The primary reader of `@duckoj/db/guarded` for problems, exactly as
+ * `org.access.ts` is for organizations — with two carve-outs: the submission
+ * read path (`SubmissionAccessService`, spec §3), and the problem discussion
+ * (`ProblemCommentsService`, D109), which reads and writes its own
+ * `problem_comments` table and reuses this file's visibility predicates
+ * rather than reimplementing them.
  */
 @Injectable()
 export class ProblemAccessService {
@@ -1721,28 +1722,15 @@ export class ProblemAccessService {
    * `problemIds`, when given, narrows the scan to the ids a caller is about
    * to render — `getVisible` needs one row's answer, not the whole set.
    */
-  private async contestHiddenProblemIds(
+  private contestHiddenProblemIds(
     actor: Actor | null,
     problemIds?: number[],
   ): Promise<ReadonlySet<number>> {
-    if (!actor || isAdmin(actor)) return EMPTY_IDS;
-    if (problemIds !== undefined && problemIds.length === 0) return EMPTY_IDS;
-    const conditions = [
-      eq(contestParticipations.userId, actor.userId),
-      // `now()` is the database's clock, the same one every other
-      // contest-window predicate in this codebase reads.
-      sql`now() >= ${contests.startTime}`,
-      sql`now() < ${contests.endTime}`,
-      sql`${contests.createdBy} <> ${actor.userId}`,
-    ];
-    if (problemIds !== undefined) conditions.push(inArray(contestProblems.problemId, problemIds));
-    const rows = await this.db
-      .selectDistinct({ problemId: contestProblems.problemId })
-      .from(contestParticipations)
-      .innerJoin(contests, eq(contests.id, contestParticipations.contestId))
-      .innerJoin(contestProblems, eq(contestProblems.contestId, contests.id))
-      .where(and(...conditions));
-    return new Set(rows.map((row) => row.problemId));
+    // Delegates to the shared predicate in `problem.visibility.ts` (D35, and
+    // D109's discussion hiding). Kept as a thin method so every call site here
+    // reads unchanged, but the query itself lives in one place so this masking
+    // and `ProblemCommentsService`'s can never drift apart.
+    return contestHiddenProblemIds(this.db, actor, problemIds);
   }
 
   /**
@@ -2039,9 +2027,6 @@ function blankStats(): ProblemStatsDto {
     firstSolver: null,
   };
 }
-
-/** The one empty set every "nothing is hidden" answer returns. */
-const EMPTY_IDS: ReadonlySet<number> = new Set<number>();
 
 /**
  * The single refusal every editorial branch collapses to — absent,

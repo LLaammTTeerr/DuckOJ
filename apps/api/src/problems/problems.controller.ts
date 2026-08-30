@@ -2,6 +2,7 @@ import type { ArgumentMetadata, PipeTransform } from '@nestjs/common';
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Inject,
@@ -16,20 +17,29 @@ import type { Response } from 'express';
 import {
   AttachRevisionRequest,
   CloneProblemRequest,
+  CommentIdParam,
+  CreateCommentRequest,
   CreateProblemRequest,
+  PaginationQuery,
   ProblemListQueryParse,
   RevisionVersionParam,
+  UpdateCommentRequest,
   UpdateProblemRequest,
   type AttachRevisionRequestDto,
   type CloneProblemRequestDto,
+  type CreateCommentRequestDto,
   type CreateProblemRequestDto,
   type EditorialResponseDto,
+  type PaginationQueryDto,
+  type ProblemCommentDto,
+  type ProblemCommentPageDto,
   type ProblemDetailDto,
   type ProblemListQueryDto,
   type ProblemPageDto,
   type ProblemStatsDto,
   type RevisionSummaryDto,
   type RevisionVersionResponseDto,
+  type UpdateCommentRequestDto,
   type UpdateProblemRequestDto,
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
@@ -38,6 +48,7 @@ import { CurrentActor, MaybeActor, Public } from '../authn/auth.guard.js';
 import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { ProblemAccessService } from '../authz/problem.access.js';
+import { ProblemCommentsService } from '../authz/problem.comments.js';
 import { STATEMENT_RENDERER, type StatementRenderer } from '../statements/statement-renderer.js';
 
 /**
@@ -69,6 +80,7 @@ class UpdateProblemBodyPipe implements PipeTransform<unknown, UpdateProblemReque
 export class ProblemsController {
   constructor(
     @Inject(ProblemAccessService) private readonly problems: ProblemAccessService,
+    @Inject(ProblemCommentsService) private readonly comments: ProblemCommentsService,
     @Inject(STATEMENT_RENDERER) private readonly statements: StatementRenderer,
   ) {}
 
@@ -240,5 +252,60 @@ export class ProblemsController {
     @Param('version', new ZodValidationPipe(RevisionVersionParam)) version: number,
   ): Promise<RevisionVersionResponseDto> {
     return this.problems.publishRevision(actor, code, version);
+  }
+
+  /**
+   * The problem's discussion (D109). `@Public()` and `problems:read` like the
+   * statement and editorial above: an anonymous reader may read it, and who
+   * may see it — including the D109 contest-spoiler withholding — is decided
+   * entirely in `ProblemCommentsService`.
+   */
+  @Get(':code/comments')
+  @Public()
+  @RequireScope('problems:read')
+  listComments(
+    @MaybeActor() actor: Actor | null,
+    @Param('code') code: string,
+    @Query(new ZodValidationPipe(PaginationQuery)) query: PaginationQueryDto,
+  ): Promise<ProblemCommentPageDto> {
+    return this.comments.list(actor, code, { cursor: query.cursor });
+  }
+
+  // The three writes below carry no `@Public()`: every one requires
+  // authentication at the guard level. `problems:write`, not a discussion
+  // scope of its own — a user comment reuses the domain's write scope exactly
+  // as a contest clarification reuses `contests:write` (there is no
+  // `discussions:*` scope, and one is not worth minting for this).
+  @Post(':code/comments')
+  @HttpCode(201)
+  @RequireScope('problems:write')
+  createComment(
+    @CurrentActor() actor: Actor,
+    @Param('code') code: string,
+    @Body(new ZodValidationPipe(CreateCommentRequest)) body: CreateCommentRequestDto,
+  ): Promise<ProblemCommentDto> {
+    return this.comments.create(actor, code, body);
+  }
+
+  @Patch(':code/comments/:id')
+  @RequireScope('problems:write')
+  editComment(
+    @CurrentActor() actor: Actor,
+    @Param('code') code: string,
+    @Param('id', new ZodValidationPipe(CommentIdParam)) id: number,
+    @Body(new ZodValidationPipe(UpdateCommentRequest)) body: UpdateCommentRequestDto,
+  ): Promise<ProblemCommentDto> {
+    return this.comments.edit(actor, code, id, body);
+  }
+
+  @Delete(':code/comments/:id')
+  @HttpCode(204)
+  @RequireScope('problems:write')
+  deleteComment(
+    @CurrentActor() actor: Actor,
+    @Param('code') code: string,
+    @Param('id', new ZodValidationPipe(CommentIdParam)) id: number,
+  ): Promise<void> {
+    return this.comments.remove(actor, code, id);
   }
 }

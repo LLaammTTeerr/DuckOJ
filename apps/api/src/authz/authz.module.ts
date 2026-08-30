@@ -25,6 +25,7 @@ import {
 import { OrgAccessService } from './org.access.js';
 import { OrgImportService } from './org.import.js';
 import { ProblemAccessService } from './problem.access.js';
+import { ProblemCommentsService } from './problem.comments.js';
 import { ProgressService } from './progress.access.js';
 import {
   DEFAULT_PROGRESS_EXPORT_BOUNDS,
@@ -81,6 +82,7 @@ import {
     // framework-free module the CLI also runs.
     OrgImportService,
     ProblemAccessService,
+    ProblemCommentsService,
     // D66's classroom problem sets. Its own provider rather than more
     // methods on `OrgAccessService`: it asks that service who may act, and
     // reads three tables that service never touches.
@@ -144,6 +146,7 @@ import {
     OrgAccessService,
     OrgImportService,
     ProblemAccessService,
+    ProblemCommentsService,
     ProblemSetAccessService,
     ProgressService,
     RatingService,

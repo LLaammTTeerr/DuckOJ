@@ -1,7 +1,8 @@
-import { and, eq, inArray, or, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   contestParticipations,
   contestProblems,
+  contests,
   orgMembers,
   problemMembers,
   problemOrgs,
@@ -225,4 +226,44 @@ export async function loadProblemContext(
     actorOrgIds: orgs.filter((o) => o.mine !== null).map((o) => o.mine!),
     inJoinedContest: joinedContest.length > 0,
   };
+}
+
+const EMPTY_HIDDEN_IDS: ReadonlySet<number> = new Set<number>();
+
+/**
+ * The set of problem ids whose *hints* (D35) and *discussion* (D109) are
+ * withheld from `actor`: those belonging to a contest the actor is currently
+ * competing in (`start <= now < end`) that they did not themselves organise.
+ *
+ * Shared by `ProblemAccessService` (which masks tags, difficulty and stats
+ * with it) and `ProblemCommentsService` (which hides the whole thread with
+ * it), so the two can never disagree about who is inside a running room — the
+ * split-predicate bug this codebase has paid for before. An admin, and an
+ * anonymous caller, are never hidden anything; pass `problemIds` to scope the
+ * probe to a known set (a single problem's page), or omit it for "every
+ * problem in a contest I'm sitting".
+ */
+export async function contestHiddenProblemIds(
+  db: Db,
+  actor: Actor | null,
+  problemIds?: number[],
+): Promise<ReadonlySet<number>> {
+  if (!actor || isAdmin(actor)) return EMPTY_HIDDEN_IDS;
+  if (problemIds !== undefined && problemIds.length === 0) return EMPTY_HIDDEN_IDS;
+  const conditions = [
+    eq(contestParticipations.userId, actor.userId),
+    // `now()` is the database's clock, the same one every other contest-window
+    // predicate in this codebase reads.
+    sql`now() >= ${contests.startTime}`,
+    sql`now() < ${contests.endTime}`,
+    sql`${contests.createdBy} <> ${actor.userId}`,
+  ];
+  if (problemIds !== undefined) conditions.push(inArray(contestProblems.problemId, problemIds));
+  const rows = await db
+    .selectDistinct({ problemId: contestProblems.problemId })
+    .from(contestParticipations)
+    .innerJoin(contests, eq(contests.id, contestParticipations.contestId))
+    .innerJoin(contestProblems, eq(contestProblems.contestId, contests.id))
+    .where(and(...conditions));
+  return new Set(rows.map((row) => row.problemId));
 }
