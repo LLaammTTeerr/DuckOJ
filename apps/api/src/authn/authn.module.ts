@@ -17,6 +17,7 @@ import { TotpRecoveryService } from './totp-recovery.service.js';
 import { AuthGuard } from './auth.guard.js';
 import { SessionOnlyGuard } from './session-only.guard.js';
 import { ScopeGuard } from './scope.guard.js';
+import { CsrfOriginGuard } from './csrf-origin.guard.js';
 import { JudgeGuard } from './judge.guard.js';
 import { JudgeService } from './judge.service.js';
 
@@ -43,6 +44,15 @@ import { JudgeService } from './judge.service.js';
  * route therefore reports "not signed in", not "wrong scope". Reordering
  * this pair would let `ScopeGuard` observe a request `AuthGuard` has not yet
  * judged.
+ *
+ * `CsrfOriginGuard` (D82) is registered FIRST, ahead of both. It reads no
+ * actor — only the request's method, its `Authorization` header and whether a
+ * session cookie is present — so it needs nothing `AuthGuard` produces, and
+ * running it first is what makes a cross-site request refused as what it is:
+ * `403 csrf_origin`, rather than reaching `AuthGuard`, resolving the ambient
+ * cookie into a perfectly valid actor, and being judged on the merits of a
+ * request the victim never made. It is also the cheapest of the three, so a
+ * refusal costs no database round trip.
  */
 @Module({
   // `forwardRef` because `NotificationsModule` imports this one back (its
@@ -72,6 +82,8 @@ import { JudgeService } from './judge.service.js';
     AuthGuard,
     SessionOnlyGuard,
     ScopeGuard,
+    CsrfOriginGuard,
+    { provide: APP_GUARD, useExisting: CsrfOriginGuard },
     { provide: APP_GUARD, useExisting: AuthGuard },
     { provide: APP_GUARD, useExisting: ScopeGuard },
   ],

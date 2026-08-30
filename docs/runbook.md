@@ -68,6 +68,23 @@ respectively) — no separate `pnpm exec` incantation is needed. `TOTP_ENC_KEY` 
 `PUBLIC_ORIGIN` are both required by `apps/api/src/config/config.schema.ts`; the API
 fails fast at boot with a clear Zod error if either is missing.
 
+**`PUBLIC_ORIGIN` + `WS_EXTRA_ORIGINS` is a security boundary, not just a CORS
+setting.** The two together are the browser-origin allow-list, and it now gates
+**three** things: CORS, the WebSocket upgrade (D70), and — since D82 — every
+cookie-authenticated `POST`/`PATCH`/`DELETE`, which is refused `403 csrf_origin`
+if its `Origin` (or `Referer`) is not on the list, or if it sends neither. So:
+
+- A browser client served from an origin that is not on this list can read the
+  API but cannot write to it. If a new front end, a staging host or a tunnel
+  starts getting 403s on every save, this list is the first thing to check.
+- **Anything scripted that carries a session cookie must send `Origin`
+  itself** — Node's `fetch` and Playwright's `context.request` send none. The
+  three `scripts/e2e-*.ts` do this, naming `E2E_BASE_URL`'s origin, so
+  `E2E_BASE_URL` has to be a value on this list (on this host,
+  `http://localhost:8080`, which is what `WS_EXTRA_ORIGINS` is set to).
+- Anything using a **bearer token** — `oj`, the judge agent, CI — is
+  unaffected and needs no origin.
+
 This exact sequence (container run, `migrate`, `api dev`, `curl /healthz`) was run
 end-to-end while writing this runbook: the container started, `migrate` printed
 `migrations applied`, the API mapped all routes and logged

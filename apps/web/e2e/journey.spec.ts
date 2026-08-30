@@ -513,6 +513,20 @@ test('journey 7 — a contest submission names its contest, in the list and on i
  */
 let sourceAccessFlipped = false;
 
+/**
+ * The origin this run is driving, as a header.
+ *
+ * Everything else in this file goes through a real page, and a real browser
+ * sends `Origin` on every unsafe method. `context.request` does not — it is
+ * an HTTP client that happens to share the cookie jar — so the one
+ * cookie-authenticated write below has to say so itself, or D82's
+ * `CsrfOriginGuard` refuses it 403. The value must be `PUBLIC_ORIGIN` or one
+ * of `WS_EXTRA_ORIGINS` on the stack under test; `playwright.config.ts`
+ * defaults `E2E_BASE_URL` to the same `http://localhost:8080` that `.env`
+ * lists.
+ */
+const REQUEST_ORIGIN = new URL(process.env.E2E_BASE_URL ?? 'http://localhost:8080').origin;
+
 test.afterAll(async ({ browser }) => {
   if (!sourceAccessFlipped) return;
   const context = await browser.newContext();
@@ -520,10 +534,12 @@ test.afterAll(async ({ browser }) => {
     const admin = adminCredentials();
     const signedIn = await context.request.post('/api/v1/auth/login', {
       data: { usernameOrEmail: admin.username, password: admin.password },
+      headers: { origin: REQUEST_ORIGIN },
     });
     expect(signedIn.ok(), `restoring source_access: admin sign-in ${signedIn.status()}`).toBe(true);
     const restored = await context.request.patch(`/api/v1/problems/${PROBLEM}`, {
       data: { sourceAccess: 'private' },
+      headers: { origin: REQUEST_ORIGIN },
     });
     expect(restored.ok(), `restoring source_access: PATCH ${restored.status()}`).toBe(true);
     sourceAccessFlipped = false;

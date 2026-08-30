@@ -85,7 +85,13 @@ class Session {
   private cookie = '';
 
   async call(path: string, init: RequestInit = {}): Promise<Response> {
-    const headers: Record<string, string> = { ...(this.cookie ? { cookie: this.cookie } : {}) };
+    const headers: Record<string, string> = {
+      // D82: a cookie-authenticated write must say where it came from, and
+      // Node's `fetch` sends no `Origin`. This script drives the stack the
+      // way a browser at `BASE` would, so it says so.
+      origin: new URL(BASE).origin,
+      ...(this.cookie ? { cookie: this.cookie } : {}),
+    };
     for (const [k, v] of Object.entries((init.headers ?? {}) as Record<string, string>))
       headers[k] = v;
     const res = await fetch(`${BASE}/api/v1${path}`, { ...init, headers, redirect: 'follow' });

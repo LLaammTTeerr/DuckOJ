@@ -3170,3 +3170,72 @@ CLI in a loop is exactly who needs the number.
 *Ruled by the implementer during the 2026-08-30 B-13 leftovers loop, no human
 available to consult. No migration — `rate_events` takes a new `purpose`
 without one, which is that column's whole design.*
+
+## D82 — Every cookie-authenticated state change must name an allowed origin
+
+B10 cleared CSRF and wrote the clearance down as **single-layer**:
+`SameSite=Lax` withholds the session cookie from every cross-site unsafe
+method, every state change here is an unsafe method, and so Lax's
+top-level-GET allowance grants an attacker nothing. That argument is correct
+and it rests entirely on one browser feature behaving as documented — no
+token, no second check, nothing that fails independently of it. D70 made
+exactly this argument for the WebSocket upgrade and added an Origin check
+anyway; this is the same check for the other half of the surface.
+
+`CsrfOriginGuard`, one global guard, one rule: **a state-changing request
+that carries a session cookie must say where it came from, and where it came
+from must be ours.**
+
+- **The allow-list is `wsAllowedOrigins`** — `PUBLIC_ORIGIN` plus
+  `WS_EXTRA_ORIGINS`, D70's list, unchanged and not duplicated. A deploy that
+  may open a socket from an origin but not write from it is a configuration
+  nobody wants and everybody would eventually produce by editing one variable
+  and not the other.
+- **A negative method list**: `GET`, `HEAD` and `OPTIONS` are skipped and
+  everything else is checked. The positive `POST`/`PATCH`/`DELETE` is what
+  exists today, and a `PUT` added next month would be silently exempt from it.
+  `OPTIONS` is skipped so a CORS preflight — which carries no cookie and asks
+  permission for the request that follows — is never itself refused.
+- **Cookie PRESENCE, not validity.** The question is not "is this caller
+  signed in" but "could the browser have attached ambient credentials", and a
+  cookie the server will reject was still attached by the browser.
+- **Neither header, with a cookie, is a refusal.** This is the deliberate
+  opposite of D70's WebSocket ruling, which ALLOWS a missing `Origin` because
+  the clients that send none — `oj`, the judge agent — "carry no ambient
+  cookie". Here the cookie is the premise. `Origin: null`, which a sandboxed
+  iframe sends, fails list membership like any other stranger.
+- **`Referer` is a fallback, reduced to its origin first.** A `Referer`
+  carries a path, and a path is not a trust boundary: a check that matched the
+  whole header, or a prefix of it, would admit
+  `https://evil.example/http://localhost:5173`.
+- **Bearer requests are not checked**, even with a cookie riding along:
+  `AuthGuard.attachActor` authenticates by the token and never reads the
+  cookie, and no page can set an `Authorization` header without a preflight
+  this API answers only for its own origin. Every machine client has no origin
+  to send and must not be refused for it.
+- **Registered FIRST, ahead of `AuthGuard`.** It reads no actor, so it needs
+  nothing `AuthGuard` produces, and running it first is what makes a
+  cross-site request refused as what it is — `403 csrf_origin` — rather than
+  reaching `AuthGuard`, resolving the victim's perfectly valid cookie, and
+  being judged on the merits of a request they never made. A test pins that
+  precedence against a stale cookie: 403, never 401.
+
+**Nothing is registered per-route in `packages/contracts`.** This 403 is
+cross-cutting exactly as 401 is — it can happen to any unsafe route and is
+about the caller's browser rather than the endpoint — and adding it to every
+`registerPath` would be churn across a dozen files for a response no correct
+client can provoke.
+
+**What it costs, and who pays it.** Node's `fetch` sends no `Origin`, so the
+three `scripts/e2e-*.ts` — which drive the live stack through a session
+cookie — now send one naming `E2E_BASE_URL`'s origin, which must therefore be
+`PUBLIC_ORIGIN` or one of `WS_EXTRA_ORIGINS` (on the live host it is
+`http://localhost:8080`, already listed). `supertest` sends none either, so
+`app.harness.ts` stamps `Origin` on a request that named neither header —
+making the browser simulation faithful rather than turning the guard off. The
+suite's four-hundred-odd cookie-authenticated writes therefore exercise the
+ADMIT path on every run, and `csrf-origin.spec.ts` — the one file that opts
+out of the stamp — owns the refuse path.
+
+*Ruled by the implementer during the 2026-08-30 B-13 leftovers loop, no human
+available to consult. No migration.*
