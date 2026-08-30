@@ -61,7 +61,8 @@ statement — it is 499 bytes of raw markdown.
 
 - **The live stack runs the pre-fix build** (`b1e98fc`); migration 0025 is deliberately **not applied to
   production**. Every p95 above is pre-fix.
-- **Whole-suite flakiness under host load, pre-existing.** Every package passes alone; `pnpm -r test`
-  intermittently reds 1–7 `apps/web` specs on 5 s timeouts, a *different* set each run, while `apps/api`'s
-  testcontainers saturate the box (load average **61** on 16 cores, another user on it). My three new api
-  specs add pressure.
+- **The ritual is load-blocked, not red.** `apps/web` 365/365, `packages/db` 43/43, every other package,
+  and my six touched api specs 49/49 all pass; `apps/api` passed 764/764 when the box was quiet. Under
+  contention it reds a *different* random 4–7 specs each run — always 120 s container-start timeouts, on
+  specs this branch never touched — while another user's suite runs testcontainers beside mine (load
+  average 23–61 on 16 cores). My three new api specs add to that pressure; the 100k-row plan spec is ~19 s.
