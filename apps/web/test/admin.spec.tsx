@@ -217,6 +217,24 @@ describe('AdminPage TOTP reset (M9)', () => {
     expect(del).not.toHaveBeenCalled();
   });
 
+  /**
+   * The note above this button told an administrator, for two decisions,
+   * that there were no recovery codes and that a reset was "the only way
+   * back into the account" — false since D39, and the expensive kind of
+   * false: it invites an admin to strip somebody's second factor for a
+   * person who is holding eight codes that would have signed them in
+   * without anybody's help.
+   */
+  it('sends the admin to look for a recovery code first (D39)', async () => {
+    serve('admin');
+    wrap(<AdminPage />);
+    const note = await screen.findByText(/mất thiết bị xác thực/);
+    expect(note).toHaveTextContent('mã khôi phục');
+    expect(note).not.toHaveTextContent('Không có mã dự phòng');
+    // And it says what the reset costs: disable() clears the codes too.
+    expect(note).toHaveTextContent(/xoá|xóa/);
+  });
+
   it('shows the API refusal rather than claiming success', async () => {
     serve('admin');
     del.mockResolvedValue({ error: { code: 'user_not_found', detail: 'No such user: kim.' } });
@@ -274,6 +292,20 @@ describe('AdminPage operations dashboard (D47)', () => {
     expect(screen.getByRole('link', { name: 'kim' })).toBeInTheDocument();
     // The purpose stays a machine key — it is what you grep the log for.
     expect(screen.getByRole('row', { name: /login/ })).toHaveTextContent('12');
+  });
+
+  /**
+   * Two rows of bare numbers with no heading over them: the queue block and
+   * the runtime block. Both headings were written into the catalogue and
+   * used by nothing — the panel-parity test in `i18n.spec.tsx` is what
+   * found them, and the fix is to render them, not to delete a label the
+   * screen visibly wants.
+   */
+  it('names its two stat blocks, as the judge and worker tables are named', async () => {
+    serve('admin');
+    wrap(<AdminPage />);
+    expect(await screen.findByRole('heading', { name: 'Hàng đợi chấm' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Cấu hình đang chạy' })).toBeInTheDocument();
   });
 
   it('says an empty queue has no oldest wait rather than showing a zero', async () => {

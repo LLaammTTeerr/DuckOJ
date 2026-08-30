@@ -189,7 +189,6 @@ export const vi = {
   'problem.tags': 'Chủ đề',
   'problem.difficulty': 'Độ khó',
   'problem.editorial': 'Lời giải',
-  'problem.editorialShow': 'Xem lời giải',
   'problem.editorialDraft': 'bản nháp — chưa xuất bản',
 
   // ── authoring ─────────────────────────────────────────────────────────
@@ -556,7 +555,7 @@ export const vi = {
   'admin.replayedMany': 'Đã tính lại toàn bộ lịch sử: {count} kỳ thi đang tính vào rating.',
   'admin.totpHeading': 'Đặt lại xác thực hai bước',
   'admin.totpNote':
-    'Dùng khi thí sinh mất thiết bị xác thực. Không có mã dự phòng, nên đây là cách duy nhất để lấy lại tài khoản. Hãy xác minh danh tính người yêu cầu trước — thao tác này gỡ một lớp bảo vệ khỏi tài khoản của người khác.',
+    'Dùng khi thí sinh mất thiết bị xác thực. Hỏi họ về mã khôi phục trước: mỗi người bật xác thực hai bước đều nhận tám mã dùng một lần, và một mã bất kỳ đăng nhập được ngay mà không cần đến bạn. Chỉ khi mất cả hai mới dùng nút này — thao tác tắt hẳn xác thực hai bước và xoá luôn các mã khôi phục còn lại. Hãy xác minh danh tính người yêu cầu trước, vì đây là gỡ một lớp bảo vệ khỏi tài khoản của người khác.',
   'admin.totpUser': 'Người dùng cần đặt lại',
   'admin.totpReset': 'Tắt xác thực hai bước',
   'admin.totpConfirm':

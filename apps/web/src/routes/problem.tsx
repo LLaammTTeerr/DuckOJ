@@ -93,6 +93,7 @@ export function ProblemPage(props: { code: string }) {
           {problem.difficulty !== null
             ? `${t('problem.difficulty')}: ${String(problem.difficulty)}/10 `
             : null}
+          {problem.tags.length > 0 ? `${t('problem.tags')}: ` : null}
           {problem.tags.map((tag) => (
             <span key={tag.slug}>
               <Link className="tag" to="/problems" search={{ tag: [tag.slug] }}>

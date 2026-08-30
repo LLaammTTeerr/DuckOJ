@@ -200,7 +200,6 @@ export const en = {
   'problem.tags': 'Topics',
   'problem.difficulty': 'Difficulty',
   'problem.editorial': 'Editorial',
-  'problem.editorialShow': 'Show the editorial',
   'problem.editorialDraft': 'draft — not published',
 
   // ── authoring ─────────────────────────────────────────────────────────
@@ -586,7 +585,7 @@ export const en = {
   // hands an account to whoever asks, so the check is on the admin.
   'admin.totpHeading': 'Reset two-factor authentication',
   'admin.totpNote':
-    'For a student who lost their authenticator. There are no recovery codes, so this is the only way back into the account. Confirm who you are talking to first — this removes a security control from someone else\u2019s account.',
+    'For a student who lost their authenticator. Ask them about their recovery codes first: everyone who enrols gets eight single-use codes, and any one of them signs them in without you. Use this only when both are gone \u2014 it turns two-factor authentication off and deletes the remaining recovery codes with it. Confirm who you are talking to first: this removes a security control from someone else\u2019s account.',
   'admin.totpUser': 'User to reset',
   'admin.totpReset': 'Disable two-factor',
   'admin.totpConfirm':

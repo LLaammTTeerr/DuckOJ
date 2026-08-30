@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi as vitestMock, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -84,6 +86,73 @@ describe('the catalogues', () => {
         placeholders(en[key]),
       );
     }
+  });
+});
+
+/**
+ * Every catalogue key is spent somewhere in `src/`.
+ *
+ * The catalogues only ever grow: a screen is rewritten, its labels stop
+ * being asked for, and the two entries stay — translated, reviewed, and
+ * addressed by nothing. `admin.totpNote` sat wrong for two decisions
+ * (D39 gave 2FA recovery codes; the note still said there were none) and
+ * `problem.editorialShow` was defined in both locales and read by no
+ * screen at all. Neither is visible to `tsc`: an unused constant in an
+ * object literal is not an error, and `satisfies Record<MsgKey, string>`
+ * only checks the other direction.
+ *
+ * So this is a grep, deliberately. It reads the app's own source and
+ * demands a literal occurrence of each key — which also means a key can
+ * only be spelled out where it is used, never assembled, and that is the
+ * property worth having: a key built from a runtime value has no
+ * typecheck behind it either (the fallback test above exists for exactly
+ * that hole). The keys that ARE built that way are listed below, by
+ * prefix and with the function that builds them named, so adding one is a
+ * deliberate edit to this list rather than a silent exemption.
+ */
+const DYNAMIC_KEY_PREFIXES: readonly string[] = [
+  'verdict.', // verdictName (i18n/index.tsx), guarded by `key in en`
+  'globalRole.', // globalRoleLabel (i18n/index.tsx), guarded by `key in en`
+  'revState.', // problem-revisions.tsx, from the revision's own state
+  'visibility.', // problem-edit.tsx, over the visibility enum
+  'sourceAccess.', // problem-edit.tsx, over the source-access enum
+  'problemRole.', // problem-edit.tsx, from a member's role
+];
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    return /\.(ts|tsx)$/.test(entry.name) ? [path] : [];
+  });
+}
+
+describe('the catalogues against the app that reads them', () => {
+  it('spends every key it defines', () => {
+    // `process.cwd()`, not `import.meta.url`: these specs run under jsdom,
+    // where `import.meta.url` is an `http://localhost/` URL that
+    // `fileURLToPath` refuses. Vitest's cwd is the package root, which is
+    // where `src/` is — and the `readdirSync` below throws loudly rather
+    // than silently scanning nothing if that ever stops being true.
+    const srcDir = join(process.cwd(), 'src');
+    // The two catalogue FILES are where the keys are defined; counting
+    // those as uses would make this test pass on every orphan there is.
+    // `i18n/index.tsx` is not one of them — it spends keys of its own
+    // (`time.justNow`), so excluding the whole directory would have
+    // reported a live key as dead.
+    const catalogues = [join('i18n', 'en.ts'), join('i18n', 'vi.ts')];
+    const sources = sourceFiles(srcDir)
+      .filter((path) => !catalogues.some((name) => path.endsWith(name)))
+      .map((path) => readFileSync(path, 'utf8'))
+      .join('\n');
+    const orphans = (Object.keys(en) as MsgKey[]).filter(
+      (key) =>
+        !DYNAMIC_KEY_PREFIXES.some((prefix) => key.startsWith(prefix)) &&
+        !sources.includes(`'${key}'`) &&
+        !sources.includes(`"${key}"`) &&
+        !sources.includes(`\`${key}\``),
+    );
+    expect(orphans, 'catalogue keys no screen asks for').toEqual([]);
   });
 });
 

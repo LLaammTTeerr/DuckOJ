@@ -344,6 +344,7 @@ function Operations() {
             {t('admin.dashUpdated', { time: formatTimestamp(data.generatedAt, locale, timeZone) })}
           </p>
 
+          <h3>{t('admin.queueHeading')}</h3>
           <div className="stats">
             <Stat label={t('admin.queueQueued')} value={String(data.queue.queued)} />
             <Stat label={t('admin.queueRunning')} value={String(data.queue.running)} />
@@ -368,6 +369,7 @@ function Operations() {
           {notice ? <p role="status">{notice}</p> : null}
           {error ? <p role="alert">{error}</p> : null}
 
+          <h3>{t('admin.runtimeHeading')}</h3>
           <div className="stats">
             <Stat
               label={t('admin.depDatabase')}

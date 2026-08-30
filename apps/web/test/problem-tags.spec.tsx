@@ -238,6 +238,10 @@ describe('the problem page', () => {
     const chip = await screen.findByRole('link', { name: 'Đồ thị' });
     expect(decodeURIComponent(chip.getAttribute('href') ?? '')).toContain('/problems?tag=["do-thi"]');
     expect(screen.getByText(/Độ khó: 4\/10/)).toBeInTheDocument();
+    // The chips are labelled the way the number beside them is. `Chủ đề`
+    // was a translated catalogue key no screen asked for, and a row of bare
+    // links beside "Độ khó: 4/10" reads as a second, unnamed quantity.
+    expect(screen.getByText(/Chủ đề:/)).toBeInTheDocument();
   });
 
   it('shows neither when the problem carries neither', async () => {
@@ -247,6 +251,7 @@ describe('the problem page', () => {
 
     await screen.findByRole('link', { name: 'PDF' });
     expect(screen.queryByText(/Độ khó/)).toBeNull();
+    expect(screen.queryByText(/Chủ đề:/)).toBeNull();
   });
 });
 
