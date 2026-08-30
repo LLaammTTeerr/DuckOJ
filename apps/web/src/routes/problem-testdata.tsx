@@ -40,7 +40,11 @@ async function readFileText(file: File): Promise<string> {
   return file.text();
 }
 
-type Phase = { kind: 'idle' } | { kind: 'uploading'; done: number; total: number } | { kind: 'building' };
+type Phase =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'uploading'; done: number; total: number }
+  | { kind: 'building' };
 
 /**
  * "Dữ liệu chấm" — the test-data tab of the problem edit screen (D87).
@@ -74,6 +78,7 @@ export function ProblemTestDataTab(props: { code: string }) {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const [error, setError] = useState<string | null>(null);
   const [built, setBuilt] = useState<{ version: number; published: boolean } | null>(null);
+  const [loaded, setLoaded] = useState<number | null>(null);
 
   const busy = phase.kind !== 'idle';
   const totalPoints = cases.reduce((sum, c) => sum + (c.sample ? 0 : c.points), 0);
@@ -116,6 +121,117 @@ export function ProblemTestDataTab(props: { code: string }) {
       setOversized([]);
     } catch {
       setOversized([file.name]);
+    }
+  }
+
+  /**
+   * Load an existing revision's test data into this table (D88).
+   *
+   * The server opens a draft pre-filled from the revision and this reads the
+   * files back out of it one at a time — then DISCARDS it. The draft was
+   * never anything but a way to read: everything on this screen lives in
+   * memory until "Tạo phiên bản", and the build path opens a draft of its
+   * own, so keeping this one would leave a second, diverging copy of the
+   * same test set on the server for 24 hours.
+   *
+   * The PUBLISHED revision, not the newest one: "load what this problem
+   * currently grades against" is the question a setter is asking. A problem
+   * with no published revision falls back to its highest version, which is
+   * the only other thing the sentence could mean.
+   */
+  async function handleLoad(): Promise<void> {
+    setError(null);
+    setBuilt(null);
+    setLoaded(null);
+    setOversized([]);
+    setUnpaired([]);
+
+    let draftId: string | null = null;
+    try {
+      setPhase({ kind: 'loading' });
+      const list = await api.GET('/problems/{code}/revisions', { params: { path: { code } } });
+      if (list.error || !list.data) {
+        setError(list.error?.detail ?? t('testData.loadFailed'));
+        return;
+      }
+      const revisions = list.data;
+      const target =
+        revisions.find((r) => r.state === 'published') ??
+        [...revisions].sort((a, b) => b.version - a.version)[0];
+      if (target === undefined) {
+        setError(t('testData.noRevision'));
+        return;
+      }
+
+      const opened = await api.POST('/problems/{code}/drafts/from-revision/{version}', {
+        params: { path: { code, version: target.version } },
+      });
+      if (opened.error || !opened.data) {
+        setError(opened.error?.detail ?? t('testData.loadFailed'));
+        return;
+      }
+      draftId = opened.data.draftId;
+      const prefill = opened.data.prefill;
+
+      const names = prefill.cases.flatMap((c) => [c.input, c.answer]);
+      if (prefill.checker.kind === 'source' && prefill.checker.path !== undefined) {
+        names.push(prefill.checker.path);
+      }
+      const texts = new Map<string, string>();
+      const tooBig: string[] = [];
+      for (const name of names) {
+        const file = await api.GET('/problems/{code}/drafts/{draftId}/files/{name}', {
+          params: { path: { code, draftId, name } },
+          parseAs: 'text',
+        });
+        if (file.error || file.data === undefined) {
+          setError(`${name}: ${file.error?.detail ?? t('testData.loadFailed')}`);
+          return;
+        }
+        const text = String(file.data);
+        // The same ceiling a selected file gets, and for the same reason:
+        // every byte here becomes a `<textarea>`'s value. A CLI-built test
+        // set with a megabyte case cannot be edited in a browser, and being
+        // told that is far better than a tab that dies loading it.
+        if (new TextEncoder().encode(text).length > MAX_TEST_FILE_BYTES) tooBig.push(name);
+        texts.set(name, text);
+      }
+      if (tooBig.length > 0) {
+        setOversized(tooBig);
+        setError(t('testData.loadTooLarge'));
+        return;
+      }
+
+      setTimeMs(String(prefill.timeMs));
+      setMemoryKb(String(prefill.memoryKb));
+      setChecker({
+        kind: prefill.checker.kind,
+        source: prefill.checker.path === undefined ? '' : (texts.get(prefill.checker.path) ?? ''),
+        language: prefill.checker.language ?? 'cpp17',
+      });
+      // REPLACES the table rather than appending to it: this is "show me
+      // what is published", not "add it to what I am writing", and merging
+      // two test sets by accident is not something a setter can undo here.
+      setCases(
+        prefill.cases.map((c) => ({
+          ...emptyCase(),
+          input: texts.get(c.input) ?? '',
+          answer: texts.get(c.answer) ?? '',
+          points: c.points,
+          group: c.group,
+          sample: c.sample,
+        })),
+      );
+      setLoaded(target.version);
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      if (draftId !== null) {
+        await api
+          .DELETE('/problems/{code}/drafts/{draftId}', { params: { path: { code, draftId } } })
+          .catch(() => undefined);
+      }
+      setPhase({ kind: 'idle' });
     }
   }
 
@@ -259,6 +375,16 @@ export function ProblemTestDataTab(props: { code: string }) {
       />
       <p>{t('testData.bulkHint')}</p>
 
+      {/* D88: the round trip. Deliberately beside the bulk add rather than
+          at the top — loading a published set is one more way to fill this
+          table, not a mode the screen is in. */}
+      <p>
+        <button type="button" onClick={() => void handleLoad()} disabled={busy}>
+          {t('testData.loadFromRevision')}
+        </button>{' '}
+        {t('testData.loadHint')}
+      </p>
+
       {oversized.length > 0 ? (
         <p role="alert">{t('testData.tooLarge', { names: oversized.join(', ') })}</p>
       ) : null}
@@ -377,6 +503,8 @@ export function ProblemTestDataTab(props: { code: string }) {
         {t('testData.create')}
       </button>
 
+      {phase.kind === 'loading' ? <p role="status">{t('testData.loading')}</p> : null}
+      {loaded !== null ? <p role="status">{t('testData.loaded', { version: loaded })}</p> : null}
       {phase.kind === 'uploading' ? (
         <p role="status">{t('testData.uploading', { done: phase.done, total: phase.total })}</p>
       ) : null}

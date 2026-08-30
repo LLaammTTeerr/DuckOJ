@@ -853,4 +853,11 @@ export const vi = {
   'testData.toRevisions': 'Danh sách phiên bản',
   'testData.createFailed': 'Không mở được bản nháp.',
   'testData.buildFailed': 'Không dựng được gói.',
+  'testData.loadFromRevision': 'Tải từ phiên bản đã công bố',
+  'testData.loadHint': 'Thay toàn bộ bảng bên dưới bằng dữ liệu của phiên bản đó.',
+  'testData.loading': 'Đang tải dữ liệu chấm…',
+  'testData.loaded': 'Đã tải dữ liệu chấm từ phiên bản {version}.',
+  'testData.loadFailed': 'Không tải được dữ liệu chấm.',
+  'testData.loadTooLarge': 'Có tệp quá lớn để sửa trong trình duyệt; chưa tải gì cả.',
+  'testData.noRevision': 'Bài này chưa có phiên bản nào để tải.',
 } satisfies Record<MsgKey, string>;

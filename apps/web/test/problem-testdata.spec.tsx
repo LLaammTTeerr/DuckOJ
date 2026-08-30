@@ -10,11 +10,13 @@ vi.mock('../src/api.js', () => ({
   api: { GET: vi.fn(), POST: vi.fn(), PUT: vi.fn(), DELETE: vi.fn() },
 }));
 
+const mockedGet = vi.mocked(api.GET);
 const mockedPost = vi.mocked(api.POST);
 const mockedPut = vi.mocked(api.PUT);
 const mockedDelete = vi.mocked(api.DELETE);
 
 afterEach(() => {
+  mockedGet.mockReset();
   mockedPost.mockReset();
   mockedPut.mockReset();
   mockedDelete.mockReset();
@@ -130,6 +132,79 @@ describe('the test-data tab', () => {
     });
     expect(screen.getByTestId('unpaired')).toHaveTextContent('02.in thiếu tệp đáp án — chưa thêm.');
     expect(screen.getAllByLabelText('Đầu vào')[0]).toHaveValue('1 2\n');
+  });
+
+  it('loads the published revision back into the table, then discards the draft it read through', async () => {
+    const user = userEvent.setup();
+    mockedGet
+      // The revisions list, to find which version is published.
+      .mockResolvedValueOnce(
+        ok([
+          { version: 1, state: 'archived' },
+          { version: 2, state: 'published' },
+          { version: 3, state: 'draft' },
+        ]) as never,
+      )
+      .mockResolvedValueOnce(ok('1 2\n') as never)
+      .mockResolvedValueOnce(ok('3\n') as never)
+      .mockResolvedValueOnce(ok('// checker\n') as never);
+    mockedPost.mockResolvedValueOnce(
+      ok({
+        draftId: 'd7',
+        expiresAt: 'x',
+        maxFiles: 500,
+        maxTotalBytes: 1,
+        fromVersion: 2,
+        fileCount: 4,
+        totalBytes: 12,
+        prefill: {
+          name: 'abc',
+          timeMs: 2500,
+          memoryKb: 131072,
+          checker: { kind: 'source', path: 'checker.cpp', language: 'cpp17' },
+          cases: [{ input: '01.in', answer: '01.out', points: 40, group: 2, sample: false }],
+        },
+      }) as never,
+    );
+    mockedDelete.mockResolvedValue(ok(undefined) as never);
+
+    render(<ProblemTestDataTab code="abc" />);
+    await user.click(screen.getByRole('button', { name: 'Tải từ phiên bản đã công bố' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('Đã tải dữ liệu chấm từ phiên bản 2.');
+    });
+    // The PUBLISHED version, not the newest draft one.
+    expect(mockedPost.mock.calls[0]![0]).toBe('/problems/{code}/drafts/from-revision/{version}');
+    expect((mockedPost.mock.calls[0]![1] as { params: { path: { version: number } } }).params.path.version).toBe(2);
+
+    // Limits, checker and the case itself all came back.
+    expect(screen.getByLabelText('Giới hạn thời gian (ms)')).toHaveValue(2500);
+    expect(screen.getByLabelText('Trình chấm')).toHaveValue('source');
+    expect(screen.getAllByLabelText('Đầu vào')[0]).toHaveValue('1 2\n');
+    expect(screen.getAllByLabelText('Đáp án')[0]).toHaveValue('3\n');
+    expect(screen.getByLabelText('Điểm của test 1')).toHaveValue(40);
+    expect(screen.getByLabelText('Nhóm của test 1')).toHaveValue(2);
+    expect(screen.getByText('1 test, tổng 40 điểm')).toBeInTheDocument();
+
+    // The draft was only ever a way to READ: it is handed back, because the
+    // build path opens its own.
+    expect(mockedDelete).toHaveBeenCalledWith('/problems/{code}/drafts/{draftId}', {
+      params: { path: { code: 'abc', draftId: 'd7' } },
+    });
+  });
+
+  it('says so when the problem has no revision to load', async () => {
+    const user = userEvent.setup();
+    mockedGet.mockResolvedValueOnce(ok([]) as never);
+
+    render(<ProblemTestDataTab code="abc" />);
+    await user.click(screen.getByRole('button', { name: 'Tải từ phiên bản đã công bố' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Bài này chưa có phiên bản nào để tải.');
+    });
+    expect(mockedPost).not.toHaveBeenCalled();
   });
 
   it('offers the checker source editor only when a source checker is chosen (D40)', async () => {

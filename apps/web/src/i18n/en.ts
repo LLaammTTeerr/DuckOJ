@@ -886,6 +886,13 @@ export const en = {
   'testData.toRevisions': 'Revisions',
   'testData.createFailed': 'Could not open a draft.',
   'testData.buildFailed': 'The package could not be built.',
+  'testData.loadFromRevision': 'Load from the published revision',
+  'testData.loadHint': 'Replaces the whole table below with that revision\u2019s data.',
+  'testData.loading': 'Loading the test data\u2026',
+  'testData.loaded': 'Loaded the test data from revision {version}.',
+  'testData.loadFailed': 'Could not load the test data.',
+  'testData.loadTooLarge': 'A file is too large to edit in the browser; nothing was loaded.',
+  'testData.noRevision': 'This problem has no revision to load yet.',
 } satisfies Record<string, string>;
 
 /** Every id the app may ask for — `vi.ts` must cover exactly this set. */
