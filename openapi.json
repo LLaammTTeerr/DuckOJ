@@ -4522,6 +4522,456 @@
         }
       }
     },
+    "/admin/dashboard": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Operations dashboard: queue depth, judge health, failures — admin only, session only",
+        "description": "A snapshot, not a log. Cheap enough to poll: one aggregate query per panel, no scan of anything unbounded. Session-only like every other admin route.",
+        "responses": {
+          "200": {
+            "description": "The current snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "queue": {
+                      "type": "object",
+                      "properties": {
+                        "queued": {
+                          "type": "integer"
+                        },
+                        "running": {
+                          "type": "integer"
+                        },
+                        "expiredLeases": {
+                          "type": "integer"
+                        },
+                        "failed": {
+                          "type": "integer"
+                        },
+                        "oldestQueuedSeconds": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "queued",
+                        "running",
+                        "expiredLeases",
+                        "failed",
+                        "oldestQueuedSeconds"
+                      ]
+                    },
+                    "judges": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "driver": {
+                            "type": "string"
+                          },
+                          "lastSeen": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "online": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "driver",
+                          "lastSeen",
+                          "online"
+                        ]
+                      }
+                    },
+                    "workers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "workerId": {
+                            "type": "string"
+                          },
+                          "currentSubmissionId": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "currentJobId": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "gradedLastHour": {
+                            "type": "integer"
+                          },
+                          "internalErrorsLastHour": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "workerId",
+                          "currentSubmissionId",
+                          "currentJobId",
+                          "gradedLastHour",
+                          "internalErrorsLastHour"
+                        ]
+                      }
+                    },
+                    "recentFailures": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "submissionId": {
+                            "type": "integer"
+                          },
+                          "problemCode": {
+                            "type": "string"
+                          },
+                          "username": {
+                            "type": "string"
+                          },
+                          "verdict": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "state": {
+                            "type": "string"
+                          },
+                          "judgedAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "submissionId",
+                          "problemCode",
+                          "username",
+                          "verdict",
+                          "state",
+                          "judgedAt",
+                          "createdAt"
+                        ]
+                      }
+                    },
+                    "refusalsLastHour": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "purpose": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "purpose",
+                          "count"
+                        ]
+                      }
+                    },
+                    "dependencies": {
+                      "type": "object",
+                      "properties": {
+                        "database": {
+                          "type": "string",
+                          "enum": [
+                            "up",
+                            "down"
+                          ]
+                        },
+                        "redis": {
+                          "type": "string",
+                          "enum": [
+                            "up",
+                            "down"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "database",
+                        "redis"
+                      ]
+                    },
+                    "runtime": {
+                      "type": "object",
+                      "properties": {
+                        "apiWorkers": {
+                          "type": "integer"
+                        },
+                        "judgedConcurrency": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "apiWorkers",
+                        "judgedConcurrency"
+                      ]
+                    },
+                    "generatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "queue",
+                    "judges",
+                    "workers",
+                    "recentFailures",
+                    "refusalsLastHour",
+                    "dependencies",
+                    "runtime",
+                    "generatedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in, but not an admin (`admin_forbidden`), or authenticated by an access token rather than an interactive session (`session_required`) — this route is session-only, exactly like `/auth/tokens`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/grading/reclaim": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Requeue every grading job whose lease lapsed — admin only, session only",
+        "description": "Idempotent by construction: a job with a live lease is never touched, and a second call a moment later reclaims nothing. The requeue bumps the job attempt, which fences off a judge still working past its lease.",
+        "responses": {
+          "200": {
+            "description": "How many jobs were requeued (possibly none)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "reclaimed": {
+                      "type": "integer"
+                    },
+                    "jobIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  "required": [
+                    "reclaimed",
+                    "jobIds"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in, but not an admin (`admin_forbidden`), or authenticated by an access token rather than an interactive session (`session_required`) — this route is session-only, exactly like `/auth/tokens`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/register": {
       "post": {
         "tags": [

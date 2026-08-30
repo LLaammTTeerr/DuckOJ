@@ -8,6 +8,7 @@ import {
 } from '../realtime/submission-publisher.js';
 import { RateLimiter } from '../common/rate-limiter.js';
 import { ContestAccessService } from './contest.access.js';
+import { DashboardService, REDIS_HEALTH, RedisHealthProbe } from './dashboard.access.js';
 import { ContestClarificationsService } from './contest.clarifications.js';
 import { OrgAccessService } from './org.access.js';
 import { ProblemAccessService } from './problem.access.js';
@@ -36,6 +37,12 @@ import {
     ProblemAccessService,
     RatingService,
     RejudgeService,
+    // The admin operations dashboard (D47). It lives here, not in
+    // `AdminModule`, because two of its panels read guarded tables — the
+    // same rule that put `RejudgeService` here. Its Redis probe opens no
+    // connection until somebody actually loads the dashboard.
+    DashboardService,
+    { provide: REDIS_HEALTH, useClass: RedisHealthProbe },
     // The scoreboard cache (D25) and its Redis backing. Redis-backed rather
     // than a map in this process because `main.ts` forks `API_WORKERS`
     // workers, and an in-process cache is one cache per worker. Like the
@@ -54,6 +61,7 @@ import {
   exports: [
     ContestAccessService,
     ContestClarificationsService,
+    DashboardService,
     ScoreboardCache,
     OrgAccessService,
     ProblemAccessService,

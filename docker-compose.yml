@@ -69,6 +69,12 @@ services:
       # connections, which leaves room for `judged`, `migrate` and a psql
       # session. Raise this only together with `max_connections`.
       API_WORKERS: ${API_WORKERS:-4}
+      # Read, never acted on: the admin dashboard (D47) reports judged's
+      # concurrency, and judged is a different container. The SAME compose
+      # variable feeds both, so the number the dashboard shows is the number
+      # judged actually runs — the API neither validates it nor forks on it,
+      # and unset simply reads as "not told" on the dashboard.
+      JUDGED_CONCURRENCY: ${JUDGED_CONCURRENCY:-1}
       # Task 13: content-addressed package bytes live here, behind a named
       # volume — without one, an uploaded/seeded package vanishes on the
       # next `podman-compose up` (a fresh container gets a fresh overlay

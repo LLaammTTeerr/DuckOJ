@@ -2179,6 +2179,212 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Operations dashboard: queue depth, judge health, failures — admin only, session only
+         * @description A snapshot, not a log. Cheap enough to poll: one aggregate query per panel, no scan of anything unbounded. Session-only like every other admin route.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The current snapshot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            queue: {
+                                queued: number;
+                                running: number;
+                                expiredLeases: number;
+                                failed: number;
+                                oldestQueuedSeconds: number | null;
+                            };
+                            judges: {
+                                name: string;
+                                driver: string;
+                                lastSeen: string | null;
+                                online: boolean;
+                            }[];
+                            workers: {
+                                workerId: string;
+                                currentSubmissionId: number | null;
+                                currentJobId: number | null;
+                                gradedLastHour: number;
+                                internalErrorsLastHour: number;
+                            }[];
+                            recentFailures: {
+                                submissionId: number;
+                                problemCode: string;
+                                username: string;
+                                verdict: string | null;
+                                state: string;
+                                judgedAt: string | null;
+                                createdAt: string;
+                            }[];
+                            refusalsLastHour: {
+                                purpose: string;
+                                count: number;
+                            }[];
+                            dependencies: {
+                                /** @enum {string} */
+                                database: "up" | "down";
+                                /** @enum {string} */
+                                redis: "up" | "down";
+                            };
+                            runtime: {
+                                apiWorkers: number;
+                                judgedConcurrency: number | null;
+                            };
+                            generatedAt: string;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not an admin (`admin_forbidden`), or authenticated by an access token rather than an interactive session (`session_required`) — this route is session-only, exactly like `/auth/tokens` */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/grading/reclaim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requeue every grading job whose lease lapsed — admin only, session only
+         * @description Idempotent by construction: a job with a live lease is never touched, and a second call a moment later reclaims nothing. The requeue bumps the job attempt, which fences off a judge still working past its lease.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description How many jobs were requeued (possibly none) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            reclaimed: number;
+                            jobIds: number[];
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not an admin (`admin_forbidden`), or authenticated by an access token rather than an interactive session (`session_required`) — this route is session-only, exactly like `/auth/tokens` */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/register": {
         parameters: {
             query?: never;

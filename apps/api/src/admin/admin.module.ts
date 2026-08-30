@@ -7,9 +7,10 @@ import { AdminUsersService } from './admin-users.service.js';
 import { AdminContestsController } from './admin-contests.controller.js';
 import { AdminProblemsController } from './admin-problems.controller.js';
 import { AdminSubmissionsController } from './admin-submissions.controller.js';
+import { AdminDashboardController } from './admin-dashboard.controller.js';
 
-// `AuthzModule` for `RatingService` and `RejudgeService`, which live there
-// because they read guarded tables — the same reason `UserAccessService` does.
+// `AuthzModule` for `RatingService`, `RejudgeService` and `DashboardService`,
+// which live there because they read guarded tables — the same reason `UserAccessService` does.
 // `AuthnModule` for `TotpService`: the admin TOTP reset (M9) disables the
 // credential through the same service the self-service route uses, rather
 // than deleting the row itself — the encryption, the table and the
@@ -22,6 +23,7 @@ import { AdminSubmissionsController } from './admin-submissions.controller.js';
     AdminContestsController,
     AdminSubmissionsController,
     AdminProblemsController,
+    AdminDashboardController,
   ],
 })
 export class AdminModule {}
