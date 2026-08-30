@@ -101,3 +101,60 @@ describe('ExpiredRowsSweeper', () => {
     });
   }, 120_000);
 });
+
+/**
+ * The sweep counts what the driver already told it, and never asks the
+ * database to hand back every deleted row.
+ *
+ * This is not a micro-optimisation. The module's own header estimates
+ * `rate_events` at ~8.6M rows a day under a login-stuffing run — the exact
+ * case the sweep exists for — so `.returning({ id })` would build an array
+ * of eight million ids inside the API process on the first sweep after a
+ * quiet week, to read `.length` off it. The table this file bounds would
+ * then take the process down instead of the disk.
+ *
+ * A container proves nothing here: at three rows `.length` and `.count`
+ * agree. So the stub below answers a plain DELETE with a count and a
+ * `.returning()` with an empty list, which is exactly how postgres.js
+ * behaves — and makes the two implementations give different answers.
+ */
+describe('the sweep does not materialise what it deletes', () => {
+  function stubDb(count: number): { db: Db; returningCalls: number } {
+    const state = { returningCalls: 0 };
+    const result = { count };
+    const db = {
+      delete: () => ({
+        where: () => ({
+          // Awaiting the DELETE itself yields postgres.js's `RowList`: empty,
+          // with the affected-row count on it.
+          then: (resolve: (value: unknown) => void) => {
+            resolve(result);
+          },
+          returning: () => {
+            state.returningCalls += 1;
+            return Promise.resolve([]);
+          },
+        }),
+      }),
+    };
+    return { db: db as unknown as Db, returningCalls: state.returningCalls };
+  }
+
+  it('reads the affected-row count instead of returning every id', async () => {
+    const { db } = stubDb(8_600_000);
+    const swept = await new ExpiredRowsSweeper(db).sweep();
+    expect(swept).toEqual({
+      rateEvents: 8_600_000,
+      sessions: 8_600_000,
+      oneTimeTokens: 8_600_000,
+    });
+  });
+
+  it('reports nothing swept rather than NaN if the driver stops counting', async () => {
+    const db = {
+      delete: () => ({ where: () => ({ then: (r: (v: unknown) => void) => { r([]); } }) }),
+    } as unknown as Db;
+    const swept = await new ExpiredRowsSweeper(db).sweep();
+    expect(swept).toEqual({ rateEvents: 0, sessions: 0, oneTimeTokens: 0 });
+  });
+});

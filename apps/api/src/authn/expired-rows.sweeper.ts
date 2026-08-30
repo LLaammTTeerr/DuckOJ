@@ -70,7 +70,21 @@ export class ExpiredRowsSweeper implements OnApplicationBootstrap, OnModuleDestr
     this.timer = null;
   }
 
-  /** Deletes what is past its usefulness; returns the row counts, for tests. */
+  /**
+   * Deletes what is past its usefulness; returns the row counts, for the log
+   * line and for tests.
+   *
+   * **Counted by the driver, never by `.returning()`.** This module's own
+   * opening paragraph estimates `rate_events` at ~8.6M rows a day on a
+   * login-stuffing run, and that is precisely the case the sweep exists for
+   * — so a first sweep after a quiet week is exactly when `.returning({ id })`
+   * would drag every deleted id back over the wire and build an array of
+   * them, in the API process, to do nothing with but read `.length`. That
+   * turns a table this file was written to bound into an allocation that can
+   * take the process down: the failure moved from the database to the API
+   * rather than being fixed. postgres.js already reports the affected-row
+   * count on a plain DELETE, which is the same number for none of the cost.
+   */
   async sweep(now: Date = new Date()): Promise<{
     rateEvents: number;
     sessions: number;
@@ -78,20 +92,15 @@ export class ExpiredRowsSweeper implements OnApplicationBootstrap, OnModuleDestr
   }> {
     const rateEvents = await this.db
       .delete(schema.rateEvents)
-      .where(lt(schema.rateEvents.createdAt, new Date(now.getTime() - RATE_EVENT_RETENTION_MS)))
-      .returning({ id: schema.rateEvents.id });
-    const sessions = await this.db
-      .delete(schema.sessions)
-      .where(lt(schema.sessions.expiresAt, now))
-      .returning({ id: schema.sessions.id });
+      .where(lt(schema.rateEvents.createdAt, new Date(now.getTime() - RATE_EVENT_RETENTION_MS)));
+    const sessions = await this.db.delete(schema.sessions).where(lt(schema.sessions.expiresAt, now));
     const oneTimeTokens = await this.db
       .delete(schema.oneTimeTokens)
-      .where(lt(schema.oneTimeTokens.expiresAt, now))
-      .returning({ id: schema.oneTimeTokens.id });
+      .where(lt(schema.oneTimeTokens.expiresAt, now));
     return {
-      rateEvents: rateEvents.length,
-      sessions: sessions.length,
-      oneTimeTokens: oneTimeTokens.length,
+      rateEvents: affected(rateEvents),
+      sessions: affected(sessions),
+      oneTimeTokens: affected(oneTimeTokens),
     };
   }
 
@@ -114,4 +123,18 @@ export class ExpiredRowsSweeper implements OnApplicationBootstrap, OnModuleDestr
       this.logger.warn(`sweep failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+}
+
+/**
+ * How many rows a DELETE removed, from whatever the driver handed back.
+ *
+ * postgres.js resolves a statement with no `RETURNING` to an empty `RowList`
+ * carrying `count`; drizzle passes that object straight through, and its
+ * static type says nothing about it. Read here, once, with a `0` fallback,
+ * so the sweep's log line degrades to "nothing swept" rather than to `NaN`
+ * if the driver ever stops reporting it.
+ */
+function affected(result: unknown): number {
+  const count = (result as { count?: unknown } | null)?.count;
+  return typeof count === 'number' ? count : 0;
 }
