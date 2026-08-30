@@ -21,6 +21,7 @@ import {
   UpdateProblemRequest,
   type AttachRevisionRequestDto,
   type CreateProblemRequestDto,
+  type EditorialResponseDto,
   type ProblemDetailDto,
   type ProblemListQueryDto,
   type ProblemPageDto,
@@ -102,6 +103,20 @@ export class ProblemsController {
   @RequireScope('problems:read')
   get(@MaybeActor() actor: Actor | null, @Param('code') code: string): Promise<ProblemDetailDto> {
     return this.problems.getVisible(actor, code);
+  }
+
+  /**
+   * The editorial, when the caller may read it (D43). `@Public()` like the
+   * statement above: an anonymous reader may read a published editorial for
+   * a problem outside any contest, and who may read one is decided entirely
+   * in `ProblemAccessService`. `problems:read`, not `problems:publish` — an
+   * editorial is published content, not authoring surface.
+   */
+  @Get(':code/editorial')
+  @Public()
+  @RequireScope('problems:read')
+  editorial(@MaybeActor() actor: Actor | null, @Param('code') code: string): Promise<EditorialResponseDto> {
+    return this.problems.getEditorial(actor, code);
   }
 
   /**

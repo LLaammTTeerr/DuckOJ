@@ -19,6 +19,7 @@ import {
   CreateProblemRequest,
   type AttachRevisionRequestDto,
   type PaginationQueryDto,
+  type EditorialResponseDto,
   type ProblemDetailDto,
   type ProblemMeDto,
   type ProblemMemberDto,
@@ -346,6 +347,8 @@ export class ProblemAccessService {
           visibility: ProblemVisibility;
           sourceAccess: 'private' | 'solved';
           difficulty: number | null;
+          editorial: string | null;
+          editorialPublishedAt: Date | null;
           createdAt: Date;
           revisionId: number | null;
           timeMs: number | null;
@@ -370,6 +373,8 @@ export class ProblemAccessService {
             visibility: problems.visibility,
             sourceAccess: problems.sourceAccess,
             difficulty: problems.difficulty,
+            editorial: problems.editorial,
+            editorialPublishedAt: problems.editorialPublishedAt,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
             timeMs: problemRevisions.timeMs,
@@ -398,6 +403,8 @@ export class ProblemAccessService {
             visibility: problems.visibility,
             sourceAccess: problems.sourceAccess,
             difficulty: problems.difficulty,
+            editorial: problems.editorial,
+            editorialPublishedAt: problems.editorialPublishedAt,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
             timeMs: problemRevisions.timeMs,
@@ -434,9 +441,11 @@ export class ProblemAccessService {
     const hint = hidden.has(row.id)
       ? BLANK_HINT
       : { tags: (await this.loadTagsByProblem([row.id])).get(row.id) ?? [], difficulty: row.difficulty };
+    const editorial = await this.resolveEditorial(actor, row, canEditProblem(actor, ctx), hidden.has(row.id));
 
     return {
       ...toSummary(row, hint),
+      ...editorial,
       statement: row.statement,
       // Not revision-derived, so unlike the three fields below it is never
       // nulled out on a problem whose only revision is a draft: the flag
@@ -450,6 +459,30 @@ export class ProblemAccessService {
       members,
       orgSlugs,
     };
+  }
+
+  /**
+   * `GET /problems/{code}/editorial` — the editorial as Markdown, or 404.
+   *
+   * Deliberately built on `getVisible` rather than on its own query: the two
+   * surfaces must agree about who may read an editorial, and the cheapest
+   * way to guarantee that is for one of them to BE the other. It also fixes
+   * the gate order for free — the problem's own visibility is decided first
+   * and answers `problem_not_found`, so this route is no more of an
+   * existence oracle than `GET /problems/{code}` already is.
+   *
+   * `editorial_not_found` is a distinct code from `problem_not_found`, and
+   * that leaks nothing: reaching it means the caller can already see the
+   * problem, which they could confirm from the detail route anyway. What
+   * would leak is distinguishing *within* this refusal — absent,
+   * unpublished and withheld share one code and one message.
+   */
+  async getEditorial(actor: Actor | null, code: string): Promise<EditorialResponseDto> {
+    const detail = await this.getVisible(actor, code);
+    if (detail.editorial === null) {
+      throw new AppError(404, 'editorial_not_found', 'This problem has no editorial you can read.');
+    }
+    return { markdown: detail.editorial };
   }
 
   /**
@@ -550,6 +583,22 @@ export class ProblemAccessService {
     // the name change land and the tags not.
     const tagIds = patch.tags ? await this.resolveTagIds(patch.tags) : undefined;
 
+    // The text this PATCH leaves behind: what it carries if it says
+    // anything about the editorial, otherwise what is already stored.
+    // Publishing is a claim that there is something to read, so it is
+    // refused when there would not be — including for whitespace, which
+    // renders as an empty page rather than as a solution. The database's
+    // `problems_editorial_published_ck` is the backstop for a writer that
+    // never passes through here; this is the error a setter can act on.
+    const effectiveEditorial = patch.editorial !== undefined ? patch.editorial : row.editorial;
+    if (patch.editorialPublished === true && (effectiveEditorial === null || effectiveEditorial.trim() === '')) {
+      throw new AppError(
+        422,
+        'problem_editorial_empty',
+        'There is no editorial to publish. Send `editorial` with the write-up in the same request.',
+      );
+    }
+
     const effectiveVisibility = patch.visibility ?? row.visibility;
     if (effectiveVisibility === 'org') {
       const orgCount =
@@ -584,6 +633,24 @@ export class ProblemAccessService {
       // leave it, and `!patch.difficulty` would collapse the two (and treat
       // a hypothetical 0 as absent besides).
       if (patch.difficulty !== undefined) set.difficulty = patch.difficulty;
+      if (patch.editorial !== undefined) {
+        set.editorial = patch.editorial;
+        // Clearing the text takes the publication with it, in the same
+        // UPDATE. Not a convenience: the CHECK forbids the alternative
+        // outright, and a publish date pointing at nothing would mean an
+        // `editorialAvailable: true` promising a page that renders empty.
+        if (patch.editorial === null) set.editorialPublishedAt = null;
+      }
+      // After the `editorial` branch, so an explicit `editorialPublished`
+      // wins over the implicit unpublish above. The one combination where
+      // they genuinely conflict — clearing the text while publishing it —
+      // was already refused as `problem_editorial_empty`.
+      if (patch.editorialPublished !== undefined) {
+        // `?? new Date()`, not a fresh timestamp every time: re-publishing
+        // what is already published is not a new publication, and moving
+        // the date would rewrite when readers were first allowed in.
+        set.editorialPublishedAt = patch.editorialPublished ? (row.editorialPublishedAt ?? new Date()) : null;
+      }
       if (Object.keys(set).length > 0) {
         await tx.update(problems).set(set).where(eq(problems.id, row.id));
       }
@@ -827,10 +894,20 @@ export class ProblemAccessService {
    * `listRevisions`, which needs the same lookup but a different permission
    * check (never a 403 — spec §3, item 2), does not duplicate it.
    */
-  private async findProblemRow(code: string): Promise<{ id: number; visibility: ProblemVisibility }> {
+  private async findProblemRow(code: string): Promise<EditableProblemRow> {
     const row = (
       await this.db
-        .select({ id: problems.id, visibility: problems.visibility })
+        .select({
+          id: problems.id,
+          visibility: problems.visibility,
+          // Carried on every edit path, not fetched separately: `update`
+          // needs the STORED editorial to decide whether a patch that only
+          // says `editorialPublished: true` has any text to publish, and a
+          // second SELECT for it would be a second answer to the same
+          // question one statement later.
+          editorial: problems.editorial,
+          editorialPublishedAt: problems.editorialPublishedAt,
+        })
         .from(problems)
         .where(sql`lower(${problems.code}) = lower(${code})`)
         .limit(1)
@@ -850,7 +927,7 @@ export class ProblemAccessService {
   private async loadForEdit(
     actor: Actor | null,
     code: string,
-  ): Promise<{ problem: { id: number; visibility: ProblemVisibility }; ctx: ProblemViewContext }> {
+  ): Promise<{ problem: EditableProblemRow; ctx: ProblemViewContext }> {
     const row = await this.findProblemRow(code);
 
     const ctx = await loadProblemContext(this.db, actor, row.id);
@@ -904,6 +981,8 @@ export class ProblemAccessService {
       visibility: ProblemVisibility;
       sourceAccess: 'private' | 'solved';
       difficulty: number | null;
+      editorial: string | null;
+      editorialPublishedAt: Date | null;
       createdAt: Date;
       revisionId: number | null;
       timeMs: number | null;
@@ -927,6 +1006,8 @@ export class ProblemAccessService {
             visibility: problems.visibility,
             sourceAccess: problems.sourceAccess,
             difficulty: problems.difficulty,
+            editorial: problems.editorial,
+            editorialPublishedAt: problems.editorialPublishedAt,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
             timeMs: problemRevisions.timeMs,
@@ -955,6 +1036,8 @@ export class ProblemAccessService {
             visibility: problems.visibility,
             sourceAccess: problems.sourceAccess,
             difficulty: problems.difficulty,
+            editorial: problems.editorial,
+            editorialPublishedAt: problems.editorialPublishedAt,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
             timeMs: problemRevisions.timeMs,
@@ -977,9 +1060,15 @@ export class ProblemAccessService {
     // PATCH that set `tags` must echo back what it just stored — a masked
     // response would tell the author their write vanished.
     const tags = (await this.loadTagsByProblem([id])).get(id) ?? [];
+    // `isEditor: true` for the same reason `loadMembersAndOrgs` gets it: both
+    // callers act for an editor of this exact problem, so the draft comes
+    // back — a PATCH that stored an editorial must echo it, or the author is
+    // told their write vanished.
+    const editorial = await this.resolveEditorial(actor, row, true, false);
 
     return {
       ...toSummary(row, { tags, difficulty: row.difficulty }),
+      ...editorial,
       statement: row.statement,
       // Not revision-derived, so unlike the three fields below it is never
       // nulled out on a problem whose only revision is a draft: the flag
@@ -993,6 +1082,83 @@ export class ProblemAccessService {
       members,
       orgSlugs,
     };
+  }
+
+  /**
+   * D43 — the two editorial fields of a `ProblemDetail`, for THIS viewer.
+   *
+   * An editorial is a spoiler, so it is withheld from exactly the person a
+   * spoiler would rob: someone still trying to solve the problem in a live
+   * contest. Everyone else — including anyone reading outside a contest at
+   * all — gets it as soon as its author publishes it.
+   *
+   * The order below is the ruling, in the order it is decided:
+   * 1. **No text at all** → `null` / `false`. The one answer that is also
+   *    what every branch below collapses to when it refuses, which is the
+   *    point: "there is none", "there is an unpublished draft" and "there
+   *    is one you may not read yet" are indistinguishable to a reader.
+   *    Telling them apart would leak a setter's work in progress, and —
+   *    during a contest — the very fact that a solution is sitting there.
+   * 2. **An editor** (author, curator, admin) gets the text unconditionally,
+   *    draft included: the edit form seeds its textarea from this field, and
+   *    a form that cannot load what it is about to overwrite is a way to
+   *    lose an editorial rather than a way to write one.
+   *    `editorialAvailable` still reports the publish state, so this is the
+   *    one case where a non-null `editorial` comes back `false` — which is
+   *    exactly what the publish toggle needs to seed from.
+   * 3. **Unpublished** → refused. A draft is not a publication.
+   * 4. **Not sitting a running contest that uses this problem** → served.
+   *    `hidden` is D35's own set, computed by the caller and passed in
+   *    rather than recomputed: the two rules must agree about who is
+   *    "in the room", and agreement is easier to hold when there is one
+   *    query answering it.
+   * 5. **Sitting it, but already holding an AC** → served. Someone who has
+   *    solved the problem cannot be spoiled by the solution, and refusing
+   *    them would make the room's best readers the last to learn anything.
+   * 6. Otherwise refused, until the clock runs out on the contest.
+   */
+  private async resolveEditorial(
+    actor: Actor | null,
+    row: { id: number; editorial: string | null; editorialPublishedAt: Date | null },
+    isEditor: boolean,
+    hiddenByContest: boolean,
+  ): Promise<{ editorial: string | null; editorialAvailable: boolean }> {
+    if (row.editorial === null) return NO_EDITORIAL;
+    const published = row.editorialPublishedAt !== null;
+    if (isEditor) return { editorial: row.editorial, editorialAvailable: published };
+    if (!published) return NO_EDITORIAL;
+    if (!hiddenByContest) return { editorial: row.editorial, editorialAvailable: true };
+    // Only asked once the contest branch has already refused — a query per
+    // problem read would otherwise buy nothing for the overwhelming majority
+    // of readers, who are not sitting a contest at all.
+    if (await this.hasAccepted(actor, row.id)) {
+      return { editorial: row.editorial, editorialAvailable: true };
+    }
+    return NO_EDITORIAL;
+  }
+
+  /**
+   * Whether `actor` holds an accepted submission to `problemId`.
+   *
+   * An explicit `verdict = 'AC'` existence check rather than a reading of
+   * the `me` lateral's best verdict: "best" is a `points` ordering with its
+   * own null handling, and D43 turns on the plain fact that an AC exists.
+   * One question, answered by the question rather than by a proxy for it.
+   */
+  private async hasAccepted(actor: Actor | null, problemId: number): Promise<boolean> {
+    if (!actor) return false;
+    const rows = await this.db
+      .select({ id: submissions.id })
+      .from(submissions)
+      .where(
+        and(
+          eq(submissions.userId, actor.userId),
+          eq(submissions.problemId, problemId),
+          eq(submissions.verdict, 'AC'),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
   }
 
   /**
@@ -1306,6 +1472,29 @@ const BLANK_HINT: ProblemHint = Object.freeze({ tags: [] as TagDto[], difficulty
 
 /** The one empty set every "nothing is hidden" answer returns. */
 const EMPTY_IDS: ReadonlySet<number> = new Set<number>();
+
+/**
+ * The single refusal every editorial branch collapses to — absent,
+ * unpublished, and withheld are one answer, not three (D43). Frozen and
+ * shared for `BLANK_HINT`'s reason: two literals in two branches are two
+ * shapes that can drift into being told apart.
+ */
+const NO_EDITORIAL = Object.freeze({ editorial: null, editorialAvailable: false }) as {
+  editorial: string | null;
+  editorialAvailable: boolean;
+};
+
+/**
+ * What every write path loads before it decides anything: the problem's id
+ * and visibility (for the 404-then-403 ordering) plus its stored editorial,
+ * which `update` needs in hand to rule on `editorialPublished: true`.
+ */
+interface EditableProblemRow {
+  id: number;
+  visibility: ProblemVisibility;
+  editorial: string | null;
+  editorialPublishedAt: Date | null;
+}
 
 interface ProblemHint {
   tags: TagDto[];
