@@ -26,8 +26,26 @@ interface LiveJob {
    * connection for a job nobody is waiting on any more.
    */
   cancelled: boolean;
-  /** Current batch number, advanced on batch-begin; reported to the caller as groupIndex. */
+  /**
+   * The batch a case currently belongs to, reported to the caller as
+   * groupIndex — `0` means "outside any batch", i.e. a loose case.
+   *
+   * Set from `batchCount` on `batch-begin` and back to 0 on `batch-end`.
+   * judge-server brackets every batch with that pair and yields loose cases
+   * outside any pair (`dmoj/judge.py:479-533`), and a DMOJ `test_cases:` list
+   * may legally interleave the two — so without honouring `batch-end` (which
+   * `translate` used to swallow) every loose case AFTER a batch was filed
+   * under that batch and folded into its min()/max() aggregate instead of
+   * summing on its own.
+   */
   batch: number;
+  /**
+   * How many batches have begun. Kept separate from `batch` on purpose: the
+   * obvious one-counter version — reset to 0 on end, `+= 1` on begin — hands
+   * the SECOND batch the index 1 again, merging two independent batches into
+   * one aggregate. Monotonic here, so every batch keeps a distinct key.
+   */
+  batchCount: number;
   worstFlags: number;
   /** Whether any case actually executed. An all-skipped run has no determinable verdict. */
   ranAnyCase: boolean;
@@ -227,6 +245,7 @@ export class DmojDriver implements JudgeDriver {
       connection: undefined,
       cancelled: false,
       batch: 0,
+      batchCount: 0,
       loosePoints: 0,
       looseTotal: 0,
       batchAgg: new Map(),
@@ -440,7 +459,12 @@ export class DmojDriver implements JudgeDriver {
         return entry.emit({ type: 'terminated' });
 
       case 'batch-begin':
-        entry.batch += 1;
+        entry.batchCount += 1;
+        entry.batch = entry.batchCount;
+        return;
+
+      case 'batch-end':
+        entry.batch = 0;
         return;
 
       case 'test-case-status':
