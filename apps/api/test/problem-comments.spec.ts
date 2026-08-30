@@ -278,6 +278,41 @@ describe('problem comments (D109)', () => {
     });
   });
 
+  // D80's rule, which this limiter must obey too: the window is spent by a
+  // comment that was actually created, and a refusal costs the caller nothing.
+  // With `allow`, a refused create still inserted an attempt row, so the count
+  // stayed AT the limit even as the oldest event expired — a caller who
+  // honoured Retry-After was refused again, and each refusal pushed the
+  // cooldown further out. The attempt table must hold exactly the created
+  // comments, never the refusals.
+  it('does not burn the window on a refused comment (Retry-After stays honest)', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'c-burn-owner');
+      const a = await insertUser(db, 'c-burn-a');
+      await seedProblem(db, { code: 'c-burn', createdBy: owner.id });
+      const service = svc(db);
+
+      for (let i = 0; i < 10; i++) {
+        await service.create(actorFor(a.id), 'c-burn', { body: `comment ${String(i)}` });
+      }
+      // Two refused attempts on top of a full window.
+      for (let i = 0; i < 2; i++) {
+        await expect(service.create(actorFor(a.id), 'c-burn', { body: 'refused' })).rejects.toMatchObject({
+          status: 429,
+        });
+      }
+
+      // The attempt rows are the ten created comments, not twelve: the two
+      // refusals left no attempt behind them.
+      const [{ n }] = await db
+        .select({ n: schema.rateEvents.id })
+        .from(schema.rateEvents)
+        .where(and(eq(schema.rateEvents.purpose, 'problem_comment'), eq(schema.rateEvents.key, `user:${String(a.id)}`)))
+        .then((rows) => [{ n: rows.length }]);
+      expect(n).toBe(10);
+    });
+  });
+
   it('notifies the parent author of a reply, but never on a self-reply', async () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'c-notif-owner');

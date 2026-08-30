@@ -204,26 +204,29 @@ export class ProblemCommentsService {
       parentAuthorId = parent.authorId;
     }
 
-    const allowed = await this.limiter.allow(
+    // `retryAfterSeconds` + `record`, never `allow` — D80's split, for D80's
+    // reason. `allow` records the attempt it refuses, so a refused comment
+    // kept an attempt row in the window; the count then stayed AT the limit
+    // even as the oldest event expired, and a caller who honoured the
+    // Retry-After they were handed was refused again — each refusal pushing
+    // the cooldown further out. Here the window is spent by a comment that was
+    // actually created (`record`, below, after the insert) and a refusal costs
+    // the caller nothing. `retryAfterSeconds` writes the single D47 marker on
+    // a non-null answer (one window, one key — no double-mark to avoid).
+    const meterKey = `user:${String(actor.userId)}`;
+    const retry = await this.limiter.retryAfterSeconds(
       COMMENT_PURPOSE,
-      `user:${String(actor.userId)}`,
+      meterKey,
       COMMENT_LIMIT,
       COMMENT_WINDOW_MS,
     );
-    if (!allowed) {
-      const retry = await this.limiter.retryAfterSeconds(
-        COMMENT_PURPOSE,
-        `user:${String(actor.userId)}`,
-        COMMENT_LIMIT,
-        COMMENT_WINDOW_MS,
-        { mark: false },
-      );
+    if (retry !== null) {
       throw new AppError(
         429,
         'comment_rate_limited',
         `At most ${String(COMMENT_LIMIT)} comments per hour.`,
         undefined,
-        retry !== null ? { 'Retry-After': String(retry) } : undefined,
+        { 'Retry-After': String(retry) },
       );
     }
 
@@ -251,6 +254,8 @@ export class ProblemCommentsService {
       return inserted!.id;
     });
 
+    // The window is spent only now, by a comment that was actually created.
+    await this.limiter.record(COMMENT_PURPOSE, meterKey, COMMENT_WINDOW_MS);
     return this.loadOne(created);
   }
 
