@@ -53,3 +53,4 @@
 - Merged B-9 (0025), F-11 (0027) — snapshot chain repaired (prevIds + merged 0027 snapshot, drizzle reports no drift). Migrated live; api+judged redeployed. Merged F-12 (results CSV/PDF, certificates, D71); api redeployed; pushed.
 - Dispatched F-14 leftovers (main), B-11 newest-features hunt (worktree, D73–D75), UI-2 nav IA (worktree, D76). e2e on the redeployed stack: see next line.
 - e2e 15/17: journey 8 + smoke 17 failed on 429 register_rate_limited — the 30/IP/hour meter (D26) shared by the e2e host and three bug-hunters' bh*-accounts. Not a defect; rerun after the window. Ruling: no e2e exemption for the meter.
+- Sequential unit run on merged main: api 913/913; web 4 red = F-14's red-first guide-accuracy tests in flight (expected).
