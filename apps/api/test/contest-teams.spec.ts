@@ -38,6 +38,7 @@ import {
   clearSubmissionMeter,
   insertUser,
   registerAndLogin,
+  seedPrivateProblem,
   seedProblemAndLanguage,
   userIdOf,
 } from './submissions.fixtures.js';
@@ -747,6 +748,108 @@ describe('creating and editing a team contest', () => {
   }, 180_000);
 });
 
+/* ------------------------------- the problems a teammate may actually read */
+
+/**
+ * A contest's problems are PRIVATE until the round is over — that is the
+ * ordinary shape, and it is what `ProblemViewContext.inJoinedContest` exists
+ * for: joining a contest grants access to the problems in it, whatever their
+ * own visibility says.
+ *
+ * A team holds ONE participation (D99), on the account of whichever member
+ * pressed Join. So "do you hold a participation in a contest containing this
+ * problem" — asked as `contest_participations.user_id = you` — is false for
+ * every other member of every team in the province, and the two of three who
+ * did not press the button can neither open the statement nor submit.
+ */
+describe('every member of a team may read the contest’s problems', () => {
+  it('serves a private contest problem to a teammate who never pressed Join', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        await seedPrivateProblem(db);
+        const school = await makeSchool(app, db, 'school', ['anh', 'binh', 'stranger']);
+        await school.teacher
+          .post('/api/v1/orgs/school/teams')
+          .send({ slug: 'doi-1', name: 'Đội 1', members: ['anh', 'binh'] });
+        await seedContest(db, {
+          key: 'team-c',
+          problemId: await problemIdOf(db, 'hidden'),
+          orgSlug: 'school',
+        });
+
+        // `anh` enters; `binh` never presses Join at all.
+        const joined = await school.pupils
+          .get('anh')!
+          .post('/api/v1/contests/team-c/join')
+          .send({ teamSlug: 'doi-1' });
+        expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+
+        const captain = await school.pupils.get('anh')!.get('/api/v1/problems/hidden');
+        expect(captain.status, JSON.stringify(captain.body)).toBe(200);
+
+        const teammate = await school.pupils.get('binh')!.get('/api/v1/problems/hidden');
+        expect(teammate.status, JSON.stringify(teammate.body)).toBe(200);
+
+        // The list form of the same predicate has to agree with the row form.
+        const listed = await school.pupils.get('binh')!.get('/api/v1/problems');
+        expect((listed.body.items as { code: string }[]).map((row) => row.code)).toContain('hidden');
+
+        // And the round’s own statements stay shut to everybody else.
+        const outsider = await school.pupils.get('stranger')!.get('/api/v1/problems/hidden');
+        expect(outsider.status).toBe(404);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('accepts a teammate’s submission to a private contest problem', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        await seedPrivateProblem(db);
+        const school = await makeSchool(app, db, 'school', ['anh', 'binh']);
+        await school.teacher
+          .post('/api/v1/orgs/school/teams')
+          .send({ slug: 'doi-1', name: 'Đội 1', members: ['anh', 'binh'] });
+        await seedContest(db, {
+          key: 'team-c',
+          problemId: await problemIdOf(db, 'hidden'),
+          orgSlug: 'school',
+        });
+        const joined = await school.pupils
+          .get('anh')!
+          .post('/api/v1/contests/team-c/join')
+          .send({ teamSlug: 'doi-1' });
+        expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+
+        await clearSubmissionMeter(db);
+        const theirs = await school.pupils
+          .get('binh')!
+          .post('/api/v1/submissions')
+          .send({
+            problemCode: 'hidden',
+            languageKey: 'cpp17',
+            source: 'int main(){}',
+            contestKey: 'team-c',
+          });
+        expect(theirs.status, JSON.stringify(theirs.body)).toBe(201);
+
+        const [row] = await db
+          .select({ participationId: contestSubmissions.participationId })
+          .from(contestSubmissions)
+          .where(eq(contestSubmissions.submissionId, theirs.body.id));
+        expect(row!.participationId).toBe(joined.body.id);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
 /* ------------------------------------------------------------- the race */
 
 describe('two teammates pressing Join at the same instant', () => {
@@ -802,5 +905,10 @@ describe('two teammates pressing Join at the same instant', () => {
 
 async function contestIdOf(db: Db, key: string): Promise<number> {
   const [row] = await db.select({ id: contests.id }).from(contests).where(eq(contests.key, key));
+  return row!.id;
+}
+
+async function problemIdOf(db: Db, code: string): Promise<number> {
+  const [row] = await db.select({ id: problems.id }).from(problems).where(eq(problems.code, code));
   return row!.id;
 }
