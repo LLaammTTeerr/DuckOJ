@@ -169,6 +169,13 @@
       "when": 1788074612757,
       "tag": "0024_must_change_password",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788078255700,
+      "tag": "0025_dashboard_bounds",
+      "breakpoints": true
     }
   ]
 }

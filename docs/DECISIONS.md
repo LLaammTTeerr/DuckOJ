@@ -1428,6 +1428,68 @@ staleness question to a screen whose entire job is to be current.
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F5 brief),
 no human available to consult. No migration.*
 
+### Amendment, 2026-08-30 (B9): the need is measured, and 0025 pays for it
+
+The bullet above ends "an index nobody has measured a need for is a migration
+and a write cost paid against a guess". Somebody measured. On a seeded
+database of 200 000 grading jobs and 200 000 submissions — one province season,
+not a stress figure — the three panels that read those tables cost 22.9 ms,
+88.3 ms and 18.5 ms, **every fifteen seconds, growing forever**, because D11
+keeps grading history and none of the three queries had a bound. The failures
+panel is the one worth stating plainly: it walked **151 501 clean submissions**
+backwards to find twenty failures, so it got *slower the longer judging went
+well*. Migration **0025** adds four indexes and `dashboard.access.ts` is
+rewritten around them; `apps/api/test/admin-dashboard-plan.spec.ts` asserts the
+PLANS, dropping the indexes inside its own rolled-back transaction so both
+directions are proved on identical rows on every CI run.
+
+- **The two indexes this entry named are cheap because they are partial.**
+  `grading_jobs (state) where state <> 'done'` is **16 kB** beside a 21 MB
+  table, and `submissions (id desc) where verdict = 'IE' or state = 'errored'`
+  is **32 kB** beside 23 MB. A partial index holds an entry only while its
+  predicate holds, so neither grows with history — the first is sized by work
+  in flight, the second by how often the judge breaks. This is the write cost
+  the entry above worried about, measured, and it is nearly nothing.
+- **`queue()` gained `where state <> 'done'`, which reports the same numbers.**
+  Every state it counts is already non-done. The clause exists only to give
+  the planner a restriction that provably implies the partial predicate; the
+  spec asserts the bounded and unbounded aggregates are equal, so a future
+  `grading_job_state` cannot silently blank the panel. 22.9 ms → 0.9 ms.
+- **`recentFailures()`'s SQL did not change at all** — the index did the work.
+  Its WHERE clause is now also the index predicate, word for word, and the
+  comment says not to tidy it: Postgres serves a partial index only where it
+  can prove the query's restriction implies the predicate, and the failure
+  mode of an innocuous rephrase is silent. 18.5 ms → 0.35 ms, 7 084 buffers
+  → 74.
+- **Two FULL indexes were also needed, and that is the part this entry got
+  wrong.** A time window bounds the rows a query RETURNS; only an index bounds
+  the rows it SCANS. The worker panel's "graded in the last hour" therefore
+  could not be fixed by windowing alone from either join direction, so 0025
+  also adds `submissions (judged_at)` and `grading_jobs (submission_id)` —
+  4.4 MB per 200 000 rows each, growing with history, one extra index write
+  per insert. Paid deliberately: the alternative is an O(history) hash join
+  every fifteen seconds against a pool of ten connections per worker.
+  `grading_jobs (submission_id)` earns its place twice over — it is a
+  **missing foreign-key index under ON DELETE CASCADE**, so until 0025 every
+  cascaded submission delete sequentially scanned the whole job table.
+- **`workers()` is now two queries merged in JavaScript**, because its two
+  questions share nothing but the grouping key. `judged_at`, not `created_at`,
+  still dates the throughput — windowing on `created_at` would report a worker
+  chewing through a backlog as having graded nothing. The merge is full-outer:
+  a worker with work in flight may have finished nothing this hour, and a
+  worker that finished work may hold nothing now.
+- **One thing the worker panel no longer shows**, ruled rather than
+  overlooked: a worker whose every job is done and whose last verdict landed
+  over an hour ago is absent, where the single query listed it forever with
+  zeros. Restoring it costs `select distinct worker_id from grading_jobs` —
+  the unbounded scan this whole amendment removes — and D47 already puts
+  **liveness on the judge panel** and throughput here. A worker that is stuck
+  rather than gone still holds a non-done job and is still listed, which is
+  the case an operator is actually watching for.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B9 brief),
+no human available to consult. Migration 0025.*
+
 ## D48 — The contest booklet is one typst document, and `## English` is the language split
 
 `GET /contests/{key}/booklet.pdf` prints the whole contest: a cover page (name,
