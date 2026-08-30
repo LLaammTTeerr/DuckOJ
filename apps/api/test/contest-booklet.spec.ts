@@ -7,9 +7,10 @@
  * capability**, so a contest the caller may not see (and one that has not
  * started) 404s on a server that answers 501 for everything else.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import request from 'supertest';
 import { Redis } from 'ioredis';
 import { eq } from 'drizzle-orm';
@@ -23,6 +24,7 @@ import { insertUser, registerAndLogin } from './submissions.fixtures.js';
 import { STATEMENT_RENDERER, type StatementRenderer } from '../src/statements/statement-renderer.js';
 import {
   bookletToTypst,
+  markdownToTypst,
   statementSection,
   type BookletProblem,
 } from '../src/statements/markdown-to-typst.js';
@@ -163,6 +165,171 @@ describe('bookletToTypst (D48)', () => {
     expect(doc).not.toContain('#pagebreak()');
     expect(doc).toContain('Empty');
   });
+});
+
+/* ------------------------------------------------ the lowering's escaping */
+
+/**
+ * The paragraph out of `content/problems/day-con-tang/statement.md` that
+ * 500ed the booklet — and, it turned out, that problem's own
+ * `statement.pdf` too. Its `$...$` span WRAPS a source line, so the opening
+ * `$` never closes on its line and the LaTeX inside it (`a_{i_1}`) reaches
+ * the inline tokenizer as prose. Copied verbatim, because a paraphrase is
+ * a test of the paraphrase.
+ */
+const WRAPPED_FORMULA = [
+  'Một **dãy con** thu được bằng cách xoá đi một số phần tử (có thể không xoá phần',
+  'tử nào) mà không đổi thứ tự các phần tử còn lại. Dãy con $a_{i_1}, a_{i_2},',
+  '\\ldots, a_{i_k}$ với $i_1 < i_2 < \\cdots < i_k$ được gọi là **tăng thực sự** nếu',
+  '$a_{i_1} < a_{i_2} < \\cdots < a_{i_k}$.',
+].join('\n');
+
+/**
+ * Every character typst treats as markup, plus the unbalanced delimiters a
+ * problem setter writes in ordinary prose. None of it may reach the
+ * compiler as syntax — the worst allowed outcome is a page showing the
+ * characters themselves.
+ */
+const NASTY = [
+  '# Nasty $x_1$ statement',
+  '',
+  "Specials: \\ # $ * _ ` @ < > [ ] { } ~ ^ ' \" - + % / = | & ; : ! ?",
+  '',
+  'Unbalanced in prose: ( open paren, [ open bracket, { open brace, $ lone dollar,',
+  'and a_{i_1} subscript, x**a**y intraword strong, _foo_bar dangling, foo _bar.',
+  '',
+  WRAPPED_FORMULA,
+  '',
+  '| a | b |',
+  '| --- | --- |',
+  '| `1` | `2` |',
+  '',
+  '- Nhóm `nho` — $N \\le 1000$, chi phí $10^{14}$.',
+  '1. một',
+  '',
+  '```',
+  'raw ``` #block $x$ *y* ( [ {',
+  '```',
+  '',
+  '[link](https://e.x/a_b) and an ]unmatched close] and ) too.',
+].join('\n');
+
+describe('the lowering never emits an unbalanced typst delimiter', () => {
+  it('reads a wrapped formula\'s LaTeX subscripts as text, not emphasis', () => {
+    const doc = bookletToTypst({
+      name: 'C',
+      ...WINDOW,
+      lang: 'vi',
+      problems: [problem({ statement: WRAPPED_FORMULA })],
+    });
+    // `a_{i_1}` is a subscript. CommonMark forbids intraword `_` emphasis,
+    // so every underscore here is literal — escaped, never a delimiter.
+    expect(doc).toContain('a\\_\\{i\\_1\\}');
+    expect(doc).not.toContain('#emph[');
+    // The genuine `**...**` around it is still emphasis.
+    expect(doc).toContain('#strong[tăng thực sự]');
+  });
+
+  it('emits emphasis as #strong/#emph, which cannot be left open', () => {
+    // Typst decides whether `*` or `_` opens or closes from the characters
+    // flanking it, so bare delimiters glued to a word — which marked DOES
+    // read as emphasis for `*` — can compile to an unclosed delimiter.
+    const doc = markdownToTypst('P', 'x**a**y and *i* and _foo_bar');
+    expect(doc).toContain('x#strong[a]y');
+    expect(doc).toContain('#emph[i]');
+    // `_foo_bar` is intraword on the closing side too: not emphasis at all.
+    expect(doc).toContain('\\_foo\\_bar');
+    expect(doc).not.toContain('#emph[foo]');
+  });
+});
+
+/* -------------------------------------------- the demo corpus, end to end */
+
+const CORPUS_ROOT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  'content',
+  'problems',
+);
+
+const CORPUS = existsSync(CORPUS_ROOT)
+  ? readdirSync(CORPUS_ROOT)
+      .filter((code) => existsSync(join(CORPUS_ROOT, code, 'statement.md')))
+      .sort()
+  : [];
+
+/** `'ok'`, or typst's own complaint — so a failure names the syntax error. */
+async function compileStatus(document: string): Promise<string> {
+  try {
+    const pdf = await new TypstStatementRenderer(TYPST_BIN!).renderDocument(document);
+    return pdf.subarray(0, 5).toString() === '%PDF-' ? 'ok' : 'not a pdf';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+/**
+ * The property the 500 broke: **whatever a real statement contains, both
+ * the single-problem document and the booklet built from it compile.**
+ *
+ * Stated over the shipped corpus rather than over invented Markdown,
+ * because the offending construct (a `$...$` span wrapping a line) is
+ * exactly the kind of thing nobody thinks to invent. `day-con-tang` fails
+ * both halves of this before the fix.
+ */
+describe.skipIf(TYPST_BIN === null || CORPUS.length === 0)(
+  'every demo statement compiles, alone and in a booklet',
+  () => {
+    it('compiles all of content/problems, in both languages', async () => {
+      for (const code of CORPUS) {
+        const markdown = readFileSync(join(CORPUS_ROOT, code, 'statement.md'), 'utf8');
+        expect(await compileStatus(markdownToTypst(code, markdown)), `${code} alone`).toBe('ok');
+        for (const lang of ['vi', 'en'] as const) {
+          const doc = bookletToTypst({
+            name: 'Kỳ thi thử nghiệm 1',
+            ...WINDOW,
+            lang,
+            problems: [problem({ name: code, statement: statementSection(markdown, lang) })],
+          });
+          expect(await compileStatus(doc), `${code} in a ${lang} booklet`).toBe('ok');
+        }
+      }
+    }, 180_000);
+
+    it('compiles one booklet holding the whole corpus at once', async () => {
+      const doc = bookletToTypst({
+        name: 'Kỳ thi thử nghiệm 1',
+        ...WINDOW,
+        lang: 'vi',
+        problems: CORPUS.map((code, index) =>
+          problem({
+            label: String.fromCharCode(65 + index),
+            name: code,
+            statement: statementSection(
+              readFileSync(join(CORPUS_ROOT, code, 'statement.md'), 'utf8'),
+              'vi',
+            ),
+          }),
+        ),
+      });
+      expect(await compileStatus(doc)).toBe('ok');
+    }, 180_000);
+  },
+);
+
+describe.skipIf(TYPST_BIN === null)('a statement of nothing but typst syntax', () => {
+  it('compiles alone and in a booklet', async () => {
+    expect(await compileStatus(markdownToTypst('Nasty #1', NASTY))).toBe('ok');
+    const doc = bookletToTypst({
+      name: 'Nasty ]#[ contest',
+      ...WINDOW,
+      lang: 'vi',
+      problems: [problem({ name: 'x_1 ( [ $', statement: NASTY })],
+    });
+    expect(await compileStatus(doc)).toBe('ok');
+  }, 180_000);
 });
 
 describe.skipIf(TYPST_BIN === null)('the booklet document actually compiles', () => {

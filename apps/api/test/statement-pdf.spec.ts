@@ -86,14 +86,16 @@ describe('markdownToTypst', () => {
     const doc = markdownToTypst('P', 'a #set and *stars* outside emphasis? no: 2\\*3');
     expect(doc).toContain('\\#set');
     expect(doc).toContain('2\\\\\\*3');
-    // The "*stars*" was valid Markdown emphasis, so it became typst emphasis.
-    expect(doc).toContain('_stars_'.replace('_', '_'));
+    // The "*stars*" was valid Markdown emphasis, so it became typst
+    // emphasis — as a function call, never a bare `_..._` delimiter, whose
+    // meaning in typst depends on the characters flanking it.
+    expect(doc).toContain('#emph[stars]');
   });
 
   it('lowers headings, lists, bold, code and links', () => {
     const doc = markdownToTypst('P', '# In\n- **x**\n1. `y`\n[t](https://e.x)');
     expect(doc).toContain('== In');
-    expect(doc).toContain('- *x*');
+    expect(doc).toContain('- #strong[x]');
     expect(doc).toContain('+ `y`');
     expect(doc).toContain('#link("https://e.x")[t]');
   });

@@ -38,16 +38,35 @@ interface Span {
   href?: string;
 }
 
+/**
+ * A letter or a digit, in any script — the Vietnamese corpus flanks `_`
+ * with `ử` and `ề` as often as with `a`, so `\w` would be the wrong test.
+ */
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+
+/**
+ * CommonMark — and therefore marked, which `apps/web/src/markdown.ts`
+ * renders statements with — forbids INTRAWORD `_` emphasis: in `a_{i_1}`
+ * the underscores are LaTeX subscripts, not italics, and neither flank may
+ * touch a word character. Without the rule the lowering both misrenders
+ * that as emphasis and, worse, emits Typst emphasis delimiters glued to a
+ * word, which `typst compile` rejects outright with "unclosed delimiter" —
+ * it happens whenever an inline `$...$` span wraps across a source line
+ * break, because the opening `$` is then left behind as literal text and
+ * the LaTeX inside it reaches this tokenizer as prose.
+ */
+const UNDERSCORE_ITALIC = /^_([^_\n]+)_(?![\p{L}\p{N}])/u;
+
 /** One pass, first-match-wins — the same shape marked's tokenizer imposes. */
 function splitInline(line: string): Span[] {
   const spans: Span[] = [];
   let rest = line;
-  const RULES: Array<{ re: RegExp; kind: Span['kind'] }> = [
+  const RULES: Array<{ re: RegExp; kind: Span['kind']; afterWord?: false }> = [
     { re: /^`([^`\n]+)`/, kind: 'code' },
     { re: /^\$([^$\n]+)\$/, kind: 'math' },
     { re: /^\*\*([^*\n]+)\*\*/, kind: 'bold' },
     { re: /^\*([^*\n]+)\*/, kind: 'italic' },
-    { re: /^_([^_\n]+)_/, kind: 'italic' },
+    { re: UNDERSCORE_ITALIC, kind: 'italic', afterWord: false },
   ];
   const LINK = /^\[([^\]\n]+)\]\(([^)\n]+)\)/;
   outer: while (rest.length > 0) {
@@ -57,7 +76,9 @@ function splitInline(line: string): Span[] {
       rest = rest.slice(link[0].length);
       continue;
     }
+    const before = line[line.length - rest.length - 1];
     for (const rule of RULES) {
+      if (rule.afterWord === false && before !== undefined && WORD_CHAR.test(before)) continue;
       const match = rule.re.exec(rest);
       if (match) {
         spans.push({ kind: rule.kind, content: match[1]! });
@@ -86,9 +107,15 @@ function renderInline(line: string): { typst: string; usedMath: boolean } {
           // in inline math ($...$ spans exclude them by construction).
           return `#mi(\`${span.content}\`)`;
         case 'bold':
-          return `*${escapeText(span.content)}*`;
+          // `#strong[...]` / `#emph[...]`, never the bare `*...*` / `_..._`
+          // delimiters: Typst decides whether a delimiter opens or closes
+          // from the characters flanking it, so emphasis emitted next to a
+          // word — `x**a**y`, or any Markdown emphasis this tokenizer finds
+          // mid-word — can compile to an UNCLOSED delimiter and fail the
+          // whole document. The function form has no flanking rule at all.
+          return `#strong[${escapeText(span.content)}]`;
         case 'italic':
-          return `_${escapeText(span.content)}_`;
+          return `#emph[${escapeText(span.content)}]`;
         case 'link':
           return `#link("${span.href!.replace(/["\\]/g, '')}")[${escapeText(span.content)}]`;
         default:
