@@ -14,9 +14,12 @@ import { noteContestSubmissionCreated, schema, type Db } from '@duckoj/db';
 import type {
   CreateSubmissionRequestDto,
   SubmissionDetailDto,
+  SubmissionDiffDto,
   SubmissionListQueryDto,
   SubmissionPageDto,
+  SubmissionPreviousDto,
 } from '@duckoj/contracts';
+import { lineDiff } from '../submissions/line-diff.js';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { RateLimiter } from '../common/rate-limiter.js';
@@ -626,6 +629,82 @@ export class SubmissionAccessService {
       ? maskHiddenSource(detail)
       : detail;
     return isSubmissionFrozen(actor, row, freezeCtx, now) ? maskFrozenDetail(shown) : shown;
+  }
+
+  /**
+   * The id of the viewer's OWN previous submission to the same problem as
+   * `{id}`, or `null` (D111).
+   *
+   * `getVisible` first, for the existence check alone: `{id}` must be visible
+   * to the caller or this 404s exactly as the detail route does — its source
+   * need not be readable (this returns no source), only the submission
+   * itself. The previous submission it points at is always the caller's own,
+   * so it is always theirs to diff.
+   *
+   * "Previous" is by id, not by clock — `submissions.id` is the monotone
+   * order every other read here pages on — and "same language preferred,
+   * falling back to any" is one `ORDER BY`: same-language rows sort first,
+   * then newest id, `LIMIT 1`.
+   */
+  async getPrevious(actor: Actor, id: number): Promise<SubmissionPreviousDto> {
+    await this.getVisible(actor, id);
+    const [base] = await this.db
+      .select({ problemId: submissions.problemId, languageId: submissions.languageId })
+      .from(submissions)
+      .where(eq(submissions.id, id))
+      .limit(1);
+    // `getVisible` above already proved this row exists.
+    const [prev] = await this.db
+      .select({ id: submissions.id })
+      .from(submissions)
+      .where(
+        and(
+          eq(submissions.userId, actor.userId),
+          eq(submissions.problemId, base!.problemId),
+          lt(submissions.id, id),
+        ),
+      )
+      .orderBy(sql`(${submissions.languageId} = ${base!.languageId}) desc`, desc(submissions.id))
+      .limit(1);
+    return { previousId: prev?.id ?? null };
+  }
+
+  /**
+   * A server-computed line diff of `{id}` against `against` (D111).
+   *
+   * Both submissions go through `getVisible` — the SAME predicate the `source`
+   * field itself uses — so a caller who may not read either source, or either
+   * submission, gets the route's 404 with no way to tell which. The
+   * `source === null` check that follows is exactly the D23/D27 gate and not a
+   * coincidence: `maskHiddenSource` (D27) nulls `source`, and the freeze mask
+   * never touches `source`, so a null here means "the source is withheld from
+   * this viewer" for either reason. Do NOT add a separate freeze check — the
+   * source-hidden set is a superset of the frozen set (same four escapes, plus
+   * D27 covers the whole window rather than its last minutes), so this one
+   * check refuses every masked-during-freeze case already.
+   *
+   * The diff is `against` (old) → `{id}` (new): added lines are the viewer's
+   * newer code, removed lines their earlier code.
+   */
+  async diff(actor: Actor, id: number, against: number): Promise<SubmissionDiffDto> {
+    const [base, other] = await Promise.all([
+      this.getVisible(actor, id),
+      this.getVisible(actor, against),
+    ]);
+    if (base.source === null || other.source === null) {
+      throw new AppError(404, 'submission_not_found', 'No such submission.');
+    }
+    // Both are visible to the caller — comparing their problem codes leaks
+    // nothing they could not already read — so this is an honest 422 rather
+    // than another 404: a diff across two problems is a mistake, not a secret.
+    if (base.problemCode !== other.problemCode) {
+      throw new AppError(422, 'diff_problem_mismatch', 'Those submissions are for different problems.');
+    }
+    return {
+      base: { id: base.id, languageKey: base.languageKey, source: base.source },
+      against: { id: other.id, languageKey: other.languageKey, source: other.source },
+      hunks: lineDiff(other.source, base.source),
+    };
   }
 }
 
