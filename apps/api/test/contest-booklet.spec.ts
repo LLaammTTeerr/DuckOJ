@@ -15,7 +15,13 @@ import request from 'supertest';
 import { Redis } from 'ioredis';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
-import { contestProblems, contests, problemRevisions, problems } from '@duckoj/db/guarded';
+import {
+  contestParticipations,
+  contestProblems,
+  contests,
+  problemRevisions,
+  problems,
+} from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
@@ -374,8 +380,9 @@ async function seedContest(
     startsInMs: number;
     ownerName?: string;
     statement?: string;
+    problemVisibility?: 'public' | 'private';
   },
-): Promise<{ ownerId: number; problemId: number }> {
+): Promise<{ ownerId: number; problemId: number; contestId: number }> {
   const owner = opts.ownerName
     ? await userIdByUsername(db, opts.ownerName)
     : (await insertUser(db, `owner-${opts.key}`, 'admin')).id;
@@ -385,7 +392,7 @@ async function seedContest(
       code: `p-${opts.key}`,
       name: 'Tổng hai số',
       statement: opts.statement ?? BILINGUAL,
-      visibility: 'public',
+      visibility: opts.problemVisibility ?? 'public',
       createdBy: owner,
     })
     .returning();
@@ -422,7 +429,7 @@ async function seedContest(
   await db
     .insert(contestProblems)
     .values({ contestId: contest!.id, problemId: problem!.id, label: 'A', points: 100, order: 0 });
-  return { ownerId: owner, problemId: problem!.id };
+  return { ownerId: owner, problemId: problem!.id, contestId: contest!.id };
 }
 
 async function userIdByUsername(db: Db, username: string): Promise<number> {
@@ -513,6 +520,70 @@ describe('GET /contests/{key}/booklet.pdf', () => {
       }
     });
   }, 120_000);
+
+  /**
+   * The booklet is not a way around a problem's own visibility.
+   *
+   * `GET /problems/{code}` and `GET /problems/{code}/statement.pdf` both hang
+   * on `canViewProblem`, whose contest clause is `inJoinedContest` — a
+   * PARTICIPATION, not merely being able to see the contest. The booklet read
+   * the statement column with no such clause, so a started contest published
+   * every private problem's full text to anyone who could see the contest.
+   *
+   * D56 is what makes that unrecoverable rather than merely inconsistent: an
+   * org-restricted contest refuses `join` with 403, so the rival school that
+   * may not enter cannot be argued to have "the same access by a longer
+   * route" — there is no longer route.
+   */
+  it('serves only the problems this caller may read — a private one needs a participation (D62)', async () => {
+    await withTestDb(async (db) => {
+      const renderer = fakeRenderer();
+      const app = await buildApp(db, {
+        overrides: [{ provide: STATEMENT_RENDERER, useValue: renderer }],
+      });
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const outsiderCookie = await registerAndLogin(agent, 'outsider');
+        const entrantCookie = await registerAndLogin(agent, 'entrant');
+        const { contestId } = await seedContest(db, {
+          key: 'secret',
+          visibility: 'public',
+          startsInMs: -MINUTE,
+          problemVisibility: 'private',
+        });
+
+        // Anonymous: the contest is public and started, so the route answers
+        // — with a booklet that carries no statement it may not show.
+        const anon = await request(app.getHttpServer()).get('/contests/secret/booklet.pdf');
+        expect(anon.status).toBe(200);
+        expect(renderer.documents.at(-1)).not.toContain('Cho hai số nguyên');
+
+        // A signed-in non-participant is no different: seeing a contest is
+        // not joining it.
+        const outsider = await agent
+          .get('/contests/secret/booklet.pdf')
+          .set('Cookie', outsiderCookie);
+        expect(outsider.status).toBe(200);
+        expect(renderer.documents.at(-1)).not.toContain('Cho hai số nguyên');
+
+        // A participant gets the whole thing — `inJoinedContest`, the same
+        // clause `GET /problems/{code}` grants it by.
+        await db.insert(contestParticipations).values({
+          contestId,
+          userId: await userIdByUsername(db, 'entrant'),
+          virtual: 0,
+          startTime: new Date(Date.now() - MINUTE),
+        });
+        const entrant = await agent
+          .get('/contests/secret/booklet.pdf')
+          .set('Cookie', entrantCookie);
+        expect(entrant.status).toBe(200);
+        expect(renderer.documents.at(-1)).toContain('Cho hai số nguyên');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
 
   it('picks the language section, caches for a minute, and rehashes when a statement changes', async () => {
     await withTestDb(async (db) => {
