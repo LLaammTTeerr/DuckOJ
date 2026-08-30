@@ -92,9 +92,21 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
   if (!me.data) return null;
   if (!canManage && (teams.data === undefined || teams.data.length === 0)) return null;
 
+  // The warning, not a disabled button: the refusal belongs to the server
+  // (409 `team_locked_during_contest`), and a client that greyed the control
+  // out would be a second copy of the rule — one that goes wrong the moment
+  // the exemption changes. What the banner buys is that a teacher learns the
+  // rule BEFORE they open a form and lose what they typed to it.
+  const competing = (teams.data ?? []).filter((team: TeamSummary) => team.inRunningContest);
+
   return (
     <>
       <h2>{t('teams.title')}</h2>
+      {competing.length > 0 ? (
+        <p role="status">
+          {t('teams.lockedBanner', { names: competing.map((team) => team.name).join(', ') })}
+        </p>
+      ) : null}
       {actionError ? <p role="alert">{actionError}</p> : null}
       {teams.data && teams.data.length === 0 ? <p className="muted">{t('teams.empty')}</p> : null}
       {teams.data && teams.data.length > 0 ? (
@@ -117,6 +129,12 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
                     {team.name}
                   </Link>{' '}
                   <span className="muted">{team.slug}</span>
+                  {team.inRunningContest ? (
+                    <>
+                      {' '}
+                      <span className="muted">{t('teams.competingNow')}</span>
+                    </>
+                  ) : null}
                 </td>
                 <td>
                   <TeamMembers slug={slug} teamSlug={team.slug} count={team.memberCount} />

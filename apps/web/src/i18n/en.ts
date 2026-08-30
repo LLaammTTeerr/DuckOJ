@@ -978,6 +978,9 @@ export const en = {
   'teams.saveError': 'Could not save the team.',
   'teams.signInFirst': 'Sign in to see this team.',
   'teams.notFound': 'No such team, or one you may not see.',
+  'teams.competingNow': '· competing now',
+  'teams.lockedBanner':
+    'Competing right now: {names}. Their rosters cannot be changed until the round ends — ask the contest’s organiser if somebody must be swapped.',
   'teams.lockedNow':
     'This team is competing right now, so its roster is fixed until the round ends.',
   'teams.contests': 'Contests entered',

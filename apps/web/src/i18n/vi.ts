@@ -945,6 +945,9 @@ export const vi = {
   'teams.saveError': 'Không lưu được đội.',
   'teams.signInFirst': 'Đăng nhập để xem đội này.',
   'teams.notFound': 'Không có đội này, hoặc bạn không được xem.',
+  'teams.competingNow': '· đang thi',
+  'teams.lockedBanner':
+    'Đang thi: {names}. Không thể đổi thành viên cho tới khi kỳ thi kết thúc — hãy báo người tổ chức nếu cần thay người.',
   'teams.lockedNow':
     'Đội này đang thi, nên danh sách thành viên được giữ nguyên cho tới khi kỳ thi kết thúc.',
   'teams.contests': 'Các kỳ thi đã dự',

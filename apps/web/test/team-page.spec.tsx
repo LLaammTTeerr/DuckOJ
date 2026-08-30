@@ -1,9 +1,14 @@
 /**
- * The team's own page (D99 as amended by F-25).
+ * The team's own page, and the warning that stands in front of a roster
+ * nobody may edit (D99 as amended by F-25).
  *
- * It prints what the team has actually done — the contests it entered, who
- * held each entry — and links out to the board rather than inventing a rank
- * of its own.
+ * Two claims, and both are about a teacher on contest day:
+ *
+ *  - the org page WARNS while any team is mid-round, so the rule is learned
+ *    before a form is opened rather than from a 409 after it was filled in;
+ *  - the team page prints what the team has actually done — the contests it
+ *    entered, who held each entry — and links out to the board rather than
+ *    inventing a rank of its own.
  */
 import type { ReactElement } from 'react';
 import { render, screen } from '@testing-library/react';
@@ -22,7 +27,7 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
-const { TeamPage } = await import('../src/routes/teams.js');
+const { OrgTeams, TeamPage } = await import('../src/routes/teams.js');
 
 function wrap(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -56,6 +61,43 @@ function detail(over: Record<string, unknown> = {}) {
 
 afterEach(() => {
   get.mockReset();
+});
+
+describe('the org page while a team is competing', () => {
+  it('warns about the roster, and names the teams it applies to', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/auth/me') return Promise.resolve({ data: ME });
+      if (path === '/orgs/{slug}/teams')
+        return Promise.resolve({
+          data: {
+            items: [summary({ inRunningContest: true }), summary({ slug: 'doi-2', name: 'Đội 2' })],
+            nextCursor: null,
+          },
+        });
+      return Promise.resolve({ data: detail() });
+    });
+    wrap(<OrgTeams slug="thpt" canManage />);
+
+    const banner = await screen.findByRole('status');
+    expect(banner.textContent).toMatch(/Đội 1/);
+    // Only the team that is actually mid-round is named: a warning that
+    // listed every team would tell a teacher nothing about which form to
+    // leave alone.
+    expect(banner.textContent).not.toMatch(/Đội 2/);
+  });
+
+  it('says nothing at all when no team is mid-round', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/auth/me') return Promise.resolve({ data: ME });
+      if (path === '/orgs/{slug}/teams')
+        return Promise.resolve({ data: { items: [summary()], nextCursor: null } });
+      return Promise.resolve({ data: detail() });
+    });
+    wrap(<OrgTeams slug="thpt" canManage />);
+
+    expect(await screen.findByText('Đội 1')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
 });
 
 describe('a team’s own page', () => {
