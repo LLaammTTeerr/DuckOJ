@@ -84,3 +84,4 @@
 - Dispatched F-22 structured samples (main, D94) and F-23 organiser live monitor (worktree, D95). e2e full run in flight; B-16 running.
 - Full e2e on live after F-19/F-20/F-21: 28/28 (8 journeys, 11 feature journeys, 9 smoke).
 - F-23 DONE_WITH_CONCERNS, merged (445aeaf): /contests/{key}/monitor + contest-activity WS frame + presence (D95, migration 0035); deployed via deploy.sh; pushed.
+- B-17 dispatched (worktree, opus): MCP/prepare/monitor/clone hunt, D96–D98.
