@@ -110,6 +110,22 @@ function line(t: TFunction, item: Item): React.ReactNode {
         </>
       );
     }
+    // D109 — a reply on your problem comment. Links to the problem, whose
+    // discussion section is where the reply lives; the reader's next move is
+    // always to open it.
+    case 'problem_comment_reply': {
+      const problemCode = typeof p.problemCode === 'string' ? p.problemCode : '';
+      const name = typeof p.problemName === 'string' ? p.problemName : problemCode;
+      return (
+        <>
+          {t('notifications.commentReplyPrefix')}
+          <Link to="/problems/$code" params={{ code: problemCode }}>
+            {name}
+          </Link>
+          {t('notifications.commentReplySuffix')}
+        </>
+      );
+    }
     case 'totp_reset':
       return <>{t('notifications.totpReset')}</>;
     // D39. No link: the security page is one nav click away, and the sentence

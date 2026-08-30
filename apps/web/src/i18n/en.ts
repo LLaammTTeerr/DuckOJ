@@ -209,6 +209,27 @@ export const en = {
   'problem.editorial': 'Editorial',
   'problem.editorialDraft': 'draft — not published',
 
+  // ── discussion (D109) ─────────────────────────────────────────────────
+  'discussion.title': 'Discussion',
+  'discussion.empty': 'No comments yet. Be the first to start the discussion.',
+  'discussion.hiddenDuringContest': 'The discussion is hidden while you are competing in a contest that uses this problem. It will appear once the contest is over.',
+  'discussion.composerPlaceholder': 'Write a comment (Markdown supported)…',
+  'discussion.replyPlaceholder': 'Write a reply…',
+  'discussion.post': 'Post',
+  'discussion.reply': 'Reply',
+  'discussion.edit': 'Edit',
+  'discussion.delete': 'Delete',
+  'discussion.save': 'Save',
+  'discussion.cancel': 'Cancel',
+  'discussion.edited': 'edited',
+  'discussion.deleted': '[comment deleted]',
+  'discussion.signInToPost': 'Sign in to join the discussion.',
+  'discussion.deleteConfirm': 'Delete this comment?',
+  'discussion.loadError': 'Could not load the discussion.',
+  'discussion.postError': 'Could not post your comment.',
+  'discussion.editError': 'Could not save your edit.',
+  'discussion.deleteError': 'Could not delete the comment.',
+
   // ── authoring ─────────────────────────────────────────────────────────
   'problemEdit.newTitle': 'New problem',
   'problemEdit.editTitle': 'Edit {code}',
@@ -618,6 +639,8 @@ export const en = {
   'notifications.clarificationPublishedSuffix': '.',
   'notifications.contestAnnouncementPrefix': 'New announcement in ',
   'notifications.contestAnnouncementSuffix': '.',
+  'notifications.commentReplyPrefix': 'Someone replied to your comment on ',
+  'notifications.commentReplySuffix': '.',
   'notifications.totpReset':
     'An administrator turned off two-factor authentication on your account. If this was not at your request, tell an organiser.',
   'notifications.recoveryCodesExhausted':

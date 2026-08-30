@@ -198,6 +198,27 @@ export const vi = {
   'problem.editorial': 'Lời giải',
   'problem.editorialDraft': 'bản nháp — chưa xuất bản',
 
+  // ── discussion (D109) ─────────────────────────────────────────────────
+  'discussion.title': 'Thảo luận',
+  'discussion.empty': 'Chưa có bình luận nào. Hãy là người mở đầu thảo luận.',
+  'discussion.hiddenDuringContest': 'Phần thảo luận bị ẩn trong khi bạn đang thi một kỳ thi có sử dụng bài này. Nó sẽ hiện ra khi kỳ thi kết thúc.',
+  'discussion.composerPlaceholder': 'Viết bình luận (hỗ trợ Markdown)…',
+  'discussion.replyPlaceholder': 'Viết phản hồi…',
+  'discussion.post': 'Đăng',
+  'discussion.reply': 'Trả lời',
+  'discussion.edit': 'Sửa',
+  'discussion.delete': 'Xóa',
+  'discussion.save': 'Lưu',
+  'discussion.cancel': 'Hủy',
+  'discussion.edited': 'đã sửa',
+  'discussion.deleted': '[bình luận đã bị xóa]',
+  'discussion.signInToPost': 'Đăng nhập để tham gia thảo luận.',
+  'discussion.deleteConfirm': 'Xóa bình luận này?',
+  'discussion.loadError': 'Không tải được phần thảo luận.',
+  'discussion.postError': 'Không đăng được bình luận.',
+  'discussion.editError': 'Không lưu được chỉnh sửa.',
+  'discussion.deleteError': 'Không xóa được bình luận.',
+
   // ── authoring ─────────────────────────────────────────────────────────
   'problemEdit.newTitle': 'Bài tập mới',
   'problemEdit.editTitle': 'Sửa {code}',
@@ -590,6 +611,8 @@ export const vi = {
   'notifications.clarificationPublishedSuffix': '.',
   'notifications.contestAnnouncementPrefix': 'Thông báo mới ở ',
   'notifications.contestAnnouncementSuffix': '.',
+  'notifications.commentReplyPrefix': 'Có người đã trả lời bình luận của bạn ở ',
+  'notifications.commentReplySuffix': '.',
   'notifications.totpReset':
     'Quản trị viên đã tắt xác thực hai bước trên tài khoản của bạn. Nếu bạn không yêu cầu điều này, hãy báo cho ban tổ chức.',
   'notifications.recoveryCodesExhausted':

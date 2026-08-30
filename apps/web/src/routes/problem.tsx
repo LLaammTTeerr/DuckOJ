@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { hideDuplicateSampleTables } from '@duckoj/statement-samples';
 import { meQueryOptions } from '../me.js';
-import { api } from '../api.js';
+import { api, apiError } from '../api.js';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { renderStatement } from '../markdown.js';
 import { verdictToken } from './submit.js';
-import { formatDateTime, useLocale, useT, tagName, verdictName } from '../i18n/index.js';
+import { formatDateTime, formatRelative, useLocale, useT, tagName, verdictName } from '../i18n/index.js';
 
 // The API deliberately returns the same 404 `problem_not_found` for a
 // problem that does not exist and one the caller may not see (spec §3,
@@ -202,6 +202,7 @@ export function ProblemPage(props: { code: string }) {
         ) : null}
       </p>
       <ProblemStatsSection code={problem.code} />
+      <ProblemDiscussion code={problem.code} />
     </section>
   );
 }
@@ -405,5 +406,334 @@ function ProblemStatsSection({ code }: { code: string }) {
         </table>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * "Thảo luận" — the problem's discussion (D109).
+ *
+ * A flat thread with one level of replies. The whole section is withheld
+ * while the viewer is competing in a running contest that uses this problem:
+ * the API returns `hiddenDuringContest`, and this shows a note in its place
+ * rather than an empty thread — the one spot D109 deliberately tells the
+ * viewer a thing is hidden (they already know they joined the contest, so it
+ * discloses nothing), unlike D35's blank-indistinguishably rule elsewhere.
+ *
+ * Bodies go through the same `renderStatement` (Markdown + KaTeX + DOMPurify)
+ * the statement does — the API stores and returns raw Markdown and never
+ * emits HTML for a comment, so this is the sanitiser boundary for it.
+ */
+type CommentNode = {
+  id: number;
+  parentId: number | null;
+  author: { username: string } | null;
+  body: string | null;
+  createdAt: string;
+  editedAt: string | null;
+  deletedAt: string | null;
+};
+type CommentThread = CommentNode & { replies: CommentNode[] };
+
+function ProblemDiscussion({ code }: { code: string }) {
+  const t = useT();
+  const client = useQueryClient();
+  const me = useQuery(meQueryOptions);
+  const [body, setBody] = useState('');
+  const [replyTo, setReplyTo] = useState<number | null>(null);
+  const [replyBody, setReplyBody] = useState('');
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editBody, setEditBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const query = useInfiniteQuery({
+    queryKey: ['problem-comments', code],
+    queryFn: async ({ pageParam }: { pageParam: string | undefined }) => {
+      const queryParams: { cursor?: string } = {};
+      if (pageParam !== undefined) queryParams.cursor = pageParam;
+      const result = await api.GET('/problems/{code}/comments', {
+        params: { path: { code }, query: queryParams },
+      });
+      if (result.error || !result.data) throw apiError(result, t('discussion.loadError'));
+      return result.data;
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+  });
+
+  const pages = query.data?.pages ?? [];
+  const hiddenDuringContest = pages[0]?.hiddenDuringContest ?? false;
+  const threads: CommentThread[] = pages.flatMap((page) => page.items);
+
+  async function refresh(): Promise<void> {
+    await client.invalidateQueries({ queryKey: ['problem-comments', code] });
+  }
+
+  async function post(text: string, parentId: number | null): Promise<boolean> {
+    if (text.trim() === '') return false;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.POST('/problems/{code}/comments', {
+        params: { path: { code } },
+        body: parentId === null ? { body: text } : { body: text, parentId },
+      });
+      if (result.error) {
+        setError(result.error.detail ?? t('discussion.postError'));
+        return false;
+      }
+      await refresh();
+      return true;
+    } catch {
+      setError(t('common.networkError'));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveEdit(id: number): Promise<void> {
+    if (editBody.trim() === '') return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.PATCH('/problems/{code}/comments/{id}', {
+        params: { path: { code, id } },
+        body: { body: editBody },
+      });
+      if (result.error) {
+        setError(result.error.detail ?? t('discussion.editError'));
+        return;
+      }
+      setEditId(null);
+      await refresh();
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: number): Promise<void> {
+    if (!window.confirm(t('discussion.deleteConfirm'))) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.DELETE('/problems/{code}/comments/{id}', {
+        params: { path: { code, id } },
+      });
+      if (result.error) {
+        setError(result.error.detail ?? t('discussion.deleteError'));
+        return;
+      }
+      await refresh();
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="discussion">
+      <h2>{t('discussion.title')}</h2>
+      {hiddenDuringContest ? (
+        <p className="muted">{t('discussion.hiddenDuringContest')}</p>
+      ) : (
+        <>
+          {me.data ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void post(body, null).then((ok) => {
+                  if (ok) setBody('');
+                });
+              }}
+            >
+              <textarea
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder={t('discussion.composerPlaceholder')}
+                rows={3}
+                maxLength={4000}
+              />
+              <button type="submit" disabled={busy || body.trim() === ''}>
+                {t('discussion.post')}
+              </button>
+            </form>
+          ) : (
+            <p className="muted">{t('discussion.signInToPost')}</p>
+          )}
+          {error !== null ? (
+            <p role="alert">{error}</p>
+          ) : null}
+          {threads.length === 0 && !query.isLoading ? <p className="muted">{t('discussion.empty')}</p> : null}
+          {threads.map((thread) => (
+            <div className="comment-thread" key={thread.id}>
+              <CommentBody
+                comment={thread}
+                me={me.data ?? null}
+                editing={editId === thread.id}
+                editBody={editBody}
+                setEditBody={setEditBody}
+                onEditStart={() => {
+                  setEditId(thread.id);
+                  setEditBody(thread.body ?? '');
+                }}
+                onEditCancel={() => setEditId(null)}
+                onEditSave={() => void saveEdit(thread.id)}
+                onDelete={() => void remove(thread.id)}
+                onReply={() => {
+                  setReplyTo(replyTo === thread.id ? null : thread.id);
+                  setReplyBody('');
+                }}
+                canReply={me.data != null && thread.deletedAt === null}
+                busy={busy}
+              />
+              <div className="comment-replies">
+                {thread.replies.map((reply) => (
+                  <CommentBody
+                    key={reply.id}
+                    comment={reply}
+                    me={me.data ?? null}
+                    editing={editId === reply.id}
+                    editBody={editBody}
+                    setEditBody={setEditBody}
+                    onEditStart={() => {
+                      setEditId(reply.id);
+                      setEditBody(reply.body ?? '');
+                    }}
+                    onEditCancel={() => setEditId(null)}
+                    onEditSave={() => void saveEdit(reply.id)}
+                    onDelete={() => void remove(reply.id)}
+                    onReply={() => undefined}
+                    canReply={false}
+                    busy={busy}
+                  />
+                ))}
+                {replyTo === thread.id ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void post(replyBody, thread.id).then((ok) => {
+                        if (ok) {
+                          setReplyBody('');
+                          setReplyTo(null);
+                        }
+                      });
+                    }}
+                  >
+                    <textarea
+                      value={replyBody}
+                      onChange={(e) => setReplyBody(e.target.value)}
+                      placeholder={t('discussion.replyPlaceholder')}
+                      rows={2}
+                      maxLength={4000}
+                    />
+                    <button type="submit" disabled={busy || replyBody.trim() === ''}>
+                      {t('discussion.reply')}
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+            </div>
+          ))}
+          {query.hasNextPage ? (
+            <button type="button" onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>
+              {t('common.loadMore')}
+            </button>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * One comment — a tombstone (deleted but anchoring a reply) renders as a
+ * muted placeholder with no controls, the same shape the API hands over
+ * (`author` and `body` both `null`). A live comment shows its author (a
+ * hyperlink, per "every entity is a hyperlink"), when it was posted, an
+ * "(edited)" marker, its Markdown body, and whichever of reply/edit/delete
+ * the viewer is allowed.
+ */
+function CommentBody(props: {
+  comment: CommentNode;
+  me: { username: string; globalRole: string } | null;
+  editing: boolean;
+  editBody: string;
+  setEditBody: (v: string) => void;
+  onEditStart: () => void;
+  onEditCancel: () => void;
+  onEditSave: () => void;
+  onDelete: () => void;
+  onReply: () => void;
+  canReply: boolean;
+  busy: boolean;
+}) {
+  const t = useT();
+  const { locale } = useLocale();
+  const { comment, me } = props;
+
+  if (comment.deletedAt !== null || comment.author === null || comment.body === null) {
+    return <p className="comment-tombstone muted">{t('discussion.deleted')}</p>;
+  }
+
+  const isAuthor = me != null && me.username === comment.author.username;
+  const canEdit = isAuthor;
+  const canDelete = isAuthor || (me != null && me.globalRole === 'admin');
+
+  return (
+    <div className="comment">
+      <p className="comment-meta muted">
+        <Link to="/users/$username" params={{ username: comment.author.username }}>
+          {comment.author.username}
+        </Link>{' '}
+        <span>{formatRelative(comment.createdAt, locale)}</span>
+        {comment.editedAt !== null ? ` (${t('discussion.edited')})` : ''}
+      </p>
+      {props.editing ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            props.onEditSave();
+          }}
+        >
+          <textarea
+            value={props.editBody}
+            onChange={(e) => props.setEditBody(e.target.value)}
+            rows={3}
+            maxLength={4000}
+          />
+          <button type="submit" disabled={props.busy || props.editBody.trim() === ''}>
+            {t('discussion.save')}
+          </button>{' '}
+          <button type="button" onClick={props.onEditCancel} disabled={props.busy}>
+            {t('discussion.cancel')}
+          </button>
+        </form>
+      ) : (
+        <div className="comment-body" dangerouslySetInnerHTML={{ __html: renderStatement(comment.body) }} />
+      )}
+      {!props.editing ? (
+        <p className="comment-controls">
+          {props.canReply ? (
+            <button type="button" onClick={props.onReply} disabled={props.busy}>
+              {t('discussion.reply')}
+            </button>
+          ) : null}{' '}
+          {canEdit ? (
+            <button type="button" onClick={props.onEditStart} disabled={props.busy}>
+              {t('discussion.edit')}
+            </button>
+          ) : null}{' '}
+          {canDelete ? (
+            <button type="button" onClick={props.onDelete} disabled={props.busy}>
+              {t('discussion.delete')}
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -560,3 +560,126 @@ describe('problem statistics (D49)', () => {
     expect(within(screen.getAllByRole('row')[0]!).getByRole('columnheader', { name: 'Đã giải' })).toHaveClass('num');
   });
 });
+
+/**
+ * D109 — the "Thảo luận" section on the problem page. `mockApiGet` dispatches
+ * by path so the detail, stats and comments requests the page fires are each
+ * answered; the comments response is the one under test.
+ */
+const PROBLEM_DETAIL = {
+  ...PROBLEM_A,
+  statement: 'Add two numbers.',
+  sourceAccess: 'private' as const,
+  totalPoints: 100,
+  checkerKind: 'wcmp',
+  createdAt: '2026-01-01T00:00:00Z',
+  members: [],
+  orgSlugs: [],
+  editorial: null,
+  editorialAvailable: false,
+  samples: [],
+  publishedVersion: 1,
+};
+
+function comment(over: Record<string, unknown>) {
+  return {
+    id: 1,
+    parentId: null,
+    author: { username: 'alice' },
+    body: 'first!',
+    createdAt: '2026-02-01T00:00:00Z',
+    editedAt: null,
+    deletedAt: null,
+    replies: [],
+    ...over,
+  };
+}
+
+describe('ProblemDiscussion (D109)', () => {
+  it('renders a thread with its author and body, and a reply', async () => {
+    mockApiGet({
+      '/problems/{code}': apiResponse(PROBLEM_DETAIL),
+      '/problems/{code}/stats': apiResponse(null),
+      '/problems/{code}/comments': apiResponse({
+        items: [
+          comment({
+            id: 5,
+            body: 'How do I start?',
+            author: { username: 'alice' },
+            replies: [
+              {
+                id: 6,
+                parentId: 5,
+                author: { username: 'bob' },
+                body: 'Read the statement.',
+                createdAt: '2026-02-01T01:00:00Z',
+                editedAt: null,
+                deletedAt: null,
+              },
+            ],
+          }),
+        ],
+        nextCursor: null,
+        hiddenDuringContest: false,
+      }),
+    });
+
+    renderWithClient(<ProblemPage code="aplusb" />);
+
+    await screen.findByRole('heading', { name: 'Thảo luận' });
+    expect(await screen.findByText('How do I start?')).toBeInTheDocument();
+    expect(screen.getByText('Read the statement.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'alice' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'bob' })).toBeInTheDocument();
+  });
+
+  it('shows the contest note instead of the thread when hidden (D109)', async () => {
+    mockApiGet({
+      '/problems/{code}': apiResponse(PROBLEM_DETAIL),
+      '/problems/{code}/stats': apiResponse(null),
+      '/problems/{code}/comments': apiResponse({ items: [], nextCursor: null, hiddenDuringContest: true }),
+    });
+
+    renderWithClient(<ProblemPage code="aplusb" />);
+
+    await screen.findByRole('heading', { name: 'Thảo luận' });
+    expect(await screen.findByText(/hidden while you are competing|bị ẩn trong khi bạn đang thi/)).toBeInTheDocument();
+  });
+
+  it('renders a deleted comment that anchors a reply as a tombstone', async () => {
+    mockApiGet({
+      '/problems/{code}': apiResponse(PROBLEM_DETAIL),
+      '/problems/{code}/stats': apiResponse(null),
+      '/problems/{code}/comments': apiResponse({
+        items: [
+          comment({
+            id: 7,
+            author: null,
+            body: null,
+            deletedAt: '2026-02-02T00:00:00Z',
+            replies: [
+              {
+                id: 8,
+                parentId: 7,
+                author: { username: 'carol' },
+                body: 'still here',
+                createdAt: '2026-02-02T01:00:00Z',
+                editedAt: null,
+                deletedAt: null,
+              },
+            ],
+          }),
+        ],
+        nextCursor: null,
+        hiddenDuringContest: false,
+      }),
+    });
+
+    renderWithClient(<ProblemPage code="aplusb" />);
+
+    await screen.findByRole('heading', { name: 'Thảo luận' });
+    // The tombstone placeholder, and the reply it still anchors.
+    expect(await screen.findByText(/comment deleted|đã bị xóa/)).toBeInTheDocument();
+    expect(screen.getByText('still here')).toBeInTheDocument();
+  });
+});
