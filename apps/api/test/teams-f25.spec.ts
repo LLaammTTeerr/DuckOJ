@@ -407,6 +407,69 @@ describe('a roster while the team is competing', () => {
     });
   }, 180_000);
 
+  /**
+   * The exemption is **all** the running contests, not any — and that is a
+   * rule with teeth only when a team is in two at once.
+   *
+   * An organiser of round A has no standing to reshuffle a roster that is
+   * mid-round in B: the swap would land on B's board as surely as on A's, and
+   * B's organiser would never see it happen. "Any" would make the whole rule
+   * evaporate the moment a team entered a second contest, which is the
+   * ordinary state of a good team during a season.
+   */
+  it('refuses the organiser of ONE of two running contests, and admits a global admin', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'two-school', ['tw-an', 'tw-binh']);
+        await school.teacher
+          .post('/api/v1/orgs/two-school/teams')
+          .send({ slug: 'doi', name: 'Đội', members: ['tw-an'] });
+
+        // Two rounds running at once, with two different organisers: the
+        // school's own teacher runs the first, a stranger the second.
+        const organiserId = await userIdOfName(db, 'two-school-teacher');
+        const outsider = await insertUser(db, 'two-outsider');
+        await seedContest(db, {
+          key: 'two-a',
+          problemId: await problemId(db),
+          orgSlugs: ['two-school'],
+          createdBy: organiserId,
+        });
+        await seedContest(db, {
+          key: 'two-b',
+          problemId: await problemId(db),
+          orgSlugs: ['two-school'],
+          createdBy: outsider.id,
+        });
+        for (const key of ['two-a', 'two-b']) {
+          const joined = await school.pupils
+            .get('tw-an')!
+            .post(`/api/v1/contests/${key}/join`)
+            .send({ teamSlug: 'doi' });
+          expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+        }
+
+        // Runs `two-a`, does NOT run `two-b`: refused. Under an `any` rule
+        // this is a 200, and `two-b`'s board silently gains a stranger.
+        const partial = await school.teacher
+          .patch('/api/v1/orgs/two-school/teams/doi')
+          .send({ members: ['tw-binh'] });
+        expect(partial.status, JSON.stringify(partial.body)).toBe(409);
+        expect(partial.body.code).toBe('team_locked_during_contest');
+
+        // A global admin answers for the deployment and passes both.
+        const byAdmin = await school.admin
+          .patch('/api/v1/orgs/two-school/teams/doi')
+          .send({ members: ['tw-binh'] });
+        expect(byAdmin.status, JSON.stringify(byAdmin.body)).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
   it('is free again once the contest has ended', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
