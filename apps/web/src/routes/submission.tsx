@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { api } from '../api.js';
+import { apiError } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { VerdictPanel, type SubmissionDetail } from './submit.js';
 import { formatTimestamp, useLocale, useT } from '../i18n/index.js';
@@ -32,11 +33,11 @@ export function SubmissionPage({ id }: { id: number }) {
   const query = useQuery({
     queryKey: ['submission', id],
     queryFn: async (): Promise<SubmissionDetail> => {
-      const { data, error } = await api.GET('/submissions/{id}', {
-        params: { path: { id } },
-      });
-      if (error) throw new Error(error.detail ?? t('submission.notFound'));
-      return data;
+      const result = await api.GET('/submissions/{id}', { params: { path: { id } } });
+      // `apiError`, not `new Error`: the status has to survive so the query
+      // client can tell a 404 (final) from a 503 (worth asking again).
+      if (result.error) throw apiError(result, t('submission.notFound'));
+      return result.data;
     },
   });
 

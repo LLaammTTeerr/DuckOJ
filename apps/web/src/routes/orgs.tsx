@@ -12,6 +12,7 @@ import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { apiError } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { useT, type MsgKey, type TFunction } from '../i18n/index.js';
 
@@ -112,9 +113,9 @@ export function OrgsPage() {
   const query = useQuery({
     queryKey: ['orgs'],
     queryFn: async () => {
-      const { data, error } = await api.GET('/orgs', {});
-      if (error) throw new Error(t('orgs.loadError'));
-      return data;
+      const result = await api.GET('/orgs', {});
+      if (result.error) throw apiError(result, t('orgs.loadError'));
+      return result.data;
     },
   });
 
@@ -220,9 +221,9 @@ export function OrgPage({ slug }: { slug: string }) {
   const org = useQuery({
     queryKey: ['org', slug],
     queryFn: async () => {
-      const { data, error } = await api.GET('/orgs/{slug}', { params: { path: { slug } } });
-      if (error) throw new Error(error.detail ?? t('org.notFound'));
-      return data;
+      const result = await api.GET('/orgs/{slug}', { params: { path: { slug } } });
+      if (result.error) throw apiError(result, t('org.notFound'));
+      return result.data;
     },
   });
   const members = useQuery({

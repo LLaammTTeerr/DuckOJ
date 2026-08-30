@@ -8,3 +8,8 @@ import { createClient } from '@duckoj/sdk';
 export const api = createClient({
   baseUrl: `${import.meta.env.VITE_API_ORIGIN ?? ''}/${API_PREFIX}`,
 });
+
+// `ApiError`/`apiError` live in their own dependency-free module (see its
+// doc comment) — re-exported here so a screen still has one import for "the
+// API and the way its failures are thrown".
+export { ApiError, apiError } from './api-error.js';
