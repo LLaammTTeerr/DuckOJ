@@ -10,11 +10,34 @@ export const Username = z
 
 export const Password = z.string().min(10).max(256);
 
+/**
+ * A person's rendered name — one schema, used by registration and by the
+ * profile edit alike.
+ *
+ * Two things it is not, both of which it was:
+ *
+ *  - **Not `min(1)` on the raw string.** `'   '` satisfies that, and three
+ *    spaces are a name that renders as nothing at all: an empty heading on
+ *    the profile, an empty cell in the user list, an empty author on every
+ *    clarification. `.trim()` runs FIRST, so `min(1)` means what it looks
+ *    like it means, and `max` measures the name rather than the padding.
+ *  - **Not two different rules.** Registration capped at 64 and
+ *    `UpdateMeRequest` at 100, so the same account could hold a name it
+ *    could not have been created with. Unified at 100 — the wider of the
+ *    two, so no stored name becomes unsavable.
+ *
+ * The trim is a transform, not a refusal: `'  Lan  '` is a typo, not an
+ * attack, and correcting it is friendlier than a 422 about invisible
+ * characters. It also means two accounts cannot wear the same name padded
+ * differently.
+ */
+export const DisplayName = z.string().trim().min(1).max(100);
+
 export const RegisterRequest = z.object({
   username: Username,
   email: z.string().email(),
   password: Password,
-  displayName: z.string().min(1).max(64),
+  displayName: DisplayName,
 });
 export type RegisterRequestDto = z.infer<typeof RegisterRequest>;
 
