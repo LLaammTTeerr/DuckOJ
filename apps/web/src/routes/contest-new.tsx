@@ -51,6 +51,10 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
   // would turn a cleared box into `NaN` (or silently into 0) while the setter
   // is still typing.
   const [freeze, setFreeze] = useState('0');
+  // D99. `individual` is the default here as it is in the schema, so a form
+  // nobody touches creates the contest this product has always created.
+  const [mode, setMode] = useState<'individual' | 'team'>('individual');
+  const [maxTeamSize, setMaxTeamSize] = useState('3');
   // D56: which schools may enter. Empty is the pre-D56 contest — anybody
   // who can see it may join.
   const [orgSlugs, setOrgSlugs] = useState<string[]>([]);
@@ -149,6 +153,8 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
           endTime: new Date(end).toISOString(),
           format,
           visibility,
+          participationMode: mode,
+          maxTeamSize: Number(maxTeamSize),
           orgSlugs,
           frozenLastMinutes,
           problems: problems.map((row) => ({
@@ -258,6 +264,31 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
           </select>
         </label>
       </p>
+
+      <p>
+        <label>
+          {t('contest.colMode')}{' '}
+          {/* The VALUE is the API's enum and the LABEL is prose, so only the
+              label is translated — the visibility select's rule. */}
+          <select
+            aria-label={t('contest.colMode')}
+            value={mode}
+            onChange={(e) => setMode(e.target.value as typeof mode)}
+          >
+            <option value="individual">{t('contest.modeIndividual')}</option>
+            <option value="team">{t('contest.modeTeam')}</option>
+          </select>
+        </label>{' '}
+        <label>
+          {t('contest.maxTeamSize')}{' '}
+          <input
+            aria-label={t('contest.maxTeamSize')}
+            value={maxTeamSize}
+            onChange={(e) => setMaxTeamSize(e.target.value)}
+          />
+        </label>
+      </p>
+      <p className="muted">{t('contest.maxTeamSizeHint')}</p>
 
       <OrgPicker value={orgSlugs} onChange={setOrgSlugs} />
 

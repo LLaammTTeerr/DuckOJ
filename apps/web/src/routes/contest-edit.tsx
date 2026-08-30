@@ -109,6 +109,12 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
   const [format, setFormat] = useState<string>('icpc');
   const [visibility, setVisibility] = useState<Visibility>('private');
   const [freeze, setFreeze] = useState('0');
+  // D99, seeded and sent back like every other field here. Both are refused
+  // once the contest has started — but compared by VALUE, so re-sending what
+  // is stored is the no-op it looks like (D38's rule), and this form is the
+  // caller that depends on it.
+  const [mode, setMode] = useState<'individual' | 'team'>('individual');
+  const [maxTeamSize, setMaxTeamSize] = useState('3');
   const [orgSlugs, setOrgSlugs] = useState<string[]>([]);
   const [rows, setRows] = useState<ProblemRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +140,8 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
     setEndSeed({ local: toLocalInput(contest.endTime), iso: contest.endTime });
     setFormat(contest.format);
     setVisibility(contest.visibility);
+    setMode(contest.participationMode);
+    setMaxTeamSize(String(contest.maxTeamSize));
     // Seeded and sent back on every save, like every other field here: an
     // absent `orgSlugs` means keep, but a form that SHOWS the restriction and
     // then omits it is a form that lies about what it will save.
@@ -189,6 +197,8 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
           endTime: instantFor(end, endSeed),
           format,
           visibility,
+          participationMode: mode,
+          maxTeamSize: Number(maxTeamSize),
           orgSlugs,
           frozenLastMinutes,
           problems: problems.map((row) => ({
@@ -296,6 +306,29 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
           </select>
         </label>
       </p>
+
+      <p>
+        <label>
+          {t('contest.colMode')}{' '}
+          <select
+            aria-label={t('contest.colMode')}
+            value={mode}
+            onChange={(e) => setMode(e.target.value as typeof mode)}
+          >
+            <option value="individual">{t('contest.modeIndividual')}</option>
+            <option value="team">{t('contest.modeTeam')}</option>
+          </select>
+        </label>{' '}
+        <label>
+          {t('contest.maxTeamSize')}{' '}
+          <input
+            aria-label={t('contest.maxTeamSize')}
+            value={maxTeamSize}
+            onChange={(e) => setMaxTeamSize(e.target.value)}
+          />
+        </label>
+      </p>
+      <p className="muted">{t('contest.maxTeamSizeHint')}</p>
 
       <OrgPicker value={orgSlugs} onChange={setOrgSlugs} />
 

@@ -290,11 +290,45 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
     enabled: me.data != null,
   });
 
+  /**
+   * The teams this viewer may enter with (D99).
+   *
+   * One request per organization the contest names, because teams are
+   * org-scoped and there is no "my teams" endpoint: `GET /orgs/{slug}/teams`
+   * already answers with the caller's own teams for anybody who is not the
+   * school's staff, so the picker is the server's own answer rather than a
+   * filter this page applies. A team contest always names at least one
+   * organization (422 `contest_team_orgs_required`), so this is never a
+   * request for nothing.
+   */
+  const myTeams = useQuery({
+    queryKey: ['contest-teams', contestKey],
+    enabled: me.data != null && contest.data?.participationMode === 'team',
+    queryFn: async () => {
+      const orgs = contest.data?.orgs ?? [];
+      const pages = await Promise.all(
+        orgs.map(async (org) => {
+          const { data } = await api.GET('/orgs/{slug}/teams', {
+            params: { path: { slug: org.slug } },
+          });
+          return data?.items ?? [];
+        }),
+      );
+      return pages.flat();
+    },
+  });
+  const [pickedTeam, setPickedTeam] = useState('');
+  const teamChoices = myTeams.data ?? [];
+  const teamSlug = pickedTeam === '' ? (teamChoices[0]?.slug ?? '') : pickedTeam;
+
   async function join(): Promise<void> {
     setJoinBusy(true);
     try {
       const { error } = await api.POST('/contests/{key}/join', {
         params: { path: { key: contestKey } },
+        // `{}` for an individual contest — the server refuses a `teamSlug`
+        // there rather than ignoring it, so the two must not be confused.
+        body: contest.data?.participationMode === 'team' ? { teamSlug } : {},
       });
       if (error) {
         setJoinError(error.detail ?? t('contest.joinError'));
@@ -320,6 +354,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
 
   const joined = participation.data != null;
   const phase = phaseOf(contest.data);
+  const isTeamContest = contest.data.participationMode === 'team';
 
   return (
     <section className="panel">
@@ -327,6 +362,9 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
       <p className="muted">
         {contest.data.format} · {when(contest.data.startTime, locale, timeZone)} →{' '}
         {when(contest.data.endTime, locale, timeZone)} · {phaseLabel(t, phase)}
+        {/* Said once, at the top: whether this is a team round decides what
+            the Join button asks for and what the board will print (D99). */}
+        {isTeamContest ? ` · ${t('contest.teamMode')}` : null}
       </p>
       {contest.data.orgs.length > 0 ? (
         <p>
@@ -374,19 +412,56 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         // state this page does not know.
         <p role="alert">{t('contest.participationLoadError')}</p>
       ) : joined ? (
-        <p role="status">
-          {participation.data!.virtual === 0
-            ? t('contest.live')
-            : t('contest.virtual', { n: participation.data!.virtual })}{' '}
-          {t('contest.windowCloses', { when: when(participation.data!.endTime, locale, timeZone) })}
-        </p>
+        <>
+          <p role="status">
+            {participation.data!.virtual === 0
+              ? t('contest.live')
+              : t('contest.virtual', { n: participation.data!.virtual })}{' '}
+            {t('contest.windowCloses', { when: when(participation.data!.endTime, locale, timeZone) })}
+          </p>
+          {/* The row is the TEAM's, and a member who never pressed Join is
+              competing on it — saying so is the whole of what tells them
+              their submissions count (D99). */}
+          {participation.data!.team ? (
+            <p role="status">
+              {t('contest.teamAs', {
+                name: participation.data!.team.name,
+                members: participation.data!.team.members.join(', '),
+              })}
+            </p>
+          ) : null}
+        </>
       ) : (
-        <p>
-          <button type="button" onClick={() => void join()} disabled={joinBusy || phase === 'upcoming'}>
-            {phase === 'finished' ? t('contest.joinVirtually') : t('contest.join')}
-          </button>
-          {phase === 'upcoming' ? <span className="muted"> {t('contest.notStarted')}</span> : null}
-        </p>
+        <>
+          {isTeamContest ? (
+            teamChoices.length > 0 ? (
+              <p>
+                <label>
+                  {t('contest.teamPick')}{' '}
+                  <select value={teamSlug} onChange={(e) => setPickedTeam(e.target.value)}>
+                    {teamChoices.map((team) => (
+                      <option key={`${team.orgSlug}/${team.slug}`} value={team.slug}>
+                        {team.name} · {team.orgName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </p>
+            ) : (
+              <p className="muted">{t('contest.teamNone')}</p>
+            )
+          ) : null}
+          <p>
+            <button
+              type="button"
+              onClick={() => void join()}
+              disabled={joinBusy || phase === 'upcoming' || (isTeamContest && teamSlug === '')}
+            >
+              {phase === 'finished' ? t('contest.joinVirtually') : t('contest.join')}
+            </button>
+            {phase === 'upcoming' ? <span className="muted"> {t('contest.notStarted')}</span> : null}
+          </p>
+        </>
       )}
       {joinError ? <p role="alert">{joinError}</p> : null}
 
@@ -916,6 +991,10 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
   // field for field, and renaming it here would put a translation layer
   // between the contract and the screen.
   const { ranking, problems } = query.data;
+  // D99's sidecar: present only for a team contest, keyed by the name the
+  // ranking row prints. `undefined` everywhere else, so every branch below
+  // reads as "is this row a team".
+  const teams = query.data.teams;
 
   return (
     <section className="panel">
@@ -957,9 +1036,38 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
             >
               <td className="num">{row.rank}</td>
               <td>
-                <Link to="/users/$username" params={{ username: row.participant }}>
-                  {row.participant}
-                </Link>
+                {teams?.[row.participant] ? (
+                  // A team's name is not a username, so it must not link to a
+                  // profile — that URL would 404. It links to the school that
+                  // fielded it, and the people are links of their own; the
+                  // `title` puts the roster in a tooltip for the ordinary
+                  // case of scanning a board.
+                  <>
+                    <Link
+                      to="/orgs/$slug"
+                      params={{ slug: teams[row.participant]!.orgSlug }}
+                      title={t('scoreboard.teamMembers', {
+                        members: teams[row.participant]!.members.join(', '),
+                      })}
+                    >
+                      {row.participant}
+                    </Link>{' '}
+                    <span className="muted">
+                      {teams[row.participant]!.members.map((member, index) => (
+                        <span key={member}>
+                          {index > 0 ? ', ' : ''}
+                          <Link to="/users/$username" params={{ username: member }}>
+                            {member}
+                          </Link>
+                        </span>
+                      ))}
+                    </span>
+                  </>
+                ) : (
+                  <Link to="/users/$username" params={{ username: row.participant }}>
+                    {row.participant}
+                  </Link>
+                )}
                 {row.virtual !== 0 ? (
                   <span className="muted"> {t('scoreboard.virtual')}</span>
                 ) : null}
@@ -979,7 +1087,18 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
                   <button
                     type="button"
                     disabled={dqBusy === row.participant}
-                    onClick={() => void setDisqualified(row.participant, !row.is_disqualified)}
+                    onClick={() =>
+                      void setDisqualified(
+                        // The route is keyed by USERNAME, and a team row's
+                        // `participant` is the team's name — which names no
+                        // account. The sidecar carries the member whose
+                        // account holds the participation, and moving that
+                        // person moves the team's row (D37, D99). Sending
+                        // `row.participant` here would 404 `user_not_found`.
+                        teams?.[row.participant]?.captain ?? row.participant,
+                        !row.is_disqualified,
+                      )
+                    }
                   >
                     {t(row.is_disqualified ? 'scoreboard.undq' : 'scoreboard.dq', { name: row.participant })}
                   </button>

@@ -22,6 +22,7 @@ import { apiError, read } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { useT, type MsgKey, type TFunction } from '../i18n/index.js';
 import { OrgSets } from './problem-sets.js';
+import { OrgTeams } from './teams.js';
 
 type Org = paths['/orgs']['get']['responses'][200]['content']['application/json']['items'][number];
 type Member =
@@ -735,6 +736,11 @@ export function OrgPage({ slug }: { slug: string }) {
           school's own members come to this page for, and it is invisible to
           anyone who is not one (D66). */}
       <OrgSets slug={slug} canManage={decider || me.data?.globalRole === 'admin'} />
+
+      {/* Beside the homework, and for its reason: a school's teams are what
+          its own members come here for before a team round, and they are
+          invisible to anybody who is neither staff nor on one (D99). */}
+      <OrgTeams slug={slug} canManage={decider || me.data?.globalRole === 'admin'} />
 
       <OrgContests slug={slug} />
 
