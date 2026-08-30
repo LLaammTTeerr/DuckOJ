@@ -1,5 +1,10 @@
 import { Redis } from 'ioredis';
-import { createDb, touchJudgeLastSeen, verifyJudgeCredential } from '@duckoj/db';
+import {
+  createDb,
+  recordJudgeCapabilities,
+  touchJudgeLastSeen,
+  verifyJudgeCredential,
+} from '@duckoj/db';
 import { describeError } from '@duckoj/observability';
 import { loadConfig } from './config.js';
 import { startHealthServer } from './health.js';
@@ -32,7 +37,16 @@ async function main(): Promise<void> {
   const writer = new EventWriter(db, jobs, new SubmissionEvents(redis));
 
   const bridge = new BridgeServer({
+    // The two directions are written together because they must stay
+    // inverses of each other: dispatch asks "does this judge have the
+    // executor for cpp17", capability recording asks "what language is
+    // CPP17", and a fleet with judges configured differently gets the wrong
+    // answer to one of them the moment the pair drifts (D68). Today every
+    // key is its executor lowercased, so both halves are one rule; a future
+    // language whose executor is not simply its key uppercased (`python3` ->
+    // `PY3`, say) must extend BOTH lines here, not one.
     languageToExecutor: (key) => (key === 'cpp17' ? 'CPP17' : key.toUpperCase()),
+    executorToLanguage: (executor) => executor.toLowerCase(),
     // Same check, same table, as the API's `JudgeGuard` — see
     // `verifyJudgeCredential`'s doc comment in `@duckoj/db`.
     verifyJudge: (id, key) => verifyJudgeCredential(db, id, key),
@@ -40,6 +54,9 @@ async function main(): Promise<void> {
     // `touchJudgeLastSeen`'s and `BridgeOptions.recordLastSeen`'s doc
     // comments for exactly which two signals that means.
     recordLastSeen: (id) => touchJudgeLastSeen(db, id),
+    // `judge_nodes.capabilities` was written by nothing until now (D47's
+    // report), so the dashboard could show a judge but not what it can run.
+    recordCapabilities: (id, capabilities) => recordJudgeCapabilities(db, id, capabilities),
   });
   const agent = new HttpAgentClient({ agentOrigin: config.agentOrigin });
   const driver = new DmojDriver(bridge, agent);

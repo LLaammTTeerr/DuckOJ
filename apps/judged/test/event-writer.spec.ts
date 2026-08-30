@@ -393,4 +393,41 @@ describe('EventWriter', () => {
       expect(rows).toHaveLength(1);
     });
   }, 120_000);
+
+  it('records the judge node a dispatched event names, joining job to node (D68)', async () => {
+    await withTestDb(async (db) => {
+      const publish = vi.fn(async () => {});
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish } as never);
+      const { job } = await seedSubmissionAndJob(db, store);
+      await db
+        .insert(schema.judgeNodes)
+        .values({ name: 'judge-2', tokenHash: 'hash-2', driver: 'dmoj' });
+
+      await writer.apply(job, { type: 'dispatched', node: 'judge-2' });
+
+      const rows = await db.execute<{ name: string | null }>(sql`
+        select judge_nodes.name from grading_jobs
+          left join judge_nodes on judge_nodes.id = grading_jobs.judge_node_id
+         where grading_jobs.id = ${job.id}
+      `);
+      expect(rows[0]?.name).toBe('judge-2');
+    });
+  }, 120_000);
+
+  it('writes no node when the driver names none — an in-process driver must not invent one', async () => {
+    await withTestDb(async (db) => {
+      const publish = vi.fn(async () => {});
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish } as never);
+      const { job } = await seedSubmissionAndJob(db, store);
+
+      await writer.apply(job, { type: 'dispatched' });
+
+      const rows = await db.execute<{ judge_node_id: number | null }>(
+        sql`select judge_node_id from grading_jobs where id = ${job.id}`,
+      );
+      expect(rows[0]?.judge_node_id).toBeNull();
+    });
+  }, 120_000);
 });

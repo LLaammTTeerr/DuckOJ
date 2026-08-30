@@ -79,6 +79,32 @@ export const gradingJobs = pgTable(
     attempt: integer('attempt').notNull().default(0),
     leaseUntil: timestamp('lease_until', { withTimezone: true }),
     workerId: text('worker_id'),
+    /**
+     * Which judge node graded (or is grading) this job's current attempt —
+     * the node↔job join `judge_nodes` never had (D47 called its absence out,
+     * D68 adds it). Written by `judged` on dispatch from the bridge
+     * connection the request actually went to, so it names the judge that
+     * really ran the code rather than the one an operator assumes did.
+     *
+     * `on delete set null`, never cascade: retiring a judge must not delete
+     * grading history. `scripts/judge-node.ts revoke` goes further and does
+     * not delete the row at all — it burns the token hash — precisely so
+     * this column keeps pointing at a name.
+     */
+    judgeNodeId: bigint('judge_node_id', { mode: 'number' }).references(() => judgeNodes.id, {
+      onDelete: 'set null',
+    }),
+    /**
+     * Why a `queued` job is not being claimed — today only "no connected
+     * judge speaks its language" (D68). NULL is the normal state and means
+     * nothing is known to be wrong; `JobStore.claim` clears it in the same
+     * UPDATE that claims, because being claimed disproves it.
+     *
+     * Text, not a new `grading_job_state` value: a blocked job IS queued —
+     * claimable the instant a capable judge connects — and a state nothing
+     * transitions out of by itself would need a sweeper to undo it.
+     */
+    blockedReason: text('blocked_reason'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

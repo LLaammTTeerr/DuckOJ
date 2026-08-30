@@ -100,6 +100,11 @@ describe('BridgeServer authentication', () => {
       languageToExecutor: () => 'CPP17',
       verifyJudge,
       recordLastSeen,
+      // The handshake's own write opens the throttle window (D68), so with
+      // the production 15 s value a heartbeat this soon after it is
+      // correctly suppressed. Zero here isolates the heartbeat's own effect,
+      // which is what this test is about.
+      lastSeenThrottleMs: 0,
     });
     const port = await server.listen(0);
     judge = fakeJudge(port, 'judge-1', 'phase1-judge-key');
@@ -115,12 +120,12 @@ describe('BridgeServer authentication', () => {
     expect(recordLastSeen).toHaveBeenLastCalledWith('judge-1');
   }, 30_000);
 
-  it('does not record last-seen liveness for a non-heartbeat packet', async () => {
-    // The design specifies exactly two write signals — handshake and
-    // heartbeat — not "any packet", unlike the in-memory `lastSeenAt` map
-    // this durable write sits beside. `supported-problems` is a real,
-    // frequent packet this bridge already handles specially; it must not
-    // also trigger a database write.
+  it('writes at most one liveness row per throttle window, however chatty the judge', async () => {
+    // The rule this asserts CHANGED with D68: the durable write used to fire
+    // on the handshake and `ping-response` alone, which under-reported a
+    // judge that was mid-grade and streaming test-case packets. Any packet
+    // may now refresh it — and the throttle is the only thing standing
+    // between that and one UPDATE per test case, so it is what gets pinned.
     const verifyJudge = vi.fn(async () => true);
     const recordLastSeen = vi.fn(async () => {});
     server = new BridgeServer({
@@ -134,10 +139,32 @@ describe('BridgeServer authentication', () => {
     await vi.waitFor(() => expect(judge!.received.map((p) => p.name)).toContain('handshake-success'), 10_000);
     await vi.waitFor(() => expect(recordLastSeen).toHaveBeenCalledTimes(1), 10_000);
 
-    judge.send({ name: 'supported-problems', problems: [['aplusb', 0]] });
+    for (let i = 0; i < 5; i++) judge.send({ name: 'supported-problems', problems: [['aplusb', 0]] });
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     expect(recordLastSeen).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it('refreshes liveness from any packet once the window has passed', async () => {
+    const verifyJudge = vi.fn(async () => true);
+    const recordLastSeen = vi.fn(async () => {});
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge,
+      recordLastSeen,
+      lastSeenThrottleMs: 0,
+    });
+    const port = await server.listen(0);
+    judge = fakeJudge(port, 'judge-1', 'phase1-judge-key');
+    await judge.ready;
+    await vi.waitFor(() => expect(recordLastSeen).toHaveBeenCalledTimes(1), 10_000);
+
+    // Not a heartbeat, and that is the point: a judge sending anything at
+    // all is a judge the dashboard must not be calling offline (D47's 90 s).
+    judge.send({ name: 'supported-problems', problems: [['aplusb', 0]] });
+
+    await vi.waitFor(() => expect(recordLastSeen).toHaveBeenCalledTimes(2), 10_000);
+    expect(recordLastSeen).toHaveBeenLastCalledWith('judge-1');
   }, 30_000);
 
   it('closes the connection when the key does not verify, and registers nothing', async () => {

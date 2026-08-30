@@ -1112,7 +1112,9 @@ another's attempt.
 
 **The judge — how many grades actually run at once. This is the real
 ceiling.** A DMOJ judge grades **one submission per connection** (D29), so the
-fleet's capacity is the number of connected `judge` containers. There is one.
+fleet's capacity is the number of connected `judge` containers. A plain
+`podman-compose up` starts one; "Adding a second judge" below starts the
+second.
 
 `judged` now enforces that rather than merely documenting it. Two mechanisms,
 both in the B2 fix:
@@ -1138,6 +1140,11 @@ Two consequences an operator will actually see:
    `queued` instead of being claimed, timing out on the 300 s watchdog and
    showing up as IE. If the queue is not moving, check the judge is connected
    (`podman logs duckoj_judged_1` for a handshake) before suspecting `judged`.
+3. **A judge only takes work it can run.** Since D68 the dispatcher routes by
+   language — a job goes to a connected judge whose handshake announced an
+   executor for it, and a job no connected judge can run is not claimed at
+   all. It stays `queued` and says why, in `grading_jobs.blocked_reason`; see
+   "A queue that is not moving, with a judge connected" below.
 
 ### Grep for the failure this replaced
 
@@ -1148,50 +1155,98 @@ grading it. Harmless in itself — that is the fix working — but a steady stre
 means jobs are being cancelled before they reach a judge, which is worth
 tracing to the packages or the agent, not the bridge.
 
-### Adding a second judge container
+### Adding a second judge
 
-Not built — these are the exact steps, not a tested procedure. `judged`
-already accepts multiple bridge connections and `verifyJudge` is per-`(id,
-key)`, so the work is registration and a service copy.
+Built and tested now, not a sketch: `docker-compose.yml` carries a `judge-2`
+service behind the **`scale` profile**, `scripts/judge-node.ts` registers the
+node, and `apps/judged/test/multi-judge.spec.ts` proves two judges grading
+concurrently over the real wire protocol (D68).
 
-1. **A second token.** `judge_nodes` has a UNIQUE index on `token_hash`
-   (`judge_nodes_token_idx`, `packages/db/src/schema/judging.ts`), so
-   `judge-2` **cannot** reuse `JUDGE_TOKEN`. Generate one:
-   `openssl rand -hex 32`, and put it in `.env` as `JUDGE_TOKEN_2`.
+1. **Register the node.** This mints the token; do not invent one.
 
-2. **Register the node.** `scripts/seed-problem.ts` only ever seeds
-   `judge-1` (its `JUDGE_NODE_NAME` is a constant). Insert the second row by
-   hand — `token_hash` is plain sha256-hex of the token
-   (`hashJudgeToken`, `packages/db/src/judge-auth.ts`), and `driver` must be
-   `dmoj`:
+       corepack pnpm judge:node add judge-2
 
-       podman exec -i duckoj_postgres_1 psql -U duckoj -d duckoj -c \
-         "insert into judge_nodes (name, token_hash, driver)
-          values ('judge-2', encode(sha256('<the token>'::bytea), 'hex'), 'dmoj');"
+   It prints the token **once**. `judge_nodes` has a UNIQUE index on
+   `token_hash`, so `judge-2` cannot reuse `JUDGE_TOKEN`. Put the printed
+   value in `.env` as `JUDGE_TOKEN_2` (nothing else reads that variable; the
+   compose service below passes it in as the container's `JUDGE_TOKEN`).
 
-3. **Copy the service** in `docker-compose.yml`: duplicate `judge` as
-   `judge-2`, changing only `JUDGE_NAME: judge-2` and
-   `JUDGE_TOKEN: ${JUDGE_TOKEN_2:?set JUDGE_TOKEN_2}`. Everything else stays
-   — same image, same `judge/judge.yml` template mount (it is rendered per
-   container from that container's own env), same absent port publishing.
-   `/problems` is a per-container runtime directory that judge-agent
-   materialises into on demand, so the second judge needs no shared volume
-   and no seeding; it re-fetches what it needs from the API.
+   `postgres` has no host port mapping, so run this the way every other
+   database script is run against the live stack — as a one-off container on
+   the Compose network, reusing the `migrate` image:
 
-4. **Bring it up** and add it to `scripts/compose-up.sh`'s final
-   `wait_healthy` step alongside `judge`, so a second judge that never comes
-   online fails the bring-up loudly instead of silently halving capacity.
+       podman run --rm --network <project>_default --env-file .env \
+         localhost/<project>_migrate:latest \
+         sh -c 'DATABASE_URL="postgres://duckoj:$POSTGRES_PASSWORD@postgres:5432/duckoj" \
+                packages/db/node_modules/.bin/tsx scripts/judge-node.ts add judge-2'
 
-5. **Then, and only then, raise `JUDGED_CONCURRENCY` to 2** — one loop per
-   judge. Until the second judge is actually handshaking, the second loop
-   cannot win a judge slot and the change is inert (D29).
+2. **Start it.**
 
-What is genuinely untested about this: two judges grading the same problem
-concurrently, and the `live`-map hazard `DmojDriver`'s class comment already
-calls out (it keys live jobs by job id alone, not `(job, attempt)`, which
-that comment says stops being a corner case exactly when several judges run
-concurrently). Read that comment before running two judges in a rated
-contest.
+       podman-compose --profile scale up -d judge-2
+
+   Without `--profile scale` the service is not started at all — podman-compose
+   1.5 filters on `profiles`, which is why `judge-2` is safe to keep checked
+   in. It does interpolate variables *before* filtering, so `JUDGE_TOKEN_2`
+   has a harmless placeholder default rather than a `:?` marker that would
+   break every plain `up`.
+
+3. **Then, and only then, raise `JUDGED_CONCURRENCY` to 2** — one claim loop
+   per judge. Until judge-2 is handshaking, the second loop cannot win a judge
+   slot and the change is inert (D29).
+
+4. **Check it.** `scripts/compose-up.sh` waits on `judge`, not `judge-2` — a
+   profiled service is outside its wait set — so confirm this one by hand:
+
+       corepack pnpm judge:node list        # judge-2 present, revoked:false
+       podman logs <project>_judged_1 2>&1 | grep judge-2
+
+   A rejected credential prints exactly one line, `judge handshake rejected`
+   with `id: judge-2`. `judge:node list` also shows each node's recorded
+   `capabilities` — the languages it announced at handshake — which is the
+   fastest way to tell a judge that connected from one that connected *and*
+   can run C++.
+
+`/problems` is a per-container runtime directory judge-agent materialises into
+on demand, so judge-2 needs no shared volume and no seeding; it re-fetches what
+it needs from the API.
+
+### Retiring a judge
+
+    corepack pnpm judge:node revoke judge-2
+
+This burns the token hash and **keeps the row**. Do not `DELETE` it:
+`grading_jobs.judge_node_id` references `judge_nodes` `on delete set null`, so
+deleting the row erases which machine graded every submission it ever ran.
+Revoking is idempotent and takes effect on the judge's next handshake — stop
+the container too if you want it gone now.
+
+### A queue that is not moving, with a judge connected
+
+`judged` dispatches a job only to a judge whose handshake announced an executor
+for that job's language, and its claim loop will not even claim a job no
+connected judge can run — so such a job stays `queued` instead of being leased
+and failing. `grading_jobs.blocked_reason` says why:
+
+    select id, blocked_reason from grading_jobs
+     where state = 'queued' and blocked_reason is not null;
+
+`no connected judge supports language <key>` means exactly that: bring up a
+judge configured with that executor (the compose `judge` services pass
+`--only-executors CPP17`), and the reason clears within about five seconds.
+`NULL` on every queued row means the queue is waiting on capacity, not on
+capability.
+
+### Which judge graded a submission
+
+    select s.id, j.name
+      from submissions s
+      join grading_jobs g on g.submission_id = s.id
+      left join judge_nodes j on j.id = g.judge_node_id
+     where s.id = <id>;
+
+`judge_node_id` is written on dispatch, from the bridge connection the request
+actually went to. `NULL` means the job has not been dispatched yet — or was
+graded before this column existed.
 
 ## End-to-end acceptance against the real judge — `scripts/e2e-submit.ts`
 

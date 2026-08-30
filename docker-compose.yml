@@ -124,11 +124,12 @@ services:
       # actually listens on (AGENT_PORT below, on the `judge` service).
       AGENT_ORIGIN: http://judge:3002
       # How many independent claim loops judged runs (apps/judged/src/worker.ts,
-      # `startWorkerPool`). One loop per `judge` container, and there is one
-      # `judge` here. A DMOJ judge grades one submission per connection, and a
+      # `startWorkerPool`). One loop per `judge` container, and a plain `up`
+      # starts one. A DMOJ judge grades one submission per connection, and a
       # loop reserves a judge slot before it claims, so a second loop against
-      # this single judge would never win one — raise this only when you add
-      # judges (D28, docs/runbook.md "Judging throughput").
+      # this single judge would never win one — raise this to 2 only together
+      # with the `judge-2` service below (`--profile scale`), which is the
+      # sequencing docs/runbook.md "Judging throughput" prescribes (D29, D68).
       JUDGED_CONCURRENCY: ${JUDGED_CONCURRENCY:-1}
     # The judge dials OUT to judged (see the `judge` service below) — judged
     # needs no ingress at all. Do NOT publish 9999 (or 3001) to the host:
@@ -209,6 +210,61 @@ services:
     # judge-config/judge.yml is rendered fresh into the container's own
     # filesystem at every start (judge/entrypoint.sh), never checked in and
     # never baked into the image.
+    volumes:
+      - ./judge/judge.yml:/judge-config/judge.yml.template:ro
+
+  # A second judge, off by default: `profiles` keeps it out of a plain
+  # `up`, and it starts only under `--profile scale` (docs/runbook.md,
+  # "Adding a second judge"). Behind a profile rather than commented out so
+  # it is a service Compose validates and can actually start, not a block
+  # of text that rots — and off by default because starting it without its
+  # `judge_nodes` row (`corepack pnpm judge:node add judge-2`) produces a
+  # container that handshakes, is refused, and retries forever.
+  #
+  # Everything but the identity is copied from `judge` deliberately: same
+  # image, same read-only template mount (judge.yml is rendered per
+  # container from that container's own env), same absence of published
+  # ports, no volume of its own. `/problems` is a per-container runtime
+  # directory judge-agent materialises into on demand, so this judge seeds
+  # nothing and shares nothing — it re-fetches from the API what it needs.
+  #
+  # `judged` needs no configuration to use it: the bridge accepts any
+  # handshake that verifies, and `DmojDriver` picks an idle connection that
+  # can run the job's language (D68). Raise `JUDGED_CONCURRENCY` to 2 in
+  # `.env` to give the second judge a claim loop of its own — until you do,
+  # one loop feeds one judge and the other idles (D29).
+  judge-2:
+    profiles: ['scale']
+    build: { context: ., dockerfile: judge/Dockerfile }
+    restart: unless-stopped
+    environment:
+      API_ORIGIN: http://api:3000
+      JUDGE_NAME: judge-2
+      # A DIFFERENT token, not a second copy of JUDGE_TOKEN: `judge_nodes`
+      # has a UNIQUE index on `token_hash` (`judge_nodes_token_idx`), so two
+      # nodes cannot share one. `corepack pnpm judge:node add judge-2`
+      # prints the value to put here — do not invent one by hand, and do not
+      # reuse judge-1's.
+      #
+      # A placeholder default, NOT `${JUDGE_TOKEN_2:?...}`, and this is
+      # load-bearing: podman-compose 1.5 interpolates the whole file before
+      # it filters services by profile (`_resolve_profiles`, called after
+      # normalisation), so a required-variable marker here fails every plain
+      # `up` of the default stack — for a service that plain `up` does not
+      # even start. Verified with `podman-compose config`. The placeholder
+      # cannot verify against any `judge_nodes` row, so forgetting to set it
+      # surfaces as one greppable line in judged's log ("judge handshake
+      # rejected", id `judge-2`) rather than as a judge that silently grades
+      # nothing.
+      JUDGE_TOKEN: ${JUDGE_TOKEN_2:-JUDGE_TOKEN_2-is-unset-see-runbook}
+      PROBLEMS_DIR: /problems
+      AGENT_PORT: '3002'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://localhost:3002/healthz').then(r=>process.exit(r.ok?0:1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    command: ['dmoj', 'judged', '-p', '9999', '-c', '/judge-config/judge.yml', '--only-executors', 'CPP17']
     volumes:
       - ./judge/judge.yml:/judge-config/judge.yml.template:ro
 
