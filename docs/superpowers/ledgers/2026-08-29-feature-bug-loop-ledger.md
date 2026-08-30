@@ -11,3 +11,4 @@
 - F-3 dispatched (main, opus): apply tags to live demo set; TOTP recovery codes, migration 0019, D39.
 - B-2 DONE, merged (9deec85): 9 contest bugs (D36 double-join bricked boards, D37 rejoin cleared DQ, D38 startTime guard, clarification pre-start leak, edit-form drift…). api rebuilt from a clean HEAD export (F-3 has a dirty tree on main); web rebuilt; pushed.
 - B-3 dispatched (worktree, opus): judging pipeline, D40–D42, migration 0020 reserved.
+- F-3 and B-3 killed by API timeouts (F-3 at web tests, B-3 at start); both resumed from transcripts on 2026-08-30.
