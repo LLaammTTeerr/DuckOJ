@@ -70,3 +70,4 @@
 - B-15 dispatched (worktree, opus): real AppModule boot test in CI, scripts/deploy.sh (clean export, health poll, auto-rollback), worker crash-loop breaker (D85), healthcheck with worker count (D86), harness override audit.
 - e2e after B-13: 15/17 — harness direct API writes lacked Origin (D82); playwright.config now sends it; rerun in flight. F-18 dispatched (main, opus): browser problem authoring via file-by-file drafts (D87).
 - e2e with Origin: 17/17 on the live stack (editor, meter, CSRF guard, Liquid Glass, tab bar).
+- F-18 DONE (03ae314..68f3d61): browser problem authoring — file-by-file drafts, server build, D87; deployed (health polled 48 s, no re-forks) + pushed.
