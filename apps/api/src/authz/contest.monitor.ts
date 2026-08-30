@@ -385,13 +385,15 @@ export class ContestMonitorService {
     const rows = await this.db.execute<{
       submission_id: string;
       username: string;
+      team: string | null;
       code: string;
       label: string;
       state: string;
       verdict: string | null;
       created_at: Date;
     }>(sql`
-      select x.submission_id, u.username, p.code, cp.label, s.state, s.verdict, s.created_at
+      select x.submission_id, u.username, t.name as team,
+             p.code, cp.label, s.state, s.verdict, s.created_at
         from contest_problems cp
         join problems p on p.id = cp.problem_id
         cross join lateral (
@@ -402,8 +404,16 @@ export class ContestMonitorService {
            limit ${FEED_LIMIT}
         ) x
         join submissions s                    on s.id = x.submission_id
+        -- D105. submissions.user_id, NOT the participation's: a team is one
+        -- row held by whoever pressed Join (D99), so part.user_id is the
+        -- captain, and naming them here put a pupil who may not have touched
+        -- a keyboard against every teammate's submission — on the one screen
+        -- an invigilator uses to find the pupil who did.
+        join users u                          on u.id = s.user_id
         join contest_participations part      on part.id = x.participation_id
-        join users u                          on u.id = part.user_id
+        -- The board is keyed by TEAM, so the name alone cannot say which row
+        -- a submission scored on. A left join: null for an individual round.
+        left join teams t                     on t.id = part.team_id
        where cp.contest_id = ${contestId}
        order by x.id desc
        limit ${FEED_LIMIT}
@@ -411,6 +421,7 @@ export class ContestMonitorService {
     return rows.map((row) => ({
       submissionId: num(row.submission_id),
       username: row.username,
+      team: row.team,
       problemCode: row.code,
       problemLabel: row.label,
       state: row.state,

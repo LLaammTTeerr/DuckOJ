@@ -975,6 +975,92 @@ describe('every member of a team may read the contest’s problems', () => {
   }, 180_000);
 });
 
+/* ------------------------------------------------------ the monitor feed */
+
+/**
+ * Who the contest-day feed names when a team submits (D105).
+ *
+ * D95's feed is the invigilator's "what is happening right now", and the one
+ * thing it is FOR is deciding whether to walk over to a machine. D99 landed
+ * after it and made a team one participation held by whoever pressed Join, so
+ * the feed's `join users on participation.user_id` started naming the captain
+ * for every teammate's submission — a person who may not have touched a
+ * keyboard, on the screen an invigilator uses to find the one who did.
+ */
+describe('the monitor feed in a team round (D105)', () => {
+  it('names the pupil who submitted, and the team the row scores for', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'feed-school', ['faa', 'fbb']);
+        await school.teacher
+          .post('/api/v1/orgs/feed-school/teams')
+          .send({ slug: 'doi-f', name: 'Đội F', members: ['faa', 'fbb'] });
+        await seedContest(db, {
+          key: 'feed-c',
+          problemId: await problemId(db),
+          orgSlug: 'feed-school',
+        });
+
+        // `faa` presses Join, so the team's one row is on `fa`'s account…
+        const joined = await school.pupils
+          .get('faa')!
+          .post('/api/v1/contests/feed-c/join')
+          .send({ teamSlug: 'doi-f' });
+        expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+
+        // …and `fbb` is the one who actually submits.
+        await clearSubmissionMeter(db);
+        const sent = await school.pupils
+          .get('fbb')!
+          .post('/api/v1/submissions')
+          .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}', contestKey: 'feed-c' });
+        expect(sent.status, JSON.stringify(sent.body)).toBe(201);
+
+        const monitor = await school.admin.get('/api/v1/contests/feed-c/monitor');
+        expect(monitor.status, JSON.stringify(monitor.body)).toBe(200);
+        expect(monitor.body.feed).toHaveLength(1);
+        expect(monitor.body.feed[0].username).toBe('fbb');
+        // The team is carried beside the name rather than instead of it: the
+        // board is keyed by team (D99), so without it the invigilator cannot
+        // tell which row a submission scored on.
+        expect(monitor.body.feed[0].team).toBe('Đội F');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('leaves `team` null for an individual round', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'feed-solo', ['fss']);
+        await seedContest(db, {
+          key: 'feed-s',
+          problemId: await problemId(db),
+          orgSlug: 'feed-solo',
+          mode: 'individual',
+        });
+        await school.pupils.get('fss')!.post('/api/v1/contests/feed-s/join').send({});
+        await clearSubmissionMeter(db);
+        await school.pupils
+          .get('fss')!
+          .post('/api/v1/submissions')
+          .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}', contestKey: 'feed-s' });
+
+        const monitor = await school.admin.get('/api/v1/contests/feed-s/monitor');
+        expect(monitor.body.feed[0].username).toBe('fss');
+        expect(monitor.body.feed[0].team).toBeNull();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
 /* ------------------------------------------------------- the seat (D104) */
 
 /**

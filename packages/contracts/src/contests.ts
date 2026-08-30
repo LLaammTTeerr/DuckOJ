@@ -1524,7 +1524,23 @@ export type ContestMonitorProblemDto = z.infer<typeof ContestMonitorProblem>;
  */
 export const ContestMonitorEntry = z.object({
   submissionId: z.number().int(),
+  /**
+   * The pupil who SUBMITTED, which in a team round is not the pupil the
+   * participation is held by (D105).
+   *
+   * D99 makes a team one row on whoever pressed Join, so reading this name
+   * off the participation named the captain for every teammate's work — on
+   * the screen an invigilator uses to decide which machine to walk to.
+   */
   username: z.string(),
+  /**
+   * The team this submission scored for, or `null` in an individual round.
+   *
+   * Beside the name rather than instead of it: the board is keyed by team, so
+   * without this the reader cannot tell which row a submission landed on, and
+   * without the username they cannot tell who to go and talk to.
+   */
+  team: z.string().nullable(),
   problemCode: z.string(),
   problemLabel: z.string(),
   state: z.string(),

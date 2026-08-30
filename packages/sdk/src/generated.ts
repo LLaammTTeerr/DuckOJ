@@ -3235,6 +3235,7 @@ export interface paths {
                             feed: {
                                 submissionId: number;
                                 username: string;
+                                team: string | null;
                                 problemCode: string;
                                 problemLabel: string;
                                 state: string;

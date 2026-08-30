@@ -7073,6 +7073,12 @@
                           "username": {
                             "type": "string"
                           },
+                          "team": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "problemCode": {
                             "type": "string"
                           },
@@ -7096,6 +7102,7 @@
                         "required": [
                           "submissionId",
                           "username",
+                          "team",
                           "problemCode",
                           "problemLabel",
                           "state",

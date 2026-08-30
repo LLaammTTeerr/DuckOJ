@@ -4788,3 +4788,33 @@ other has not happened, each says yes, and both write.
 
 *Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
 no human available to consult. Migration 0038.*
+
+## D105 — The monitor's feed names the pupil who submitted, and the team beside them
+
+Found by probing the live stack as two real pupils (B-19): `bh19-b1` submitted,
+and the invigilator's feed said `bh19-a1`. D95's feed joins `users` through
+`contest_participations.user_id`, which was the submitter until D99 made a team
+ONE participation held by whoever pressed Join. From then on the feed named the
+captain for every teammate's work — a pupil who may not have touched a keyboard
+— on the one screen whose purpose is deciding which machine to walk to.
+
+- **`submissions.user_id`, not the participation's.** The submission knows who
+  wrote it; the participation knows which row it scores on. They are different
+  questions and the feed had been answering the second while labelling it with
+  the first's column name.
+- **`team` is added beside the name, not instead of it.** The board is keyed by
+  team (D99), so the username alone cannot say which row a submission landed
+  on; the team alone cannot say who to talk to. An invigilator needs both, and
+  every other screen that had to choose (the scoreboard, the similarity report)
+  chose team because it is *ranking*. This one is not ranking anything.
+- **`null` in an individual round**, from a `left join`, rather than the
+  competitor's own name repeated: a client can then tell "no team" from "team
+  whose name happens to match the pupil".
+- **The web prints the team as plain text, never a `/users/{name}` link.** A
+  team name is not an account — the 404 B-18 found twice on the similarity
+  screens.
+- **Not frozen, unchanged.** D22 gives the people running a contest the live
+  board and this route is gated on exactly that set.
+
+*Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
+no human available to consult. No migration; one added contract field.*
