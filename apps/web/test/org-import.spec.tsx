@@ -235,7 +235,12 @@ describe('the roster import splits a large file (D61 amended)', () => {
     });
     const checks = bodies();
     expect(checks.every((body) => body.dryRun)).toBe(true);
-    expect(checks.map((body) => body.csv.trim().split('\n').length)).toEqual([500, 500, 200]);
+    // 500 data rows plus the header line every chunk now carries: a
+    // headerless file's chunks declare `username,displayName,email` rather
+    // than leaving the server to detect a header per request and eat the
+    // pupil whose row happens to open one.
+    expect(checks.map((body) => body.csv.trim().split('\n').length)).toEqual([501, 501, 201]);
+    expect(checks.every((body) => body.csv.startsWith('username,displayName,email\n'))).toBe(true);
 
     post.mockClear();
     await userEvent.click(screen.getByRole('button', { name: en['import.confirm'] }));

@@ -148,22 +148,44 @@ function csvLine(record: string[]): string {
  * Records are re-serialised rather than sliced out of the original text so a
  * quoted newline cannot become a chunk boundary; they round-trip through
  * `parseCsvRecords` unchanged.
+ *
+ * A file with NO header gets one anyway — `username,displayName,email`, the
+ * names of `DEFAULT_IMPORT_COLUMNS`, which is exactly the positional reading
+ * such a file already had. Emitting the chunks bare looks equivalent and is
+ * not, because the server detects a header per request rather than being
+ * told one: whichever record happens to land first in a chunk decides that
+ * chunk's columns. `user`, `taikhoan` and `tendangnhap` are all valid
+ * usernames (D8 allows any 3–32 characters of the class) and all header
+ * aliases, so one pupil whose row opens a chunk is read as that chunk's
+ * header — swallowed silently, or, worse, taken as a column layout that
+ * re-reads every remaining row in the chunk. The import answers 201 either
+ * way and the credential sheet is short of the class with nothing to say so.
+ * Declaring the reading makes every chunk say what the whole file said.
  */
 export function splitImportCsv(text: string, size: number): string[] {
   const records = importRecords(text);
   if (records.length === 0) return [];
-  const header = importHeaderColumns(records[0]!) === null ? null : records[0]!;
-  const body = header === null ? records : records.slice(1);
+  const declared = importHeaderColumns(records[0]!);
+  const header = declared === null ? DEFAULT_HEADER_RECORD : records[0]!;
+  const body = declared === null ? records : records.slice(1);
   if (body.length === 0) return [];
 
   const chunks: string[] = [];
   for (let start = 0; start < body.length; start += size) {
     const lines = body.slice(start, start + size).map(csvLine);
-    if (header !== null) lines.unshift(csvLine(header));
+    lines.unshift(csvLine(header));
     chunks.push(`${lines.join('\n')}\n`);
   }
   return chunks;
 }
+
+/**
+ * `DEFAULT_IMPORT_COLUMNS` written out as a header record — the one a
+ * headerless file's chunks carry. Every name here is its own alias in
+ * `HEADER_ALIASES`, so the server reads it back as the same positional
+ * layout; a test pins that round trip.
+ */
+const DEFAULT_HEADER_RECORD = ['username', 'displayName', 'email'];
 
 /**
  * Every username the file names, in order — the one field that has to be
