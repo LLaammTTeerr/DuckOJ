@@ -34,18 +34,17 @@ judged 5, api 5 + 2 + 10, web 4 (+ the picker test rewritten). Red on: the count
 and from `create`; the fence result ignored; `solversDelta` forced to 1; rejudge's recompute removed; `cache.put`
 removed; the plan spec's SQL copy drifted; the advisory lock removed (3/3 runs); the roster lock removed; its `every`
 exemption weakened to `some`; eligibility ignoring the org; captain as `max` id. **`packages/db` is consumed from
-`dist`** — a mutation there needs `tsc -b` first, or it passes for the wrong reason.
+`dist`** — a mutation there needs `tsc -b` first, or it silently passes.
 
 ## Verify
 `-r typecheck`, `typecheck:scripts`, `-r lint`, `lint:scripts` green; contracts + SDK regen left **no diff**; `vite
 build` green; `graphify update .` run. `--no-file-parallelism` throughout, api in its own pass: **api 120
-files/1051**, web 52/518, judged 128, contest-formats 120, mcp 87, prepare 62, db 49, contracts 39, oj 32,
-polygon-import 19, judge-agent 8, sdk 2. That api figure predates the follow-up test (121/1052 with it); that file,
-api typecheck and api lint are green.
+files/1051** (121/1052 with the follow-up test, run with api typecheck and lint rather than the whole suite again),
+web 52/518, judged 128, contest-formats 120, mcp 87, prepare 62, db 49, contracts 39, oj 32, polygon-import 19,
+judge-agent 8, sdk 2.
 
 ## Concerns
 1. `?contest=` eligibility is a snapshot, not a promise: what it reports can change between picker and click, and the
    advisory lock is what actually decides.
 2. `TeamAccessService` now injects `ContestAccessService` (for `?contest=`'s 404 alone) — acyclic, but it widens that
-   constructor. `pending` (submissions not terminal) and `queue.depth` (jobs not done) are also different facts and may
-   legitimately disagree on screen.
+   constructor. And `pending` (not-terminal submissions) vs `queue.depth` (not-done jobs) may honestly disagree.
