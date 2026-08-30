@@ -1180,6 +1180,38 @@ export class ProblemAccessService {
   }
 
   /**
+   * One revision of a problem the actor may edit, by version — the package
+   * hash and nothing else.
+   *
+   * Beside `loadEditableProblem` and for the same reason (D88): reading a
+   * revision's test data BACK into a draft is authoring surface, so it needs
+   * `PATCH /problems/{code}`'s exact 404-then-403 ordering, and a second
+   * hand-rolled copy of it is how two authoring routes come to disagree
+   * about who may see a private problem's tests.
+   *
+   * Any version, not only the published one. The revisions screen already
+   * lists draft and archived revisions to exactly this set of people, and
+   * "start from the version before the one I broke" is the rollback story
+   * `publishRevision` already supports from the other end.
+   */
+  async loadEditableRevision(
+    actor: Actor | null,
+    code: string,
+    version: number,
+  ): Promise<{ problemId: number; packageHash: string }> {
+    const { problem } = await this.loadForEdit(actor, code);
+    const row = (
+      await this.db
+        .select({ packageHash: problemRevisions.packageHash })
+        .from(problemRevisions)
+        .where(and(eq(problemRevisions.problemId, problem.id), eq(problemRevisions.version, version)))
+        .limit(1)
+    )[0];
+    if (!row) throw new AppError(404, 'revision_not_found', 'No such revision.');
+    return { problemId: problem.id, packageHash: row.packageHash };
+  }
+
+  /**
    * Loads a problem's `{ id, visibility }` by code, 404ing if no problem has
    * that code (case-insensitively) — the first half of the 404-then-403
    * ordering every write path needs. Split out of `loadForEdit` so

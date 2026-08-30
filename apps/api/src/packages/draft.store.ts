@@ -34,6 +34,8 @@ export interface DraftStore {
   filesDir(draftId: string): string;
   stats(draftId: string): Promise<DraftStats>;
   putFile(draftId: string, name: string, bytes: Buffer): Promise<void>;
+  /** One file's bytes, or `null` if the draft holds no such file. */
+  getFile(draftId: string, name: string): Promise<Buffer | null>;
   delete(draftId: string): Promise<void>;
   /** Removes every draft created more than `ttlMs` ago; returns how many. */
   sweep(now: Date, ttlMs: number): Promise<number>;
@@ -161,6 +163,27 @@ export class FilesystemDraftStore implements DraftStore {
     } catch (error) {
       await rm(tempPath, { force: true });
       throw error;
+    }
+  }
+
+  /**
+   * Reads one file back out.
+   *
+   * The name is re-validated here as well as at the contract boundary, for
+   * `putFile`'s reason — it becomes a path component, and this class must be
+   * safe to call from anywhere, not only from behind one pipe. An absent
+   * file and an unreadable one are both `null`: the caller's answer for
+   * either is the same 404, and nothing else can be said about a draft file
+   * that will not open.
+   */
+  async getFile(draftId: string, name: string): Promise<Buffer | null> {
+    if (!FILE_NAME_PATTERN.test(name) || name === '.' || name === '..') {
+      throw new Error(`invalid draft file name: ${name}`);
+    }
+    try {
+      return await readFile(join(this.filesDir(draftId), name));
+    } catch {
+      return null;
     }
   }
 

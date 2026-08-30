@@ -223,3 +223,142 @@ registry.registerPath({
     404: DRAFT_NOT_FOUND,
   },
 });
+
+/* ------------------------------------------------------------------ *
+ * Reading an existing revision back into a draft (D88).
+ * ------------------------------------------------------------------ */
+
+/**
+ * The flat name a draft's checker source always takes.
+ *
+ * Canonical HERE rather than in `apps/web`, where it started, because two
+ * sides now generate draft file names: the browser, planning a package out
+ * of its table, and the server, flattening a stored package back into a
+ * draft. If they disagreed by one character the round trip would leave the
+ * old checker behind as an orphan file — packed into the rebuilt archive,
+ * changing its hash — while the new one landed beside it.
+ */
+export const DRAFT_CHECKER_FILE_NAME = 'checker.cpp';
+
+/**
+ * The stem the `n`-th test case (0-based) of a `total`-case package takes:
+ * `01`, `02`, … widening to `001` past ninety-nine so the names still sort
+ * as a human reads them.
+ *
+ * Same reason as `DRAFT_CHECKER_FILE_NAME`: the browser and the server must
+ * name the same case the same way, or a round trip renames every file it
+ * touches and no re-PUT ever replaces anything.
+ */
+export function draftCaseStem(index: number, total: number): string {
+  return String(index + 1).padStart(Math.max(2, String(total).length), '0');
+}
+
+/**
+ * One case of a revision's test data, as the authoring tab needs to show it.
+ *
+ * `input` and `answer` are the FLAT names the files were copied into the
+ * draft under, not the paths they had in the package: a Polygon package
+ * names them `tests/01.in`, and a draft has no directories at all.
+ */
+export const DraftPrefillCase = z.object({
+  input: DraftFileName,
+  answer: DraftFileName,
+  points: z.number(),
+  group: z.number().int(),
+  /**
+   * Whether this case reads as a sample. Inferred, not stored: the manifest
+   * has no sample field (D87), so a case worth 0 points in group 0 — exactly
+   * what the tab writes for a sample — is reported as one. A deliberately
+   * zero-point ungrouped case that is not a sample is indistinguishable from
+   * a sample and comes back as one; it grades identically either way.
+   */
+  sample: z.boolean(),
+});
+export type DraftPrefillCaseDto = z.infer<typeof DraftPrefillCase>;
+
+export const DraftPrefill = z.object({
+  /** The manifest's `name`, so a rebuild does not silently rename the problem. */
+  name: z.string(),
+  timeMs: z.number().int().positive(),
+  memoryKb: z.number().int().positive(),
+  checker: z.object({
+    kind: z.enum(['standard', 'source']),
+    /** The flat name the checker source was copied in as, when there is one. */
+    path: DraftFileName.optional(),
+    language: z.string().optional(),
+  }),
+  cases: z.array(DraftPrefillCase),
+});
+export type DraftPrefillDto = z.infer<typeof DraftPrefill>;
+
+/**
+ * What `POST /problems/{code}/drafts/from-revision/{version}` answers: the
+ * same envelope opening an empty draft returns, plus the shape of what was
+ * copied into it.
+ */
+export const CreateDraftFromRevisionResponse = CreateDraftResponse.extend({
+  /** The revision the draft was filled from. */
+  fromVersion: z.number().int().positive(),
+  prefill: DraftPrefill,
+  fileCount: z.number().int().nonnegative(),
+  totalBytes: z.number().int().nonnegative(),
+});
+export type CreateDraftFromRevisionResponseDto = z.infer<typeof CreateDraftFromRevisionResponse>;
+
+registry.registerPath({
+  method: 'post',
+  path: '/problems/{code}/drafts/from-revision/{version}',
+  tags: ['Problems'],
+  summary: "Open a draft pre-filled from an existing revision's package",
+  description:
+    "Copies the files the revision's manifest names — every test's input and answer, and the " +
+    'checker source when it has one — into a fresh draft under flat, canonical names, and answers ' +
+    'with the limits, checker and cases the manifest describes. Anything else the package carries ' +
+    '(generators, validators, statements) is NOT copied: a draft is the test data this problem ' +
+    'grades against, not an archive of how it was made. The draft is then an ordinary draft — PUT ' +
+    "files over it and build. The same caps apply, so a revision past a draft's 500 files or 512 " +
+    'MiB is refused rather than truncated.',
+  request: { params: z.object({ code: z.string(), version: z.coerce.number().int().positive() }) },
+  responses: {
+    201: {
+      description: 'The draft was opened and filled',
+      content: { 'application/json': { schema: CreateDraftFromRevisionResponse } },
+    },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: {
+      description: 'No such problem (or one the caller may not see), or no such revision',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: {
+      description:
+        "The revision's package cannot be read back — an unparseable manifest, or more files or " +
+        'bytes than one draft may hold',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/problems/{code}/drafts/{draftId}/files/{name}',
+  tags: ['Problems'],
+  summary: 'Read one file back out of a draft',
+  description:
+    'The raw bytes, exactly as they were PUT or as they were copied in from a revision. This is ' +
+    'what lets the authoring tab show a published test set for editing rather than only writing a ' +
+    'new one.',
+  request: { params: DraftFileParams },
+  responses: {
+    200: {
+      description: 'The file',
+      content: { 'application/octet-stream': { schema: z.string() } },
+    },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: {
+      description: 'No such problem, draft or file',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});

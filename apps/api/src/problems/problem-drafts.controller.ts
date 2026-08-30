@@ -1,11 +1,13 @@
-import { Body, Controller, Delete, HttpCode, Inject, Param, Post, Put, Req } from '@nestjs/common';
-import type { Request } from 'express';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Put, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { z } from 'zod';
 import {
   BuildDraftRequest,
   DraftFileName,
   DraftId,
   type BuildDraftRequestDto,
   type BuildDraftResponseDto,
+  type CreateDraftFromRevisionResponseDto,
   type CreateDraftResponseDto,
   type DraftFileResponseDto,
 } from '@duckoj/contracts';
@@ -49,6 +51,45 @@ export class ProblemDraftsController {
   @RequireScope('problems:publish')
   create(@CurrentActor() actor: Actor, @Param('code') code: string): Promise<CreateDraftResponseDto> {
     return this.drafts.create(actor, code);
+  }
+
+  /**
+   * D88's round trip: a draft that starts out holding an existing revision's
+   * test data. Declared BEFORE the `:draftId` routes below only for
+   * readability — `from-revision` is a longer path than any of them, so no
+   * ordering hazard exists, and `DraftId`'s pipe would refuse it anyway.
+   */
+  @Post(':code/drafts/from-revision/:version')
+  @HttpCode(201)
+  @RequireScope('problems:publish')
+  createFromRevision(
+    @CurrentActor() actor: Actor,
+    @Param('code') code: string,
+    @Param('version', new ZodValidationPipe(z.coerce.number().int().positive())) version: number,
+  ): Promise<CreateDraftFromRevisionResponseDto> {
+    return this.drafts.createFromRevision(actor, code, version);
+  }
+
+  /**
+   * One file back out, as raw bytes.
+   *
+   * `@Res()` rather than a returned value, exactly as
+   * `InternalPackagesController` serves an archive: the body is opaque bytes
+   * of the setter's own choosing and must not be run through the JSON
+   * serialiser. Same scope and same authorization as the PUT it mirrors — a
+   * draft's files are a private problem's test data.
+   */
+  @Get(':code/drafts/:draftId/files/:name')
+  @RequireScope('problems:publish')
+  async getFile(
+    @CurrentActor() actor: Actor,
+    @Param('code') code: string,
+    @Param('draftId', new ZodValidationPipe(DraftId)) draftId: string,
+    @Param('name', new ZodValidationPipe(DraftFileName)) name: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const bytes = await this.drafts.readFile(actor, code, draftId, name);
+    res.status(200).type('application/octet-stream').send(bytes);
   }
 
   /**
