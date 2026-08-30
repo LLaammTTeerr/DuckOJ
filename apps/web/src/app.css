@@ -490,6 +490,49 @@ tr:hover td {
   }
 }
 
+/* A WRAPPER that scrolls, for the one table wide enough to need it on a
+   desktop too: the class progress grid (D66) grows a column per problem, so
+   twenty problems is a table no screen holds.
+
+   Three things this does that the phone rule above cannot:
+     - It is FOCUSABLE. The rule above turns the `<table>` itself into the
+       scroll container, and a scroll container with no `tabindex` cannot be
+       reached from a keyboard at all — the columns off the right edge are
+       simply unreachable without a mouse (WCAG 2.1.1, final-review m21).
+       Putting `tabindex="0"` on every table in the app would add a dead tab
+       stop to every screen; putting it on a wrapper adds one exactly where
+       there is something to scroll.
+     - `.grid-scroll table { display: table }` UNDOES the phone rule inside
+       this wrapper, so the two do not nest one scroller inside another.
+       Higher specificity, so it wins in and out of the breakpoint.
+     - The header row sticks while the rows scroll under it: a grid whose
+       column headings have left the screen is a grid of anonymous numbers.
+       `--panel`, not transparent — a sticky row paints over what passes
+       beneath it or it is unreadable, and every table here sits on a
+       `.panel`. */
+.grid-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.grid-scroll table {
+  display: table;
+}
+
+.grid-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
+/* The focus ring the browser would otherwise draw only for a mouse user's
+   click — this container is a tab stop, so it has to SAY so when tabbed to. */
+.grid-scroll:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
 /* --- forms ------------------------------------------------------------- */
 
 label {

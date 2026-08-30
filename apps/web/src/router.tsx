@@ -34,6 +34,7 @@ import { SettingsPage } from './routes/settings.js';
 import { ChangePasswordPage, PasswordGate } from './routes/password.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
+import { ProblemSetPage, ProblemSetProgressPage } from './routes/problem-sets.js';
 import { AdminPage } from './routes/admin.js';
 import { NotificationsPage, notificationsQueryOptions } from './routes/notifications.js';
 import { api } from './api.js';
@@ -592,6 +593,18 @@ function OrgRouteComponent() {
   const { slug } = useParams({ from: '/orgs/$slug' });
   return <OrgPage slug={slug} />;
 }
+function ProblemSetRouteComponent() {
+  const { slug, setSlug } = useParams({ from: '/orgs/$slug/sets/$setSlug' });
+  // Keyed, for the same reason the edit routes are: the router reuses a
+  // mounted component across a `$setSlug` change, and this page holds an
+  // edit form whose state would otherwise save one set's problems over
+  // another's.
+  return <ProblemSetPage key={`${slug}/${setSlug}`} slug={slug} setSlug={setSlug} />;
+}
+function ProblemSetProgressRouteComponent() {
+  const { slug, setSlug } = useParams({ from: '/orgs/$slug/sets/$setSlug/progress' });
+  return <ProblemSetProgressPage slug={slug} setSlug={setSlug} />;
+}
 function SubmissionRouteComponent() {
   const { id } = useParams({ from: '/submissions/$id' });
   return <SubmissionPage id={Number(id)} />;
@@ -635,6 +648,16 @@ const orgRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/orgs/$slug',
   component: OrgRouteComponent,
+});
+const problemSetRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/orgs/$slug/sets/$setSlug',
+  component: ProblemSetRouteComponent,
+});
+const problemSetProgressRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/orgs/$slug/sets/$setSlug/progress',
+  component: ProblemSetProgressRouteComponent,
 });
 const tokensRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -717,6 +740,8 @@ const routeTree = rootRoute.addChildren([
   scoreboardRoute,
   orgsRoute,
   orgRoute,
+  problemSetRoute,
+  problemSetProgressRoute,
   tokensRoute,
   securityRoute,
   settingsRoute,

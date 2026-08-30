@@ -15,6 +15,7 @@ import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { useT, type MsgKey, type TFunction } from '../i18n/index.js';
+import { OrgSets } from './problem-sets.js';
 
 type Org = paths['/orgs']['get']['responses'][200]['content']['application/json']['items'][number];
 type Member =
@@ -580,6 +581,11 @@ export function OrgPage({ slug }: { slug: string }) {
       {myRole === 'owner' || me.data?.globalRole === 'admin' ? (
         <RosterImportPanel slug={slug} onImported={refresh} />
       ) : null}
+
+      {/* Between the import panel and the contests: homework is what a
+          school's own members come to this page for, and it is invisible to
+          anyone who is not one (D66). */}
+      <OrgSets slug={slug} canManage={decider || me.data?.globalRole === 'admin'} />
 
       <OrgContests slug={slug} />
 
