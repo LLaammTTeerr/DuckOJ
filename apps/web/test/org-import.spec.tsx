@@ -208,7 +208,9 @@ describe('the roster import splits a large file (D61 amended)', () => {
   it('sends 500 rows at a time and shows how far it has got', async () => {
     serve('owner');
     post.mockImplementation((_path: string, init: { body: { csv: string; dryRun: boolean } }) => {
-      const rows = init.body.csv.trim().split('\n').map((line) => {
+      // Every chunk declares its columns, header row included — the server
+      // drops it, so this stand-in does too.
+      const rows = init.body.csv.trim().split('\n').slice(1).map((line) => {
         const [username, displayName] = line.split(',');
         return { username, displayName, email: 'e', emailProvided: false };
       });
@@ -217,7 +219,12 @@ describe('the roster import splits a large file (D61 amended)', () => {
         : Promise.resolve({
             data: {
               created: rows.map((row) => ({ ...row, password: `pw-${row.username ?? ''}` })),
-              csv: rows.map((row) => `${row.username ?? ''},x,pw-${row.username ?? ''}`).join('\n') + '\n',
+              // A WHOLE sheet per request, the way the server answers:
+              // header, BOM and all.
+              csv:
+                '\ufeffusername,displayName,password\r\n' +
+                rows.map((row) => `${row.username ?? ''},x,pw-${row.username ?? ''}`).join('\r\n') +
+                '\r\n',
             },
           });
     });
@@ -252,9 +259,17 @@ describe('the roster import splits a large file (D61 amended)', () => {
     // reconcile, and the copyable text is the whole class.
     expect(screen.getByText('pw-hs0000')).toBeInTheDocument();
     expect(screen.getByText('pw-hs1199')).toBeInTheDocument();
-    expect((screen.getByLabelText(en['import.copyLabel']) as HTMLTextAreaElement).value).toContain(
-      'hs1199',
+    const copied = (screen.getByLabelText(en['import.copyLabel']) as HTMLTextAreaElement).value;
+    expect(copied).toContain('hs1199');
+    // ONE header, not one per request: the responses used to be concatenated,
+    // which put a second header row (and a second byte-order mark) in the
+    // middle of the download, where Excel reads it as a pupil.
+    expect(copied.split(/\r?\n/).filter((line) => line.includes('displayName,password'))).toHaveLength(
+      1,
     );
+    // And no stray byte-order mark anywhere: the sheet gets exactly one, at
+    // the front of the FILE, and the copyable text gets none at all.
+    expect(copied).not.toContain('\ufeff');
   }, 30_000);
 
   it('refuses a username the file repeats across two chunks, before creating anything', async () => {

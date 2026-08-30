@@ -10,7 +10,12 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
-import { ORG_IMPORT_MAX_ROWS, importUsernames, splitImportCsv } from '@duckoj/contracts';
+import {
+  ORG_IMPORT_MAX_ROWS,
+  credentialsCsv,
+  importUsernames,
+  splitImportCsv,
+} from '@duckoj/contracts';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError, read } from '../api-error.js';
@@ -308,7 +313,6 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
     setProgress([0, chunks.length]);
     const rows: PreviewRow[] = [];
     const created: ImportResult['created'] = [];
-    const csvParts: string[] = [];
     try {
       for (const [index, chunk] of chunks.entries()) {
         const { data, error: err } = await api.POST('/orgs/{slug}/members/import', {
@@ -331,7 +335,7 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
           if (created.length > 0) {
             setRowErrors(null);
             setError(`${t('import.stopped', { done: index, total: chunks.length })} ${sentence}`);
-            setResult({ created, csv: csvParts.join('') });
+            setResult({ created, csv: credentialsCsv(created) });
             await onImported();
             return;
           }
@@ -343,9 +347,7 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
         if (dryRun) {
           rows.push(...(data as { rows: PreviewRow[] }).rows);
         } else {
-          const part = data as ImportResult;
-          created.push(...part.created);
-          csvParts.push(part.csv);
+          created.push(...(data as ImportResult).created);
         }
         setProgress([index + 1, chunks.length]);
       }
@@ -355,7 +357,12 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
         setPreview(rows);
       } else {
         setPreview(null);
-        setResult({ created, csv: csvParts.join('') });
+        // Built once from the merged rows rather than by concatenating each
+        // request's own file: every response is a WHOLE sheet, header and
+        // BOM included, so joining them put a second header row (and a
+        // second byte-order mark) in the middle of the teacher's download,
+        // where Excel reads it as a pupil called `username`.
+        setResult({ created, csv: credentialsCsv(created) });
         await onImported();
       }
     } catch {
@@ -443,9 +450,20 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
           </tbody>
         </table>
         {/* The always-works copy. A blob or `data:` download is inert inside
-            some embedded browsers, and a selection is not. */}
+            some embedded browsers, and a selection is not.
+
+            Without the BOM: it is there so Excel reads the FILE as UTF-8,
+            and this is not the file — it is text somebody selects and pastes
+            into whatever they already have open, where a leading U+FEFF is
+            an invisible character in the middle of their document. */}
         <p className="no-print">{t('import.copyHint')}</p>
-        <textarea className="no-print" readOnly rows={8} value={result.csv} aria-label={t('import.copyLabel')} />
+        <textarea
+          className="no-print"
+          readOnly
+          rows={8}
+          value={result.csv.replace(/^﻿/, '')}
+          aria-label={t('import.copyLabel')}
+        />
       </>
     );
   }
