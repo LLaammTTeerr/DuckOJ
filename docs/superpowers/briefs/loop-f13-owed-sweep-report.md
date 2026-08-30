@@ -34,12 +34,12 @@ no-diff, `vite build`. Red first, then mutated: **17 mutants, 17 killed**.
 6. **Dashboard** (`6350d49`·`0354486`). `judgedConcurrency: null` is an em dash
    with the reason as a tooltip. The hidden-tab pause needed no code —
    TanStack's `refetchIntervalInBackground` defaults false and its focus
-   manager reads `visibilityState` — so it is pinned by a regression test on
-   the real `AdminPage` (mutant `…InBackground: true` → red).
+   manager reads `visibilityState` — so a regression test on the real
+   `AdminPage` pins it (mutant `…InBackground: true` → red).
 
 ## Concerns
-- **The 20,000 cap is proved at 3, never exercised at 20,000**; the export is
-  bounded now, still one response rather than a stream.
+- **The 20,000 cap is proved at 3, never at 20,000**; the export is bounded
+  now, still one response rather than a stream.
 - **Cross-chunk duplicate usernames are refused by the WEB only** — the server
   cannot see across requests, so a raw API caller can still strand a
   half-created sequence. Accepted, not fixed.
