@@ -88,11 +88,14 @@ export class ProblemSetsController {
     @Query(new ZodValidationPipe(ProblemSetProgressQuery)) query: ProblemSetProgressQueryDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ProblemSetProgressDto | string> {
-    const grid = await this.sets.progress(actor, slug, setSlug, query);
-    if (query.format !== 'csv') return grid;
+    if (query.format !== 'csv') return this.sets.progress(actor, slug, setSlug, query);
+    // The export ignores `cursor`/`limit` deliberately: it is the whole
+    // roster up to the service's own cap, not a page. The service walks it
+    // in pages and tells us whether it stopped early.
+    const { grid, truncated } = await this.sets.progressExport(actor, slug, setSlug);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${slug}-${setSlug}.csv"`);
-    return progressCsv(grid);
+    return progressCsv(grid, truncated);
   }
 
   @Post(':slug/sets')

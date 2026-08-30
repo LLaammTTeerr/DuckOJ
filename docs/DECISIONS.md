@@ -2046,6 +2046,17 @@ tag is a topic, not an assignment. `problem_sets` + `problem_set_items`
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F9 brief),
 no human available to consult. Migration 0026.*
 
+**Amended 2026-08-30 (F13 owed sweep):** the CSV is still the whole roster
+rather than one page — that exception stands — but it is **walked in cursor
+pages of 500 and capped at 20,000 rows**, and a file that stopped early says
+so on a final `truncated,<rows>` line rather than letting a teacher mark a
+class from a file that ended without warning. Both bounds are injected
+(`PROGRESS_EXPORT_BOUNDS`), so the cap is provable at three rows. The JSON
+grid and the export now share ONE page query, which the old whole-roster
+branch quietly forked — and paging it also bounds the `IN` list of the
+per-page best-submission lookup, which used to carry the entire school. The
+web grid grew the "Tải thêm" button its own screen had only been describing.
+
 ## D69 — Security response headers are set at the edge, and the CSP allows inline styles because KaTeX needs them
 
 The deployment served **no** security response headers at all. Verified

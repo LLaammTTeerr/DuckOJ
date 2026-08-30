@@ -71,6 +71,29 @@ function cellKey(userId: number, problemId: number): string {
 }
 
 /**
+ * How far the CSV export walks, and in what steps (D66, amended by the F13
+ * owed sweep).
+ *
+ * Injected rather than read as a module constant, exactly as
+ * `MAX_SUBSCRIPTIONS` is: twenty thousand members cannot be built in a test,
+ * and a cap nobody can reach is a cap nobody has tested.
+ *
+ * `pageSize` is the roster page the walk fetches at a time — it also bounds
+ * the `IN` list of the per-page best-submission query, which the old
+ * whole-roster branch fed the entire school. `rowCap` is where the file
+ * stops and admits it stopped.
+ */
+export const PROGRESS_EXPORT_BOUNDS = Symbol('PROGRESS_EXPORT_BOUNDS');
+export interface ProgressExportBounds {
+  pageSize: number;
+  rowCap: number;
+}
+export const DEFAULT_PROGRESS_EXPORT_BOUNDS: ProgressExportBounds = {
+  pageSize: 500,
+  rowCap: 20_000,
+};
+
+/**
  * Classroom problem sets — a school's homework (D66).
  *
  * Three questions decide every call here, in this order, and none of them is
@@ -95,6 +118,7 @@ export class ProblemSetAccessService {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(OrgAccessService) private readonly orgs: OrgAccessService,
+    @Inject(PROGRESS_EXPORT_BOUNDS) private readonly exportBounds: ProgressExportBounds,
   ) {}
 
   /**
@@ -149,9 +173,9 @@ export class ProblemSetAccessService {
    *
    * Owner or admin (`loadForEdit`, the same 404-then-403 order every other
    * organization write takes). Rows are D58's roster page — keyset on
-   * `username`, the same cursor and the same 422 for one too long — except
-   * for `format: 'csv'`, which serves the WHOLE roster: the export exists
-   * because a paged grid cannot be handed to a spreadsheet.
+   * `username`, the same cursor and the same 422 for one too long. The CSV
+   * export walks the same pages rather than taking a different route through
+   * the data: see `progressExport`.
    */
   async progress(
     actor: Actor,
@@ -162,10 +186,63 @@ export class ProblemSetAccessService {
     const { row: org } = await this.orgs.loadForEdit(actor, slug);
     const set = await this.findSet(org.id, setSlug);
     const items = await this.itemsOf(set.id);
+    return this.gridPage(org.id, set, items, query.cursor, query.limit);
+  }
 
-    const whole = query.format === 'csv';
-    const after = parseMemberCursor(query.cursor);
-    const roster = this.db
+  /**
+   * The whole grid for the spreadsheet — walked, not slurped (D66 amended).
+   *
+   * The export still refuses to stop at a page: a file that ends after
+   * twenty-five pupils is a file somebody would mark a class from. But
+   * "every row in one query, one array, no bound" was the F9 report's own
+   * concern, so the walk now pages the roster (`pageSize`), which also bounds
+   * the `IN` list of each page's best-submission query, and stops at
+   * `rowCap`. The caller is told it stopped — `truncated` rides back so the
+   * file can say so on its last line, rather than a teacher silently marking
+   * a class from a file that ended early.
+   */
+  async progressExport(
+    actor: Actor,
+    slug: string,
+    setSlug: string,
+  ): Promise<{ grid: ProblemSetProgressDto; truncated: boolean }> {
+    const { row: org } = await this.orgs.loadForEdit(actor, slug);
+    const set = await this.findSet(org.id, setSlug);
+    const items = await this.itemsOf(set.id);
+
+    const { pageSize, rowCap } = this.exportBounds;
+    const rows: ProblemSetProgressDto['rows'] = [];
+    let cursor: string | undefined;
+    let grid = await this.gridPage(org.id, set, items, cursor, pageSize);
+    for (;;) {
+      // A page may overshoot the cap by up to `pageSize - 1` rows, so it is
+      // cut here rather than trusted: the cap is a promise about the FILE.
+      rows.push(...grid.rows.slice(0, rowCap - rows.length));
+      if (rows.length >= rowCap) return { grid: { ...grid, rows, nextCursor: null }, truncated: true };
+      if (grid.nextCursor === null) break;
+      cursor = grid.nextCursor;
+      grid = await this.gridPage(org.id, set, items, cursor, pageSize);
+    }
+    return { grid: { ...grid, rows, nextCursor: null }, truncated: false };
+  }
+
+  /**
+   * One page of the grid, from an organization and set already authorized.
+   *
+   * The JSON route and the CSV export share it, so the two representations
+   * cannot come to disagree about what a cell holds — the property the F9
+   * controller comment claimed and the old `whole` branch quietly broke by
+   * running a second, unlimited query.
+   */
+  private async gridPage(
+    orgId: number,
+    set: SetRow,
+    items: Awaited<ReturnType<ProblemSetAccessService['itemsOf']>>,
+    cursor: string | undefined,
+    limit: number,
+  ): Promise<ProblemSetProgressDto> {
+    const after = parseMemberCursor(cursor);
+    const members = await this.db
       .select({
         userId: orgMembers.userId,
         username: schema.users.username,
@@ -176,17 +253,13 @@ export class ProblemSetAccessService {
       .innerJoin(schema.users, eq(schema.users.id, orgMembers.userId))
       .where(
         after === null
-          ? eq(orgMembers.orgId, org.id)
-          : and(eq(orgMembers.orgId, org.id), gt(schema.users.username, after)),
+          ? eq(orgMembers.orgId, orgId)
+          : and(eq(orgMembers.orgId, orgId), gt(schema.users.username, after)),
       )
       .orderBy(asc(schema.users.username))
-      .$dynamic();
-    // The CSV branch omits the LIMIT clause entirely rather than passing a
-    // sentinel: `limit(0)` is not "no limit" in Postgres, and a very large
-    // one is a number somebody would later mistake for a cap.
-    const members = await (whole ? roster : roster.limit(query.limit + 1));
+      .limit(limit + 1);
 
-    const kept = whole ? members : members.slice(0, query.limit);
+    const kept = members.slice(0, limit);
     // D49's exclusion, and the one thing the grid does that the pupil's own
     // view does not: a submission whose contest participation window is
     // still open counts for nobody, the teacher included. Without it a set
@@ -209,7 +282,7 @@ export class ProblemSetAccessService {
         role: member.role,
         cells: items.map((item) => toCell(best.get(cellKey(member.userId, item.problemId)))),
       })),
-      nextCursor: !whole && members.length > query.limit ? kept.at(-1)!.username : null,
+      nextCursor: members.length > limit ? kept.at(-1)!.username : null,
     };
   }
 
@@ -635,7 +708,8 @@ export class ProblemSetAccessService {
 }
 
 /**
- * The grid as a CSV a teacher can open in a spreadsheet.
+ * The grid as a CSV a teacher can open in a spreadsheet, plus the one line
+ * that admits the export stopped at its cap.
  *
  * One column per problem, and a second `<code> (late)` column per problem
  * when the set has a deadline — a deadline nobody can see the other side of
@@ -643,7 +717,7 @@ export class ProblemSetAccessService {
  * problem never attempted; the escaping is `credentialsCsv`'s, which is
  * RFC 4180's.
  */
-export function progressCsv(grid: ProblemSetProgressDto): string {
+export function progressCsv(grid: ProblemSetProgressDto, truncated = false): string {
   const escape = (value: string): string =>
     /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
   const dated = grid.deadline !== null;
@@ -661,6 +735,12 @@ export function progressCsv(grid: ProblemSetProgressDto): string {
     });
     lines.push(line.map(escape).join(','));
   }
+  // The trailer, only when the file actually stopped early. `truncated` in
+  // the username column is a value no account can hold (usernames are
+  // validated, and this one is not one), and the count beside it says how
+  // many rows the file does carry — a teacher who marks from a short file
+  // must be able to see that it is short, and a script must be able to.
+  if (truncated) lines.push(`truncated,${String(grid.rows.length)}`);
   return `${lines.join('\n')}\n`;
 }
 

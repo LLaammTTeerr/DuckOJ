@@ -13,7 +13,11 @@ import { ContestClarificationsService } from './contest.clarifications.js';
 import { OrgAccessService } from './org.access.js';
 import { OrgImportService } from './org.import.js';
 import { ProblemAccessService } from './problem.access.js';
-import { ProblemSetAccessService } from './problem-set.access.js';
+import {
+  DEFAULT_PROGRESS_EXPORT_BOUNDS,
+  PROGRESS_EXPORT_BOUNDS,
+  ProblemSetAccessService,
+} from './problem-set.access.js';
 import { RatingService } from './rating.service.js';
 import { RejudgeService } from './rejudge.access.js';
 import {
@@ -46,6 +50,10 @@ import {
     // methods on `OrgAccessService`: it asks that service who may act, and
     // reads three tables that service never touches.
     ProblemSetAccessService,
+    // How far the homework CSV walks before it stops and says so — injected
+    // so the cap is reachable in a test at three rows rather than twenty
+    // thousand (`MAX_SUBSCRIPTIONS`'s precedent).
+    { provide: PROGRESS_EXPORT_BOUNDS, useValue: DEFAULT_PROGRESS_EXPORT_BOUNDS },
     RatingService,
     RejudgeService,
     // The admin operations dashboard (D47). It lives here, not in
