@@ -1374,7 +1374,7 @@ export interface paths {
         };
         /**
          * Clarifications and announcements for this contest, newest first
-         * @description A participant sees every `public` row plus their own; an organiser (the creator) and a global admin see all of them. An anonymous caller who may see the contest sees the public rows — an announcement is for spectators too.
+         * @description A participant sees every `public` row plus their own; an organiser (the creator) and a global admin see all of them. An anonymous caller who may see the contest sees the public rows — an announcement is for spectators too. At most 200 rows, newest first; `truncated` is true when older ones were left out (D63).
          */
         get: {
             parameters: {
@@ -1408,6 +1408,7 @@ export interface paths {
                                 /** Format: date-time */
                                 createdAt: string;
                             }[];
+                            truncated: boolean;
                         };
                     };
                 };

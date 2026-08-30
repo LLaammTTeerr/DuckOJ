@@ -567,6 +567,9 @@ function ClarificationsPanel({
       {feed.data && feed.data.items.length === 0 ? (
         <p className="muted">{t('clar.empty')}</p>
       ) : null}
+      {/* D63 — the feed is capped, and a reader must not think they are
+          looking at the whole conversation when they are not. */}
+      {feed.data?.truncated ? <p className="muted">{t('clar.truncated')}</p> : null}
 
       {feed.data?.items.map((item) => (
         <article key={item.id}>

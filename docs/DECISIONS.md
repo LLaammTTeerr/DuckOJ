@@ -1849,3 +1849,37 @@ statements, and a bundle may not carry what its parts may not.
 
 *Ruled by the reviewer during the 2026-08-29 feature/bug loop (B8 whole-diff
 review), no human available to consult. No migration.*
+
+## D63 — The clarification feed is capped at 200, and says when it cut
+
+`GET /contests/{key}/clarifications` had no bound: "not paginated — a
+contest's Q&A is read whole, on one screen", which is a true statement about
+the screen and says nothing about the table behind it. `POST
+/contests/{key}/clarifications` admits **20 questions per user per contest per
+hour**, so a 2000-seat provincial room can write 40 000 rows of up to 2 000
+characters in the contest's first hour. Every one of them was serialised into
+every read — and `ClarificationsPanel` repolls this route **every 30 seconds
+for every reader while the contest runs**. Two thousand browsers × a
+multi-megabyte body × every half minute is an outage the product inflicts on
+itself on precisely the day it exists for.
+
+**The ruling: 200 rows, newest first, plus `truncated: boolean`.** The same
+shape as D59's broadcast cap, and for the same reason — a silent `.limit()`
+is a lie a reader cannot detect.
+
+- **Capped, not paginated.** A cursor would be the "right" answer and the
+  wrong change: the panel is a reverse-chronological feed nobody scrolls to
+  the bottom of, a cursor is a second contract plus infinite-scroll UI, and
+  neither buys anything the cap does not. If a real room ever wants the older
+  rows, pagination is an additive change on top of this.
+- **The cap drops the OLDEST.** `order by id desc` already sorted newest
+  first, so the announcement posted thirty seconds ago is never the row cut —
+  which is the only property a contest-day feed genuinely has to hold.
+- **`limit(FEED_CAP + 1)`, not a second COUNT.** "Was anything left out" is
+  answered by the same query that fetched the page, so the flag and the body
+  cannot disagree. `broadcastRecipientsQuery` already does exactly this.
+- **The web says it out loud** (`clar.truncated`, vi + en). A reader who
+  cannot see the whole conversation must not believe they can.
+
+*Ruled by the reviewer during the 2026-08-29 feature/bug loop (B8 whole-diff
+review), no human available to consult. No migration.*

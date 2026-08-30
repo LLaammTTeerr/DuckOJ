@@ -332,6 +332,7 @@ export const vi = {
   'clar.title': 'Hỏi đáp / Thông báo',
   'clar.loadError': 'Không tải được phần hỏi đáp.',
   'clar.empty': 'Chưa có gì.',
+  'clar.truncated': 'Chỉ hiển thị 200 mục mới nhất; các mục cũ hơn đã được lược bớt.',
   'clar.announcement': 'Thông báo',
   'clar.question': 'Câu hỏi',
   'clar.unanswered': 'Đang chờ trả lời.',

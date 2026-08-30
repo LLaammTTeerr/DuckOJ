@@ -12,7 +12,13 @@ import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { eq } from 'drizzle-orm';
 import type { INestApplication } from '@nestjs/common';
-import { contestParticipations, contestProblems, contests, problems } from '@duckoj/db/guarded';
+import {
+  contestClarifications,
+  contestParticipations,
+  contestProblems,
+  contests,
+  problems,
+} from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { Clarification, ClarificationList } from '@duckoj/contracts';
 import { buildApp } from './app.harness.js';
@@ -21,6 +27,7 @@ import { insertUser, registerAndLogin, seedProblemAndLanguage, userIdOf } from '
 import { NotificationsService } from '../src/notifications/notifications.service.js';
 import type { Actor } from '../src/authz/actor.js';
 import {
+  FEED_CAP,
   NOTIFY_CAP,
   broadcastRecipients,
   broadcastRecipientsQuery,
@@ -575,6 +582,71 @@ describe('broadcastRecipients — the notification cap (D59)', () => {
       const all = await broadcastRecipients(db, contestId, organiser.id, NOTIFY_CAP);
       expect(all.userIds).toEqual([student.id]);
       expect(all.truncated).toBe(false);
+    });
+  }, 120_000);
+});
+
+describe('the feed is bounded (D63)', () => {
+  it('serves at most FEED_CAP rows, the newest ones, and says it truncated', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const organiser = await insertUser(db, 'cap-organiser');
+        const contestId = await seedContest(db, { key: 'busy', createdBy: organiser.id });
+        // One bulk insert: `ask` is metered at 20/user/hour, and the point
+        // here is the READ, not the write path that filled the table.
+        await db.insert(contestClarifications).values(
+          Array.from({ length: FEED_CAP + 5 }, (_, i) => ({
+            contestId,
+            problemId: null,
+            askedBy: organiser.id,
+            question: null,
+            answer: `announcement ${String(i)}`,
+            answeredBy: organiser.id,
+            answeredAt: new Date(),
+            visibility: 'public' as const,
+          })),
+        );
+
+        // Anonymous — the `@Public()` shape every spectator's browser polls
+        // every 30 seconds while the contest runs.
+        const res = await request(app.getHttpServer()).get('/contests/busy/clarifications');
+        expect(res.status).toBe(200);
+        const body = ClarificationList.parse(res.body);
+        expect(body.items).toHaveLength(FEED_CAP);
+        expect(body.truncated).toBe(true);
+        // Newest first, so the cap drops the OLDEST — the rows a reader
+        // scrolled past an hour ago, never the announcement just posted.
+        expect(body.items[0]!.answer).toBe(`announcement ${String(FEED_CAP + 4)}`);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('says nothing was truncated when nothing was', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const organiser = await insertUser(db, 'small-organiser');
+        const contestId = await seedContest(db, { key: 'quiet', createdBy: organiser.id });
+        await db.insert(contestClarifications).values({
+          contestId,
+          problemId: null,
+          askedBy: organiser.id,
+          question: null,
+          answer: 'one notice',
+          answeredBy: organiser.id,
+          answeredAt: new Date(),
+          visibility: 'public',
+        });
+        const res = await request(app.getHttpServer()).get('/contests/quiet/clarifications');
+        const body = ClarificationList.parse(res.body);
+        expect(body.items).toHaveLength(1);
+        expect(body.truncated).toBe(false);
+      } finally {
+        await app.close();
+      }
     });
   }, 120_000);
 });

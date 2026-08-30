@@ -351,6 +351,7 @@ export const en = {
   'clar.title': 'Q&A / Announcements',
   'clar.loadError': 'Could not load the Q&A.',
   'clar.empty': 'Nothing yet.',
+  'clar.truncated': 'Showing the 200 most recent only; older entries were left out.',
   'clar.announcement': 'Announcement',
   'clar.question': 'Question',
   'clar.unanswered': 'Waiting for an answer.',

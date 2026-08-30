@@ -654,8 +654,17 @@ export const Clarification = z.object({
 });
 export type ClarificationDto = z.infer<typeof Clarification>;
 
-/** Newest first. Not paginated: a contest's Q&A is read whole, on one screen. */
-export const ClarificationList = z.object({ items: z.array(Clarification) });
+/**
+ * Newest first, and **capped** (D63) rather than paginated: a contest's Q&A
+ * is read whole on one screen, so there is no cursor — but the table behind
+ * that screen has no bound of its own, and the web repolls this route every
+ * 30 seconds for every reader while a contest runs. `truncated` is `true`
+ * when older rows exist beyond the cap; the newest are always the ones kept.
+ */
+export const ClarificationList = z.object({
+  items: z.array(Clarification),
+  truncated: z.boolean(),
+});
 export type ClarificationListDto = z.infer<typeof ClarificationList>;
 
 export const AskClarificationRequest = z
@@ -744,7 +753,8 @@ registry.registerPath({
   description:
     'A participant sees every `public` row plus their own; an organiser (the creator) and a ' +
     'global admin see all of them. An anonymous caller who may see the contest sees the public ' +
-    'rows — an announcement is for spectators too.',
+    'rows — an announcement is for spectators too. At most 200 rows, newest first; `truncated` ' +
+    'is true when older ones were left out (D63).',
   request: { params: ContestKeyParam },
   responses: {
     200: {
