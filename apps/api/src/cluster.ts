@@ -40,6 +40,74 @@ const MAX_BACKOFF_MS = 30_000;
 const STABLE_UPTIME_MS = 30_000;
 
 /**
+ * The crash-loop breaker's window (D85).
+ *
+ * If the primary reaches **zero live workers** within a minute of starting,
+ * the API has not booted at all — it has failed to boot, four times over,
+ * for a reason that will not change on the fifth attempt. The 2026-08-30
+ * outage was exactly this shape: a dependency Nest could not resolve, every
+ * worker dead in milliseconds, and a primary that then re-forked them on a
+ * doubling backoff for fifteen minutes. Nothing above it could tell: the
+ * primary still held the port, `podman ps` said the container was up, and
+ * the healthcheck's connection was accepted by the primary and answered by
+ * nobody.
+ *
+ * A minute is long enough that a genuinely slow first boot (a cold Postgres,
+ * a migration still finishing) cannot be mistaken for it: those workers are
+ * alive while they wait. It is short enough that the deploy script's 45 s
+ * poll and the container's `restart: unless-stopped` both see a real exit
+ * code instead of a hang.
+ *
+ * Deliberately measured from PRIMARY START, not from the last death: a
+ * process that ran for a day and then loses every worker at once is a
+ * different incident (an OOM sweep, a rolling restart) and re-forking is the
+ * right response to it. This breaker is only about a build that cannot boot.
+ */
+export const CRASH_LOOP_WINDOW_MS = 60_000;
+
+/** The exit code the primary uses when the breaker trips. */
+export const CRASH_LOOP_EXIT_CODE = 1;
+
+/** The subset of a `cluster.Worker` the supervisor touches. */
+export interface SupervisedWorker {
+  id: number;
+  process: { pid?: number | undefined };
+  kill(signal?: string): void;
+}
+
+/**
+ * The subset of `node:cluster` the supervisor touches, named so a test can
+ * drive a fake stream of worker exits without forking anything.
+ *
+ * Not mocking for its own sake: a crash-loop is a sequence of events over a
+ * minute of wall clock, and the only alternative — forking four real
+ * processes that die on purpose and waiting out the backoff — is a test that
+ * takes over a minute and is flaky about exactly the timing it exists to
+ * pin.
+ */
+export interface SupervisedCluster {
+  fork(): SupervisedWorker;
+  on(
+    event: 'exit',
+    listener: (worker: SupervisedWorker, code: number | null, signal: string | null) => void,
+  ): unknown;
+  workers?: Record<string, SupervisedWorker | undefined> | null | undefined;
+}
+
+/** Seams for {@link runPrimary}; every default is the real thing. */
+export interface RunPrimaryOptions {
+  log?: (message: string) => void;
+  cluster?: SupervisedCluster;
+  now?: () => number;
+  /** How the primary exits. Defaults to `process.exit`. */
+  exit?: (code: number) => void;
+  /** How a delayed re-fork is scheduled. Defaults to an unref'd `setTimeout`. */
+  schedule?: (fn: () => void, ms: number) => void;
+  /** How shutdown signals are subscribed to. Defaults to `process.on`. */
+  onSignal?: (signal: 'SIGTERM' | 'SIGINT', handler: () => void) => void;
+}
+
+/**
  * How many API workers to run. `1` means "no clustering" — the process
  * bootstraps the application directly, exactly as it did before this existed.
  *
@@ -80,24 +148,69 @@ export function resolveWorkerCount(env: NodeJS.ProcessEnv, parallelism: number):
  * re-fork any that exit, with exponential backoff so a worker that crashes on
  * startup (a bad `DATABASE_URL`, say) does not become a fork bomb.
  *
- * Never returns — the primary stays alive as long as the container does.
+ * Never returns — the primary stays alive as long as the container does,
+ * **unless** the crash-loop breaker trips (D85, {@link CRASH_LOOP_WINDOW_MS}):
+ * a build whose every worker is dead within a minute of start makes the
+ * primary exit non-zero, so the container's restart policy, the compose
+ * healthcheck and `scripts/deploy.sh`'s poll all see a failure instead of a
+ * process that holds the port and answers nothing.
  */
-export function runPrimary(count: number, log: (message: string) => void = defaultLog): void {
+export function runPrimary(count: number, options: RunPrimaryOptions = {}): void {
+  const log = options.log ?? defaultLog;
+  const workers = options.cluster ?? (cluster as unknown as SupervisedCluster);
+  const now = options.now ?? Date.now;
+  const exit = options.exit ?? ((code: number): void => process.exit(code));
+  const schedule =
+    options.schedule ??
+    ((fn: () => void, ms: number): void => {
+      // `unref` so a re-fork timer never keeps the primary alive through a
+      // shutdown it has already decided on.
+      setTimeout(fn, ms).unref();
+    });
+  const onSignal =
+    options.onSignal ??
+    ((signal: 'SIGTERM' | 'SIGINT', handler: () => void): void => {
+      process.on(signal, handler);
+    });
+
+  const primaryStartedAt = now();
   let backoffMs = BASE_BACKOFF_MS;
   let shuttingDown = false;
   /** Fork time per worker id, to tell "crashed on boot" from "ran for a day". */
   const startedAt = new Map<number, number>();
+  /** Worker ids currently believed alive — the breaker's whole input. */
+  const alive = new Set<number>();
 
   const fork = (): void => {
     if (shuttingDown) return;
-    const worker = cluster.fork();
-    startedAt.set(worker.id, Date.now());
+    const worker = workers.fork();
+    startedAt.set(worker.id, now());
+    alive.add(worker.id);
   };
 
-  cluster.on('exit', (worker, code, signal) => {
-    const uptimeMs = Date.now() - (startedAt.get(worker.id) ?? Date.now());
+  workers.on('exit', (worker, code, signal) => {
+    const uptimeMs = now() - (startedAt.get(worker.id) ?? now());
     startedAt.delete(worker.id);
+    alive.delete(worker.id);
     if (shuttingDown) return;
+
+    /**
+     * D85. Checked before the re-fork is scheduled, because the re-fork is
+     * the thing being refused: with every worker dead this early, the next
+     * fork runs the same image against the same environment and dies the
+     * same way, and the loop's only effect is to keep the primary — and so
+     * the container, and so the deploy — looking alive.
+     */
+    if (alive.size === 0 && now() - primaryStartedAt < CRASH_LOOP_WINDOW_MS) {
+      log(
+        `api primary: all ${String(count)} workers are dead within ` +
+          `${String(Math.round((now() - primaryStartedAt) / 1000))}s of start ` +
+          `(last exit code=${String(code)} signal=${String(signal)}) — this build cannot boot; ` +
+          `exiting ${String(CRASH_LOOP_EXIT_CODE)} instead of re-forking`,
+      );
+      exit(CRASH_LOOP_EXIT_CODE);
+      return;
+    }
 
     // A worker that ran long enough to be healthy resets the escalation;
     // one that died on startup escalates it. Without the reset, a single
@@ -111,9 +224,7 @@ export function runPrimary(count: number, log: (message: string) => void = defau
       `api worker ${String(worker.process.pid)} exited (code=${String(code)} signal=${String(signal)}) ` +
         `after ${String(Math.round(uptimeMs / 1000))}s — re-forking in ${String(delayMs)}ms`,
     );
-    // `unref` so a re-fork timer never keeps the primary alive through a
-    // shutdown it has already decided on.
-    setTimeout(fork, delayMs).unref();
+    schedule(fork, delayMs);
   });
 
   // Podman sends SIGTERM on `stop` / `--force-recreate` and waits ~10s before
@@ -121,15 +232,17 @@ export function runPrimary(count: number, log: (message: string) => void = defau
   // exit, and the loop above dutifully re-forks them) and every recreate
   // costs the full kill timeout.
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-    process.on(signal, () => {
+    onSignal(signal, () => {
       if (shuttingDown) return;
       shuttingDown = true;
       log(`api primary received ${signal} — stopping ${String(count)} workers`);
-      for (const worker of Object.values(cluster.workers ?? {})) worker?.kill(signal);
+      for (const worker of Object.values(workers.workers ?? {})) worker?.kill(signal);
       // Nothing left holding the loop open once the workers are gone, so the
       // primary exits on its own; this is only the backstop for a worker
       // that ignores the signal.
-      setTimeout(() => process.exit(0), 10_000).unref();
+      schedule(() => {
+        exit(0);
+      }, 10_000);
     });
   }
 

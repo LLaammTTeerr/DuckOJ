@@ -3411,3 +3411,43 @@ written for, "the page reloaded" is not a rare event.
 *Ruled by the implementer during the 2026-08-30 feature loop (F17 brief), no
 human available to consult. No migration, no API change.*
 
+
+## D85 — A build whose every worker dies inside a minute makes the primary exit non-zero
+
+The 2026-08-30 outage lasted fifteen minutes, and roughly fourteen of them
+were spent not knowing. A provider Nest could not resolve killed every api
+worker milliseconds after boot; `runPrimary` re-forked them on a doubling
+backoff, forever. Because the primary is what binds port 3000, everything
+above it saw a healthy system: `podman ps` said `Up`, the container's
+`restart: unless-stopped` had nothing to restart, and the compose healthcheck
+opened a connection that the primary accepted and no worker ever answered —
+so it did not fail fast, it hung until its own 5 s timeout, six times.
+
+- **The rule.** If the primary reaches **zero live workers within 60 s of its
+  own start** (`CRASH_LOOP_WINDOW_MS`), it logs one line saying this build
+  cannot boot and calls `process.exit(1)` instead of scheduling another fork.
+- **Zero live workers**, not "a worker died": one crashed worker out of four
+  is what a supervisor exists for, and re-forking it stays exactly as it was.
+- **Measured from primary start**, not from the last death. A process that
+  served for a day and then loses its whole fleet at once is a different
+  incident — an OOM sweep, a host hiccup — and re-forking is the right answer
+  to that. This rule is only about a build that never booted.
+- **60 s** is long enough that a slow first boot cannot be mistaken for it: a
+  worker waiting on a cold Postgres is alive while it waits. It is short
+  enough that `scripts/deploy.sh`'s 45 s poll and the restart policy both see
+  a real exit code rather than a hang.
+- **A shutdown is exempt.** SIGTERM sets `shuttingDown` first, so a recreate —
+  which is also every worker dying inside the window — is never reported as a
+  failed boot.
+- **Cost, stated.** A genuine boot failure now takes the container down in a
+  restart loop rather than leaving it up and mute. That is the point: a loop
+  of visible failures is diagnosable and an up-but-empty container is not.
+
+`runPrimary` gained seams (`cluster`, `now`, `exit`, `schedule`, `onSignal`)
+so `apps/api/test/cluster.spec.ts` can drive a fake stream of worker exits
+against a fake clock; forking four real processes that die on purpose would
+mean waiting out `MAX_BACKOFF_MS` for a flaky test of exactly the timing it
+exists to pin.
+
+*Ruled by the implementer during the 2026-08-30 deploy-safety loop (B-15
+brief), no human available to consult. No migration, no API change.*
