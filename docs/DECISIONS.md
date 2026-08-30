@@ -5086,3 +5086,62 @@ rule in `app.css`. The banner for an *unattributable* server refusal
 *Ruled by the implementer during the 2026-08-31 a11y loop (b20 brief), no
 human available to consult. `apps/web` only; no migration.*
 
+
+## D111 — A submission diff is server-computed, both sources visibility-gated, and stores nothing
+
+The submission page could show a viewer their own two attempts only as two
+separate screens: no way to see what changed between a rejected try and the
+fix. `GET /submissions/{id}/diff?against={otherId}` and
+`GET /submissions/{id}/previous` add that, without a new table and without
+shipping a diff library to the browser.
+
+**The diff is computed in the API.** A plain LCS line diff
+(`apps/api/src/submissions/line-diff.ts`), emitted as unified hunks
+(`context`/`added`/`removed`). `@duckoj/similarity` was considered and does not
+fit: it fingerprints k-grams to score *how alike* two files are (chống gian
+lận, D77) and winnows away exactly the line-level alignment a diff needs — a
+different question. The web renders the hunks and ships nothing.
+
+**Both sources are gated by the SAME predicate the `source` field already
+uses.** `diff` runs each id through `getVisible` and refuses (404) unless BOTH
+come back with a non-null `source`. That single `source === null` check is
+exactly the D23+D27 gate and not a coincidence: `maskHiddenSource` (D27) nulls
+`source`, the freeze mask (D23) never touches `source`, and the source-hidden
+set is a *superset* of the frozen set (same four escapes — ctx-null, owner,
+admin, contest-creator — plus D27 covers the whole window, not just its last
+minutes). So a masked-during-freeze contest submission is refused via the
+source-null path already; a separate freeze check here would be redundant and
+is deliberately omitted. This is why the route can never become a way to read a
+rival's live contest source that D27 withholds — unlike the organiser-only
+`/contests/{key}/similarity/{a}/{b}`, which D77 explicitly exempts.
+
+**No storage, no cache.** The diff is cheap and recomputed per request; there
+is nothing to invalidate. `previous` is one indexed `ORDER BY` and the diff is
+two `getVisible` reads plus an in-memory LCS.
+
+Three rulings made while building it, no human available to consult:
+
+- **"Previous" is by id, not by clock.** `submissions.id` is the monotone
+  order every other submission read pages on; `previous` returns the caller's
+  own most-recent submission to the same problem with `id < {id}`, **same
+  language preferred, falling back to any** (one `ORDER BY (language = base)
+  DESC, id DESC LIMIT 1`).
+- **A diff across two different problems is a 422 (`diff_problem_mismatch`),
+  not a 404.** Both submissions are already visible to the caller, so comparing
+  their problem codes leaks nothing — an honest "that's a mistake" beats
+  another indistinguishable 404.
+- **A DP size cap.** `GET /diff` is an unmetered read (only `POST /submissions`
+  hits D80), and a source may be ≤64 KiB of one-character lines, so an
+  unguarded O(n·m) LCS is an authenticated CPU/memory sink. Above
+  `DIFF_MAX_DP_CELLS` (4M) the changed middle is emitted as a whole-file
+  replace instead — the same shape of guard the similarity run uses
+  (`similarity_too_large`).
+
+Web: a "So sánh với lần nộp trước" toggle on `/submissions/{id}`, offered only
+when the viewer can read this source and has an earlier own attempt. Each
+added/removed line carries a +/− glyph as real text and an `.sr-only` label —
+never colour alone (B-20/D77) — over a tint mixed from the verdict palette.
+i18n vi+en; no migration.
+
+*Ruled by the implementer during the 2026-08-31 feature loop (f27 brief), no
+human available to consult.*
