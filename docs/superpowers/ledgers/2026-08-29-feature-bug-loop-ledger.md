@@ -44,3 +44,4 @@
 - F-13 dispatched (main, opus): owed-items sweep (grid load-more, CSV bound, rating pagination, TOTP confirm limiter + password on disable D72, import chunking, freeze warning, dashboard polish).
 - Host restart killed all seven agents (B-9 had 8 commits; others uncommitted work); all resumed from transcripts.
 - F-10 DONE_WITH_CONCERNS, merged (211e7ad): guides + /help; web rebuilt, pushed. Owed: guide refresh for problem sets (F-9) and exports (F-12) once merged; admin.totpNote stale since D39; orphan key problem.editorialShow.
+- B-10 DONE_WITH_CONCERNS, merged: security headers + CSP at Caddy (D69), WS Origin check (D70), typst raw-fence injection, X-Powered-By; 8 cleared. api + caddy recreated; pushed. Owed: typst subprocess timeout/output cap; CSRF second layer.
