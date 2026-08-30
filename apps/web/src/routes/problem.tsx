@@ -57,6 +57,11 @@ export function ProblemPage(props: { code: string }) {
   if (!query.data) return <p>{t('problem.notFound')}</p>;
 
   const problem = query.data;
+  // `?? null`, not a bare read: the field is required by the contract, but
+  // a browser holding this bundle can be talking to an API deployed before
+  // it, and `renderStatement(undefined)` would white-screen the whole
+  // problem page over a section that is meant to be optional.
+  const editorial = problem.editorial ?? null;
   // Courtesy links only — both target pages re-decide authorization. A
   // member or a global setter/admin authors; everyone else just reads.
   const canAuthor =
@@ -102,6 +107,29 @@ export function ProblemPage(props: { code: string }) {
           renderStatement's output has already been through
           DOMPurify.sanitize. */}
       <div dangerouslySetInnerHTML={{ __html: renderStatement(problem.statement) }} />
+      {/* The editorial (D43), behind a `<details>` a reader has to open:
+          this is the one part of the page nobody should meet by accident,
+          and the API deciding they MAY read it is not the same as them
+          wanting to right now.
+
+          Rendered whenever `editorial` is non-null rather than on
+          `editorialAvailable`, which is the same condition for every viewer
+          who cannot edit this problem — the API hands a non-null editorial
+          to no one else without also setting the flag. An editor is the one
+          viewer who can see their own unpublished draft here, marked as
+          one, so the page they proofread is the page a reader will get.
+
+          Same `renderStatement` contract as the statement above: Markdown
+          and maths, sanitized by DOMPurify last (markdown.ts). */}
+      {editorial !== null ? (
+        <details>
+          <summary>
+            {t('problem.editorial')}
+            {problem.editorialAvailable ? null : ` (${t('problem.editorialDraft')})`}
+          </summary>
+          <div dangerouslySetInnerHTML={{ __html: renderStatement(editorial) }} />
+        </details>
+      ) : null}
       <p>
         {/* `search` is a structured object, not a hand-built query string —
             TanStack Router owns serializing it (see router.tsx's

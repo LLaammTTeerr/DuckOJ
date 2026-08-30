@@ -96,6 +96,12 @@ export function ProblemEditPage(props: { code?: string }) {
   // the intermediate "1".
   const [tagSlugs, setTagSlugs] = useState<string[]>([]);
   const [difficultyRaw, setDifficultyRaw] = useState('');
+  // Edit-only as well. Two pieces of state, not one: an editorial can be
+  // written and left unpublished for as long as its author wants, and the
+  // publish toggle is a separate decision from the text — which is exactly
+  // what `PATCH`'s two keys are.
+  const [editorial, setEditorial] = useState('');
+  const [editorialPublished, setEditorialPublished] = useState(false);
   const allTags = useQuery(tagsQueryOptions);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -161,6 +167,12 @@ export function ProblemEditPage(props: { code?: string }) {
     setOrgSlugsRaw(query.data.orgSlugs.join(', '));
     setTagSlugs(query.data.tags.map((tag) => tag.slug));
     setDifficultyRaw(query.data.difficulty === null ? '' : String(query.data.difficulty));
+    // `editorial` comes back non-null for an editor even while it is a
+    // draft (D43) — that is what makes this form able to load what it is
+    // about to overwrite — and `editorialAvailable` is, for an editor, the
+    // publish state itself.
+    setEditorial(query.data.editorial ?? '');
+    setEditorialPublished(query.data.editorialAvailable);
     setSeededFrom(query.data.code);
   }, [seededFrom, query.data]);
 
@@ -192,6 +204,14 @@ export function ProblemEditPage(props: { code?: string }) {
               // and a form whose blank field silently kept the old value
               // would give a setter no way to un-rate a problem at all.
               difficulty: difficultyRaw.trim() === '' ? null : Number(difficultyRaw),
+              // An empty box is an explicit `null` — "there is no
+              // editorial" — for `difficulty`'s reason: omitting the key
+              // would mean "leave it", and a setter could then never
+              // withdraw an editorial from this form. The API answers 422
+              // `problem_editorial_empty` if the toggle is on with nothing
+              // to publish, and that code is what gets shown.
+              editorial: editorial.trim() === '' ? null : editorial,
+              editorialPublished,
             },
           })
         : await api.POST('/problems', {
@@ -316,6 +336,36 @@ export function ProblemEditPage(props: { code?: string }) {
               value={difficultyRaw}
               onChange={(e) => setDifficultyRaw(e.target.value)}
             />
+          </>
+        ) : null}
+
+        {/* Edit-only, like `tags` and `difficulty` above: a problem is
+            created without an editorial and gets one once it has been set.
+            The preview is the same `renderStatement` the problem page
+            renders it with, so what is proofread here is what a reader
+            gets. */}
+        {isEdit ? (
+          <>
+            <label htmlFor="problem-editorial">{t('problemEdit.editorial')}</label>
+            <textarea
+              id="problem-editorial"
+              value={editorial}
+              onChange={(e) => setEditorial(e.target.value)}
+            />
+            <div
+              data-testid="editorial-preview"
+              dangerouslySetInnerHTML={{ __html: renderStatement(editorial) }}
+            />
+            <label htmlFor="problem-editorial-published">
+              <input
+                id="problem-editorial-published"
+                type="checkbox"
+                checked={editorialPublished}
+                onChange={(e) => setEditorialPublished(e.target.checked)}
+              />{' '}
+              {t('problemEdit.editorialPublished')}
+            </label>
+            <p>{t('problemEdit.editorialHint')}</p>
           </>
         ) : null}
 

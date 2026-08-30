@@ -174,6 +174,9 @@ export const en = {
   'problem.revisions': 'Revisions',
   'problem.tags': 'Topics',
   'problem.difficulty': 'Difficulty',
+  'problem.editorial': 'Editorial',
+  'problem.editorialShow': 'Show the editorial',
+  'problem.editorialDraft': 'draft — not published',
 
   // ── authoring ─────────────────────────────────────────────────────────
   'problemEdit.newTitle': 'New problem',
@@ -186,6 +189,10 @@ export const en = {
   'problemEdit.members': 'Members',
   'problemEdit.tags': 'Topics',
   'problemEdit.difficulty': 'Difficulty (1-10, blank for none)',
+  'problemEdit.editorial': 'Editorial (Markdown, Vietnamese and English)',
+  'problemEdit.editorialPublished': 'Publish the editorial',
+  'problemEdit.editorialHint':
+    'Someone sitting a contest on this problem does not see it until they solve it, or until the contest ends.',
   'problemEdit.rejudgeConfirm':
     'Rejudge every submission of {code}? Their current verdicts are discarded.',
   'problemEdit.rejudgeAll': 'Rejudge all submissions',

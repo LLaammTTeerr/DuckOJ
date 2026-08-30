@@ -67,6 +67,8 @@ const DETAIL = {
   createdAt: '2026-01-01T00:00:00Z',
   members: [],
   orgSlugs: [],
+  editorial: null,
+  editorialAvailable: false,
 };
 
 const testRootRoute = createRootRoute();

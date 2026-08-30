@@ -163,6 +163,9 @@ export const vi = {
   'problem.revisions': 'Phiên bản',
   'problem.tags': 'Chủ đề',
   'problem.difficulty': 'Độ khó',
+  'problem.editorial': 'Lời giải',
+  'problem.editorialShow': 'Xem lời giải',
+  'problem.editorialDraft': 'bản nháp — chưa xuất bản',
 
   // ── authoring ─────────────────────────────────────────────────────────
   'problemEdit.newTitle': 'Bài tập mới',
@@ -175,6 +178,10 @@ export const vi = {
   'problemEdit.members': 'Thành viên',
   'problemEdit.tags': 'Chủ đề',
   'problemEdit.difficulty': 'Độ khó (1-10, để trống nếu chưa đặt)',
+  'problemEdit.editorial': 'Lời giải (Markdown, tiếng Việt và tiếng Anh)',
+  'problemEdit.editorialPublished': 'Xuất bản lời giải',
+  'problemEdit.editorialHint':
+    'Người đang thi bài này chưa thấy lời giải, trừ khi đã AC. Hết giờ thi thì ai cũng xem được.',
   'problemEdit.rejudgeConfirm':
     'Chấm lại toàn bộ bài nộp của {code}? Kết quả hiện tại sẽ bị hủy.',
   'problemEdit.rejudgeAll': 'Chấm lại toàn bộ bài nộp',
