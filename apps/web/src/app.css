@@ -842,6 +842,15 @@ pre {
   background: var(--mark);
   color: var(--mark-fg);
   border-radius: var(--r-xs);
+  /* Colour is not the only cue (WCAG 1.4.1). The tint is deliberately
+     subtle (D77 — "a tint, not a highlighter pen"), which measures ~1.25:1
+     against the inset it sits on: below the 3:1 a colour-only distinction
+     needs, so a colour-blind or low-vision reader could miss the region the
+     semantic <mark> still announces. A dotted underline marks it by shape
+     without touching the tint. (loop-b20 a11y) */
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
 }
 
 /* The two columns of a similarity comparison. Grid rather than flex so the

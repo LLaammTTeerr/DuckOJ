@@ -164,4 +164,16 @@ describe('app.css', () => {
     const literalDurations = [...CSS.matchAll(/transition[^;]*?(\d+m?s)\b/g)].map((m) => m[0]);
     expect(literalDurations).toEqual([]);
   });
+
+  it('marks a similarity match with more than colour (WCAG 1.4.1)', () => {
+    // D77's `.match` tint is deliberately subtle — measured, it differs from
+    // the surrounding inset by ~1.25:1, well under the 3:1 a colour-only
+    // distinction needs. The semantic <mark> carries it to a screen reader,
+    // but a sighted low-vision or colour-blind reader had colour as the ONLY
+    // cue. A non-colour cue (an underline) makes the region perceivable
+    // without turning the columns into a highlighter pen.
+    const host = withStylesheet('<pre class="side"><mark class="match">x</mark></pre>');
+    const mark = host.querySelector('.match')!;
+    expect(getComputedStyle(mark).textDecorationLine).toContain('underline');
+  });
 });
