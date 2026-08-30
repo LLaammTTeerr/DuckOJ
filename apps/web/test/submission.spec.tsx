@@ -100,4 +100,25 @@ describe('SubmissionPage', () => {
     // The server's own `detail`, verbatim — never translated.
     expect(await screen.findByRole('alert')).toHaveTextContent(/No such submission/i);
   });
+
+  // `/submissions/$id` takes a path segment, and the router hands it over as
+  // `Number(id)` — so `/submissions/abc` produced `NaN`. Observed on the live
+  // stack before this guard: the page requested `GET /api/v1/submissions/NaN`
+  // (422, and 502 on the retry) and rendered TanStack Query's own internal
+  // wording, `["submission",null] data is undefined`, as the page body. A URL
+  // typed wrong is a not-found, and it costs the API nothing to say so.
+  for (const [name, id] of [
+    ['not a number at all', Number('abc')],
+    ['a fraction', 4.5],
+    ['zero', 0],
+    ['negative', -1],
+  ] as const) {
+    it(`answers not-found for an id that is ${name}, without asking the API`, async () => {
+      wrap(<SubmissionPage id={id} />);
+      expect(await screen.findByRole('alert')).toHaveTextContent(/Không có bài nộp/i);
+      // `/auth/me` is the shell's own call and is expected; what must never
+      // go out is the request for an id the API cannot parse.
+      expect(get).not.toHaveBeenCalledWith('/submissions/{id}', expect.anything());
+    });
+  }
 });
