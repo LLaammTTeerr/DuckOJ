@@ -130,6 +130,43 @@ describe('watch', () => {
     expect(get).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * A CE is the one terminal verdict whose whole meaning lives in a field
+   * `watch` never printed: `compileOutput`. The CLI reported `CE` and stopped,
+   * so a caller driving `oj` had no way to see WHY it failed to compile short
+   * of re-fetching the submission by hand — while `GET /submissions/{id}` had
+   * been returning the diagnostics all along.
+   */
+  it('prints the compile output on a compile error, not just the verdict', async () => {
+    const io = fakeIo();
+    const get = vi.fn().mockResolvedValue({
+      data: {
+        state: 'done',
+        verdict: 'CE',
+        points: null,
+        maxPoints: null,
+        compileOutput: 'solution.cpp:1:13: error: invalid use of ‘this’',
+      },
+    });
+    await watch(clientWith({ GET: get }), io, 7, vi.fn());
+    expect(io.lines).toEqual(['done', 'CE', 'solution.cpp:1:13: error: invalid use of ‘this’']);
+  });
+
+  it('prints a compile WARNING beside a verdict that is not CE', async () => {
+    const io = fakeIo();
+    const get = vi.fn().mockResolvedValue({
+      data: {
+        state: 'done',
+        verdict: 'WA',
+        points: 0,
+        maxPoints: 100,
+        compileOutput: 'solution.cpp:3:7: warning: unused variable',
+      },
+    });
+    await watch(clientWith({ GET: get }), io, 7, vi.fn());
+    expect(io.lines.at(-1)).toBe('solution.cpp:3:7: warning: unused variable');
+  });
+
   it('gives up after the attempt budget instead of polling forever', async () => {
     const get = vi.fn().mockResolvedValue(detail('queued'));
     await expect(

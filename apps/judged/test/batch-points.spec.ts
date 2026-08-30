@@ -65,7 +65,7 @@ describe('batched points are aggregated, not summed', () => {
     await server?.close();
   });
 
-  async function run(sendCases: (send: (p: unknown) => void, id: number) => void): Promise<GradingEvent> {
+  async function runAll(sendCases: (send: (p: unknown) => void, id: number) => void): Promise<GradingEvent[]> {
     server = new BridgeServer({ languageToExecutor: () => 'CPP17', verifyJudge: async () => true });
     const port = await server.listen(0);
     const driver = new DmojDriver(server, fakeAgent());
@@ -81,7 +81,11 @@ describe('batched points are aggregated, not summed', () => {
     sendCases((p) => judge!.send(p), id);
     judge!.send({ name: 'grading-end', 'submission-id': id });
     await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true), 10_000);
-    return seen.find((e) => e.type === 'finished')!;
+    return seen;
+  }
+
+  async function run(sendCases: (send: (p: unknown) => void, id: number) => void): Promise<GradingEvent> {
+    return (await runAll(sendCases)).find((e) => e.type === 'finished')!;
   }
 
   it('a fully-passing 3-case batch worth 30 scores 30/30, not 90/90', async () => {
@@ -112,5 +116,76 @@ describe('batched points are aggregated, not summed', () => {
       send({ name: 'test-case-status', 'submission-id': id, cases: [CASE(3, 20, 20), CASE(4, 20, 20)] });
     });
     expect(finished).toMatchObject({ points: 30, maxPoints: 30 });
+  }, 30_000);
+});
+
+
+/**
+ * `batch-end` was in the packet union and handled by nothing: `translate`'s
+ * `default: return` swallowed it, so `entry.batch` only ever counted UP, on
+ * `batch-begin`. judge-server emits a batch-begin/batch-end pair around each
+ * batch and yields loose cases outside any pair (`dmoj/judge.py:479-533`), and
+ * a DMOJ `test_cases:` list may legally interleave the two — so every loose
+ * case that follows a batch was filed under that batch's index and folded into
+ * its min()/max() aggregate instead of summing on its own.
+ */
+describe('batch-end closes a batch', () => {
+  let server: BridgeServer | undefined;
+  let judge: ReturnType<typeof fakeJudge> | undefined;
+  afterEach(async () => {
+    judge?.close();
+    await server?.close();
+  });
+
+  async function runAll(sendCases: (send: (p: unknown) => void, id: number) => void): Promise<GradingEvent[]> {
+    server = new BridgeServer({ languageToExecutor: () => 'CPP17', verifyJudge: async () => true });
+    const port = await server.listen(0);
+    const driver = new DmojDriver(server, fakeAgent());
+    judge = fakeJudge(port);
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+
+    const seen: GradingEvent[] = [];
+    await driver.dispatch(job, async (e) => void seen.push(e));
+    await vi.waitFor(() => expect(judge!.received.some((p) => p.name === 'submission-request')).toBe(true), 10_000);
+    const id = Number(
+      (judge!.received.find((p) => p.name === 'submission-request') as { 'submission-id': number })['submission-id'],
+    );
+    judge!.send({ name: 'grading-begin', 'submission-id': id, pretested: false });
+    sendCases((p) => judge!.send(p), id);
+    judge!.send({ name: 'grading-end', 'submission-id': id });
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'finished')).toBe(true), 10_000);
+    return seen;
+  }
+
+  it('a loose case after a batch sums on its own instead of joining the batch', async () => {
+    const seen = await runAll((send, id) => {
+      send({ name: 'batch-begin', 'submission-id': id });
+      send({ name: 'test-case-status', 'submission-id': id, cases: [CASE(1, 20, 20), CASE(2, 20, 20)] });
+      send({ name: 'batch-end', 'submission-id': id });
+      send({ name: 'test-case-status', 'submission-id': id, cases: [CASE(3, 5, 5)] });
+    });
+    // Batch 20 + loose 5. Folded into the batch it read min(20,5)=5 / max(20,5)=20.
+    expect(seen.find((e) => e.type === 'finished')).toMatchObject({ points: 25, maxPoints: 25 });
+    const cases = seen.filter((e) => e.type === 'caseResult') as Array<{ caseIndex: number; groupIndex: number }>;
+    expect(cases.map((c) => c.groupIndex)).toEqual([1, 1, 0]);
+  }, 30_000);
+
+  it('two closed batches stay two aggregates — the second is not re-keyed onto the first', async () => {
+    // The guard against the naive fix: resetting the SAME counter to 0 on
+    // batch-end makes the next batch-begin increment back to 1, merging both
+    // batches' min()/max() into one. Batch 1 fails (0/30), batch 2 passes
+    // (10/10); merged they would read min(0,10)=0 / max(30,10)=30.
+    const finished = (
+      await runAll((send, id) => {
+        send({ name: 'batch-begin', 'submission-id': id });
+        send({ name: 'test-case-status', 'submission-id': id, cases: [CASE(1, 0, 30, DMOJ_FLAG.WA)] });
+        send({ name: 'batch-end', 'submission-id': id });
+        send({ name: 'batch-begin', 'submission-id': id });
+        send({ name: 'test-case-status', 'submission-id': id, cases: [CASE(2, 10, 10)] });
+        send({ name: 'batch-end', 'submission-id': id });
+      })
+    ).find((e) => e.type === 'finished');
+    expect(finished).toMatchObject({ points: 10, maxPoints: 40 });
   }, 30_000);
 });

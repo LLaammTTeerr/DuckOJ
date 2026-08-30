@@ -82,3 +82,44 @@ describe('renderInitYml', () => {
     expect(batch.batched[1]).toEqual({ in: 'tests/03.in', out: 'tests/03.out' });
   });
 });
+
+describe('renderInitYml — a source (testlib) checker', () => {
+  const sourceChecker: PackageManifestDto = {
+    ...manifest,
+    checker: { kind: 'source', path: 'checker/check.cpp', language: 'cpp17' },
+  };
+
+  /**
+   * The bug this pins (B3): the renderer used to write the checker's PATH as
+   * a bare string — `checker: checker/check.cpp`. dmoj/problem.py's
+   * `Problem.checker()` branches on `'.' in name`, so any path with a file
+   * extension is treated as a **Python module path** and handed to
+   * `load_module_from_file`, which `exec(compile(...))`s the file. A C++
+   * checker therefore raises `SyntaxError` — caught by neither the
+   * `except IOError` nor the `except AttributeError` around it — and every
+   * checker-based problem died mid-grade with an internal error. Reproduced
+   * against the real judge-server source: `load_module_from_file` on a
+   * `check.cpp` raises `SyntaxError: invalid syntax (check.cpp, line 2)`.
+   *
+   * The only shape judge-server can actually run a compiled checker in is
+   * the `bridged` builtin with `args` (dmoj/checkers/bridged.py).
+   */
+  it('renders as the bridged builtin, never as a bare path DMOJ would exec as Python', () => {
+    const doc = parse(renderInitYml(sourceChecker)) as { checker?: unknown };
+    expect(doc.checker).not.toBe('checker/check.cpp');
+    expect(doc.checker).toEqual({
+      name: 'bridged',
+      args: { files: 'checker/check.cpp', lang: 'CPP17', type: 'testlib' },
+    });
+  });
+
+  it('maps the manifest language key to the judge executor key', () => {
+    const doc = parse(
+      renderInitYml({
+        ...manifest,
+        checker: { kind: 'source', path: 'checker/check.cpp', language: 'cpp20' },
+      }),
+    ) as { checker: { args: { lang: string } } };
+    expect(doc.checker.args.lang).toBe('CPP20');
+  });
+});

@@ -114,12 +114,28 @@ export function planImport(problemXml: string): PolygonImportPlan {
   }
 
   const timeMs = Number(testset['time-limit']);
+  if (!Number.isInteger(timeMs) || timeMs <= 0) fail(`bad time-limit: ${String(testset['time-limit'])}`);
+
   // Polygon writes memory in BYTES; the manifest wants KB. 256 MiB arriving
   // as 268435456 must leave as 262144, not as a 268-million-KB limit that
   // parses cleanly and means nothing.
-  const memoryKb = Math.floor(Number(testset['memory-limit']) / 1024);
-  if (!Number.isInteger(timeMs) || timeMs <= 0) fail(`bad time-limit: ${String(testset['time-limit'])}`);
-  if (memoryKb <= 0) fail(`bad memory-limit: ${String(testset['memory-limit'])}`);
+  //
+  // Validated on the BYTES, exactly as `time-limit` is, and before the
+  // division. The old check was `Math.floor(Number(...) / 1024) <= 0` alone,
+  // and `NaN <= 0` is FALSE — so a missing or non-numeric `<memory-limit>`
+  // walked straight past the one guard that exists to catch it and left
+  // `memoryKb: NaN` in the manifest, which `JSON.stringify` writes out as
+  // `null`. The import reported success and the real failure surfaced two
+  // steps later, at upload, as a manifest-schema rejection with nothing
+  // pointing back here. A byte count that is not a whole number of KB is
+  // refused too rather than silently floored: `Math.floor` on 1536 bytes
+  // discards half the limit the package asked for, and this file's rule is
+  // that what cannot be represented is refused loudly.
+  const memoryBytes = Number(testset['memory-limit']);
+  if (!Number.isInteger(memoryBytes) || memoryBytes <= 0 || memoryBytes % 1024 !== 0) {
+    fail(`bad memory-limit: ${String(testset['memory-limit'])}`);
+  }
+  const memoryKb = memoryBytes / 1024;
 
   const count = Number(testset['test-count']);
   const inputPattern = String(testset['input-path-pattern']);

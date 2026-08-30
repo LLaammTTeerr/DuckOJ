@@ -145,4 +145,40 @@ describe('AppModule composition root', () => {
     const res = await request(app.getHttpServer()).get('/openapi.json');
     expect(res.status).toBe(404);
   });
+
+  /**
+   * Live probe, B3: a 1 MB submission body answered
+   * `{"status":500,"code":"internal_error"}`.
+   *
+   * `CreateSubmissionRequest` caps `source` at 64 KB, but the body never
+   * reaches Zod: express's json parser rejects anything over its own 100 KB
+   * limit first, and it throws an `http-errors` `PayloadTooLargeError` — which
+   * is not a Nest `HttpException`, so `ProblemFilter` fell through to its 500
+   * branch. That branch also logs at ERROR, so every oversized paste looked
+   * like a server fault to whoever watches the logs. The filter's own tables
+   * have carried a 413 `payload_too_large` entry the whole time; nothing could
+   * reach it.
+   */
+  it('answers 413 payload_too_large for a body past the json limit, not 500', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/submissions')
+      .set('content-type', 'application/json')
+      .send(JSON.stringify({ problemCode: 'x', languageKey: 'cpp17', source: 'a'.repeat(400_000) }));
+
+    expect(res.status).toBe(413);
+    expect(res.body).toMatchObject({ status: 413, code: 'payload_too_large' });
+  });
+
+  /**
+   * The other half of the same rule: an error that merely *has* a numeric
+   * `status` must not be able to pick its own response code. Only the
+   * `http-errors` client-error shape (4xx AND `expose: true`) is honoured;
+   * a database driver error carrying a 500-ish status stays a 500 with
+   * nothing of its own on the wire.
+   */
+  it('still answers 404 not_found — not 500 — for an unrouted path', async () => {
+    const res = await request(app.getHttpServer()).get('/api/v1/no-such-route');
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({ status: 404 });
+  });
 });

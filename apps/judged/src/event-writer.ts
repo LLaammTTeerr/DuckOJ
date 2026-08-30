@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { submissions, submissionCases } from '@duckoj/db/guarded';
+import { submissions } from '@duckoj/db/guarded';
 
 import { schema, type Db } from '@duckoj/db';
 import type { GradingEvent } from '@duckoj/judge-protocol';
@@ -102,25 +102,29 @@ export class EventWriter {
         // them, so a case result can never arrive after `finished` has
         // already moved this submission to `done`.
         await this.setState(submissionId, job, 'grading');
-        return void (await this.db
-          .insert(submissionCases)
-          .values({
-            submissionId,
-            attempt,
-            groupIndex: event.groupIndex,
-            caseIndex: event.caseIndex,
-            verdict: event.verdict,
-            skipped: event.skipped,
-            flags: event.flags,
-            timeMs: event.timeMs,
-            memoryKb: event.memoryKb,
-            points: event.points,
-            maxPoints: event.maxPoints,
-            feedback: event.feedback,
-          })
-          // At-least-once delivery means the same case can arrive twice.
-          // Colliding harmlessly is the design; failing would be a bug.
-          .onConflictDoNothing());
+        // Fenced in the statement, exactly as every `submissions` UPDATE above
+        // is — final review's m7. `isCurrentAttempt` at the top of `apply` is a
+        // separate SELECT, so this used to be check-then-act: `requeueAll`
+        // bumps this job's `attempt` and DELETEs the old case rows, and a stale
+        // insert landing in that gap re-created them. `getVisible` picks the
+        // attempt by `max(attempt)`, so until the re-claim's first case the UI
+        // showed the superseded attempt's per-case verdicts beside a `queued`
+        // submission. A `WHERE` on the same subselect makes a superseded insert
+        // match zero rows instead.
+        //
+        // `on conflict do nothing` is kept: at-least-once delivery means the
+        // same case can arrive twice, and colliding harmlessly is the design.
+        return void (await this.db.execute(sql`
+          insert into submission_cases
+            (submission_id, attempt, group_index, case_index, verdict, skipped,
+             flags, time_ms, memory_kb, points, max_points, feedback)
+          select ${submissionId}, ${attempt}, ${event.groupIndex}, ${event.caseIndex},
+                 ${event.verdict}::case_verdict, ${event.skipped},
+                 ${sql.param(event.flags)}::text[], ${event.timeMs}, ${event.memoryKb},
+                 ${event.points}, ${event.maxPoints}, ${event.feedback}
+           where (select attempt from grading_jobs where id = ${job.id}) = ${attempt}
+          on conflict do nothing
+        `));
       case 'finished':
         return void (await this.db
           .update(submissions)

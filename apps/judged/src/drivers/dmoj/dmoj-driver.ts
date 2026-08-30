@@ -26,8 +26,26 @@ interface LiveJob {
    * connection for a job nobody is waiting on any more.
    */
   cancelled: boolean;
-  /** Current batch number, advanced on batch-begin; reported to the caller as groupIndex. */
+  /**
+   * The batch a case currently belongs to, reported to the caller as
+   * groupIndex — `0` means "outside any batch", i.e. a loose case.
+   *
+   * Set from `batchCount` on `batch-begin` and back to 0 on `batch-end`.
+   * judge-server brackets every batch with that pair and yields loose cases
+   * outside any pair (`dmoj/judge.py:479-533`), and a DMOJ `test_cases:` list
+   * may legally interleave the two — so without honouring `batch-end` (which
+   * `translate` used to swallow) every loose case AFTER a batch was filed
+   * under that batch and folded into its min()/max() aggregate instead of
+   * summing on its own.
+   */
   batch: number;
+  /**
+   * How many batches have begun. Kept separate from `batch` on purpose: the
+   * obvious one-counter version — reset to 0 on end, `+= 1` on begin — hands
+   * the SECOND batch the index 1 again, merging two independent batches into
+   * one aggregate. Monotonic here, so every batch keeps a distinct key.
+   */
+  batchCount: number;
   worstFlags: number;
   /** Whether any case actually executed. An all-skipped run has no determinable verdict. */
   ranAnyCase: boolean;
@@ -227,6 +245,7 @@ export class DmojDriver implements JudgeDriver {
       connection: undefined,
       cancelled: false,
       batch: 0,
+      batchCount: 0,
       loosePoints: 0,
       looseTotal: 0,
       batchAgg: new Map(),
@@ -426,10 +445,16 @@ export class DmojDriver implements JudgeDriver {
 
       case 'compile-error':
         this.finish(entry);
-        return entry.emit({ type: 'compileError', message: packet.log });
+        return entry.emit({
+          type: 'compileError',
+          message: cleanCompileLog(packet.log, entry.job.packageHash),
+        });
 
       case 'compile-message':
-        return entry.emit({ type: 'compileMessage', message: packet.log });
+        return entry.emit({
+          type: 'compileMessage',
+          message: cleanCompileLog(packet.log, entry.job.packageHash),
+        });
 
       case 'internal-error':
         this.finish(entry);
@@ -440,7 +465,12 @@ export class DmojDriver implements JudgeDriver {
         return entry.emit({ type: 'terminated' });
 
       case 'batch-begin':
-        entry.batch += 1;
+        entry.batchCount += 1;
+        entry.batch = entry.batchCount;
+        return;
+
+      case 'batch-end':
+        entry.batch = 0;
         return;
 
       case 'test-case-status':
@@ -510,6 +540,52 @@ export class DmojDriver implements JudgeDriver {
         return;
     }
   }
+}
+
+
+/**
+ * Everything in `ESC [ … <letter>` — gcc's SGR colours and its `ESC [K`.
+ *
+ * Built from the code point rather than written as a literal `\x1b` so the
+ * pattern carries no control character of its own (`no-control-regex`).
+ */
+const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(0x1b)}\\[[0-9;]*[A-Za-z]`, 'g');
+
+function escapeForRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Makes a judge's compile log fit to hand to the person who submitted.
+ *
+ * `submission.access.ts` returns `compileOutput` verbatim and `submit.tsx`
+ * renders it into a `<pre>`, so whatever arrives here is what a student reads.
+ * Two things arrive that should not (both observed on the live stack, B3):
+ *
+ *  - **gcc's terminal colour escapes.** The judge compiles on a pipe but gcc
+ *    is invoked with colour on, so every diagnostic is wrapped in `\x1b[01m`
+ *    /`\x1b[K`/`\x1b[m`. In a browser those are control characters, not
+ *    colour — the message reads as line noise.
+ *  - **The package hash where the filename belongs.** `judged` sends the
+ *    package hash as DMOJ's `problem-id` (see `dispatch`), and judge-server
+ *    names the compile unit `{problem_id}.{ext}`
+ *    (`dmoj/executors/base_executor.py:122`), so every diagnostic line is
+ *    addressed to a 64-hex blob. It identifies the problem's TEST PACKAGE,
+ *    which is not the submitter's business and is not a name that helps them.
+ *
+ * CRLF is normalised for the same reason: the log is rendered as text, not
+ * fed to a terminal.
+ */
+export function cleanCompileLog(log: string, packageHash: string): string {
+  const hash = escapeForRegex(packageHash);
+  return log
+    .replace(ANSI_ESCAPE, '')
+    // `<hash>cpp.cpp` -> `solution.cpp`: the executor appends its own suffix
+    // before the extension, so anything between the hash and the dot goes too.
+    .replace(new RegExp(`${hash}[A-Za-z0-9_]*\\.([A-Za-z0-9]+)`, 'g'), 'solution.$1')
+    // Any bare mention left over (a path, a linker line) still must not leak.
+    .replace(new RegExp(hash, 'g'), 'solution')
+    .replace(/\r\n/g, '\n');
 }
 
 /** Loose sum + per-batch min, the bridge's aggregation. */

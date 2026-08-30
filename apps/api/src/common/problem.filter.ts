@@ -101,6 +101,27 @@ export class ProblemFilter implements ExceptionFilter {
         instance,
       };
     }
+    // Express middleware throws before Nest ever sees the request, and what it
+    // throws is an `http-errors` object, not an `HttpException`: the json body
+    // parser's `PayloadTooLargeError` is the one that matters here. Without
+    // this branch a 1 MB submission answered `500 internal_error` — logged at
+    // ERROR, so an oversized paste read as a server fault — while the 413
+    // `payload_too_large` entry in the tables above sat unreachable.
+    //
+    // Deliberately narrow: a 4xx AND `expose: true`, which is `http-errors`'s
+    // own marker for "this status and message are safe to show the client".
+    // A driver error that merely happens to carry a `status` field cannot pick
+    // its own response code, and nothing 5xx-shaped can dodge the logging
+    // below. Only the status is taken — never the error's message.
+    if (isExposedClientError(exception)) {
+      return {
+        type: 'about:blank',
+        title: titleFor(exception.status),
+        status: exception.status,
+        code: codeFor(exception.status),
+        instance,
+      };
+    }
     return {
       type: 'about:blank',
       title: TITLES[500]!,
@@ -109,6 +130,17 @@ export class ProblemFilter implements ExceptionFilter {
       instance,
     };
   }
+}
+
+function isExposedClientError(error: unknown): error is { status: number } {
+  if (typeof error !== 'object' || error === null) return false;
+  const candidate = error as { status?: unknown; expose?: unknown };
+  return (
+    candidate.expose === true &&
+    typeof candidate.status === 'number' &&
+    candidate.status >= 400 &&
+    candidate.status < 500
+  );
 }
 
 function titleFor(status: number): string {

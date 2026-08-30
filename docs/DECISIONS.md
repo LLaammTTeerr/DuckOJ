@@ -1250,3 +1250,47 @@ reads it is a ruling and not a permission bit.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F4
 editorials brief), no human available to consult. Migration 0021.*
+
+## D40 — A package's source checker is a testlib checker, rendered as DMOJ's `bridged`
+
+`PackageManifest.checker` has exactly two shapes: `{ kind: 'standard' }` and
+`{ kind: 'source', path, language }`. `renderInitYml` wrote the second one as a
+bare string — `checker: checker/check.cpp` — and dropped `language` on the
+floor entirely.
+
+That is not a form judge-server can run. `Problem.checker()`
+(`dmoj/problem.py:495-515`) branches on `'.' in name`: a name containing a dot
+is a **Python module path**, loaded with `load_module_from_file`, which
+`exec(compile(...))`s the file. A C++ checker therefore raises `SyntaxError` —
+caught by neither the `except IOError` nor the `except AttributeError` around
+that call — every time a case is checked (`dmoj/graders/standard.py:56`). Every
+checker-based problem was ungradeable, and every Polygon import plans a
+`kind: 'source'` checker (`packages/polygon-import/src/parse.ts`), so the
+entire import path led to problems that could only ever answer IE. Reproduced
+directly against the reference judge: `load_module_from_file` on a `check.cpp`
+raises `SyntaxError: invalid syntax (check.cpp, line 2)`.
+
+**The ruling: `kind: 'source'` means a testlib checker, and it renders as**
+
+```yaml
+checker:
+  name: bridged
+  args: { files: <path>, lang: <EXECUTOR>, type: testlib }
+```
+
+- `bridged` (`dmoj/checkers/bridged.py`) is the only builtin that compiles and
+  runs a checker program; `files` is resolved against the problem root, so the
+  package-relative path passes through untouched.
+- `type` names a contrib module (`dmoj/contrib/`). **`testlib`** is the ruling:
+  the manifest has no field for a checker dialect, the importer that produces
+  every source checker we have reads Polygon packages, and Polygon checkers are
+  testlib checkers. A package wanting `coci`/`peg` semantics would need a
+  manifest field, which is a schema change nobody has asked for.
+- `lang` is a judge **executor** key (`CPP17`), not our language key — which is
+  what the manifest's previously-unread `language` field is for. Upper-casing
+  is the whole mapping, the same one `apps/judged/src/main.ts` applies to a
+  submission's language; it is duplicated rather than imported because
+  `@duckoj/package-format` must not depend on the judged app.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B3 judging
+brief), no human available to consult.*

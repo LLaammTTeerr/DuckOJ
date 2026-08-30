@@ -105,6 +105,12 @@ export async function watch(
           ? ''
           : ` ${String(data.points)}/${String(data.maxPoints)}`;
       io.print(`${data.verdict ?? data.state}${points}`);
+      // The compiler's own words, whenever the judge had any. On a `CE` this
+      // is the entire content of the verdict — without it the CLI said `CE`
+      // and stopped, leaving a caller to re-fetch the submission by hand to
+      // learn what was wrong — and on any other verdict it is the compile
+      // WARNING, which lands in the same field on a submission that graded.
+      if (data.compileOutput) io.print(data.compileOutput);
       return;
     }
     await sleep(2000);

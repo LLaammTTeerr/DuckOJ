@@ -178,3 +178,51 @@ describe('planImport', () => {
     }
   });
 });
+
+/**
+ * `time-limit` is validated with `Number.isInteger`, which rejects NaN;
+ * `memory-limit` was validated with `memoryKb <= 0` alone, and `NaN <= 0` is
+ * FALSE. A non-numeric memory limit therefore sailed through the guard whose
+ * whole job is catching it, and left `memoryKb: NaN` in the manifest —
+ * which `JSON.stringify` writes to disk as `"memoryKb": null`, so the import
+ * "succeeded" and the failure surfaced two steps later as an unrelated
+ * manifest-schema rejection at upload time.
+ */
+describe('planImport — a non-numeric limit is refused where it is read', () => {
+  const withLimits = (time: string, memory: string): string =>
+    xml({
+      testset: `<testset name="tests">
+        <time-limit>${time}</time-limit>
+        <memory-limit>${memory}</memory-limit>
+        <test-count>1</test-count>
+        <input-path-pattern>tests/%02d</input-path-pattern>
+        <answer-path-pattern>tests/%02d.a</answer-path-pattern>
+      </testset>`,
+    });
+
+  it('refuses a non-numeric memory-limit, as it already refused a non-numeric time-limit', () => {
+    expect(() => planImport(withLimits('1000', 'lots'))).toThrow(PolygonImportError);
+    expect(() => planImport(withLimits('1000', 'lots'))).toThrow(/bad memory-limit/);
+  });
+
+  it('refuses a missing memory-limit rather than planning a NaN one', () => {
+    expect(() =>
+      planImport(
+        xml({
+          testset: `<testset name="tests">
+            <time-limit>1000</time-limit>
+            <test-count>1</test-count>
+            <input-path-pattern>tests/%02d</input-path-pattern>
+            <answer-path-pattern>tests/%02d.a</answer-path-pattern>
+          </testset>`,
+        }),
+      ),
+    ).toThrow(/bad memory-limit/);
+  });
+
+  it('refuses a fractional memory-limit that is not a whole number of KB', () => {
+    // 1024.5 bytes floors to 0 KB, which the old `<= 0` did catch; 1536 bytes
+    // floors to 1 KB, silently discarding half of what the package asked for.
+    expect(() => planImport(withLimits('1000', '1536'))).toThrow(/bad memory-limit/);
+  });
+});
