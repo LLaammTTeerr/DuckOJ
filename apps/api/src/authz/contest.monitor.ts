@@ -34,26 +34,20 @@
  *   every contest submission the deployment had ever taken. Measured on a
  *   seeded 100k-row fixture (B-17): `Index Scan Backward using
  *   contest_submissions_contest_problem_idx`, 82 shared buffers, 1.4 ms;
- * - the PER-PROBLEM counts do **not**, and this line used to claim they did.
- *   `problems()` is a grouped outer join, and Postgres answers it by hashing
- *   the whole of `contest_submissions` and the whole of `submissions`
- *   whichever contest is asked for. Measured on the same fixture with the
- *   100k rows belonging to a DIFFERENT contest and 200 to this one:
- *   `Seq Scan on contest_submissions (rows=100200)` + `Seq Scan on
- *   submissions (rows=100200)`, 32 ms, to produce ten rows of twenty. So this
- *   panel is bounded by the deployment's history and not by the contest,
- *   which is exactly what D47's amendment says an index is for.
- *   **Not fixed here, and the reason is recorded rather than hidden:** a
- *   correlated `LATERAL` per contest problem does drive
- *   `contest_submissions` through 0035 (bitmap index scan, 20 rows per
- *   problem) and then measures WORSE — 98 ms — because the planner's
- *   ~5010-rows-per-problem estimate makes it hash all of `submissions` ten
- *   times over instead of once. Both rewrites tried were slower at this
- *   scale; what this panel actually wants is either a per-`contest_problem`
- *   counter maintained on write or a `verdict` reachable from
- *   `contest_submissions` without the join, and both are a schema decision
- *   rather than a query one. The 5 s cache below is what stands in for it
- *   today, and it is not enough at a season's worth of rows;
+ * - the PER-PROBLEM counts read **counters** rather than aggregating
+ *   anything (D100, migration 0037). They used to be a grouped outer join,
+ *   and B-17 measured what that cost: on a fixture with 100k rows belonging
+ *   to a DIFFERENT contest and 200 to this one, `Seq Scan on
+ *   contest_submissions (rows=100200)` + `Seq Scan on submissions
+ *   (rows=100200)`, 32 ms, to produce ten rows. Two `LATERAL` rewrites drove
+ *   `contest_submissions` through 0035 and measured WORSE (98 ms), because
+ *   the planner's ~5010-rows-per-problem estimate hashes `submissions` ten
+ *   times over. The cost was never in the query: an aggregate over every
+ *   submission ever made cannot be made O(problems) by rewriting it. So
+ *   `contest_problem_stats` is maintained on write by the three processes
+ *   that can move it, and this panel is now one index scan of
+ *   `contest_problems` with a primary-key probe per row — bounded by the
+ *   CONTEST'S PROBLEM LIST, which is ten;
  * - the feed is a `LATERAL` top-50 per problem, so it reads at most
  *   `50 × problems` rows however large the contest is, rather than sorting
  *   the whole contest to discard all but fifty;
@@ -74,12 +68,13 @@
  */
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
-import type { Db } from '@duckoj/db';
+import { recomputeContestStats, type Db } from '@duckoj/db';
 import type {
   ContestMonitorClarificationDto,
   ContestMonitorDto,
   ContestMonitorEntryDto,
   ContestMonitorProblemDto,
+  ContestMonitorQueryDto,
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
@@ -148,12 +143,34 @@ export class ContestMonitorService {
     @Inject(CONTEST_PRESENCE) private readonly presence: ContestPresence,
   ) {}
 
-  async snapshot(actor: Actor, key: string): Promise<ContestMonitorDto> {
+  /**
+   * `recompute` is the organiser's repair (D100), and it deliberately runs
+   * AFTER both gates: rebuilding a contest's counters is a write, and a write
+   * behind a route that 404s strangers and 403s spectators is a write only
+   * the people who run the contest can make.
+   *
+   * It also **replaces** the cached snapshot rather than reading through it.
+   * Recomputing the counters and then serving a snapshot taken five seconds
+   * before the recompute would show the organiser exactly the numbers they
+   * pressed the button to correct, and they would press it again.
+   */
+  async snapshot(
+    actor: Actor,
+    key: string,
+    query: ContestMonitorQueryDto = {},
+  ): Promise<ContestMonitorDto> {
     // `loadVisible` first, so a contest this caller may not see 404s and the
     // 403 below can only ever be reached by somebody who already knows the
     // contest exists. The similarity report's order, for its reason.
     const contest = await this.contests.loadVisible(actor, key);
     if (!canRunContest(actor, contest)) throw FORBIDDEN;
+
+    if (query.recompute === '1') {
+      await recomputeContestStats(this.db, contest.id);
+      const fresh = await this.compute(contest.id);
+      await this.cache.put(monitorCacheKey(contest.id), fresh, MONITOR_CACHE_TTL_MS);
+      return fresh;
+    }
 
     const { value } = await this.cache.through(
       monitorCacheKey(contest.id),
@@ -226,10 +243,7 @@ export class ContestMonitorService {
     const submitRefusalsLast10Min = await this.refusals();
 
     return {
-      problems: problems.map((row) => ({
-        ...row.problem,
-        pending: queue.byProblem.get(row.contestProblemId) ?? 0,
-      })),
+      problems,
       queue: { depth: queue.depth, oldestPendingSeconds: queue.oldestPendingSeconds },
       judges,
       feed,
@@ -241,58 +255,61 @@ export class ContestMonitorService {
   }
 
   /**
-   * Per problem: how many attempts, how many passed, and how many DISTINCT
-   * people passed.
+   * Per problem: how many attempts, how many passed, how many DISTINCT
+   * people passed, and how many are still waiting — read from
+   * `contest_problem_stats` (D100, migration 0037).
    *
    * `submitted` counts rows and `solvers` counts people, and the gap between
    * them is the whole reason both are here — "40 submissions, 6 solvers" is a
    * problem the room is stuck on, and either number alone hides it.
    *
-   * A `left join` from `contest_problems`, so a problem nobody has touched is
-   * a row of zeros rather than an absence: a contest's problem list is what
-   * the panel is a table OF, and dropping the untouched ones would renumber
-   * it every time somebody submitted.
+   * **A `left join` onto the counters, and it is load-bearing twice over.** A
+   * problem nobody has touched is a row of zeros rather than an absence — a
+   * contest's problem list is what the panel is a table OF, and dropping the
+   * untouched ones would renumber it every time somebody submitted. And a
+   * contest problem created after 0037's backfill has no counter row until
+   * its first submission, so `coalesce` is what makes "no row yet" and "no
+   * submissions yet" the same answer instead of a crash.
    *
-   * Disqualified participations are counted, deliberately. This is a monitor,
-   * not a scoreboard: the submission happened, the judge spent a container on
-   * it, and hiding it here would make the queue panel and this one disagree
-   * about the same rows.
+   * Disqualified participations are counted, deliberately and now
+   * structurally: this is a monitor, not a scoreboard — the submission
+   * happened, the judge spent a container on it, and hiding it here would
+   * make the queue panel and this one disagree about the same rows.
+   *
+   * The plan is `contest_problems` by `contest_id` (its own unique index's
+   * leading column) with one primary-key probe of `contest_problem_stats` per
+   * row: O(the contest's problem list), which is ten.
+   * `contest-monitor-plan.spec.ts` asserts exactly that, on a fixture where
+   * the old grouped join sequentially scanned 100 200 rows twice.
    */
-  private async problems(
-    contestId: number,
-  ): Promise<{ contestProblemId: number; problem: Omit<ContestMonitorProblemDto, 'pending'> }[]> {
+  private async problems(contestId: number): Promise<ContestMonitorProblemDto[]> {
     const rows = await this.db.execute<{
-      id: string;
       code: string;
       label: string;
       submitted: string;
       accepted: string;
       solvers: string;
+      pending: string;
     }>(sql`
-      select cp.id,
-             p.code,
+      select p.code,
              cp.label,
-             count(cs.id)                                              as submitted,
-             count(*) filter (where s.verdict = 'AC')                  as accepted,
-             count(distinct part.user_id) filter (where s.verdict = 'AC') as solvers
+             coalesce(st.submitted, 0) as submitted,
+             coalesce(st.accepted, 0)  as accepted,
+             coalesce(st.solvers, 0)   as solvers,
+             coalesce(st.pending, 0)   as pending
         from contest_problems cp
-        join problems p                     on p.id = cp.problem_id
-        left join contest_submissions cs    on cs.contest_problem_id = cp.id
-        left join submissions s             on s.id = cs.submission_id
-        left join contest_participations part on part.id = cs.participation_id
+        join problems p                    on p.id = cp.problem_id
+        left join contest_problem_stats st on st.contest_problem_id = cp.id
        where cp.contest_id = ${contestId}
-       group by cp.id, p.code, cp.label, cp."order"
        order by cp."order", cp.id
     `);
     return rows.map((row) => ({
-      contestProblemId: num(row.id),
-      problem: {
-        code: row.code,
-        label: row.label,
-        submitted: num(row.submitted),
-        accepted: num(row.accepted),
-        solvers: num(row.solvers),
-      },
+      code: row.code,
+      label: row.label,
+      submitted: num(row.submitted),
+      accepted: num(row.accepted),
+      solvers: num(row.solvers),
+      pending: num(row.pending),
     }));
   }
 
@@ -310,41 +327,41 @@ export class ContestMonitorService {
    * `oldestPendingSeconds` is `null` for an empty queue, never `0` — D47's
    * ruling, for D47's reason: zero reads as "queued this instant", which is
    * the opposite of calm.
+   *
+   * **No longer split by problem** (D100). It used to also feed the
+   * per-problem `pending` column, which made one number on the page come from
+   * `grading_jobs` and its neighbours from `contest_submissions` — two facts
+   * that can honestly disagree (a job row swept away leaves a submission
+   * still un-judged). `contest_problem_stats.pending` is now the one source
+   * for "what is this problem still waiting on", and this panel keeps the one
+   * question only `grading_jobs` can answer: how deep the queue is and how
+   * long its oldest entry has sat there.
    */
   private async queue(contestId: number): Promise<{
     depth: number;
     oldestPendingSeconds: number | null;
-    byProblem: Map<number, number>;
   }> {
     const rows = await this.db.execute<{
-      contest_problem_id: string;
       n: string;
       oldest_seconds: string | null;
     }>(sql`
-      select cs.contest_problem_id,
-             count(*) as n,
+      select count(*) as n,
              extract(epoch from (now() - min(gj.created_at))) as oldest_seconds
         from grading_jobs gj
         join contest_submissions cs on cs.submission_id = gj.submission_id
         join contest_problems cp    on cp.id = cs.contest_problem_id
        where gj.state <> 'done'
          and cp.contest_id = ${contestId}
-       group by cs.contest_problem_id
     `);
 
-    const byProblem = new Map<number, number>();
-    let depth = 0;
-    let oldest: number | null = null;
-    for (const row of rows) {
-      const n = num(row.n);
-      byProblem.set(num(row.contest_problem_id), n);
-      depth += n;
-      if (row.oldest_seconds !== null && row.oldest_seconds !== undefined) {
-        const age = Math.max(0, Math.round(Number(row.oldest_seconds)));
-        oldest = oldest === null ? age : Math.max(oldest, age);
-      }
-    }
-    return { depth, oldestPendingSeconds: oldest, byProblem };
+    const row = rows[0];
+    const depth = num(row?.n);
+    const seconds = row?.oldest_seconds;
+    const oldest =
+      depth === 0 || seconds === null || seconds === undefined
+        ? null
+        : Math.max(0, Math.round(Number(seconds)));
+    return { depth, oldestPendingSeconds: oldest };
   }
 
   /**

@@ -251,6 +251,28 @@ export class ScoreboardCache {
     if (keys.length === 0) return;
     await this.store.del(keys).catch(() => undefined);
   }
+
+  /**
+   * Write a value the caller has ALREADY computed, replacing whatever is
+   * there.
+   *
+   * `through` is the wrong tool for that and not merely a clumsy one: it
+   * returns the cached entry when there is one, so a caller that has just
+   * rebuilt the underlying data would be handed the snapshot taken before the
+   * rebuild. That is D100's `?recompute=1` exactly — an organiser presses it
+   * because the numbers are wrong, and a read-through would show them the
+   * wrong numbers again for another five seconds.
+   *
+   * `invalidate` then `through` would also work and is worse: it leaves a
+   * hole every other reader races to refill with a second fold, which is the
+   * thundering herd `through`'s in-flight map exists to prevent.
+   *
+   * Swallows a store failure, like every other write here: a cache that
+   * cannot be written is a slow request, never a failed one.
+   */
+  async put<T>(key: string, value: T, ttlMs: number = SCOREBOARD_CACHE_TTL_MS): Promise<void> {
+    await this.store.set(key, JSON.stringify(value), ttlMs).catch(() => undefined);
+  }
 }
 
 function parse<T>(value: string): T | null {

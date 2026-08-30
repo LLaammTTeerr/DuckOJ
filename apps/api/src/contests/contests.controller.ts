@@ -36,7 +36,9 @@ import {
   type ContestDetailDto,
   type ContestParticipationDto,
   type ContestListQueryDto,
+  ContestMonitorQuery,
   type ContestMonitorDto,
+  type ContestMonitorQueryDto,
   type ContestPageDto,
   type CreateContestRequestDto,
   type JoinContestRequestDto,
@@ -279,14 +281,23 @@ export class ContestsController {
    * because it is a read; who may actually ask is `ContestMonitorService`'s
    * call, never this controller's — 404 for a contest the caller may not see,
    * 403 `contest_forbidden` for one they can see but do not run.
+   *
+   * `?recompute=1` rebuilds this contest's per-problem counters before
+   * answering (D100). It stays a GET on this route rather than becoming a
+   * POST of its own: it is idempotent, it changes nothing an observer can
+   * see except making a number correct, and the person who needs it is
+   * already looking at the panel that is wrong. `contests:read` for the same
+   * reason — the write it performs is a repair of a cache, not a decision
+   * about the contest.
    */
   @Get(':key/monitor')
   @RequireScope('contests:read')
   contestMonitor(
     @CurrentActor() actor: Actor,
     @Param('key') key: string,
+    @Query(new ZodValidationPipe(ContestMonitorQuery)) query: ContestMonitorQueryDto,
   ): Promise<ContestMonitorDto> {
-    return this.monitor.snapshot(actor, key);
+    return this.monitor.snapshot(actor, key, query);
   }
 
   /**

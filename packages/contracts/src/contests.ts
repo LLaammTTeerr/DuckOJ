@@ -1526,6 +1526,28 @@ export const ContestMonitor = z.object({
 });
 export type ContestMonitorDto = z.infer<typeof ContestMonitor>;
 
+/**
+ * `?recompute=1` — rebuild this contest's per-problem counters before
+ * answering (D100).
+ *
+ * The counters are maintained on write, which means they can in principle
+ * drift: a future code path that inserts a `contest_submissions` row without
+ * going through `SubmissionAccessService.create`, a hand-written UPDATE
+ * during an incident, a restore from a backup taken mid-transaction. This is
+ * the repair, and it is deliberately on the monitor rather than behind an
+ * admin route: the person who notices "problem C says four solvers and I can
+ * see six on the board" is the organiser looking at the panel, and making
+ * them find an administrator is making them not fix it.
+ *
+ * `1` and nothing else, because there is exactly one thing to ask for. It
+ * also bypasses the five-second cache and refills it, or a recompute would
+ * rebuild the counters and then serve the snapshot taken before it.
+ */
+export const ContestMonitorQuery = z.object({
+  recompute: z.literal('1').optional(),
+});
+export type ContestMonitorQueryDto = z.infer<typeof ContestMonitorQuery>;
+
 registry.registerPath({
   method: 'get',
   path: '/contests/{key}/monitor',
@@ -1538,8 +1560,8 @@ registry.registerPath({
     'the people who run a contest the unfrozen view), unanswered clarifications, how many ' +
     'competitors have a live socket open, and how many submissions the rate limiter turned ' +
     'away in the last ten minutes (D80, deployment-wide). Cached five seconds; the page polls ' +
-    'at that interval and is woken sooner by the `contest-activity` WebSocket frame.',
-  request: { params: ContestKeyParam },
+    'at that interval and is woken sooner by the `contest-activity` WebSocket frame. ' + '`?recompute=1` rebuilds this contest’s per-problem counters from the submissions themselves first, bypassing the cache (D100).',
+  request: { params: ContestKeyParam, query: ContestMonitorQuery },
   responses: {
     200: {
       description: 'The snapshot',

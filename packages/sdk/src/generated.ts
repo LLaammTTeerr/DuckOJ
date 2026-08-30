@@ -3034,11 +3034,13 @@ export interface paths {
         };
         /**
          * The live contest-day monitor — the organisers only
-         * @description Everything an organiser watches while a contest runs, in one snapshot: per-problem submitted / accepted / distinct solvers / still queued, the grading queue scoped to this contest, judge liveness, the last fifty submissions with their real verdicts (D22 gives the people who run a contest the unfrozen view), unanswered clarifications, how many competitors have a live socket open, and how many submissions the rate limiter turned away in the last ten minutes (D80, deployment-wide). Cached five seconds; the page polls at that interval and is woken sooner by the `contest-activity` WebSocket frame.
+         * @description Everything an organiser watches while a contest runs, in one snapshot: per-problem submitted / accepted / distinct solvers / still queued, the grading queue scoped to this contest, judge liveness, the last fifty submissions with their real verdicts (D22 gives the people who run a contest the unfrozen view), unanswered clarifications, how many competitors have a live socket open, and how many submissions the rate limiter turned away in the last ten minutes (D80, deployment-wide). Cached five seconds; the page polls at that interval and is woken sooner by the `contest-activity` WebSocket frame. `?recompute=1` rebuilds this contest’s per-problem counters from the submissions themselves first, bypassing the cache (D100).
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    recompute?: "1";
+                };
                 header?: never;
                 path: {
                     key: string;

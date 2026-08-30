@@ -10,7 +10,7 @@ import {
   submissionCases,
   submissions,
 } from '@duckoj/db/guarded';
-import { schema, type Db } from '@duckoj/db';
+import { noteContestSubmissionCreated, schema, type Db } from '@duckoj/db';
 import type {
   CreateSubmissionRequestDto,
   SubmissionDetailDto,
@@ -296,6 +296,12 @@ export class SubmissionAccessService {
           contestProblemId: target.contestProblemId,
           submissionId: submission!.id,
         });
+        // D100's counter, inside the SAME transaction as the row it counts.
+        // The monitor's per-problem panel no longer aggregates
+        // `contest_submissions` — it reads this — so a count that could be
+        // written without the row (or the row without the count) would make
+        // the panel permanently wrong by one, with nothing to notice it.
+        await noteContestSubmissionCreated(tx as Db, target.contestProblemId);
       }
 
       return { id: submission!.id };

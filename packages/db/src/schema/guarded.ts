@@ -685,6 +685,107 @@ export const contestSubmissions = pgTable(
 );
 
 /**
+ * The organiser monitor's per-problem counters (D100).
+ *
+ * **Why a table and not a query.** D95's monitor answered "how is each
+ * problem going" with a grouped outer join over `contest_submissions` and
+ * `submissions`, and B-17 measured what that costs: on a fixture holding
+ * 100 000 rows for a DIFFERENT contest and 200 for this one, Postgres
+ * sequentially scanned both tables — 100 200 rows each, 32 ms — to produce
+ * ten rows. The panel was bounded by the deployment's whole history rather
+ * than by the contest, on a page every invigilator in a province holds open
+ * on a five-second refresh. Two `LATERAL` rewrites were tried and measured
+ * WORSE. The cost is not in the query, it is in the shape: an aggregate over
+ * every submission ever made cannot be made O(problems) by rewriting it. So
+ * the aggregate is maintained on write and the panel reads one row per
+ * contest problem.
+ *
+ * **Who maintains it.** Three writers, all of them transactional with the
+ * write they describe, all of them going through `@duckoj/db`'s
+ * `contest-stats.ts` so no second copy of the arithmetic can drift:
+ * `SubmissionAccessService.create` (a contest submission is born: `submitted`
+ * and `pending` up), `EventWriter` in `apps/judged` (a terminal verdict lands:
+ * `pending` down, `accepted` and `solvers` up), and `RejudgeService` (a
+ * requeue is a bulk admin operation that can move a verdict in any direction,
+ * so it RECOMPUTES the contest problems it touched rather than trying to
+ * decrement — the arithmetic that would be wrong is simply never written).
+ *
+ * **A missing row is zero, not an error.** Reads `left join` this table, so a
+ * contest problem added after the fact needs no backfill of its own and a
+ * counter that has never been touched is a row of zeros either way. Every
+ * writer upserts for the same reason.
+ *
+ * Guarded because it is a projection of guarded rows: `submitted` for a
+ * contest problem is a fact about `contest_submissions`, and a caller who may
+ * not read those may not read their count either.
+ */
+export const contestProblemStats = pgTable('contest_problem_stats', {
+  contestProblemId: bigint('contest_problem_id', { mode: 'number' })
+    .primaryKey()
+    .references(() => contestProblems.id, { onDelete: 'cascade' }),
+  /** Contest submissions made against this contest problem, ever. */
+  submitted: integer('submitted').notNull().default(0),
+  /** Of those, how many carry verdict `AC`. Rows, not people. */
+  accepted: integer('accepted').notNull().default(0),
+  /**
+   * How many DISTINCT people have an `AC` here — the cached count of
+   * `contest_problem_solvers`, never incremented on its own.
+   *
+   * `submitted` counts rows and this counts people, and the gap between them
+   * is why both are here: "40 submissions, 6 solvers" is a problem the room
+   * is stuck on, and either number alone hides it (D95).
+   */
+  solvers: integer('solvers').notNull().default(0),
+  /**
+   * Contest submissions here that have not reached a terminal state.
+   *
+   * The monitor's queue panel counts `grading_jobs`, which is a different
+   * fact — a job is what a judge picks up, and a submission whose job row is
+   * gone is still un-judged. This column is the submission-side count, and it
+   * is what the per-problem table shows.
+   */
+  pending: integer('pending').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Who has solved each contest problem — a SET, because `solvers` is a
+ * distinct count and a counter cannot maintain one (D100).
+ *
+ * The whole reason this table exists is `INSERT … ON CONFLICT DO NOTHING
+ * RETURNING`: the first `AC` a person lands on a problem inserts a row and
+ * returns it, every later one returns nothing, and
+ * `contest_problem_stats.solvers` moves exactly when a row was actually
+ * inserted. The alternative — asking "has this user solved it before?" per
+ * verdict — is a scan of that problem's submissions on judged's hot path,
+ * which is the cost this migration exists to remove.
+ *
+ * `user_id` and not `participation_id`: a person may hold a live
+ * participation and any number of virtual attempts in one contest (D99 rules
+ * that out for TEAMS only), and D95's panel counts people.
+ */
+export const contestProblemSolvers = pgTable(
+  'contest_problem_solvers',
+  {
+    contestProblemId: bigint('contest_problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => contestProblems.id, { onDelete: 'cascade' }),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.contestProblemId, t.userId] }),
+    /**
+     * The foreign-key index `ON DELETE CASCADE` needs on the users side — the
+     * missing-FK-index bug D47 and D95 have each paid for once. The primary
+     * key already covers the contest-problem side.
+     */
+    index('contest_problem_solvers_user_idx').on(t.userId),
+  ],
+);
+
+/**
  * The materialized result of the rating fold — an audit trail, **not an input**.
  *
  * Dropping every row here and replaying must reproduce them exactly; 4f's

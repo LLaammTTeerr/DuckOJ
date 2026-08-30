@@ -31,7 +31,12 @@ import {
   submissionCases,
   submissions,
 } from '@duckoj/db/guarded';
-import { schema, type Db } from '@duckoj/db';
+import {
+  contestProblemIdsForSubmissions,
+  recomputeContestProblemStats,
+  schema,
+  type Db,
+} from '@duckoj/db';
 import type { RejudgeProblemResponseDto, RejudgeSubmissionResponseDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
@@ -223,6 +228,25 @@ export class RejudgeService {
         .returning({ id: schema.gradingJobs.id });
       jobIds.push(inserted!.id);
     }
+
+    // D100's counters, repaired inside the SAME transaction that invalidated
+    // them — a monitor refreshing between the two would otherwise read
+    // counters describing verdicts that no longer exist.
+    //
+    // **Recomputed, never decremented.** A requeue moves verdicts in every
+    // direction at once: a hundred `AC`s become `null`, one competitor's only
+    // `AC` on a problem disappears while another's survives on a submission
+    // this rejudge did not touch. Every decrement rule that would have to be
+    // right about that is a rule that can be subtly wrong forever, and wrong
+    // silently — whereas rebuilding from the rows is arithmetic-free and
+    // bounded by migration 0035's index. A rejudge is an admin operation that
+    // has already deleted every case row of every target; one more grouped
+    // read per affected contest problem is not what makes it expensive.
+    const contestProblemIds = await contestProblemIdsForSubmissions(
+      tx,
+      targets.map((target) => target.submissionId),
+    );
+    await recomputeContestProblemStats(tx, contestProblemIds);
     return jobIds;
   }
 

@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { submissions } from '@duckoj/db/guarded';
 
-import { schema, type Db } from '@duckoj/db';
+import { noteContestVerdict, schema, type Db } from '@duckoj/db';
 import type { GradingEvent } from '@duckoj/judge-protocol';
 import type { ClaimedJob } from './job-store.js';
 import type { JobStore } from './job-store.js';
@@ -91,16 +91,13 @@ export class EventWriter {
           .set({ compileOutput: event.message })
           .where(this.fencedById(submissionId, job)));
       case 'compileError':
-        return void (await this.db
-          .update(submissions)
-          .set({
-            state: 'done',
-            verdict: 'CE',
-            compileOutput: event.message,
-            points: 0,
-            judgedAt: new Date(),
-          })
-          .where(this.fencedById(submissionId, job)));
+        return void (await this.writeTerminal(submissionId, job, {
+          state: 'done',
+          verdict: 'CE',
+          compileOutput: event.message,
+          points: 0,
+          judgedAt: new Date(),
+        }));
       case 'caseResult':
         // The first case result is the only signal that grading has actually
         // started running tests, as opposed to still compiling — without
@@ -136,18 +133,15 @@ export class EventWriter {
           on conflict do nothing
         `));
       case 'finished':
-        return void (await this.db
-          .update(submissions)
-          .set({
-            state: 'done',
-            verdict: event.verdict,
-            points: event.points,
-            maxPoints: event.maxPoints,
-            timeMs: event.timeMs,
-            memoryKb: event.memoryKb,
-            judgedAt: new Date(),
-          })
-          .where(this.fencedById(submissionId, job)));
+        return void (await this.writeTerminal(submissionId, job, {
+          state: 'done',
+          verdict: event.verdict,
+          points: event.points,
+          maxPoints: event.maxPoints,
+          timeMs: event.timeMs,
+          memoryKb: event.memoryKb,
+          judgedAt: new Date(),
+        }));
       case 'internalError':
         // The raw message (judge-internal traceback) is operator-only: log
         // it here, and never let it reach `compileOutput`, which `submission
@@ -155,15 +149,12 @@ export class EventWriter {
         console.error(
           JSON.stringify({ msg: 'judge internal error', submissionId, attempt, error: event.message }),
         );
-        return void (await this.db
-          .update(submissions)
-          .set({
-            state: 'errored',
-            verdict: 'IE',
-            compileOutput: GENERIC_INTERNAL_ERROR_MESSAGE,
-            judgedAt: new Date(),
-          })
-          .where(this.fencedById(submissionId, job)));
+        return void (await this.writeTerminal(submissionId, job, {
+          state: 'errored',
+          verdict: 'IE',
+          compileOutput: GENERIC_INTERNAL_ERROR_MESSAGE,
+          judgedAt: new Date(),
+        }));
       case 'terminated':
         // Not a requeue: `worker.ts` already treats `terminated` as terminal
         // — it resolves the dispatch promise and calls `jobs.complete`, so
@@ -176,15 +167,12 @@ export class EventWriter {
         // generic message as `internalError` — a terminated attempt has no
         // judge-provided explanation of its own, and the field must never be
         // left blank, which reads to the user as an unexplained "Errored".
-        return void (await this.db
-          .update(submissions)
-          .set({
-            state: 'errored',
-            verdict: 'IE',
-            compileOutput: GENERIC_INTERNAL_ERROR_MESSAGE,
-            judgedAt: new Date(),
-          })
-          .where(this.fencedById(submissionId, job)));
+        return void (await this.writeTerminal(submissionId, job, {
+          state: 'errored',
+          verdict: 'IE',
+          compileOutput: GENERIC_INTERNAL_ERROR_MESSAGE,
+          judgedAt: new Date(),
+        }));
       default: {
         // Exhaustiveness guard: `noImplicitReturns` is not part of the
         // `strict` family, so without this, a new `GradingEvent` variant
@@ -196,6 +184,61 @@ export class EventWriter {
         throw new Error(`unhandled grading event: ${JSON.stringify(_exhaustive)}`);
       }
     }
+  }
+
+  /**
+   * Every write that ENDS a submission's grading, and the only place D100's
+   * counters move from this process.
+   *
+   * Four events land here — `compileError`, `finished`, `internalError`,
+   * `terminated` — and all four have to be transactional now, because the
+   * monitor's per-problem panel no longer aggregates `contest_submissions`:
+   * it reads counters, and a verdict that landed without its counter (or a
+   * counter without its verdict) is a panel that is permanently wrong by one,
+   * with nothing left in the database to notice the drift.
+   *
+   * **The prior outcome is read `for update` inside the same transaction**,
+   * because the delta depends on it: `pending` moves only if this submission
+   * was NOT already terminal, and `accepted` moves only if it was not already
+   * `AC`. Reading it outside the transaction would be check-then-act on
+   * exactly the row two attempts can race for.
+   *
+   * **The deltas apply only when the fenced UPDATE actually matched a row.**
+   * `fencedById` makes a superseded attempt's write match nothing (that is
+   * the whole point of the fence), and a counter that moved anyway would
+   * drift by one for every stale packet a partitioned judge eventually
+   * delivers. `.returning()` is how this method knows.
+   *
+   * Wrapping this in a transaction keeps `apply`'s contract intact rather
+   * than breaking it: "after `write` resolves" still means "after commit",
+   * which is what makes publishing afterwards safe. What `apply` must still
+   * never do is run inside a caller-managed transaction.
+   */
+  private async writeTerminal(
+    submissionId: number,
+    job: ClaimedJob,
+    values: { state: 'done' | 'errored'; verdict: string } & Record<string, unknown>,
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const [before] = await tx
+        .select({ state: submissions.state, verdict: submissions.verdict })
+        .from(submissions)
+        .where(eq(submissions.id, submissionId))
+        .for('update');
+      if (!before) return;
+
+      const applied = await tx
+        .update(submissions)
+        .set(values as Partial<typeof submissions.$inferInsert>)
+        .where(this.fencedById(submissionId, job))
+        .returning({ id: submissions.id });
+      if (applied.length === 0) return;
+
+      await noteContestVerdict(tx as unknown as Db, submissionId, before, {
+        state: values.state,
+        verdict: values.verdict,
+      });
+    });
   }
 
   private async setState(

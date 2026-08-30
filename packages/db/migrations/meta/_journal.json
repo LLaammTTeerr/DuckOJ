@@ -218,6 +218,13 @@
       "when": 1788109207510,
       "tag": "0036_teams",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1788114822956,
+      "tag": "0037_contest_problem_stats",
+      "breakpoints": true
     }
   ]
 }

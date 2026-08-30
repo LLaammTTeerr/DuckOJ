@@ -4381,3 +4381,91 @@ replays are byte-identical, untouched.
 *Ruled by the implementer during the 2026-08-30 F-24 loop, no human available
 to consult. Migration 0036.*
 
+
+## D100 — The monitor's per-problem panel is a counter, not an aggregate
+
+D95's monitor answered "how is each problem going" with a grouped outer join
+over `contest_submissions` and `submissions`. B-17 measured what that cost on
+a fixture holding 100 000 rows for a DIFFERENT contest and 200 for the one
+being watched: `Seq Scan on contest_submissions (rows=100200)` **and** `Seq
+Scan on submissions (rows=100200)`, 30.9 ms, to produce ten rows — on a page
+every invigilator in a province holds open at a five-second refresh. Two
+`LATERAL` rewrites drove `contest_submissions` through migration 0035 and
+measured *worse* (98 ms), because the planner's ~5010-rows-per-problem
+estimate hashes `submissions` ten times over.
+
+**The cost was never in the query.** An aggregate over every submission ever
+made cannot be made O(problems) by rewriting it; it is a schema decision. So
+migration **0037** adds `contest_problem_stats` (`contest_problem_id` PK,
+`submitted`, `accepted`, `solvers`, `pending`, `updated_at`), maintained on
+write, and the panel reads one row per contest problem. Measured on the same
+fixture: no node in the plan reads more rows than the problem catalogue holds
+(21), and it runs in **0.126 ms** — 245× faster, and bounded by the CONTEST'S
+PROBLEM LIST rather than by the deployment's history, which is exactly what
+D47's amendment says an index is for. Pinned by
+`apps/api/test/contest-monitor-plan.spec.ts`, which runs BOTH statements on
+one fixture so the improvement is measured rather than remembered.
+
+- **`solvers` is a SET, not a counter** — `contest_problem_solvers
+  (contest_problem_id, user_id)`, second table, same migration. A distinct
+  count cannot be maintained by adding one: the first `AC` a person lands
+  must move it and every later one must not, and the only other way to know
+  which is to ask "has this user solved it before?", which is a scan of that
+  problem's submissions **on judged's hot path** — the cost this migration
+  exists to remove. `INSERT … ON CONFLICT DO NOTHING RETURNING` answers it in
+  one index probe, and `contest_problem_stats.solvers` moves exactly when a
+  row was actually inserted. `user_id` rather than `participation_id` because
+  a person may hold a live participation and any number of virtual attempts
+  in one contest, and D95's panel counts people.
+- **Three writers, one copy of the arithmetic**, in `packages/db/src/
+  contest-stats.ts` — `reclaimExpiredLeases`'s reason exactly: `apps/judged`
+  and `apps/api` both need it and neither may import the other, and a second
+  hand-written copy of a delta is the kind of thing that later disagrees with
+  the first about what "pending" means. Each function takes the caller's
+  transaction handle and opens none of its own, so a counter moves if and only
+  if the write it describes commits. Lock order is `submissions` →
+  `contest_problem_solvers` → `contest_problem_stats` in every path.
+- **judged's terminal writes are now transactional, and the deltas apply only
+  when the FENCE matched.** `EventWriter.writeTerminal` reads the prior
+  outcome `for update`, applies the fenced UPDATE with `.returning()`, and
+  moves the counters only if a row came back. A superseded attempt's write
+  matches nothing — that is what the fence is for — and a counter that moved
+  anyway would drift by one for every stale packet a partitioned judge
+  eventually delivers. `apply`'s "after `write` resolves means after commit"
+  contract survives, because the transaction is inside `write`.
+- **A rejudge RECOMPUTES the contest problems it touched; it never
+  decrements.** A requeue moves verdicts in every direction at once — a
+  hundred `AC`s become `null`, one competitor's only `AC` on a problem
+  disappears while another's survives on a submission the rejudge did not
+  touch. Every decrement rule that would have to be right about that is a rule
+  that can be subtly wrong forever, and silently. Recomputing is
+  arithmetic-free, bounded by 0035's index, and happens inside the requeue's
+  own transaction so a monitor refreshing between the two never reads counters
+  describing verdicts that no longer exist. The same door catches the one
+  judged-side case that could decrement (`AC` → not-`AC` on one submission):
+  it recomputes that one problem instead of guessing.
+- **`GET /contests/{key}/monitor?recompute=1`** is the repair, and it is on
+  the monitor rather than behind an admin route because the person who notices
+  "problem C says four solvers and I can see six on the board" is the
+  organiser looking at the panel — making them find an administrator is making
+  them not fix it. It runs after both of D95's gates (404 unseen, 403
+  seen-but-not-run), so the write is one only the people who run the contest
+  can make, and it **replaces** the five-second cache entry rather than reading
+  through it: rebuilding the counters and then serving the snapshot taken
+  before the rebuild would show the organiser exactly the numbers they pressed
+  the button to correct. `ScoreboardCache.put` exists for that.
+- **A missing counter row is zero, not an error.** Reads `left join`, every
+  writer upserts. A contest problem added after 0037's backfill therefore
+  needs no backfill of its own, and no write path has to know whether the row
+  exists yet. The migration still backfills every existing contest problem, so
+  "no row" means "created since the deploy" rather than "possibly missed".
+- **`pending` is a submission-side count and the queue panel stays
+  job-side.** They can honestly disagree — a swept-away `grading_jobs` row
+  leaves a submission still un-judged — so the per-problem column now has one
+  source (`contest_problem_stats.pending`, submissions not yet terminal, where
+  terminal is `done` or `errored`) and `queue` keeps the one question only
+  `grading_jobs` can answer: how deep the backlog is and how long its oldest
+  entry has waited. `queue()` no longer groups by problem at all.
+
+*Ruled by the implementer during the 2026-08-31 F-25 loop, no human available
+to consult. Migration 0037.*

@@ -22,7 +22,7 @@ import {
   problems,
   submissions,
 } from '@duckoj/db/guarded';
-import { schema, type Db } from '@duckoj/db';
+import { recomputeContestProblemStats, schema, type Db } from '@duckoj/db';
 import { CONTEST_PRESENCE, type ContestPresence } from '../src/realtime/contest-presence.js';
 import { SCOREBOARD_CACHE_STORE } from '../src/authz/scoreboard.cache.js';
 import type { ScoreboardCacheStore } from '../src/authz/scoreboard.cache.js';
@@ -203,6 +203,11 @@ async function handIn(
       ...(args.jobCreatedAt ? { createdAt: args.jobCreatedAt } : {}),
     });
   }
+  // The counters D100 moved off the join. This fixture writes rows straight
+  // into the tables — no `SubmissionAccessService.create`, no judge — so it
+  // repairs them the way an organiser would, through the recompute that
+  // exists for exactly this: rows that arrived without their count.
+  await recomputeContestProblemStats(db, [seeded.contestProblemIds[args.problemIndex]!]);
   seeded.submissionIds.push(submission!.id);
   return submission!.id;
 }

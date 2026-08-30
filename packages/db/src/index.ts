@@ -11,3 +11,12 @@ export {
   recordJudgeCapabilities,
 } from './judge-auth.js';
 export { reclaimExpiredLeases } from './grading.js';
+export {
+  contestProblemIdsForSubmissions,
+  isTerminalSubmissionState,
+  noteContestSubmissionCreated,
+  noteContestVerdict,
+  recomputeContestProblemStats,
+  recomputeContestStats,
+  type SubmissionOutcome,
+} from './contest-stats.js';
