@@ -1902,6 +1902,372 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/contests/{key}/results.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The contest's final standings as a spreadsheet — the organisers only
+         * @description One row per ranked participation: rank, username, display name, the competitor’s own organizations, then points/attempts/time per problem, the total, the ICPC penalty, a disqualification flag and the virtual number (`0` live, `n` the n-th replay). **Disqualified rows are included and flagged, never dropped** — the record of what happened is the row (D37). UTF-8 **with a BOM** and CRLF line endings, because the consumer is Excel: without the BOM every Vietnamese name in the file is read in the machine’s ANSI code page. Text fields that a spreadsheet would run as a formula are prefixed with an apostrophe. Always the live, unfrozen board.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The results sheet */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/csv": string;
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The caller can see this contest but does not run it (`contest_forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contests/{key}/results.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The final standings as a printable landscape PDF — the organisers only
+         * @description A landscape A4 table, page-numbered with a repeating header row: rank, account, name, organizations, one column per problem, total and penalty. A disqualified row is marked `[DQ]` and a virtual replay `(ảo)`; both stay on the sheet. Vietnamese headings with an English subtitle, and no `?lang=` — the sheet is names and numbers, and it carries no statement text at all (D62 holds by construction). Cached for 60 s on a hash of the document, exactly as the booklet is.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The rendered standings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/pdf": string;
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The caller can see this contest but does not run it (`contest_forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This server has no typst binary configured (`statement_pdf_unavailable`) */
+                501: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/contests/{key}/certificates.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One A4 landscape certificate per participant — the organisers only
+         * @description Vietnamese with an English subtitle ("GIẤY CHỨNG NHẬN" / "CERTIFICATE OF ACHIEVEMENT"): the contest, the participant’s display name, their rank, their total, the contest’s end date and a signature line. The issuer is the contest’s own organizations (D56), or the site itself when it is restricted to none. **A disqualified row and a virtual replay never get one** — the results sheet is a record, a certificate is an award — so `top=N` counts down the ranking after that exclusion, and a `username` naming an ineligible or unranked competitor answers 404. The date is the contest’s end, never the moment of download, so two prints are the same document. Cached for 60 s on a hash of the document.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    top?: number;
+                    username?: string;
+                };
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The rendered certificates */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/pdf": string;
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The caller can see this contest but does not run it (`contest_forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, one the caller may not see, or no certifiable result for that `username` (`contest_not_found`, `contest_participant_not_found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This server has no typst binary configured (`statement_pdf_unavailable`) */
+                501: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users/{username}": {
         parameters: {
             query?: never;

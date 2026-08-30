@@ -16,6 +16,7 @@ import {
   AnswerClarificationRequest,
   AskClarificationRequest,
   BookletQuery,
+  CertificatesQuery,
   ContestListQuery,
   CreateContestRequest,
   PostAnnouncementRequest,
@@ -24,6 +25,7 @@ import {
   type AnswerClarificationRequestDto,
   type AskClarificationRequestDto,
   type BookletQueryDto,
+  type CertificatesQueryDto,
   type ClarificationDto,
   type ClarificationListDto,
   type ContestDetailDto,
@@ -45,6 +47,12 @@ import { ContestClarificationsService } from '../authz/contest.clarifications.js
 import { ScoreboardCache } from '../authz/scoreboard.cache.js';
 import { STATEMENT_RENDERER, type StatementRenderer } from '../statements/statement-renderer.js';
 import { BOOKLET_CACHE_TTL_MS, bookletCacheKey } from '../statements/booklet.cache.js';
+import {
+  RESULTS_CACHE_TTL_MS,
+  certificatesCacheKey,
+  resultsCacheKey,
+} from '../statements/results.cache.js';
+import { ContestResultsService } from './results.service.js';
 
 /**
  * Anonymous callers are served on every `GET` here deliberately — they see
@@ -64,6 +72,7 @@ export class ContestsController {
     private readonly clarifications: ContestClarificationsService,
     @Inject(STATEMENT_RENDERER) private readonly statements: StatementRenderer,
     @Inject(ScoreboardCache) private readonly cache: ScoreboardCache,
+    @Inject(ContestResultsService) private readonly results: ContestResultsService,
   ) {}
 
   // `@Public()` is marked per handler, never on the class: `Public()` only
@@ -150,6 +159,98 @@ export class ContestsController {
     res.setHeader('X-Booklet-Cache', cache);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${key}.pdf"`);
+    return new StreamableFile(Buffer.from(value.pdf, 'base64'));
+  }
+
+  /**
+   * The contest's final standings as a spreadsheet (D71).
+   *
+   * **No `@Public()`**, unlike every other contest `GET` here: the export is
+   * the live, unfrozen board, so an anonymous caller has no business
+   * reaching the handler at all. `contests:read`, matching `GET
+   * /contests/{key}/me` — the other read on this controller that is about
+   * who is asking — and who may actually export is `ContestResultsService`'s
+   * call, never this controller's.
+   *
+   * Deliberately NOT routed through the renderer or its cache: a CSV is a
+   * few kilobytes of string built from an already-cached board, and sharing
+   * a handler with the PDFs would make this route answer 501 on a server
+   * with no typst — for a file that needs none.
+   */
+  @Get(':key/results.csv')
+  @RequireScope('contests:read')
+  async resultsCsv(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { contestKey, csv } = await this.results.resultsCsv(actor, key);
+    // `charset=utf-8` beside the BOM, not instead of it: the header is what
+    // a browser and `curl` read, the BOM is the only thing Excel reads.
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    // `attachment`, not `inline`: a spreadsheet is a file to open in Excel,
+    // and a browser rendering it as text is nobody's intention. The stored
+    // key is used rather than the URL's, so the filename cannot carry
+    // anything `CONTEST_KEY` does not allow.
+    res.setHeader('Content-Disposition', `attachment; filename="${contestKey}-results.csv"`);
+    return new StreamableFile(Buffer.from(csv, 'utf8'));
+  }
+
+  /**
+   * The same standings, typeset for the wall (D71).
+   *
+   * Authorization before capability, exactly as the booklet orders it: a
+   * caller who does not run the contest is refused BEFORE the renderer is
+   * asked for anything, so a server with no typst cannot answer 501 to
+   * somebody who was never entitled to the document.
+   */
+  @Get(':key/results.pdf')
+  @RequireScope('contests:read')
+  async resultsPdf(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { contestId, contestKey, document } = await this.results.standingsDocument(actor, key);
+    const { value, cache } = await this.cache.through(
+      resultsCacheKey(contestId, document),
+      async () => ({ pdf: (await this.statements.renderDocument(document)).toString('base64') }),
+      RESULTS_CACHE_TTL_MS,
+    );
+    res.setHeader('X-Results-Cache', cache);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${contestKey}-results.pdf"`);
+    return new StreamableFile(Buffer.from(value.pdf, 'base64'));
+  }
+
+  /**
+   * One certificate per participant (D71).
+   *
+   * The selection lives in the DOCUMENT, so the content-addressed cache key
+   * separates `?top=3` from `?top=10` with no scope of its own — the same
+   * property the booklet's key relies on for `?lang=`.
+   */
+  @Get(':key/certificates.pdf')
+  @RequireScope('contests:read')
+  async certificatesPdf(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Query(new ZodValidationPipe(CertificatesQuery)) query: CertificatesQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { contestId, contestKey, document } = await this.results.certificatesDocument(
+      actor,
+      key,
+      query,
+    );
+    const { value, cache } = await this.cache.through(
+      certificatesCacheKey(contestId, document),
+      async () => ({ pdf: (await this.statements.renderDocument(document)).toString('base64') }),
+      RESULTS_CACHE_TTL_MS,
+    );
+    res.setHeader('X-Certificates-Cache', cache);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${contestKey}-certificates.pdf"`);
     return new StreamableFile(Buffer.from(value.pdf, 'base64'));
   }
 

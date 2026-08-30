@@ -317,6 +317,8 @@ export const vi = {
   'contest.joinToSubmit': 'Tham gia để nộp bài',
   'contest.scoreboard': 'Bảng điểm',
   'contest.booklet': 'Tải đề (PDF)',
+  'contest.resultsCsv': 'Kết quả (CSV)',
+  'contest.resultsPdf': 'Kết quả (PDF)',
   'scoreboard.title': 'Bảng điểm',
   'scoreboard.back': 'Quay lại kỳ thi',
   'scoreboard.loadError': 'Không tải được bảng điểm.',

@@ -18,8 +18,16 @@
  * network at all.
  */
 
-/** Everything Typst treats as markup in text mode. */
-function escapeText(text: string): string {
+/**
+ * Everything Typst treats as markup in text mode.
+ *
+ * Exported for the results exports (D71), which build typst documents of
+ * their own out of names an organiser typed and a competitor chose. One
+ * escaper, not two: a second copy is a second thing to forget a character
+ * from, and the character it forgets is the one that makes a document fail
+ * to compile — or worse, compile into something else.
+ */
+export function escapeText(text: string): string {
   return text.replace(/[\\#$*_`@<>[\]{}~^'"-]/g, (ch) => `\\${ch}`);
 }
 

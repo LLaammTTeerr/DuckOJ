@@ -4125,6 +4125,659 @@
         }
       }
     },
+    "/contests/{key}/results.csv": {
+      "get": {
+        "tags": [
+          "Contests"
+        ],
+        "summary": "The contest's final standings as a spreadsheet — the organisers only",
+        "description": "One row per ranked participation: rank, username, display name, the competitor’s own organizations, then points/attempts/time per problem, the total, the ICPC penalty, a disqualification flag and the virtual number (`0` live, `n` the n-th replay). **Disqualified rows are included and flagged, never dropped** — the record of what happened is the row (D37). UTF-8 **with a BOM** and CRLF line endings, because the consumer is Excel: without the BOM every Vietnamese name in the file is read in the machine’s ANSI code page. Text fields that a spreadsheet would run as a formula are prefixed with an apostrophe. Always the live, unfrozen board.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "key",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The results sheet",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller can see this contest but does not run it (`contest_forbidden`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such contest, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contests/{key}/results.pdf": {
+      "get": {
+        "tags": [
+          "Contests"
+        ],
+        "summary": "The final standings as a printable landscape PDF — the organisers only",
+        "description": "A landscape A4 table, page-numbered with a repeating header row: rank, account, name, organizations, one column per problem, total and penalty. A disqualified row is marked `[DQ]` and a virtual replay `(ảo)`; both stay on the sheet. Vietnamese headings with an English subtitle, and no `?lang=` — the sheet is names and numbers, and it carries no statement text at all (D62 holds by construction). Cached for 60 s on a hash of the document, exactly as the booklet is.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "key",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rendered standings",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller can see this contest but does not run it (`contest_forbidden`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such contest, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "This server has no typst binary configured (`statement_pdf_unavailable`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contests/{key}/certificates.pdf": {
+      "get": {
+        "tags": [
+          "Contests"
+        ],
+        "summary": "One A4 landscape certificate per participant — the organisers only",
+        "description": "Vietnamese with an English subtitle (\"GIẤY CHỨNG NHẬN\" / \"CERTIFICATE OF ACHIEVEMENT\"): the contest, the participant’s display name, their rank, their total, the contest’s end date and a signature line. The issuer is the contest’s own organizations (D56), or the site itself when it is restricted to none. **A disqualified row and a virtual replay never get one** — the results sheet is a record, a certificate is an award — so `top=N` counts down the ranking after that exclusion, and a `username` naming an ineligible or unranked competitor answers 404. The date is the contest’s end, never the moment of download, so two prints are the same document. Cached for 60 s on a hash of the document.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "key",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "required": false,
+            "name": "top",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "required": false,
+            "name": "username",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The rendered certificates",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller can see this contest but does not run it (`contest_forbidden`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such contest, one the caller may not see, or no certifiable result for that `username` (`contest_not_found`, `contest_participant_not_found`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request failed validation, or the freeze window is not shorter than the contest (`contest_freeze_too_long`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "This server has no typst binary configured (`statement_pdf_unavailable`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/users/{username}": {
       "patch": {
         "tags": [

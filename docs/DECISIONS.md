@@ -2503,6 +2503,100 @@ without standing up a second deployment — the same shape `MAX_SUBSCRIPTIONS`
 *Ruled by the implementer during the 2026-08-30 security loop (B10 brief),
 no human available to consult. No migration.*
 
+## D71 — A contest's results are exported by the people who run it, at any hour, and a disqualified row is carried and flagged
+
+Three routes, all `Contests`, all gated on the one predicate `canRunContest`
+— the contest's creator or a global admin, the same test `canEdit` reports:
+
+- `GET /contests/{key}/results.csv` — the final standings as a spreadsheet.
+- `GET /contests/{key}/results.pdf` — the same board typeset landscape.
+- `GET /contests/{key}/certificates.pdf?top=N|username=…` — one A4 landscape
+  "GIẤY CHỨNG NHẬN" per participant.
+
+**Who, and when: the person, never the clock.** The brief asked for "after
+`end_time`, or the organiser at any time". That reads as two gates and is one,
+because of what these documents are: every one of them is folded from the
+**live, unfrozen** board. `getScoreboard` hands a privileged caller the board
+with no clock at all (D22), which is the only thing that makes a results sheet
+a results sheet — a final standings that hides the last hour is not one. So a
+"after the end, anyone may export" clause would publish through a `.csv`
+exactly what D22 and D23 spend the scoreboard and the submission list hiding,
+for any contest whose freeze window is still open, and for a virtual entrant
+still inside their own window it would keep doing so past `end_time` (D22's
+per-participation clause). The API's gate is therefore the person. The
+**web** is where "after the end" lives: `contests.tsx` offers the two links
+only when `canEdit && phase === 'finished'`, because that is when an organiser
+wants them and offering them mid-contest invites printing a board still moving.
+
+**403 `contest_forbidden`, not 404.** `loadVisible` has already shown this
+caller the contest, so there is no existence left for the 404-over-403 rule to
+protect — the same reading `answerClarification`, `announce` and D56's
+`contest_org_required` already take.
+
+**A disqualified row is exported, and flagged.** D37 keeps an expelled
+competitor ON the record — the record of what happened is the row — so the CSV
+carries them with `disqualified,true` and the PDF marks them `[DQ]`. Dropping
+them would produce a file describing a different contest from the one the
+scoreboard shows. `virtual` is exported as the **number** (`0` live, `n` the
+n-th replay), not a boolean: which replay it was is a fact a flag destroys,
+and spectators (`-1`) are never ranked so they never appear.
+
+**A certificate is an award, not a record — so it inverts that rule.**
+Disqualified rows and virtual replays get none, and `top=N` counts down the
+ranking *after* that exclusion, so `top=3` is three certificates rather than
+two and a gap. A `username` naming an ineligible or unranked competitor
+answers 404 `contest_participant_not_found` without saying which of the three
+reasons applied. The rank printed is the row's own rank from the board, never
+its index in the filtered list.
+
+**The issuer is the contest's organizations (D56), else the site.** A contest
+run by two schools together is signed by both, joined. There is no `siteName`
+config in this codebase, so the fallback is the constant `'DuckOJ'` rather
+than a new configuration key invented for a signature line.
+
+**The org column is the COMPETITOR's own organizations**, names, ordered by
+slug and semicolon-joined — not the contest's. "Which school is this pupil
+from" is the question a provincial results sheet exists to answer, and a
+column identical on every row answers nothing. It comes from
+`authz/participant-orgs.ts`, a free function in the shape
+`org.visibility.ts` already uses: `org_members` is a guarded table, and the
+runbook's "Reading a guarded table" forbids reaching it from a service
+outside `authz/**`.
+
+**The CSV is bytes aimed at Excel.** A UTF-8 **BOM**, because Excel does not
+sniff encodings and a `.csv` without one is read in the machine's ANSI code
+page — `Nguyễn` arrives as `Nguyá»…n`, which is the entire reason a Vietnamese
+deployment needs this decision written down. CRLF, RFC 4180 quoting, and
+ASCII snake_case headers that are **never translated**: the header row is the
+file's contract with whatever script reads it next, and the Vietnamese in the
+file is the data. Text fields that came from a person (`username`,
+`display_name`, `orgs`) and begin `=`, `+`, `-`, `@`, tab or CR are prefixed
+with an apostrophe — CSV injection, whose target is precisely this shape:
+stranger-supplied text, exported by an administrator, opened in a
+spreadsheet. Generated numbers are never guarded; a score cannot begin `=`,
+and a guard firing on one would turn every number in the sheet into text.
+
+**Neither PDF reads a clock, and the cache is why.** Both are cached 60 s on a
+**hash of the document about to be typeset**, exactly as the booklet is (D48),
+so a rejudge, a rename or a disqualification stops addressing the old entry
+rather than needing an invalidation call — and there is none anywhere. A
+certificate dated "now" would hash to a fresh key every second and the cache
+would cost a sha256 and never hit once, so a certificate is dated by the
+contest's **end**. Two prints are then the same document, which is also the
+right property for a thing handed to a person. The **CSV is deliberately not
+cached and not routed through the renderer**: it is a string built from an
+already-2 s-cached board, and sharing a handler with the PDFs would make it
+answer 501 `statement_pdf_unavailable` on a server with no typst, for a file
+that needs none.
+
+**Neither document can carry a statement (D62), by construction rather than
+by a clause.** A standings sheet and a certificate are names, ranks and
+numbers; a problem's LABEL appears, because it is on the public scoreboard
+already, and its text has nowhere to go. `results.pdf` therefore takes no
+`?lang=` — the headings are fixed Vietnamese with an English subtitle.
+
+*Ruled during task F12 with nobody to ask. No migration.*
+
 ## D72 — Credential management is metered, and turning the second factor off costs the password
 
 B1 found two doors left ajar by D33 and named them in its rulings section:
@@ -2540,6 +2634,7 @@ steals, and both routes are reachable with exactly the stolen thing.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F13 owed
 sweep), no human available to consult. No migration.*
+
 
 
 
