@@ -80,6 +80,23 @@ function phaseOf(contest: { startTime: string; endTime: string }): Phase {
   return now <= Date.parse(contest.endTime) ? 'running' : 'finished';
 }
 
+/**
+ * Is the contest inside its scoreboard-freeze window right now (D22)?
+ *
+ * Computed from the contest the page already holds rather than fetched: the
+ * scoreboard's own `frozen` is per-PARTICIPATION (a virtual entrant is
+ * frozen on their own clock), and this question is about the room the
+ * organiser is answering questions in. `frozenLastMinutes === 0` is "no
+ * freeze at all", so it can never be in one.
+ */
+function inFreezeWindow(
+  contest: { endTime: string; frozenLastMinutes: number },
+  phase: Phase,
+): boolean {
+  if (phase !== 'running' || contest.frozenLastMinutes <= 0) return false;
+  return Date.now() >= Date.parse(contest.endTime) - contest.frozenLastMinutes * 60_000;
+}
+
 const PHASE_KEYS: Record<Phase, MsgKey> = {
   upcoming: 'phase.upcoming',
   running: 'phase.running',
@@ -311,6 +328,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
       <ClarificationsPanel
         contestKey={contestKey}
         phase={phase}
+        frozen={inFreezeWindow(contest.data, phase)}
         joined={joined}
         canEdit={contest.data.canEdit}
         problems={contest.data.problems.map((problem) => ({ code: problem.code, label: problem.label }))}
@@ -365,12 +383,14 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
 function ClarificationsPanel({
   contestKey,
   phase,
+  frozen,
   joined,
   canEdit,
   problems,
 }: {
   contestKey: string;
   phase: Phase;
+  frozen: boolean;
   joined: boolean;
   canEdit: boolean;
   problems: { code: string; label: string }[];
@@ -483,6 +503,18 @@ function ClarificationsPanel({
   return (
     <section>
       <h2>{t('clar.title')}</h2>
+
+      {/* D22/D23 govern the scoreboard, never this feed: nothing in the API
+          stops a published answer from naming a verdict, and nothing here
+          adds such a check — an organiser sometimes MUST say "your solution
+          is failing test 3". This is the reminder, on the screen where the
+          mistake would be made, and only while the board is actually frozen;
+          a warning that is always on is a warning nobody reads. */}
+      {canEdit && frozen ? (
+        <p role="note" className="muted">
+          {t('clar.frozenWarning')}
+        </p>
+      ) : null}
 
       {canEdit ? (
         <form

@@ -345,6 +345,8 @@ export const vi = {
   'clar.askError': 'Không gửi được câu hỏi.',
   'clar.joinToAsk': 'Tham gia kỳ thi để đặt câu hỏi.',
   'clar.anyProblem': 'Toàn kỳ thi',
+  'clar.frozenWarning':
+    'Bảng xếp hạng đang đóng băng: câu trả lời công khai không được tiết lộ kết quả chấm của bất kỳ bài nộp nào.',
   'clar.announceTitle': 'Đăng thông báo',
   'clar.announcePlaceholder': 'Điều gì mọi người cần biết?',
   'clar.announce': 'Đăng',

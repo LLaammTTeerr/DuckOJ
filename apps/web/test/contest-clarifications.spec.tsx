@@ -104,6 +104,47 @@ afterEach(() => {
 });
 
 describe('the Q&A panel', () => {
+  /**
+   * D22/D23 do not govern this feed — a published answer can name a verdict
+   * and nothing stops it (the F1 report's first concern). The mechanism is
+   * unchanged; what changes is that the organiser is TOLD, at the moment it
+   * matters, on the screen where they would do it.
+   */
+  it('warns the organiser not to reveal verdicts while the board is frozen', async () => {
+    const endTime = new Date(Date.now() + 5 * 60_000).toISOString();
+    routeGet({
+      canEdit: true,
+      items: [QUESTION],
+      contest: { startTime: '2020-01-01T00:00:00.000Z', endTime, frozenLastMinutes: 30 },
+    });
+    wrap(<ContestPage contestKey="spring" />);
+    expect(await screen.findByRole('note')).toHaveTextContent(/đóng băng/i);
+  });
+
+  it('says nothing about the freeze before the freeze window opens', async () => {
+    const endTime = new Date(Date.now() + 90 * 60_000).toISOString();
+    routeGet({
+      canEdit: true,
+      items: [QUESTION],
+      contest: { startTime: '2020-01-01T00:00:00.000Z', endTime, frozenLastMinutes: 30 },
+    });
+    wrap(<ContestPage contestKey="spring" />);
+    await screen.findByRole('heading', { name: /Đăng thông báo/ });
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('does not warn a participant, who has no answer form to warn about', async () => {
+    const endTime = new Date(Date.now() + 5 * 60_000).toISOString();
+    routeGet({
+      joined: true,
+      items: [QUESTION],
+      contest: { startTime: '2020-01-01T00:00:00.000Z', endTime, frozenLastMinutes: 30 },
+    });
+    wrap(<ContestPage contestKey="spring" />);
+    await screen.findByRole('heading', { name: /Hỏi ban tổ chức/ });
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
   it('shows announcements and a participant their own private question', async () => {
     routeGet({ joined: true, items: [ANNOUNCEMENT, QUESTION] });
     wrap(<ContestPage contestKey="spring" />);

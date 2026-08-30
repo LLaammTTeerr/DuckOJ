@@ -364,6 +364,8 @@ export const en = {
   'clar.askError': 'Could not send the question.',
   'clar.joinToAsk': 'Join the contest to ask a question.',
   'clar.anyProblem': 'The contest as a whole',
+  'clar.frozenWarning':
+    'The scoreboard is frozen: a published answer must not reveal the verdict of any submission.',
   'clar.announceTitle': 'Post an announcement',
   'clar.announcePlaceholder': 'What must everyone know?',
   'clar.announce': 'Post',
