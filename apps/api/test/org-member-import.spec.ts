@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { orgMembers, organizations } from '@duckoj/db/guarded';
-import { schema, type Db } from '@duckoj/db';
+import { createDb, schema, type Db } from '@duckoj/db';
 import { OrgAccessService } from '../src/authz/org.access.js';
 import { OrgImportService } from '../src/authz/org.import.js';
 import { NotificationsService } from '../src/notifications/notifications.service.js';
@@ -20,9 +20,9 @@ import { RateLimiter } from '../src/common/rate-limiter.js';
 import { AuthService } from '../src/authn/auth.service.js';
 import { PasswordService } from '../src/authn/password.service.js';
 import { AppError } from '../src/common/app.error.js';
-import { parseImportCsv, credentialsCsv } from '../src/authz/org-import.core.js';
+import { parseImportCsv, credentialsCsv, runImport } from '../src/authz/org-import.core.js';
 import type { Actor } from '../src/authz/actor.js';
-import { withTestDb } from './db.harness.js';
+import { testDbUrl, withTestDb } from './db.harness.js';
 import { insertUser } from './submissions.fixtures.js';
 
 /**
@@ -330,6 +330,141 @@ describe('importing a roster', () => {
     });
   }, IMPORT_TEST_TIMEOUT_MS);
 });
+
+/**
+ * The other half of all-or-nothing, and the only one `withTestDb` cannot
+ * show: an insert failing INSIDE `runImport`, after the writes have started.
+ *
+ * Every test above proves that a file refused by VALIDATION creates nothing,
+ * which it does by never reaching the writes at all. This is the case that
+ * actually happens in production — somebody registers one of these usernames
+ * during the tens of seconds the call spends hashing, long after validation
+ * passed — and it is the one the `isUniqueViolation` branch in
+ * `OrgImportService` exists to answer.
+ *
+ * Two things about the shape, both load-bearing:
+ *
+ *  - **`testDbUrl()` with real committed rows, not `withTestDb`.** Inside a
+ *    harness that wraps everything in one always-rolled-back transaction,
+ *    `db.transaction` is a savepoint and "nothing survived" would be true
+ *    however `runImport` were written.
+ *  - **More rows than `INSERT_CHUNK` (500), with the collision in the SECOND
+ *    chunk.** A single multi-row `INSERT` is atomic in Postgres whether or
+ *    not anybody opened a transaction, so a two-row version of this test
+ *    would pass with the transaction deleted. It takes a first statement
+ *    that SUCCEEDS and a second that fails for the rollback to be the only
+ *    thing standing between a failed import and five hundred orphaned
+ *    accounts.
+ *
+ * The hashes are fabricated rather than computed: `runImport` stores whatever
+ * it is handed, and five hundred real argon2id hashes would buy nothing here
+ * but twenty seconds.
+ */
+describe('a write that fails part-way through (real committed rows)', () => {
+  it('rolls back the chunk that already succeeded', async () => {
+    const { db, close } = createDb(await testDbUrl());
+    const CHUNK = 500;
+    try {
+      const owner = await insertUser(db, 'tx-owner');
+      const orgId = await seedOrg(db, 'tx-org', [{ userId: owner.id, role: 'owner' }]);
+      // Already taken, and deliberately NOT put through `validateImportRows`
+      // — this is the state the world reaches between validation and the
+      // insert, which no amount of pre-checking can rule out.
+      await insertUser(db, 'tx-clash');
+
+      const prepared = Array.from({ length: CHUNK + 1 }, (_, i) => ({
+        username: i === CHUNK ? 'tx-clash' : `tx-fine-${String(i)}`,
+        displayName: `Học sinh ${String(i)}`,
+        email: `tx-${String(i)}@tx.invalid`,
+        emailProvided: true,
+        password: 'irrelevant',
+        passwordHash: '$argon2id$fabricated',
+      }));
+      await expect(runImport(db, { id: orgId, slug: 'tx-org' }, prepared, owner.id)).rejects.toThrow();
+
+      // The first five hundred were written by a statement that COMMITTED
+      // nothing only because the transaction rolled it back.
+      const survivors = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.users)
+        .where(sql`${schema.users.username} like 'tx-fine-%'`);
+      expect(survivors[0]?.n ?? 0).toBe(0);
+      const roster = await db.select().from(orgMembers).where(eq(orgMembers.orgId, orgId));
+      expect(roster.map((r) => r.role)).toEqual(['owner']);
+      // And nobody was told about a roster that does not exist.
+      expect(
+        await db
+          .select()
+          .from(schema.notifications)
+          .where(eq(schema.notifications.userId, owner.id)),
+      ).toHaveLength(0);
+    } finally {
+      await close();
+    }
+  }, IMPORT_TEST_TIMEOUT_MS);
+});
+
+  /**
+   * The same failure seen through the endpoint: a 422 naming the row, not a
+   * 500.
+   *
+   * The race is opened deliberately rather than waited for. `importMembers`
+   * validates, then takes the meter, then hashes, then writes — so a proxy
+   * that creates the colliding account the first time anything opens a
+   * transaction lands it exactly in the window between the check and the
+   * write, which is where it lands in production. `onConflictDoNothing` makes
+   * the hook idempotent, so it does not matter which of the two transactions
+   * fires it.
+   *
+   * What is being proved is that the caller is TOLD which row. A Postgres
+   * unique violation names the index and never the row, so the service
+   * re-runs validation on the way out; without that, this is an opaque 500
+   * for a condition the client can actually fix.
+   */
+  it('answers 422 naming the row when the collision appears mid-flight', async () => {
+    const { db, close } = createDb(await testDbUrl());
+    try {
+      const owner = await insertUser(db, 'race-owner');
+      await seedOrg(db, 'race-org', [{ userId: owner.id, role: 'owner' }]);
+
+      const racing = new Proxy(db, {
+        get(target, prop, receiver): unknown {
+          if (prop !== 'transaction') return Reflect.get(target, prop, receiver) as unknown;
+          return async (...args: unknown[]): Promise<unknown> => {
+            await db
+              .insert(schema.users)
+              .values({
+                username: 'race-clash',
+                email: 'race-clash@race.invalid',
+                displayName: 'Người khác đăng ký trước',
+                passwordHash: 'x',
+              })
+              .onConflictDoNothing();
+            return (target.transaction as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+          };
+        },
+      }) as Db;
+
+      const service = new OrgImportService(
+        racing,
+        new OrgAccessService(racing, new NotificationsService(racing)),
+        new RateLimiter(racing),
+      );
+      const failure = (await service
+        .importMembers(actorFor(owner.id), 'race-org', {
+          rows: [{ username: 'race-clash', displayName: 'Học sinh' }],
+          dryRun: false,
+        })
+        .catch((error: unknown) => error)) as AppError;
+
+      expect(failure).toBeInstanceOf(AppError);
+      expect(failure.status).toBe(422);
+      expect(failure.code).toBe('member_import_invalid');
+      expect(failure.fields?.['rows[1].username']?.[0]).toContain('already has that username');
+    } finally {
+      await close();
+    }
+  }, IMPORT_TEST_TIMEOUT_MS);
 
 describe('the CSV reader on its own', () => {
   it('reads a headerless file positionally and never swallows its first pupil', () => {
