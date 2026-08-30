@@ -48,8 +48,10 @@ sở hữu tổ chức hoặc quản trị viên toàn hệ thống** — quản
 chức* không đủ quyền.
 
 Định dạng: mỗi học sinh một dòng gồm **tên đăng nhập, họ tên, và email nếu
-có**. Dòng tiêu đề là tuỳ chọn. **Tối đa 2000 dòng mỗi lần.** Dán thẳng vào ô
-**Danh sách học sinh** hoặc **Chọn tệp CSV**.
+có**. Dòng tiêu đề là tuỳ chọn. Dán thẳng vào ô **Danh sách học sinh** hoặc
+**Chọn tệp CSV** — danh sách dài bao nhiêu cũng được: **mỗi lượt gửi tối đa
+500 dòng**, và trang web **tự cắt danh sách thành từng khúc 500 dòng**, gửi
+lần lượt, có thanh tiến độ, rồi gộp tất cả mật khẩu vào một bảng.
 
 1. Bấm **Kiểm tra danh sách** — chạy thử, không tạo gì. Sai ở đâu thì bảng lỗi
    chỉ rõ **Dòng**, **Trường** và **Lỗi**; đúng hết thì hiện bản xem trước và
@@ -68,10 +70,13 @@ Quy tắc phải nhớ:
 - Học sinh **không có email** vẫn dùng được mọi thứ, nhưng địa chỉ của họ là
   địa chỉ giả nội bộ, nên **không dùng được "Quên mật khẩu?"**. Mất mật khẩu
   thì phải nhờ quản trị viên.
-- Chỉ **một lần nhập thật mỗi tổ chức mỗi phút** (bấm *Kiểm tra danh sách*
-  bao nhiêu lần cũng được).
+- **Một tên đăng nhập trùng nhau giữa hai khúc** bị chặn ngay trên trình
+  duyệt, trước khi gửi đi — không lượt gửi nào một mình nhìn thấy được điều đó.
+- Tối đa **mười lượt nhập mỗi tổ chức mỗi phút** (bấm *Kiểm tra danh sách* bao
+  nhiêu lần cũng được) — đủ cho 5000 học sinh trong một phút.
 - Với lớp rất đông, thao tác này chậm (mỗi tài khoản là một lần băm mật
-  khẩu) — đừng đóng tab giữa chừng.
+  khẩu) — đừng đóng tab giữa chừng. Nếu một khúc lỗi giữa chừng, màn hình vẫn
+  giữ nguyên mật khẩu của các khúc đã tạo xong, kèm lý do dừng.
 
 Có thể chạy từ dòng lệnh trên máy chủ: `corepack pnpm org:import` (xem
 `docs/runbook.md`, mục *Bulk student accounts for a school*).
@@ -178,20 +183,43 @@ hiện sai bộ test hay sai đề, hãy báo quản trị viên; họ có hai l
 Chấm lại **không tự tính lại rating**; hệ thống trả về danh sách kỳ thi cần
 tính lại và quản trị viên phải làm bước đó bằng tay.
 
-## 8. Xuất bảng điểm
+## 8. Xuất kết quả và in giấy chứng nhận
 
-DuckOJ **không có nút xuất bảng điểm**. Ba cách thường dùng:
+**Kỳ thi kết thúc**, trang kỳ thi hiện thêm hai liên kết cho người tổ chức:
 
-1. **In trang Bảng điểm** (Ctrl/Cmd + P). Bản in đã tự bỏ thanh điều hướng,
-   ra đúng cái bảng; chọn "Lưu thành PDF" nếu chỉ cần tệp.
-2. **Chọn và sao chép** bảng vào bảng tính — bảng điểm là một `<table>` HTML
-   thật, dán sang Excel/LibreOffice giữ nguyên cột.
-3. **Gọi API**: tạo một **Mã truy cập** (`/account/tokens`) có phạm vi đọc rồi
-   `GET /api/v1/contests/{key}/scoreboard`. Trang **API** trên thanh điều
-   hướng có sẵn công cụ gửi thử. Cách này cho JSON, tiện để dựng báo cáo.
+- **Kết quả (CSV)** — bảng kết quả mở thẳng bằng Excel/LibreOffice: hạng, tên
+  đăng nhập, họ tên, **tổ chức của chính thí sinh**, điểm/số lần nộp/thời gian
+  từng bài, tổng điểm, điểm phạt, cột `disqualified` và cột `virtual` (`0` là
+  thi thật, `n` là lần thi ảo thứ *n*). Tệp có BOM UTF-8 nên tiếng Việt không
+  bị vỡ dấu khi mở bằng Excel. **Người bị hủy tư cách vẫn nằm trong tệp**, có
+  đánh dấu — tệp phải tả đúng kỳ thi đã diễn ra.
+- **Kết quả (PDF)** — vẫn bảng đó, dựng ngang khổ A4, đánh số trang, dòng bị
+  hủy tư cách ghi `[DQ]`, dòng thi ảo ghi `(ảo)`.
 
-Danh sách bài nộp của riêng kỳ thi (liên kết **Tất cả bài nộp** trên trang kỳ
-thi) lấy được theo đúng ba cách trên.
+**Giấy chứng nhận** chưa có nút riêng; gọi thẳng đường dẫn trong khi đang đăng
+nhập bằng tài khoản chạy kỳ thi:
+
+```
+/api/v1/contests/{key}/certificates.pdf?top=10
+/api/v1/contests/{key}/certificates.pdf?username=an.nguyen
+```
+
+Mỗi tờ một trang A4 nằm ngang, ký tên là **các tổ chức của kỳ thi** (không có
+thì ghi `DuckOJ`), đề ngày **kết thúc kỳ thi** — nên in hai lần vẫn ra đúng
+một tờ giấy. Người bị hủy tư cách và các lượt thi ảo **không được cấp**, và
+`top=10` đếm 10 người sau khi đã loại họ ra, không để lại chỗ trống.
+
+Ba đường dẫn trên **chỉ người tạo kỳ thi và quản trị viên toàn hệ thống** mở
+được, ở bất kỳ giờ nào — vì chúng dựng từ bảng điểm **chưa đóng băng**. Máy
+chủ không cài bộ dựng PDF thì hai đường dẫn `.pdf` báo lỗi rõ ràng, còn `.csv`
+vẫn chạy bình thường (nó không cần bộ dựng).
+
+Ngoài ra vẫn có ba cách cũ, dùng được cả khi kỳ thi đang chạy: **in trang Bảng
+điểm** (Ctrl/Cmd + P — bản in đã tự bỏ thanh điều hướng), **chọn và sao chép**
+bảng vào bảng tính (bảng điểm là một `<table>` HTML thật), hoặc **gọi API**
+`GET /api/v1/contests/{key}/scoreboard` bằng một **Mã truy cập**
+(`/account/tokens`) có phạm vi đọc. Danh sách bài nộp của riêng kỳ thi (liên
+kết **Tất cả bài nộp**) lấy được theo đúng ba cách đó.
 
 ## 9. Bài tập và giao bài
 
@@ -213,13 +241,32 @@ Giới hạn thời gian và bộ nhớ, cùng bộ test, đến từ **gói bà
 được chấm theo **phiên bản đang công bố lúc học sinh gửi**, nên công bố phiên
 bản mới không làm hỏng kết quả cũ.
 
-**Giao bài về nhà.** Không có mục "bài tập về nhà" riêng. Hai cách thực tế:
+**Giao bài về nhà.** Trang tổ chức của trường có mục **Bài tập về nhà**; chủ
+sở hữu tổ chức thấy thêm nút **Giao bài tập**. Màn soạn có **Định danh**,
+**Tên**, **Mô tả**, **Hạn nộp** (để trống là không có hạn) và **Danh sách
+bài** — gõ mã hoặc tên vào ô tìm, bấm **Thêm**, sắp thứ tự bằng **Lên** /
+**Xuống**, và đặt **Điểm cho** từng bài. Sửa lại bằng **Sửa bài tập**, gỡ bằng
+**Thu hồi bài tập** (các bài toán không bị ảnh hưởng).
 
-- **Kỳ thi dài ngày**, giới hạn cho tổ chức của trường (mục 3 và 4): có hạn
-  nộp, có bảng điểm, có thống kê — gần với "bài tập có chấm điểm" nhất.
-- **Đường dẫn danh sách bài đã lọc**: mở **Bài tập**, chọn **Chủ đề** và **Độ
-  khó**, rồi sao chép nguyên địa chỉ trang gửi cho học sinh — bộ lọc nằm trong
-  đường dẫn. Cột **Tôi** cho mỗi em biết bài nào mình đã giải.
+- Chỉ giao được bài **học sinh trường mình mở được** — bài công khai, hoặc bài
+  chia sẻ cho đúng tổ chức này. Bài riêng tư, bài của trường khác, mã sai, mã
+  lặp: hệ thống từ chối lưu và chỉ rõ dòng nào sai.
+- **Hạn nộp tính cả đúng thời điểm đó.** Bài giải sau hạn vẫn được ghi, nằm ở
+  cột **Nộp muộn** *bên cạnh* kết quả đúng hạn chứ không thay chỗ nó — một em
+  nộp sai trước hạn rồi làm được sau hạn thì thầy cô thấy cả hai.
+- **Bài tập chỉ hiện với thành viên tổ chức.** Người ngoài thấy danh sách
+  trống và mọi đường dẫn bài tập trả về "không có" — cố ý như vậy, vì tên các
+  bài trong đó có thể là bài chỉ chia sẻ riêng cho trường.
+- **Kết quả cả lớp** là bảng cả lớp × cả danh sách bài (cuộn ngang được), có
+  nút **Tải thêm** cho lớp đông; **Tải CSV** lấy **toàn bộ** danh sách, không
+  chỉ trang đang xem. Bài nộp trong một kỳ thi **còn đang mở** chưa được tính
+  vào bảng này (đúng như bảng điểm), nhưng trang của chính học sinh thì có —
+  nên các em thấy điểm của mình trước thầy cô.
+
+Hai cách cũ vẫn dùng được: **kỳ thi dài ngày** giới hạn cho tổ chức của trường
+(mục 3 và 4) khi cần xếp hạng, và **đường dẫn danh sách bài đã lọc** (mở **Bài
+tập**, chọn **Chủ đề** và **Độ khó**, sao chép địa chỉ trang) khi chỉ cần gợi
+ý luyện tập.
 
 ## 10. Tải đề PDF
 
@@ -287,20 +334,27 @@ contests attached to the organisation.
 administrator** only — an org *admin* is not enough.
 
 One student per line: **username, full name, and an email if there is one**. A
-header row is optional; **2000 rows maximum**. Paste into the box or pick a
-CSV file. Press **Check list** first — a dry run that creates nothing and
-reports every bad row by **Row**, **Field** and **Problem**, or shows a
-preview and *Will create n accounts*. Then **Create accounts**.
+header row is optional. Paste into the box or pick a CSV file — the list may
+be any length: **one request carries at most 500 rows**, and the panel
+**splits a longer list into 500-row chunks itself**, sends them in order with
+a progress bar, and merges every chunk's credentials into one table. Press
+**Check list** first — a dry run that creates nothing and reports every bad
+row by **Row**, **Field** and **Problem**, or shows a preview and *Will create
+n accounts*. Then **Create accounts**.
 
-Rules worth memorising: **one bad row means nothing is created**; the
-generated **passwords are shown exactly once** (there is a **Print** button, a
-**Download CSV** link and a copyable box — none of it is recoverable later);
-every student **must set their own password at first sign-in**; a student with
-**no email** gets an internal placeholder address and therefore **cannot use
-"Forgot your password?"**; and a real import is limited to **one per
-organisation per minute** (checking is unlimited). A large class takes a while
-— one password hash per account — so do not close the tab. The same job can be
-run on the server with `corepack pnpm org:import` (see `docs/runbook.md`).
+Rules worth memorising: **one bad row means nothing is created**; a username
+the FILE repeats across two chunks is refused in the browser before anything
+is sent; the generated **passwords are shown exactly once** (there is a
+**Print** button, a **Download CSV** link and a copyable box — none of it is
+recoverable later); every student **must set their own password at first
+sign-in**; a student with **no email** gets an internal placeholder address
+and therefore **cannot use "Forgot your password?"**; and imports are limited
+to **ten per organisation per minute** (checking is unlimited), which is the
+same 5,000 pupils a minute. A large class takes a while — one password hash
+per account — so do not close the tab; if a chunk fails part-way the screen
+keeps the credentials the earlier chunks created, beside the reason it
+stopped. The same job can be run on the server with `corepack pnpm org:import`
+(see `docs/runbook.md`).
 
 ### 3. Creating a contest
 
@@ -369,15 +423,40 @@ submission from its page, or every submission of a problem from the bottom of
 the problem edit screen. A rejudge never replays ratings by itself: it names
 the contests that need re-rating, and that step is manual.
 
-### 8. Exporting the scoreboard
+### 8. Exporting the results, and printing certificates
 
-There is **no export button**. Three ways that work: **print the scoreboard
-page** (the print layout already drops the navigation — "Save as PDF" if you
-want a file); **select and copy the table** into a spreadsheet, since it is a
-real HTML table; or **call the API** — mint a read-scoped token at
-`/account/tokens` and `GET /api/v1/contests/{key}/scoreboard` (the **API** link
-in the nav has a try-it console). The same three work for the contest's
-submission list.
+**Once the contest has finished**, its page offers the organisers two links:
+**Results (CSV)** — rank, username, display name, **the competitor's own
+organisations**, points/attempts/time per problem, total, penalty, a
+`disqualified` column and a `virtual` one (`0` live, `n` the n-th replay),
+written with a UTF-8 BOM so Excel does not mangle Vietnamese — and **Results
+(PDF)**, the same board typeset landscape, page-numbered, with `[DQ]` and
+`(ảo)` on the rows that keep their place. **A disqualified row is exported and
+flagged, never dropped**: the file has to describe the contest that happened.
+
+**Certificates** have no button yet; call the route directly while signed in
+as the person who runs the contest:
+
+```
+/api/v1/contests/{key}/certificates.pdf?top=10
+/api/v1/contests/{key}/certificates.pdf?username=an.nguyen
+```
+
+One landscape A4 sheet each, signed by the **contest's organisations** (or
+`DuckOJ` when it has none) and dated by the contest's **end**, so printing it
+twice gives the same sheet. Disqualified rows and virtual replays get none,
+and `top=10` counts ten *after* that exclusion rather than leaving gaps.
+
+All three are for the **contest's creator and global administrators only**, at
+any hour, because each is folded from the **unfrozen** board. Without the PDF
+toolchain the two `.pdf` routes say so plainly; the `.csv` needs none and
+works regardless.
+
+The older three ways still work, and work mid-contest: **print the scoreboard
+page** (the print layout already drops the navigation), **select and copy the
+table** into a spreadsheet, or **call the API** — a read-scoped token at
+`/account/tokens` and `GET /api/v1/contests/{key}/scoreboard`. The same three
+work for the contest's submission list.
 
 ### 9. Problems, and setting work
 
@@ -392,12 +471,28 @@ themselves come from the uploaded package on the **Revisions** screen: upload,
 published when they were sent, so publishing a new one never disturbs old
 results.
 
-There is no "homework" object. In practice work is set either as a
-**long-running contest restricted to the school** (§3–4), which gives a
-deadline, a scoreboard and statistics, or as a **filtered problem-list URL** —
-pick topics and a difficulty range on **Problems** and send the address; the
-filters live in the URL, and each pupil's **Me** column tracks their own
-progress.
+**Setting homework.** Your school's organisation page carries **Problem
+sets**, and an org owner gets **Assign a problem set**: a slug, a name, a
+description, a **Deadline** (empty for none) and the **Problems** list —
+search by code or name, **Add**, order with **Move up** / **Move down**, and
+give each its **Points**. **Edit this set** changes it; **Withdraw this set**
+removes it without touching the problems.
+
+Only problems your pupils can open may be assigned — public, or shared with
+this organisation; anything else is refused by row. The **deadline is
+inclusive**, and work solved after it lands in a separate **Late** column
+*beside* the on-time result, never instead of it. Sets are **members only**:
+an outsider sees an empty list and every set answers "not found", because the
+problem codes in a set can themselves be school-only. **Class progress** is
+the whole class × the whole set (scroll sideways, **Load more** for a big
+class), and **Download CSV** takes the entire roster rather than the page on
+screen. A submission inside a contest window that is still open does not count
+towards the grid — as on the scoreboard — though it does on the pupil's own
+page, so pupils see their score before their teacher does.
+
+The two older ways still work: a **long-running contest restricted to the
+school** (§3–4) when you want a ranking, and a **filtered problem-list URL**
+when you only want practice.
 
 ### 10. Problem PDFs
 

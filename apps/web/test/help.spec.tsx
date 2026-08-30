@@ -117,3 +117,63 @@ describe('HelpPage', () => {
     expect(screen.getByRole('heading', { level: 2, name: VI_TITLE.student })).toBeInTheDocument();
   });
 });
+
+/**
+ * The guides describe the judge that exists TODAY.
+ *
+ * F10 wrote them against a codebase with no homework entity and no results
+ * export, and said so in three places. D66 (problem sets, "bài tập về nhà"),
+ * D71 (results CSV/PDF and certificates) and D61's F13 amendment (a 500-row
+ * import the panel splits for you) each made one of those sentences false,
+ * and a guide that is confidently wrong is worse than one that is silent —
+ * a teacher who reads "there is no export button" stops looking for the
+ * button that is on their screen.
+ *
+ * These assertions are deliberately about the SHIPPED labels: the guide
+ * names what the reader will actually see, so a rename that leaves the
+ * guide behind is a failing test rather than a paragraph nobody re-reads.
+ */
+describe('the guides against the features that exist', () => {
+  async function guideText(tab?: string): Promise<string> {
+    const { container } = render(<HelpPage />);
+    if (tab !== undefined) {
+      const group = screen.getByRole('group', { name: /Chọn bản hướng dẫn/ });
+      await userEvent.click(within(group).getByRole('button', { name: tab }));
+    }
+    return text(container);
+  }
+
+  it('tells a student about the homework section on their school page (D66)', async () => {
+    const body = await guideText();
+    expect(body).toContain('Bài tập về nhà');
+    expect(body).toContain('Nộp muộn');
+    // The F10 sentence this replaces.
+    expect(body).not.toContain('DuckOJ không có mục');
+    expect(body).not.toMatch(/no .{0,2}homework.{0,2} object/i);
+    expect(body).toContain('Problem sets');
+  });
+
+  it('tells a teacher the results exports exist, by the names on the buttons (D71)', async () => {
+    const body = await guideText('Giáo viên');
+    expect(body).toContain('Kết quả (CSV)');
+    expect(body).toContain('Kết quả (PDF)');
+    expect(body).toContain('certificates.pdf');
+    expect(body).not.toContain('không có nút xuất bảng điểm');
+    expect(body).not.toContain('no export button');
+  });
+
+  it('tells a teacher how homework is assigned, not that it cannot be (D66)', async () => {
+    const body = await guideText('Giáo viên');
+    expect(body).toContain('Giao bài tập');
+    expect(body).toContain('Kết quả cả lớp');
+    expect(body).not.toContain('Không có mục');
+    expect(body).not.toMatch(/no .{0,2}homework.{0,2} object/i);
+  });
+
+  it('gives the import the bounds it actually has (D61, as amended)', async () => {
+    const body = await guideText('Giáo viên');
+    expect(body).toContain('500 dòng');
+    expect(body).not.toContain('2000 dòng');
+    expect(body).not.toContain('2000 rows');
+  });
+});

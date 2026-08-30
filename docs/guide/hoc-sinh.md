@@ -183,8 +183,21 @@ Nhiều kỳ thi **đóng băng** bảng điểm trong ít phút cuối. Khi đ�
 
 ## 9. Bài tập về nhà và luyện tập
 
-DuckOJ không có mục "bài tập về nhà" riêng. Trên thực tế thầy cô giao bài
-theo một trong hai cách, và cả hai đều nằm trong hướng dẫn này:
+Trang tổ chức của trường bạn (**Tổ chức** → tên trường) có mục **Bài tập về
+nhà**. Mỗi dòng là một bài tập thầy cô giao, kèm **Hạn nộp** (hoặc *không có
+hạn*) và cột **Đã làm** cho biết bạn đã giải mấy bài trên tổng số.
+
+Mở một bài tập ra là danh sách bài toán kèm **Điểm**, cột **Kết quả của bạn**
+và liên kết **Nộp bài** đi thẳng sang màn nộp. Nếu bài tập có hạn nộp thì có
+thêm cột **Nộp muộn** riêng: bài giải sau hạn vẫn được ghi nhận, **ghi bên
+cạnh** kết quả đúng hạn chứ không thay chỗ nó — thầy cô thấy cả hai. Hạn nộp
+tính **cả** đúng thời điểm ghi trên đó: nộp đúng phút chót vẫn là đúng hạn.
+
+Mục này **chỉ hiện với thành viên của tổ chức**. Chưa được nhận vào trường thì
+danh sách trống và mọi đường dẫn bài tập trả về "không có" — hãy nhờ thầy cô
+thêm bạn vào, đừng đoán đường dẫn.
+
+Ngoài ra thầy cô vẫn có thể giao bài bằng:
 
 - **Một kỳ thi có thời gian dài** (vài ngày, giới hạn cho tổ chức của trường)
   — làm theo mục 6.
@@ -351,15 +364,26 @@ ends.
 
 ### 9. Homework and practice
 
-DuckOJ has no separate "homework" object. Teachers set work either as a
-long-running contest restricted to the school (§6), or as a list of problems
-to solve. For the latter, use **Problems** with the **Topics** and
-**Difficulty** (1–10) filters — the **Me** column is your best verdict per
-problem, **Solved** is how many people have solved it, and the filters live in
-the URL so you can share the exact list. Each problem page ends with
-**Statistics**: submissions, people who tried, people who solved, acceptance
-rate and the first solver. While you are sitting a contest that uses a
-problem, its topics and difficulty are blanked, so hints cannot leak mid-round.
+Your school's organisation page (**Orgs** → your school) carries
+**Problem sets** — the homework your teachers assign. Each row is one set with
+its **Due** date (or *no deadline*) and a **Done** column counting the
+problems you have solved. Opening a set lists its problems with their
+**Points**, your own **Your best** verdict and a **Submit** link; a set with a
+deadline also gets a separate **Late** column, because work solved after the
+deadline is recorded **beside** the on-time result rather than instead of it.
+The deadline is inclusive — a submission at the stroke of it is on time. The
+section is **members only**: until your school adds you, the list is empty and
+every set address answers "not found".
+
+Teachers may also set work as a long-running contest restricted to the school
+(§6), or as a list of problems to solve. For the latter, use **Problems** with
+the **Topics** and **Difficulty** (1–10) filters — the **Me** column is your
+best verdict per problem, **Solved** is how many people have solved it, and
+the filters live in the URL so you can share the exact list. Each problem
+page ends with **Statistics**: submissions, people who tried, people who
+solved, acceptance rate and the first solver. While you are sitting a contest
+that uses a problem, its topics and difficulty are blanked, so hints cannot
+leak mid-round.
 
 ### 10. Editorials
 
