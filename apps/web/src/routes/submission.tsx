@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { api } from '../api.js';
+import { apiError } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { VerdictPanel, type SubmissionDetail } from './submit.js';
 import { formatTimestamp, useLocale, useT } from '../i18n/index.js';
@@ -29,14 +30,23 @@ export function SubmissionPage({ id }: { id: number }) {
 
   const t = useT();
   const { locale } = useLocale();
+  // The router builds this prop as `Number(params.id)` off a path segment, so
+  // `/submissions/abc` arrives here as `NaN` — and every id the API could
+  // possibly hold is a positive integer. Without this the page asked for
+  // `GET /submissions/NaN` (422 from the API, 502 on the retry) and rendered
+  // TanStack Query's own internal message, `["submission",null] data is
+  // undefined`, as the page body. A URL typed wrong is a not-found, and
+  // saying so costs no request at all.
+  const idIsUsable = Number.isInteger(id) && id > 0;
   const query = useQuery({
     queryKey: ['submission', id],
+    enabled: idIsUsable,
     queryFn: async (): Promise<SubmissionDetail> => {
-      const { data, error } = await api.GET('/submissions/{id}', {
-        params: { path: { id } },
-      });
-      if (error) throw new Error(error.detail ?? t('submission.notFound'));
-      return data;
+      const result = await api.GET('/submissions/{id}', { params: { path: { id } } });
+      // `apiError`, not `new Error`: the status has to survive so the query
+      // client can tell a 404 (final) from a 503 (worth asking again).
+      if (result.error) throw apiError(result, t('submission.notFound'));
+      return result.data;
     },
   });
 
@@ -70,7 +80,10 @@ export function SubmissionPage({ id }: { id: number }) {
     }
   }
 
-    if (query.isPending) return <p className="muted">{t('common.loading')}</p>;
+  // Before `isPending`: a disabled query is pending forever, so the order
+  // here is what stops an unusable id from painting "Loading…" for good.
+  if (!idIsUsable) return <p role="alert">{t('submission.notFound')}</p>;
+  if (query.isPending) return <p className="muted">{t('common.loading')}</p>;
   if (query.error) return <p role="alert">{query.error.message}</p>;
   if (!query.data) return null;
   const s = query.data;

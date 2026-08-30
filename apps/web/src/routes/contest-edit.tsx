@@ -18,6 +18,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { apiError } from '../api-error.js';
 import { useT } from '../i18n/index.js';
 
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
@@ -90,13 +91,15 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
   const query = useQuery({
     queryKey: ['contest', contestKey],
     queryFn: async (): Promise<ContestDetail> => {
-      const { data, error } = await api.GET('/contests/{key}', {
+      const result = await api.GET('/contests/{key}', {
         params: { path: { key: contestKey } },
       });
-      if (error) throw new Error(error.detail ?? t('contest.notFound'));
-      return data;
+      if (result.error) throw apiError(result, t('contest.notFound'));
+      return result.data;
     },
-    retry: false,
+    // The local `retry: false` this used to carry is gone: `src/query.ts`
+    // now refuses to repeat a 4xx for EVERY query, so an override here would
+    // only hide the one case the global policy still retries — a 5xx.
   });
 
   const [name, setName] = useState('');

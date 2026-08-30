@@ -11,7 +11,7 @@ import {
 } from '@tanstack/react-router';
 // `vi` is vitest's own name in every other spec file, so the Vietnamese
 // catalogue is aliased on import here rather than shadowing it.
-import { en } from '../src/i18n/en.js';
+import { en, type MsgKey } from '../src/i18n/en.js';
 import { ShellNav } from '../src/router.js';
 import { vi as viMessages } from '../src/i18n/vi.js';
 import {
@@ -43,6 +43,30 @@ describe('the catalogues', () => {
     for (const [key, value] of Object.entries(viMessages)) {
       expect(value.normalize('NFC'), `${key} is not NFC`).toBe(value);
     }
+  });
+
+  // Three lookups in this app build their key from a value the SERVER chose
+  // — `revState.${r.state}` (problem-revisions.tsx), `visibility.${v}` and
+  // `sourceAccess.${s}` (problem-edit.tsx). `verdictName` and
+  // `globalRoleLabel` guard theirs with `key in en`; these do not. An enum
+  // value this build has never heard of therefore reached `translate` with
+  // no entry behind it, and a catalogue miss is not a typecheck failure at
+  // a template literal. (final-review m18)
+  it('falls back to the key itself rather than rendering blank', () => {
+    // `undefined` here reaches React as a child, which renders NOTHING: the
+    // badge on the revisions table would be an empty box with no clue in it.
+    expect(translate('vi', 'revState.a-state-this-build-never-heard-of' as MsgKey)).toBe(
+      'revState.a-state-this-build-never-heard-of',
+    );
+    expect(translate('en', 'nope.nope' as MsgKey)).toBe('nope.nope');
+  });
+
+  it('does not throw when a missing key is asked for with variables', () => {
+    // The worse half of the same hole: `template.replace` on `undefined` is a
+    // TypeError thrown during render, which takes the whole page down rather
+    // than one label.
+    expect(() => translate('vi', 'nope.nope' as MsgKey, { n: 1 })).not.toThrow();
+    expect(translate('vi', 'nope.nope' as MsgKey, { n: 1 })).toBe('nope.nope');
   });
 
   it('translates nothing to the empty string', () => {
@@ -155,6 +179,38 @@ function renderShell(initialLocale: 'vi' | 'en') {
   );
 }
 
+describe('the language toggle, to a screen reader', () => {
+  // `aria-label` on a bare <span> labels nothing: the implicit role is
+  // `generic`, which is not in the set ARIA lets you name, so the group's
+  // own label was dropped and the two buttons were announced as unlabelled
+  // "VI" and "EN" — two letters that mean nothing in the language the reader
+  // cannot read. The two catalogue keys written for exactly this
+  // (`nav.languageVi`/`nav.languageEn`) were defined and used nowhere.
+  // (final-review m19)
+  it('is a named group', () => {
+    renderShell('vi');
+    expect(screen.getByRole('group', { name: viMessages['nav.language'] })).toBeInTheDocument();
+  });
+
+  it('names each button in words, not just the two letters on it', () => {
+    renderShell('vi');
+    expect(
+      screen.getByRole('button', { name: viMessages['nav.languageVi'] }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      screen.getByRole('button', { name: viMessages['nav.languageEn'] }),
+    ).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('names them in English once the reader has switched', () => {
+    renderShell('en');
+    expect(screen.getByRole('button', { name: en['nav.languageEn'] })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+});
+
 /** A miniature of the shell's nav: the toggle plus one translated link. */
 function NavProbe() {
   const t = useT();
@@ -236,16 +292,26 @@ describe('the real shell nav', () => {
   });
 
   it('renders them in English after the toggle, and marks the active language', async () => {
+    // Queried by the buttons' ACCESSIBLE names, which are the language names
+    // now that each button carries one — the visible glyphs are still "VI"
+    // and "EN", asserted separately below.
     renderShell('vi');
-    expect(screen.getByRole('button', { name: 'VI' })).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      screen.getByRole('button', { name: viMessages['nav.languageVi'] }),
+    ).toHaveAttribute('aria-pressed', 'true');
 
-    await userEvent.click(screen.getByRole('button', { name: 'EN' }));
+    await userEvent.click(screen.getByRole('button', { name: viMessages['nav.languageEn'] }));
 
     expect(screen.getByRole('link', { name: 'Problems' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Contests' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Bài tập' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'EN' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'VI' })).toHaveAttribute('aria-pressed', 'false');
+    const enButton = screen.getByRole('button', { name: en['nav.languageEn'] });
+    const viButton = screen.getByRole('button', { name: en['nav.languageVi'] });
+    expect(enButton).toHaveAttribute('aria-pressed', 'true');
+    expect(viButton).toHaveAttribute('aria-pressed', 'false');
+    // The two letters a sighted reader picks the toggle out by are unchanged.
+    expect(enButton).toHaveTextContent('EN');
+    expect(viButton).toHaveTextContent('VI');
   });
 });

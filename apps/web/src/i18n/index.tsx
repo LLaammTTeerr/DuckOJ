@@ -100,7 +100,16 @@ export type Vars = Record<string, string | number>;
  * visible `{code}` on screen is a bug report, an empty gap is a mystery.
  */
 export function translate(locale: Locale, key: MsgKey, vars?: Vars): string {
-  const template = CATALOGUES[locale][key];
+  // The key itself when nothing is behind it. `MsgKey` makes a literal key
+  // safe, but three call sites build theirs from a value the SERVER chose —
+  // `revState.${r.state}` (problem-revisions.tsx), `visibility.${v}` and
+  // `sourceAccess.${s}` (problem-edit.tsx) — so an enum value this build has
+  // never heard of arrives here as a miss. Without the fallback that miss
+  // rendered BLANK (React draws nothing for `undefined`), and with `vars` it
+  // threw `Cannot read properties of undefined (reading 'replace')` mid-render
+  // and took the page down. A visible `revState.frozen` on screen is a bug
+  // report; an empty badge is a mystery. (final-review m18)
+  const template = CATALOGUES[locale][key] ?? key;
   if (!vars) return template;
   return template.replace(/\{(\w+)\}/g, (whole, name: string) =>
     name in vars ? String(vars[name]) : whole,

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { api } from '../api.js';
+import { apiError } from '../api-error.js';
 import { verdictToken } from './submit.js';
 import { meQueryOptions } from '../me.js';
 import { tagsQueryOptions } from '../tags.js';
@@ -134,11 +135,11 @@ export function ProblemsPage(props: {
       if (filters.tags.length > 0) queryParams.tag = filters.tags;
       if (filters.difficultyMin !== undefined) queryParams.difficultyMin = filters.difficultyMin;
       if (filters.difficultyMax !== undefined) queryParams.difficultyMax = filters.difficultyMax;
-      const { data, error } = await api.GET('/problems', { params: { query: queryParams } });
-      if (error || !data) {
-        throw new Error(t('problems.loadError'));
+      const result = await api.GET('/problems', { params: { query: queryParams } });
+      if (result.error || !result.data) {
+        throw apiError(result, t('problems.loadError'));
       }
-      return data;
+      return result.data;
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,

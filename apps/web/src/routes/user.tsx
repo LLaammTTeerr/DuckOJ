@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { rankBand } from '@duckoj/glicko2';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { apiError } from '../api-error.js';
 import { formatPoints } from '../format.js';
 import { formatDate, rankTitle, useLocale, useT } from '../i18n/index.js';
 
@@ -16,11 +17,9 @@ export function UserPage({ username }: { username: string }) {
   const profile = useQuery({
     queryKey: ['user', username],
     queryFn: async (): Promise<Profile> => {
-      const { data, error } = await api.GET('/users/{username}', {
-        params: { path: { username } },
-      });
-      if (error) throw new Error(error.detail ?? t('user.notFound'));
-      return data;
+      const result = await api.GET('/users/{username}', { params: { path: { username } } });
+      if (result.error) throw apiError(result, t('user.notFound'));
+      return result.data;
     },
   });
 

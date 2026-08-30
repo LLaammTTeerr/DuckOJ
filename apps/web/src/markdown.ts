@@ -22,7 +22,8 @@ import 'katex/dist/katex.min.css';
 // form DOMPurify's HTML parser would even recognise) and then hand the
 // unsanitized rendered HTML straight to the DOM, re-introducing everything
 // a naive ordering looks like it removed. See test/markdown.spec.ts, whose
-// three XSS cases are the actual point of this file.
+// XSS cases are the actual point of this file — all twelve of them go red
+// against a `renderStatement` that skips `DOMPurify.sanitize`.
 
 // A single non-greedy inline `$...$` span, one line only (no `$$` block
 // maths — statements are short problem text, not papers). Matched before

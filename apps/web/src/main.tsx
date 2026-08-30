@@ -1,12 +1,15 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { router } from './router.js';
+import { createQueryClient } from './query.js';
 import { LocaleProvider } from './i18n/index.js';
 import './app.css';
 
-const queryClient = new QueryClient();
+// Not `new QueryClient()`: the default retry policy hammers a 404 three
+// more times over seven seconds of backoff. See src/query.ts.
+const queryClient = createQueryClient();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -501,6 +501,7 @@ export const en = {
   'notifications.gate': 'Sign in to see notifications.',
   'notifications.empty': 'Nothing yet.',
   'notifications.markAllRead': 'Mark all read ({count})',
+  'notifications.markAllReadError': 'Could not mark them read.',
   'notifications.someone': 'Someone',
   'notifications.joinRequestedPrefix': '{name} asked to join ',
   'notifications.joinRequestedSuffix': '.',

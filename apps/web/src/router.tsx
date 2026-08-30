@@ -85,11 +85,28 @@ function LocaleToggle() {
   const t = useT();
   const { locale, setLocale } = useLocale();
   return (
-    <span aria-label={t('nav.language')}>
-      <button type="button" aria-pressed={locale === 'vi'} onClick={() => setLocale('vi')}>
+    // `role="group"` is load-bearing, not decoration: a bare <span>'s
+    // implicit role is `generic`, which ARIA does not allow a name on, so
+    // the `aria-label` here was simply dropped. And "VI"/"EN" as the whole
+    // of a button's accessible name is two letters in a language the reader
+    // may not have — so each button carries the language's own name, which
+    // is what `nav.languageVi`/`nav.languageEn` were written for. They had
+    // been in both catalogues, used nowhere, since the toggle shipped.
+    <span role="group" aria-label={t('nav.language')}>
+      <button
+        type="button"
+        aria-label={t('nav.languageVi')}
+        aria-pressed={locale === 'vi'}
+        onClick={() => setLocale('vi')}
+      >
         VI
       </button>
-      <button type="button" aria-pressed={locale === 'en'} onClick={() => setLocale('en')}>
+      <button
+        type="button"
+        aria-label={t('nav.languageEn')}
+        aria-pressed={locale === 'en'}
+        onClick={() => setLocale('en')}
+      >
         EN
       </button>
     </span>

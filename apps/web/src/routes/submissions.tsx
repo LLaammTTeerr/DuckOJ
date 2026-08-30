@@ -3,6 +3,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { apiError } from '../api-error.js';
 import { formatPoints } from '../format.js';
 import { verdictToken } from './submit.js';
 import { formatTimestamp, useLocale, useT, verdictName } from '../i18n/index.js';
@@ -70,11 +71,11 @@ export function SubmissionsPage({
       if (contest !== '') queryParams.contest = contest;
       if (verdict !== undefined) queryParams.verdict = verdict;
       if (pageParam !== undefined) queryParams.cursor = pageParam;
-      const { data, error } = await api.GET('/submissions', { params: { query: queryParams } });
-      if (error || !data) {
-        throw new Error(t('submissions.loadError'));
+      const result = await api.GET('/submissions', { params: { query: queryParams } });
+      if (result.error || !result.data) {
+        throw apiError(result, t('submissions.loadError'));
       }
-      return data;
+      return result.data;
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,

@@ -476,6 +476,7 @@ export const vi = {
   'notifications.gate': 'Đăng nhập để xem thông báo.',
   'notifications.empty': 'Chưa có gì.',
   'notifications.markAllRead': 'Đánh dấu đã đọc tất cả ({count})',
+  'notifications.markAllReadError': 'Không đánh dấu đã đọc được.',
   'notifications.someone': 'Ai đó',
   'notifications.joinRequestedPrefix': '{name} xin gia nhập ',
   'notifications.joinRequestedSuffix': '.',
