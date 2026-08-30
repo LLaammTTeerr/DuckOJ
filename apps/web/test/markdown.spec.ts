@@ -43,4 +43,52 @@ describe('renderStatement', () => {
   it('strips a javascript: href', () => {
     expect(renderStatement('[x](javascript:alert(1))')).not.toContain('javascript:');
   });
+
+  // The three above are the payloads this file shipped with. These are the
+  // ones a bug hunt actually threw at it — the shapes that get past a naive
+  // sanitizer: SVG and MathML (DOMPurify parses both, and KaTeX's own output
+  // is MathML, so neither namespace can simply be banned), the mXSS
+  // `</noscript>` re-parse, DOM clobbering, and the two URL schemes that
+  // look executable. Every one is neutralised; recorded here so the
+  // clearance is a test rather than a claim in a report.
+  it.each([
+    ['an svg onload handler', '<svg onload="alert(1)"></svg>', 'onload'],
+    ['an animate that rewrites an href', '<svg><a><animate attributeName="href" values="javascript:alert(1)"/><text>x</text></a></svg>', 'javascript:'],
+    ['html smuggled through annotation-xml', '<math><annotation-xml encoding="text/html"><script>alert(1)</script></annotation-xml></math>', '<script'],
+    ['an iframe srcdoc', '<iframe srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></iframe>', '<iframe'],
+    ['an object with a javascript: data url', '<object data="javascript:alert(1)"></object>', '<object'],
+    ['a meta refresh', '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">', '<meta'],
+    ['a base tag that would repoint every relative link', '<base href="https://evil.example/">', '<base'],
+    ['the noscript mXSS re-parse', '<noscript><p title="</noscript><img src=x onerror=alert(1)>"></p></noscript>', 'onerror'],
+  ])('neutralises %s', (_name, source, forbidden) => {
+    expect(renderStatement(source)).not.toContain(forbidden);
+  });
+
+  it('does not let a form clobber document properties by name', () => {
+    // `document.innerHTML` becoming an <input> breaks sanitizers that reach
+    // for it later in the same document.
+    expect(renderStatement('<form><input name="innerHTML"></form>')).not.toContain('name=');
+  });
+
+  it('renders a malformed formula in KaTeX\'s red, never as a crash', () => {
+    // `throwOnError: false` plus the extension's own catch. A statement with
+    // one bad formula must still render — the author needs to SEE which
+    // formula is wrong, and every other reader needs the rest of the page.
+    //
+    // KaTeX flags the two shapes differently: a PARSE error becomes a
+    // `katex-error` span carrying the message in its `title`, while an
+    // unknown control sequence is rendered in place as its own literal text.
+    // What both share, and what the reader actually perceives, is KaTeX's
+    // error red — so that is what is asserted for all three.
+    for (const bad of ['$\\frac{1}$', '$\\begin{matrix} 1$', '$\\nosuchmacro{x}$']) {
+      const html = renderStatement(bad);
+      expect(html, bad).toContain('#cc0000');
+      expect(html, bad).not.toContain('<script');
+    }
+    // And a bad formula does not eat the prose around it.
+    const mixed = renderStatement('Trước. $\\frac{1}$ Sau.');
+    expect(mixed).toContain('Trước.');
+    expect(mixed).toContain('Sau.');
+    expect(mixed).toContain('katex-error');
+  });
 });
