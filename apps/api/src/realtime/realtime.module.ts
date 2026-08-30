@@ -4,6 +4,7 @@ import { SubmissionsModule } from '../submissions/submissions.module.js';
 import { APP_CONFIG, ConfigModule } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import {
+  ALLOWED_WS_ORIGIN,
   DEFAULT_MAX_SUBSCRIPTIONS,
   MAX_SUBSCRIPTIONS,
   SubmissionsGateway,
@@ -31,6 +32,14 @@ import { RedisSubscriber } from './redis-subscriber.js';
     {
       provide: 'SESSION_COOKIE_NAME',
       useFactory: (config: AppConfig): string => config.sessionCookieName,
+      inject: [APP_CONFIG],
+    },
+    {
+      // The one origin a browser is allowed to open the /ws socket from — the
+      // same value CORS pins for HTTP (app.setup.ts). See the gateway's
+      // origin check for why this is defence-in-depth on top of SameSite.
+      provide: ALLOWED_WS_ORIGIN,
+      useFactory: (config: AppConfig): string => config.publicOrigin,
       inject: [APP_CONFIG],
     },
   ],

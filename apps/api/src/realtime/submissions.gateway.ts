@@ -49,6 +49,13 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 export const MAX_SUBSCRIPTIONS = Symbol('MAX_SUBSCRIPTIONS');
 export const DEFAULT_MAX_SUBSCRIPTIONS = 256;
 
+/**
+ * The single browser origin permitted to open this socket (the deployment's
+ * `publicOrigin`, the same value CORS pins). Injected so the check below has
+ * something to compare against without reaching into config itself.
+ */
+export const ALLOWED_WS_ORIGIN = Symbol('ALLOWED_WS_ORIGIN');
+
 interface Client {
   actor: Actor;
   subscriptions: Set<number>;
@@ -106,6 +113,23 @@ export class SubmissionsGateway implements OnModuleDestroy {
       return;
     }
 
+    // Cross-Site WebSocket Hijacking defence. A `new WebSocket()` from an
+    // attacker's page is not subject to CORS and this gateway authenticates a
+    // browser by its session COOKIE — so the only thing standing between a
+    // malicious origin and the victim's live submission feed is that the
+    // cookie is `SameSite=Lax` (which withholds it from a cross-site handshake).
+    // That is one control; this is the second, and the standard one. A real
+    // browser always stamps `Origin` on the upgrade, so a present-but-wrong
+    // Origin is a cross-site attempt and is refused. A MISSING Origin is a
+    // non-browser client (the `oj` CLI, a test) that carries no ambient cookie
+    // to abuse and authenticates by bearer token — allowed, exactly as CORS
+    // lets a header-less request through.
+    const origin = req.headers.origin;
+    if (origin !== undefined && origin !== this.allowedOrigin) {
+      socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
+      return;
+    }
+
     void this.authenticate(req)
       .then((actor) => {
         if (!actor) {
@@ -137,6 +161,7 @@ export class SubmissionsGateway implements OnModuleDestroy {
     @Inject(SubmissionAccessService) private readonly submissions: SubmissionAccessService,
     @Inject('SESSION_COOKIE_NAME') private readonly cookieName: string,
     @Inject(MAX_SUBSCRIPTIONS) private readonly maxSubscriptions: number,
+    @Inject(ALLOWED_WS_ORIGIN) private readonly allowedOrigin: string,
   ) {}
 
   attach(server: HttpServer): void {
