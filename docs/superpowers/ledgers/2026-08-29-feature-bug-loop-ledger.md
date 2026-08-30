@@ -16,3 +16,5 @@
 - F-4 dispatched (main, opus): editorials, migration 0021, D43.
 - B-3 DONE_WITH_CONCERNS on `worktree-b3-judging` (98b10af..2122c37): D40 checker-based problems always IE'd (init.yml checker form), batch-end unhandled (5/20 vs 25/25), CE output sanitised, 413 reachable, case-row fence, memory NaN, oj watch CE. Merge blocked by F-4's dirty tree → merge after F-4. Follow-ups: judge-disconnect abandonment channel (architectural), /packages/{hash} session-cookie access (auth), reclaimExpired dead code.
 - B-4 dispatched (worktree, opus): web UI area, D44–D45 reserved.
+- F-4 DONE (9e2acfc..7563793): editorials, D43, migration 0021.
+- B-3 merged (559ca30). Deployed together: web, api, judged (checker fix D40, batch-end), migrate 0021. Pushed. DECISIONS.md re-sorted (D40 had landed after D43).
