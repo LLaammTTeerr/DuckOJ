@@ -265,9 +265,28 @@ anything that mints, revokes or rewrites a credential, or grants a privilege
 that can be used to do so: without it, a leaked personal access token can
 disable its owner's TOTP (`POST /auth/totp/begin` upserts a new secret with
 `confirmedAt: null`) and mint its own replacements, so revoking the leaked
-token stops ending the compromise. This is *not* step-up re-authentication and
-it does not check `scopes` — `Actor.scopes` is still read by nothing, and what
-it should mean is a decision nobody has made yet.
+token stops ending the compromise. This is *not* step-up re-authentication, and
+it is not a scope check either — the two are separate mechanisms that happen to
+refuse the same callers here.
+
+**Scopes are read, and they constrain tokens only.** `ScopeGuard`
+(`apps/api/src/authn/scope.guard.ts`) is the second global `APP_GUARD`, and it
+reads `Actor.scopes` via `hasScope`. It denies by default: a token reaching a
+route with no `@RequireScope` is refused with `403 scope_required`, so
+forgetting the decorator fails closed exactly as forgetting `@Public()` does.
+Read `@RequireScope('x:y')` as *"tokens declaring `x:y` may also come here"*,
+never as *"this route is protected by `x:y`"* — a **session bypasses the check
+entirely** (`actor.via === 'session'` returns before any metadata is consulted),
+because scopes narrow a machine credential down from its owner's authority and
+there is nothing to narrow a present, interactive owner down from. So
+`GET /packages/{hash}` answers 200 to a signed-in user with no token and no
+scopes at all, and that is correct; see **D50**. A route that must refuse some
+*sessions* needs a role or visibility check in its service — a scope will never
+do it — and a route that must refuse tokens outright takes `@SessionOnly()`.
+
+Every route therefore carries exactly one of four markers — `@Public()`,
+`@RequireScope()`, `@NoScopeRequired()`, `@SessionOnly()` — which
+`test/route-marker-coverage.spec.ts` enforces.
 
 ## Adding a database table
 
