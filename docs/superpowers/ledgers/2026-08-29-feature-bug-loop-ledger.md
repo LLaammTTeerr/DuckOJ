@@ -46,3 +46,4 @@
 - F-10 DONE_WITH_CONCERNS, merged (211e7ad): guides + /help; web rebuilt, pushed. Owed: guide refresh for problem sets (F-9) and exports (F-12) once merged; admin.totpNote stale since D39; orphan key problem.editorialShow.
 - B-10 DONE_WITH_CONCERNS, merged: security headers + CSP at Caddy (D69), WS Origin check (D70), typst raw-fence injection, X-Powered-By; 8 cleared. api + caddy recreated; pushed. Owed: typst subprocess timeout/output cap; CSRF second layer.
 - e2e under CSP: 10/11 — journey 2 failed because D70's WS Origin check only allowed PUBLIC_ORIGIN (tailnet), refusing the localhost e2e browser. Fixed: WS_EXTRA_ORIGINS list (config + compose + .env); api redeployed; journey 2 rerunning.
+- UI DONE, merged (564c40f..71d27d4): Liquid Glass tokens + app.css rebuilt, D67, contrast ≥4.53:1 measured, zero JSX; web rebuilt + pushed. Owed: phone nav ≤5 items needs ShellNav JSX.
