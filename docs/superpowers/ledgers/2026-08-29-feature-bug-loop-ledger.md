@@ -19,3 +19,4 @@
 - F-4 DONE (9e2acfc..7563793): editorials, D43, migration 0021.
 - B-3 merged (559ca30). Deployed together: web, api, judged (checker fix D40, batch-end), migrate 0021. Pushed. DECISIONS.md re-sorted (D40 had landed after D43).
 - F-5 dispatched (main, opus): admin ops dashboard + reclaim (D47), real rank names (D46).
+- F-5 DONE (4413430..0ecb3cf): admin ops dashboard + reclaim (D47), rank names (D46 closes D6); deployed + pushed.
