@@ -3452,6 +3452,12 @@ exists to pin.
 *Ruled by the implementer during the 2026-08-30 deploy-safety loop (B-15
 brief), no human available to consult. No migration, no API change.*
 
+**Amended 2026-08-31 (B-19, D103):** "zero live workers" is not enough on its
+own. At `API_WORKERS=1` it is the same event as "a worker died", so one
+transient crash rolled a healthy build back. The breaker now also requires two
+exits inside the window from workers that never reached `STABLE_UPTIME_MS`.
+See D103.
+
 ## D86 — The api healthcheck must be ANSWERED by a worker, and must count them
 
 `node:cluster` has the **primary** bind port 3000 and hand accepted
@@ -4666,3 +4672,43 @@ route reached by a session is affected at all.
 
 *Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
 no human available to consult. No migration, one new refusal code.*
+
+## D103 — The crash-loop breaker needs two failed boots, not one dead fleet
+
+D85's rule is "zero live workers within 60 s of primary start". It was reasoned
+about with four workers in mind, where a build that cannot boot produces four
+exits and the rule reads exactly right. `API_WORKERS=1` is a supported mode —
+`resolveWorkerCount` documents it as "no clustering", and it is what a single
+small deployment runs — and there "a worker died" and "every worker is dead"
+are the same event. One transient crash in the first minute therefore exited
+the primary, and `scripts/deploy.sh`, whose entire job is to notice a non-zero
+exit, rolled back a healthy build.
+
+- **The breaker now needs `CRASH_LOOP_MIN_EXITS` (2) failed boots inside the
+  window, as well as an empty fleet.** A build that cannot boot dies again
+  about a second later, so the deploy still sees a real exit code well inside
+  its 45 s poll. One crash is an incident; two in a minute is the pattern the
+  next fork will repeat.
+- **A "failed boot" is an exit before `STABLE_UPTIME_MS` (30 s)** — the
+  threshold already in this file, the one that decides whether a death resets
+  the re-fork backoff, rather than a second number meaning nearly the same
+  thing. A worker that served for half a minute and then died is not evidence
+  that the build cannot boot: it demonstrably did. This makes the breaker
+  slightly *narrower* than D85 in one more case — a fleet that booted, served,
+  and then died all at once inside the first minute is now re-forked — which
+  is what D85's own text asks for ("a process that served for a day and then
+  loses its whole fleet at once is a different incident"); the only thing
+  special about the first minute was that D85 had no way to tell the two
+  apart.
+- **Multi-worker behaviour is unchanged**, deliberately: four workers dying on
+  boot is four exits, so the fleet-size case D85 shipped for still trips on
+  the death that empties the fleet. Pinned by a test that starts four.
+- **Counted from primary start, still.** D85's reason holds: this rule is
+  about a build that never booted, and a window anchored on the last death
+  would slide forward forever under a slow crash loop.
+- **The log line names the count**, because the number is the evidence: "after
+  2 failed boots" is what distinguishes this from the transient exit the same
+  line used to report.
+
+*Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
+no human available to consult. No migration, no API change; amends D85.*
