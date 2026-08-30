@@ -4168,3 +4168,125 @@ page every competitor has open. The link on the contest page is gated on
 to consult. Migration 0035.*
 
 
+
+## D99 — A team is one participant: one participation, one row, one name on the board
+
+"Thi đồng đội" — the ICPC shape. `teams` and `team_members` under an
+organization, `contests.participation_mode` (`individual` | `team`) and
+`contests.max_team_size`, and `contest_participations.team_id`. Migration
+**0036**; `apps/api/src/authz/team.access.ts`, `contest.teams.ts`,
+`apps/api/src/orgs/teams.controller.ts`, `packages/contracts/src/teams.ts`,
+`apps/web/src/routes/teams.tsx`.
+
+**The load-bearing sentence is the title.** A team participation is ONE row of
+`contest_participations`, held by whichever member pressed Join; every
+member's submissions with `?contest=` land on it; the scoreboard shows one
+row and prints the team's name. Nothing in `@duckoj/contest-formats` learned
+what a team is, and nothing had to: `ParticipantSpec.name` is only what the
+row prints and `participation_id` is what `lower()` matches on (D36), so a
+team is a participant with a different label. All 27 goldens and the 23
+replays are byte-identical, untouched.
+
+- **One participation per team, ever** — a partial unique index on
+  `(team_id, contest_id)`, which is also the foreign-key index the
+  `ON DELETE RESTRICT` needs (the missing-FK-index bug D47 and D95 each paid
+  for once). The teammate who presses Join second reads the row back if they
+  are the account that made it (`join`'s existing idempotency) and otherwise
+  gets 409 `contest_team_joined`. **There is therefore no virtual replay for
+  a team**, and a team that never entered is refused after the end with 409
+  `contest_team_no_virtual` rather than given `virtual = 1`. That is the
+  honest shape: a virtual attempt is a person re-sitting a finished paper,
+  and "the team re-sits it" is a different team every time its roster
+  changes.
+- **ONE resolver for "which participation does this person act under"**:
+  `actingParticipations` in `participation.ts` — their own rows, plus the
+  rows their teams hold. Four call sites asked that question as `user_id = ?`
+  (join's short-circuit, `GET /contests/{key}/me`, `resolveContestTarget`,
+  `ContestClarificationsService.ask`), and four independent widenings would
+  be four chances to reintroduce the split-predicate bug D22, D23 and D25
+  each record. The brief's "clarifications by any member" falls out of it for
+  free. It orders highest `virtual` first then lowest id, so the tie a
+  mid-contest roster edit can create resolves the same way on every request.
+- **A person holds at most one participation per contest**, enforced at join
+  (409 `contest_already_joined` when any member of the joining team already
+  competes, under their own name or on another team's row). Two rows for one
+  person would make the resolver above pick between them, would make
+  `setDisqualified` — keyed by username (D37) — move both, and would put one
+  competitor on the board twice with the same work counted each time.
+- **Disqualification needs no new route.** `PATCH
+  /contests/{key}/participants/{username}` takes the username of the member
+  whose account holds the row (the `captain`), and D37's "every participation
+  that user holds in this contest moves together" then moves exactly the team
+  row. The scoreboard's sidecar carries `captain` so the web can drive the
+  existing button; sending the team's NAME there answers 404 `user_not_found`,
+  which is a test in both suites.
+- **Two teams of the same name may not compete in one contest** (409
+  `contest_team_name_taken`, case-folded). The ranking row carries no
+  participation id — D36 declined to add one, and the goldens are why — so
+  every consumer downstream keys on the NAME: the board's `teams` sidecar,
+  the results sheet, the certificates, the similarity report's `{a}/{b}` pair
+  links. One check at the one moment the collision can be created costs a
+  query; teaching five readers to disambiguate a name would cost a response
+  shape. *Residual, stated rather than fixed:* two same-named teams joining
+  in the same instant are not serialised, and the loser of that race would
+  share the winner's sidecar entry — a display degradation, not a scoring
+  one, and closing it needs a lock on a table that has no natural one.
+- **The board's `teams` is a camelCase sidecar, absent for an individual
+  contest.** Built inside `computeScoreboard` from the same participation
+  rows the fold consumed, so it rides D25's two-second cache and cannot
+  describe a different board than the one beside it, and so `frozen` /
+  `frozenAt`'s precedent (D22 — DuckOJ's own additions are camelCase in a
+  snake_case object) covers it. Absent rather than `{}`, so no individual
+  contest's response changed at all.
+- **A team contest names at least one organization** (422
+  `contest_team_orgs_required`, on the merged state at create and at edit).
+  Teams are org-scoped, so a team contest attached to no school is one nobody
+  can name a team for — and it makes D56's join gate coherent in team mode,
+  where the team's school is one of the contest's own.
+- **`participation_mode` and `max_team_size` freeze at the start** (409
+  `contest_started`), D38's rule for D38's reason, compared by VALUE so an
+  edit form that PATCHes the whole body back is a no-op. Nothing can have
+  joined before the start, so a pre-start edit is always safe and is never
+  refused.
+- **The roster's ceiling and the contest's cap are different numbers.**
+  `TEAM_MAX_MEMBERS = 12` bounds the table; `contests.max_team_size` (three
+  by default, the ICPC roster) is what a contest admits, checked at join
+  (409 `contest_team_too_large`). One squad can then enter two contests with
+  different limits instead of being copied per contest.
+- **Teams are managed by an owner OR an admin of the school.** The brief said
+  "owner creates"; an organization `admin` is the rank that exists to do the
+  owner's day-to-day work, it is the rank D66 already gives a school's
+  homework, and D61's owner-only rule is about minting *accounts*, which this
+  does not. Reads are staff, a global admin, or somebody on the team — anybody
+  else gets 404 `team_not_found`, because a squad list read off the API the
+  morning of the round is reconnaissance.
+- **A roster edit during a running contest is allowed, deliberately.**
+  Membership is read, never frozen: a member removed mid-round stops being
+  able to submit for the team from that moment, and the participation and
+  every submission already on it are untouched. Freezing the roster at join
+  would need a snapshot table and would refuse the one edit an organiser
+  actually makes on contest day (a pupil who did not turn up).
+- **A team contest is never rated** (409 `contest_team_unrateable`).
+  Glicko-2 rates a person against the people they were measured with, and a
+  team row is three people sharing one result: crediting the captain rates
+  one member for the work of three, crediting all three rates each for a
+  performance none produced alone. Refused inside `setRated`, which is the
+  only writer of `is_rated`, so the replay is safe by construction rather
+  than by a filter that could drift.
+- **The exports follow the row.** The results sheet prints the team's name
+  and — only for a team contest — a `members` column (D71's header row is the
+  file's contract with whatever reads it next, so an always-present empty
+  column would break every file already exported). The `orgs` column is the
+  TEAM's school, not the captain's own memberships: "which school is this
+  entry from" is the question the column exists to answer. A certificate is
+  one per team listing its people, and `?username=` matches the team's name
+  **or any member's account** — an organiser reprinting a lost certificate
+  knows the pupil, not necessarily which name holds the row.
+- **The similarity report labels by team, and therefore never reports a team
+  against itself.** D77 compares one submission per participant per problem;
+  a team is one participant, so three teammates' independent attempts at one
+  problem are one entry rather than three suspiciously similar competitors.
+  Teammates sharing code is what a team contest IS.
+
+*Ruled by the implementer during the 2026-08-30 F-24 loop, no human available
+to consult. Migration 0036.*
