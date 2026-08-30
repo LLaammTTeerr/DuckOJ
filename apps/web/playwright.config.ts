@@ -35,6 +35,11 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL,
+    // D82: cookie-authenticated writes must carry an allowed `Origin`. A real
+    // browser stamps it on every fetch; `page.request` does not, so the
+    // journeys' direct API calls (register, seed, submit) would be refused
+    // 403 `csrf_origin` without this. Harmless on navigations.
+    extraHTTPHeaders: { Origin: baseURL },
     // The stack serves plain HTTP on :8080 and Caddy's TLS on :8443 is
     // self-signed, so accept it if someone points E2E_BASE_URL there.
     ignoreHTTPSErrors: true,
