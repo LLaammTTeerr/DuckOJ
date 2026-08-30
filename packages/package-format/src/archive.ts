@@ -154,3 +154,52 @@ export async function readArchiveEntry(
 
   return found;
 }
+
+/**
+ * The bytes of several entries in ONE pass, keyed by path; a path the archive
+ * does not contain is simply absent from the map.
+ *
+ * `readArchiveEntry` in a loop would inflate — and re-parse — the whole
+ * archive once per file, and the caller that needs this (the API reading a
+ * problem's samples: a manifest plus two files per sample) asks for five or
+ * six paths at a time out of a package that may be hundreds of megabytes.
+ * One inflate, one parse, every requested entry collected as it goes by.
+ *
+ * The drain rule from `readArchiveEntry` applies unchanged and for the same
+ * reason: an entry that is neither collected nor `resume()`d stalls the
+ * parser forever. `wanted` is a Set, so asking for the same path twice costs
+ * nothing and yields one entry.
+ */
+export async function readArchiveEntries(
+  archive: Buffer,
+  paths: readonly string[],
+  maxUnpackedBytes: number = MAX_UNPACKED_BYTES,
+): Promise<Map<string, Buffer>> {
+  const found = new Map<string, Buffer>();
+  if (paths.length === 0) return found;
+  const wanted = new Set(paths);
+  const tarBytes = inflate(archive, maxUnpackedBytes);
+
+  const parser = new Parser({
+    onReadEntry: (entry) => {
+      if (wanted.has(entry.path) && !found.has(entry.path)) {
+        const path = entry.path;
+        const chunks: Buffer[] = [];
+        entry.on('data', (chunk: Buffer) => chunks.push(chunk));
+        entry.on('end', () => {
+          found.set(path, Buffer.concat(chunks));
+        });
+      } else {
+        entry.resume();
+      }
+    },
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    parser.on('error', reject);
+    parser.on('end', resolve);
+    parser.end(tarBytes);
+  });
+
+  return found;
+}

@@ -2,7 +2,13 @@ import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { MAX_UNPACKED_BYTES, packDirectory, readArchiveEntry, unpackArchive } from '../src/archive.js';
+import {
+  MAX_UNPACKED_BYTES,
+  packDirectory,
+  readArchiveEntries,
+  readArchiveEntry,
+  unpackArchive,
+} from '../src/archive.js';
 
 async function fixture(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'pkg-'));
@@ -123,4 +129,26 @@ describe('a decompression bomb', () => {
     expect(MAX_UNPACKED_BYTES).toBeGreaterThan(0);
     expect(Number.isFinite(MAX_UNPACKED_BYTES)).toBe(true);
   });
+});
+
+describe('readArchiveEntries', () => {
+  it('returns every requested entry from one pass, verbatim bytes included', async () => {
+    const { archive } = await packDirectory(await fixture());
+    const found = await readArchiveEntries(archive, ['tests/01.in', 'tests/01.out']);
+    expect([...found.keys()].sort()).toEqual(['tests/01.in', 'tests/01.out']);
+    // Trailing newline and all — a sample's bytes are fed to a program.
+    expect(found.get('tests/01.in')!.toString('utf8')).toBe('1 2\n');
+  }, 30_000);
+
+  it('omits a path the archive does not contain rather than failing', async () => {
+    const { archive } = await packDirectory(await fixture());
+    const found = await readArchiveEntries(archive, ['tests/01.in', 'tests/99.in']);
+    expect(found.has('tests/99.in')).toBe(false);
+    expect(found.has('tests/01.in')).toBe(true);
+  }, 30_000);
+
+  it('asks for nothing and reads nothing', async () => {
+    const { archive } = await packDirectory(await fixture());
+    expect((await readArchiveEntries(archive, [])).size).toBe(0);
+  }, 30_000);
 });
