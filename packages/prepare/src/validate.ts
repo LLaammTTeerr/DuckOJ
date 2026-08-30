@@ -16,7 +16,7 @@ import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { parseManifest } from '@duckoj/package-format';
+import { isSampleTest, parseManifest } from '@duckoj/package-format';
 
 import { blockingFlags } from './flags.js';
 import { sourceJudge, standardJudge, type Judge } from './judge.js';
@@ -364,6 +364,69 @@ async function checkMatrix(
   return pass('matrix', `${String(declared.length)} declared solution(s) got their expected verdicts`, observed);
 }
 
+/**
+ * The samples (D94): every one has both files, and every explanation names a
+ * sample.
+ *
+ * `checkTests` already proves each test's two files exist, so on paper this
+ * is a subset of it. It is a check of its own because the FAILURE reads
+ * differently and lands somewhere else: a missing jury file is a broken
+ * package, while a missing SAMPLE file is a problem that publishes with one
+ * fewer worked example than the setter wrote — the API drops a half-sample
+ * rather than showing an empty one, silently, which is exactly what a gate is
+ * for. It also reports the count, so "this problem ships no examples at all"
+ * is visible in the report rather than inferred from its absence.
+ */
+async function checkSamples(problem: PreparedProblem): Promise<PrepareCheck> {
+  const isSample = isSampleTest(problem.manifest.tests);
+  const samples = problem.tests.filter((test) =>
+    isSample({ input: test.packageInput, answer: test.packageAnswer, points: test.points, group: test.group }),
+  );
+  if (samples.length === 0) {
+    // `skip`, not `fail`. This gate answers "does the package deliver the
+    // samples it declares", and a directory that declares none is a directory
+    // the check does not apply to — the same reading `skip` has for a problem
+    // with no validator. Turning "publishes no worked example" into a
+    // blocking failure is a judgement about the PROBLEM, not about the
+    // package, and it would fail every problem prepared before D94. The
+    // message says what would have been read, so nobody mistakes this for a
+    // pass.
+    return skip(
+      'samples',
+      'no sample tests to check — a sample is a case worth 0 points in a group worth 0 ' +
+        '(D87/D94), and GET /problems/{code} will publish none',
+    );
+  }
+
+  const missing: string[] = [];
+  for (const sample of samples) {
+    if ((await fileSize(sample.inputPath)) === null) missing.push(`${sample.id}: input ${sample.inputPath}`);
+    if ((await fileSize(sample.answerPath)) === null) missing.push(`${sample.id}: answer ${sample.answerPath}`);
+  }
+  if (missing.length > 0) {
+    return fail('samples', `${String(missing.length)} sample file(s) missing`, missing);
+  }
+
+  // `parseManifest` refuses an explanation on a non-sample outright, so the
+  // only way to reach this is a hand-edited manifest — which is exactly who
+  // this line is for, since the refusal it would otherwise meet happens at
+  // upload, one step away from the file being wrong.
+  const samplePaths = new Set(samples.map((s) => s.packageInput));
+  const orphaned = (problem.manifest.samples ?? [])
+    .filter((annotation) => !samplePaths.has(annotation.input))
+    .map((annotation) => annotation.input);
+  if (orphaned.length > 0) {
+    return fail('samples', `${String(orphaned.length)} explanation(s) name a test that is not a sample`, orphaned);
+  }
+
+  const explained = (problem.manifest.samples ?? []).length;
+  return pass(
+    'samples',
+    `${String(samples.length)} sample(s), ${String(explained)} with an explanation`,
+    samples.map((s) => s.id),
+  );
+}
+
 export async function validateProblem(
   problem: PreparedProblem,
   options: ValidateOptions = {},
@@ -373,6 +436,7 @@ export async function validateProblem(
     checkStatement(problem),
     checkManifest(problem),
     await checkTests(problem),
+    await checkSamples(problem),
     checkLimits(problem),
     checkFlags(problem),
   ];

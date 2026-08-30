@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { loadProblem, validateProblem, type PrepareCheck, type PrepareReport } from '../src/index.js';
-import { cleanupFixtures, cloneFixture } from './helpers.js';
+import { cleanupFixtures, cloneFixture, write } from './helpers.js';
 
 afterAll(cleanupFixtures);
 
@@ -186,6 +186,72 @@ describe('the expected-verdict matrix', () => {
       const report = await gate(dir);
       expect(check(report, 'matrix').status).toBe('fail');
       expect(JSON.stringify(check(report, 'matrix').data)).toContain('no such group');
+    },
+    SLOW,
+  );
+});
+
+/**
+ * D94's samples. `polygon-good` deliberately declares none — every test in it
+ * scores — so each case here turns its first test into a sample the way a
+ * Polygon package actually does: zero points in a group worth zero.
+ */
+describe('the samples check', () => {
+  async function withSample(description = ''): Promise<string> {
+    const dir = await cloneFixture('polygon-good');
+    const xmlPath = join(dir, 'problem.xml');
+    const xml = await readFile(xmlPath, 'utf8');
+    await write(
+      xmlPath,
+      xml
+        .replace(
+          '<test method="manual" sample="false" points="50" group="g1"/>\n        <test method="manual" sample="false" points="50" group="g1"/>',
+          `<test method="manual" sample="true" points="0" group="samples"${description}/>\n        <test method="manual" sample="false" points="100" group="g1"/>`,
+        )
+        .replace(
+          '<group name="g1" points="100"',
+          '<group name="samples" points="0"/>\n        <group name="g1" points="100"',
+        ),
+    );
+    return dir;
+  }
+
+  it(
+    'passes and counts the samples, and the explanations among them',
+    async () => {
+      const report = await gate(await withSample(' description="Cộng hai số."'));
+      const samples = check(report, 'samples');
+      expect(samples.status).toBe('pass');
+      expect(samples.detail).toContain('1 sample(s), 1 with an explanation');
+      expect(report.ok).toBe(true);
+    },
+    SLOW,
+  );
+
+  it(
+    'fails, naming the file, when a sample is missing one of its two files',
+    async () => {
+      const dir = await withSample();
+      // The jury answer for the SAMPLE: the API drops a half-sample silently,
+      // which is exactly what a gate is for.
+      await rm(join(dir, 'tests', '01.a'));
+      const report = await gate(dir);
+      const samples = check(report, 'samples');
+      expect(samples.status).toBe('fail');
+      expect(JSON.stringify(samples.data)).toContain('01.a');
+      expect(report.ok).toBe(false);
+    },
+    SLOW,
+  );
+
+  it(
+    'skips — never quietly passes — a package that declares no samples at all',
+    async () => {
+      const report = await gate(await cloneFixture('polygon-good'));
+      const samples = check(report, 'samples');
+      expect(samples.status).toBe('skip');
+      expect(samples.detail).toContain('no sample tests');
+      expect(report.ok).toBe(true);
     },
     SLOW,
   );
