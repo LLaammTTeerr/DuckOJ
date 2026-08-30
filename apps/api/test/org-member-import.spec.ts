@@ -39,8 +39,11 @@ function actorFor(userId: number, globalRole: Actor['globalRole'] = 'user'): Act
 }
 
 function importService(db: Db): OrgImportService {
-  const notifications = new NotificationsService(db);
-  return new OrgImportService(db, new OrgAccessService(db, notifications), new RateLimiter(db), notifications);
+  return new OrgImportService(
+    db,
+    new OrgAccessService(db, new NotificationsService(db)),
+    new RateLimiter(db),
+  );
 }
 
 async function seedOrg(

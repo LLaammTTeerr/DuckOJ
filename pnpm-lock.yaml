@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@duckoj/contracts':
+        specifier: workspace:*
+        version: link:packages/contracts
       '@duckoj/db':
         specifier: workspace:*
         version: link:packages/db

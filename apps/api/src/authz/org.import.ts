@@ -18,7 +18,6 @@ import type {
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { RateLimiter } from '../common/rate-limiter.js';
-import { NotificationsService } from '../notifications/notifications.service.js';
 import type { Actor } from './actor.js';
 import { OrgAccessService } from './org.access.js';
 import {
@@ -55,7 +54,6 @@ export class OrgImportService {
     @Inject(DB) private readonly db: Db,
     @Inject(OrgAccessService) private readonly orgs: OrgAccessService,
     @Inject(RateLimiter) private readonly limiter: RateLimiter,
-    @Inject(NotificationsService) private readonly notifications: NotificationsService,
   ) {}
 
   async importMembers(
@@ -106,17 +104,10 @@ export class OrgImportService {
 
     const prepared = await prepareAccounts(validated);
     try {
-      await runImport(this.db, org, prepared, async (tx, ownerIds, created) => {
-        // D14, in the same transaction as the accounts themselves: owners
-        // being told about accounts that were rolled back would be worse than
-        // not being told at all. `notifyMany` is one statement whatever the
-        // number of owners.
-        await this.notifications.notifyMany(tx, ownerIds, 'org_members_imported', {
-          orgSlug: org.slug,
-          count: created,
-          by: actor.userId,
-        });
-      });
+      // The owners' notification (D14) is written by `runImport` itself,
+      // inside its transaction — see that function for why it is not routed
+      // through `NotificationsService` like every other producer.
+      await runImport(this.db, org, prepared, actor.userId);
     } catch (error) {
       // Somebody registered one of these usernames during the seconds this
       // call spent hashing. The transaction rolled back, so nothing was

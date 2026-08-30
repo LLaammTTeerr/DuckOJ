@@ -468,6 +468,48 @@ From then on, that admin can grant `setter` (or further `admin`) to anyone
 else through `PATCH /admin/users/:username` — this one bootstrap step only
 has to happen once per database.
 
+### Bulk student accounts for a school — `scripts/org-import.ts` (D61)
+
+A province seats thousands of pupils who will never self-register. An owner
+of the organization does this from the web ("Nhập danh sách học sinh" on the
+organization page); an admin with no browser does it here:
+
+    DATABASE_URL=postgres://duckoj:...@localhost:5432/duckoj \
+      corepack pnpm org:import thpt-chuyen-a roster.csv > accounts.csv
+
+`roster.csv` is one line per pupil — `username,displayName,email` — with an
+optional header row (`username`/`tên đăng nhập`, `name`/`họ tên`, `email` are
+recognised, in any column order) and an optional third column; comma,
+semicolon and tab all separate. At most 2,000 rows per run.
+
+    username,họ tên
+    hs2026001,Nguyễn Văn A
+    hs2026002,Trần Thị B
+
+Everything is validated first and the run is **all or nothing**: one bad row
+prints every bad row to stderr, exits 2, and creates nothing. Otherwise each
+account is created with a generated twelve-character password, flagged
+`must_change_password`, and added to the organization as a `member`; the
+credential sheet goes to **stdout** (so `>` works) and the warning to stderr.
+Those passwords are argon2id-hashed on the way in and exist nowhere else —
+there is no second chance to read them.
+
+`--dry-run` validates and creates nothing. `--out accounts.csv` writes the
+sheet to a file instead of stdout.
+
+The command reaches `DATABASE_URL` directly rather than calling the API,
+because `POST /orgs/{slug}/members/import` is `@SessionOnly` and a personal
+access token is refused before the handler runs (D61). It is not a second
+implementation: the validation, the password alphabet, the transaction and
+the owners' notification all come from
+`apps/api/src/authz/org-import.core.ts`, the module the API itself runs —
+the same arrangement `bootstrap-admin.ts` has with `password.hash.ts`.
+Reaching the database IS the authority here, so there is no owner check and
+no rate limit, exactly as for `bootstrap:admin`.
+
+Against a running stack, the one-off-container form above applies unchanged
+with `scripts/org-import.ts` in place of `scripts/bootstrap-admin.ts`.
+
 **Recovery fallback.** If the script cannot be run at all — no worktree on
 the host, no image to run it from, only a `psql` prompt — the single
 statement it replaces still works, and remains the documented last resort

@@ -17,9 +17,11 @@
     "seed": "tsx scripts/seed-problem.ts",
     "package:build": "tsx scripts/package-build.ts",
     "polygon:import": "tsx scripts/polygon-import.ts",
-    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts"
+    "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
+    "org:import": "tsx scripts/org-import.ts"
   },
   "dependencies": {
+    "@duckoj/contracts": "workspace:*",
     "@duckoj/db": "workspace:*",
     "@duckoj/package-format": "workspace:*",
     "@duckoj/polygon-import": "workspace:*",

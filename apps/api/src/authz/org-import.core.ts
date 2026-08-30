@@ -27,7 +27,7 @@ import { randomInt } from 'node:crypto';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { DisplayName, Username } from '@duckoj/contracts';
 import { schema, type Db } from '@duckoj/db';
-import { orgMembers } from '@duckoj/db/guarded';
+import { orgMembers, organizations } from '@duckoj/db/guarded';
 import { hashPassword } from '../authn/password.hash.js';
 
 /**
@@ -486,7 +486,7 @@ export async function runImport(
   db: Db,
   org: { id: number; slug: string },
   prepared: PreparedAccount[],
-  onOwnersNotified?: (tx: Db, ownerIds: number[], created: number) => Promise<void>,
+  by: number | null,
 ): Promise<void> {
   const now = new Date();
   await db.transaction(async (tx) => {
@@ -517,15 +517,27 @@ export async function runImport(
         })),
       );
     }
-    if (onOwnersNotified) {
-      const owners = await tx
-        .select({ userId: orgMembers.userId, role: orgMembers.role })
-        .from(orgMembers)
-        .where(and(eq(orgMembers.orgId, org.id), eq(orgMembers.role, 'owner')));
-      await onOwnersNotified(
-        tx as unknown as Db,
-        owners.map((o) => o.userId),
-        prepared.length,
+    // D14, in the SAME transaction as the accounts: owners told about a
+    // roster that then rolled back would be worse than not being told.
+    //
+    // Written here rather than through `NotificationsService.notifyMany`,
+    // which is otherwise the one writer of this table. The reason is the
+    // reason this whole module is framework-free: that service is
+    // `@Injectable`, `scripts/tsconfig.json` cannot compile a decorator, and
+    // routing the notification through it would mean `org:import` silently
+    // did not send one — an operator import that owners never hear about is
+    // the case where the notification matters most.
+    const owners = await tx
+      .select({ userId: orgMembers.userId })
+      .from(orgMembers)
+      .where(and(eq(orgMembers.orgId, org.id), eq(orgMembers.role, 'owner')));
+    if (owners.length > 0) {
+      await tx.insert(schema.notifications).values(
+        owners.map((owner) => ({
+          userId: owner.userId,
+          kind: 'org_members_imported',
+          payload: { orgSlug: org.slug, count: prepared.length, by },
+        })),
       );
     }
   });
@@ -546,4 +558,25 @@ export function credentialsCsv(created: ImportedCredential[]): string {
     lines.push([row.username, row.displayName, row.password].map(escape).join(','));
   }
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * One organization by slug, case-folded to match `organizations_slug_lower_idx`.
+ *
+ * Here rather than on `OrgAccessService` because `scripts/org-import.ts` needs
+ * it and cannot instantiate a Nest provider. It answers `undefined` rather
+ * than throwing: the CLI's message for "no such school" is its own, and the
+ * API path never reaches this — `loadForOwner` has already decided both
+ * visibility and authority before any of this module runs.
+ */
+export async function findOrgBySlug(
+  db: Db,
+  slug: string,
+): Promise<{ id: number; slug: string; name: string } | undefined> {
+  const rows = await db
+    .select({ id: organizations.id, slug: organizations.slug, name: organizations.name })
+    .from(organizations)
+    .where(sql`lower(${organizations.slug}) = lower(${slug})`)
+    .limit(1);
+  return rows[0];
 }
