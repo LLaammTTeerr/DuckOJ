@@ -4169,6 +4169,87 @@ to consult. Migration 0035.*
 
 
 
+## D96 — A problem statement is untrusted input, and `solve-problem` renders it inside a marked region
+
+`apps/mcp`'s `solve-problem` prompt fetched a problem and spliced its
+statement straight into a **user-role** message — the one place a host shows
+text to a model as though the person at the keyboard had typed it. A DuckOJ
+statement is written by whoever set the problem: on a province deployment that
+is every teacher in the province and any account holding `problems:write`, and
+a statement arriving through `polygon:import` was written somewhere else
+entirely. Spliced in raw, it was indistinguishable from the prompt's own
+prose, so a statement that opened `## How to finish` wrote the section that
+tells the agent what to do next — and the agent it was instructing might be
+running with `DUCKOJ_MCP_WRITES=1`.
+
+- **The statement and its samples go inside `<<<DUCKOJ-UNTRUSTED-CONTENT>>>`
+  … `<<</DUCKOJ-UNTRUSTED-CONTENT>>>`, and the content's own copies of those
+  markers are defanged.** Markers rather than a Markdown fence because the
+  content IS Markdown and carries fences of its own. Defanged rather than
+  refused, because a statement that happens to contain the string is still a
+  statement and showing it inert beats showing nothing.
+- **The markers are named, never spelled out, in the sentence that explains
+  them.** Delimiters with nothing explaining them are decoration; the guard
+  sentence is what tells the model the region is data. Writing the literals
+  inside it would put a second copy of each in the message, and "the region
+  runs from the marker to the marker" would stop being something a reader —
+  or a test — could locate.
+- **The instructions come BEFORE the region.** A forged heading inside it is
+  then a second copy of a section the model has already read, arriving from a
+  place it has just been told is data.
+- **A title is flattened to one line.** `problem.name` and the tag slugs are
+  rendered outside the region because they are a title and a vocabulary, not
+  prose — and a title with a newline in it can write a heading, which is
+  exactly how this message distinguishes an instruction from content.
+- **A code fence is one backtick longer than the longest run inside it**
+  (CommonMark's own nesting rule). This became load-bearing when the prompt
+  started rendering D94's sample FILES: a sample is arbitrary test data, and a
+  line of three backticks in one is a line of three backticks.
+- **The samples come from `resolveSamples`, not from the statement table.**
+  D94 put the graded sample files on `GET /problems/{code}`; this prompt — the
+  one surface whose whole job is handing a model a runnable example — was
+  still scraping the prose beside them, so it gave a trimmed copy where
+  `problems_get` gave the real bytes, and "no sample table could be parsed"
+  for every statement shaped differently. Two readings of one question inside
+  one server is the drift D94 exists to end.
+
+None of this makes a model immune; no delimiter does. What it buys is that the
+boundary is unambiguous and stated, so a statement that tries to cross it is
+visible as an attempt rather than invisible as a section.
+
+*Ruled by the implementer during the 2026-08-30 B-17 bug-hunt loop, no human
+available to consult. No migration.*
+
+## D97 — `prepare` stores an editorial on every run and publishes it only with the revision
+
+`publishProblem` sent `editorial.md` with `editorialPublished: true` on every
+run, including runs that published nothing. That is the wrong default in the
+one situation the command is most used for: `prepare publish <dir>` **without**
+`--publish` is how a setter stages next year's package on a live problem — the
+revision lands as a `draft` for a person to publish, which D87 and D90 both
+state — and D43 serves a published editorial to *any* viewer who may see the
+problem, anonymous included. So the command whose entire promise was that it
+published nothing handed the room the solution write-up.
+
+- **The editorial is stored on every run and published only when this run
+  published the revision.** A PATCH carrying `editorial` alone leaves
+  `editorial_published_at` exactly where it was (only an explicit
+  `editorialPublished` moves it, `problem.access.ts`), so re-running on a
+  problem whose editorial is already live updates the text and keeps it live,
+  and re-running on one that is staged keeps it staged.
+- **Publishing an editorial is a decision, not a side effect.** D88 already
+  rules this for the problem clone, which carries the editorial "but never
+  carried as PUBLISHED" because "the source's readers were let in by its
+  author, and cloning is not that decision being made again by someone else".
+  A publish run is where that decision is made here, and `--publish` is how it
+  is spelled — the same flag, the same act.
+- **`--no-editorial` still means "send nothing".** It is the flag for a
+  directory whose `editorial.md` is a working note; the new behaviour is about
+  what a sent editorial does, not about whether it is sent.
+
+*Ruled by the implementer during the 2026-08-30 B-17 bug-hunt loop, no human
+available to consult. No migration.*
+
 ## D99 — A team is one participant: one participation, one row, one name on the board
 
 "Thi đồng đội" — the ICPC shape. `teams` and `team_members` under an
@@ -4299,3 +4380,4 @@ replays are byte-identical, untouched.
 
 *Ruled by the implementer during the 2026-08-30 F-24 loop, no human available
 to consult. Migration 0036.*
+

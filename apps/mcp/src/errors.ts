@@ -16,6 +16,8 @@
  * than a person does.
  */
 
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
+
 /** The `application/problem+json` body every DuckOJ refusal carries. */
 export interface ProblemJson {
   title?: string;
@@ -187,4 +189,52 @@ export function asApiFailure(err: unknown): ApiFailure {
     status: 0,
     detail: err instanceof Error ? err.message : String(err),
   });
+}
+
+/**
+ * The same refusal, for a RESOURCE or a PROMPT handler.
+ *
+ * A tool result has a place to put a refusal — `isError` plus a content block
+ * — and `buildServer` fills it with `summary()` and `toJSON()`. Resources and
+ * prompts have no such place: the protocol carries a JSON-RPC error, and the
+ * SDK builds one out of whatever the handler threw, which for a bare `Error`
+ * is `-32603 Internal error` and `err.message` alone. That drops everything
+ * D89 says a refusal must carry — the machine `code` to branch on, the
+ * `status`, and D80's `retryAfterSeconds` — and, worse, mislabels it:
+ * `insufficient_scope` reported as an *internal error* reads as a transient
+ * fault worth retrying, when the only fix is a wider token and no retry will
+ * ever work.
+ *
+ * So the message is the tool result's two lines, verbatim, and the JSON-RPC
+ * code is chosen: `InvalidParams` when the thing named does not exist (or the
+ * caller may not see it — for DuckOJ reads those are one answer), and
+ * `InternalError` otherwise, which is what the code actually means.
+ */
+export function asHandlerError(err: unknown): McpError {
+  const failure = asApiFailure(err);
+  return new McpError(
+    failure.status === 404 ? ErrorCode.InvalidParams : ErrorCode.InternalError,
+    `${failure.summary()}\n${JSON.stringify(failure.toJSON())}`,
+  );
+}
+
+/**
+ * Wraps a resource or prompt handler so every refusal leaves through
+ * {@link asHandlerError}.
+ *
+ * A wrapper rather than a `try`/`catch` in each of the six handlers: the one
+ * that gets added next would be the one that forgets, and "every handler
+ * translates its refusal" is only true if it is a property of the
+ * registration rather than of six bodies.
+ */
+export function guarded<Args extends unknown[], Result>(
+  handler: (...args: Args) => Result | Promise<Result>,
+): (...args: Args) => Promise<Result> {
+  return async (...args: Args): Promise<Result> => {
+    try {
+      return await handler(...args);
+    } catch (err) {
+      throw asHandlerError(err);
+    }
+  };
 }

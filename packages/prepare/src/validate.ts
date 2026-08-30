@@ -259,11 +259,25 @@ async function runSolution(
   return outcomes;
 }
 
+/**
+ * The model check, and the one verdict that is not about the model.
+ *
+ * `FAIL` is testlib's "the checker refused to judge" — it crashed, it could
+ * not open the jury answer, it hit `quitf(_fail, …)` — and `model.ts` already
+ * says of it that "a package bug must never be masked by a solution's own
+ * failure". Counting it among "answers the model did not reproduce" masks it
+ * exactly: the report then reads `checker: compiles` and `model: does not
+ * reproduce 2 of 2 answer(s)`, and a setter goes and debugs a correct
+ * program. So a `FAIL` is handed BACK as a replacement for the `checker`
+ * line, and the model check becomes the same `skip` it already gets when the
+ * checker did not build — nothing decided its answers, so nothing claims to
+ * have.
+ */
 async function checkModel(
   problem: PreparedProblem,
   judge: Judge | null,
   workDir: string,
-): Promise<{ check: PrepareCheck; binary: string | null }> {
+): Promise<{ check: PrepareCheck; binary: string | null; checkerOverride?: PrepareCheck }> {
   if (problem.modelPath === null) {
     return { check: fail('model', 'no model solution (@tag main, or solution.cpp) in this directory'), binary: null };
   }
@@ -279,6 +293,20 @@ async function checkModel(
     return { check: skip('model', 'the checker did not compile, so no answer can be checked'), binary };
   }
   const outcomes = await runSolution(problem, binary, judge, workDir, 'model');
+  const refused = outcomes.filter((o) => o.verdict === 'FAIL');
+  if (refused.length > 0) {
+    return {
+      checkerOverride: fail(
+        'checker',
+        `${problem.checkerSourcePath ?? 'the standard comparison'} compiles but returned FAIL on ` +
+          `${String(refused.length)} of ${String(outcomes.length)} test(s) — a FAIL is the CHECKER ` +
+          'refusing to judge (it crashed, or could not read its files), never the solution disagreeing',
+        refused,
+      ),
+      check: skip('model', 'the checker returned FAIL, so no answer could be checked'),
+      binary,
+    };
+  }
   const bad = outcomes.filter((o) => o.verdict !== 'OK');
   const slowest = outcomes.reduce((max, o) => Math.max(max, o.wallMs), 0);
   if (bad.length > 0) {
@@ -453,11 +481,25 @@ export async function validateProblem(
     const owned = options.workDir === undefined;
     try {
       const checker = await buildChecker(problem, workDir);
+      // The slot is remembered rather than the line appended twice: a checker
+      // that compiles and then refuses to judge is one finding about one
+      // thing, and a report carrying both `checker: compiles` and
+      // `checker: returned FAIL` would be a report that contradicts itself.
+      const checkerSlot = checks.length;
       checks.push(checker.check);
       checks.push(await checkValidator(problem, workDir));
       const model = await checkModel(problem, checker.judge, workDir);
       checks.push(model.check);
-      checks.push(await checkMatrix(problem, checker.judge, workDir));
+      if (model.checkerOverride !== undefined) {
+        checks[checkerSlot] = model.checkerOverride;
+      }
+      // A checker that refuses to judge decides nothing about the wrong
+      // solutions either, so the matrix is skipped exactly as it is when the
+      // checker did not build — the same `judge === null` path, for the same
+      // reason.
+      checks.push(
+        await checkMatrix(problem, model.checkerOverride === undefined ? checker.judge : null, workDir),
+      );
     } finally {
       if (owned) await rm(workDir, { recursive: true, force: true });
     }

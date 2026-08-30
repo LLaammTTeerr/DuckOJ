@@ -114,6 +114,52 @@ describe('a checker that does not compile', () => {
   );
 });
 
+describe('a checker that compiles but crashes', () => {
+  it(
+    'blames the checker, not the model solution',
+    async () => {
+      // The hardest case to attribute and the easiest to get wrong: the
+      // checker builds, so the `checker` check passes, and then every test
+      // comes back `FAIL` — testlib's code for "the checker refused to
+      // judge", which `model.ts` already says out loud is "a package bug
+      // [that] must never be masked by a solution's own failure". Reported as
+      // a model failure it sends a setter to debug a program that is correct.
+      const dir = await cloneFixture('polygon-checker');
+      await writeFile(join(dir, 'check.cpp'), '#include <cstdlib>\nint main() { abort(); }\n');
+      const report = await gate(dir);
+
+      const checker = check(report, 'checker');
+      expect(checker.status).toBe('fail');
+      expect(checker.detail).toMatch(/FAIL/);
+
+      // Nothing could decide the model's answers, so nothing claims to have.
+      expect(check(report, 'model').status).toBe('skip');
+      expect(check(report, 'model').detail).not.toMatch(/does not reproduce/);
+      expect(check(report, 'matrix').status).toBe('skip');
+      expect(report.ok).toBe(false);
+    },
+    SLOW,
+  );
+
+  it(
+    'still blames the checker when it exits with testlib’s own _fail code',
+    async () => {
+      // A crash is a signal; `_fail` is exit 3. Both are FAIL and both are
+      // the checker's, and a gate that only recognised the crash would let
+      // the deliberate one through as a wrong model solution.
+      const dir = await cloneFixture('polygon-checker');
+      await writeFile(
+        join(dir, 'check.cpp'),
+        '#include <cstdio>\nint main() { fprintf(stderr, "jury answer unreadable\\n"); return 3; }\n',
+      );
+      const report = await gate(dir);
+      expect(check(report, 'checker').status).toBe('fail');
+      expect(check(report, 'model').status).toBe('skip');
+    },
+    SLOW,
+  );
+});
+
 describe('a model solution that disagrees with the answers', () => {
   it(
     'fails the model check and reports which tests it got wrong',

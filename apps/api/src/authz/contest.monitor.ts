@@ -28,10 +28,32 @@
  * time window bounds the rows a query returns; only an index bounds the rows
  * it scans (D47's amendment, the sentence that cost migration 0025). So:
  *
- * - the per-problem counts and the feed enter `contest_submissions` through
+ * - the FEED enters `contest_submissions` through
  *   `contest_submissions_contest_problem_idx` (migration 0035) — before it,
- *   there was no index into that table from a contest at all, and each panel
- *   scanned every contest submission the deployment had ever taken;
+ *   there was no index into that table from a contest at all, and it scanned
+ *   every contest submission the deployment had ever taken. Measured on a
+ *   seeded 100k-row fixture (B-17): `Index Scan Backward using
+ *   contest_submissions_contest_problem_idx`, 82 shared buffers, 1.4 ms;
+ * - the PER-PROBLEM counts do **not**, and this line used to claim they did.
+ *   `problems()` is a grouped outer join, and Postgres answers it by hashing
+ *   the whole of `contest_submissions` and the whole of `submissions`
+ *   whichever contest is asked for. Measured on the same fixture with the
+ *   100k rows belonging to a DIFFERENT contest and 200 to this one:
+ *   `Seq Scan on contest_submissions (rows=100200)` + `Seq Scan on
+ *   submissions (rows=100200)`, 32 ms, to produce ten rows of twenty. So this
+ *   panel is bounded by the deployment's history and not by the contest,
+ *   which is exactly what D47's amendment says an index is for.
+ *   **Not fixed here, and the reason is recorded rather than hidden:** a
+ *   correlated `LATERAL` per contest problem does drive
+ *   `contest_submissions` through 0035 (bitmap index scan, 20 rows per
+ *   problem) and then measures WORSE — 98 ms — because the planner's
+ *   ~5010-rows-per-problem estimate makes it hash all of `submissions` ten
+ *   times over instead of once. Both rewrites tried were slower at this
+ *   scale; what this panel actually wants is either a per-`contest_problem`
+ *   counter maintained on write or a `verdict` reachable from
+ *   `contest_submissions` without the join, and both are a schema decision
+ *   rather than a query one. The 5 s cache below is what stands in for it
+ *   today, and it is not enough at a season's worth of rows;
  * - the feed is a `LATERAL` top-50 per problem, so it reads at most
  *   `50 × problems` rows however large the contest is, rather than sorting
  *   the whole contest to discard all but fifty;
