@@ -29,3 +29,4 @@
 - Booklet fix (fa4f0b4): intraword _ emphasis mangled LaTeX subscripts in prose; day-con-tang single PDF was 500 too. api redeployed; PDFs verified; pushed.
 - F-7 dispatched (main, opus): org-restricted contests (D56), user settings (D57), migration 0023.
 - B-6 DONE, merged: 7 fixes (ownerless-org lock race, double clarification broadcast, zstd bomb cap D53, manifest↔files check, oj arg parsing, oj watch resilience, importer ENOENT). api redeployed, pushed.
+- B-7 dispatched (worktree, opus): rating/users/realtime + B-6 leftovers, D58–D60 reserved.
