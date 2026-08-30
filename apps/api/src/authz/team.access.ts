@@ -21,7 +21,7 @@
  *    minting *accounts*, which this does not (D99).
  */
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { contestParticipations, organizations, orgMembers, teamMembers, teams } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
@@ -173,6 +173,9 @@ export class TeamAccessService {
     const { row: org } = await this.orgs.loadForEdit(actor, slug);
     const team = await this.findTeam(org.id, teamSlug);
     const memberIds = patch.members ? await this.resolveMembers(org.id, patch.members) : undefined;
+    if (memberIds !== undefined) {
+      await this.assertAddedMembersFree(team.id, memberIds);
+    }
     if (patch.name !== undefined && patch.name.toLowerCase() !== team.name.toLowerCase()) {
       await this.assertRenameKeepsBoardsUnambiguous(team.id, patch.name);
     }
@@ -197,6 +200,88 @@ export class TeamAccessService {
       throw toTeamConflict(error);
     }
     return toDetail(await this.findTeamById(team.id), await this.membersOf(team.id), true);
+  }
+
+  /**
+   * A roster edit may not put one pupil on two rows of one board (D99).
+   *
+   * `join` already refuses the second team that shares a member with one
+   * already competing — and this is the same collision arriving by the back
+   * door the rename above closed: an ordinary PATCH, which any admin of any
+   * of the contest's schools can make while the round is running.
+   *
+   * D99 spells out what two rows for one person cost, and none of it is
+   * cosmetic: `actingParticipations` would have to CHOOSE between them for
+   * every submission (by lowest id, which is an arbitrary answer to "which
+   * team did this pupil write it for"), `setDisqualified` — keyed by
+   * username, D37 — would move both, and the board would show the same
+   * person's work counted twice under two names.
+   *
+   * Scoped to the contests this team actually competes in, exactly as the
+   * rename check is: adding anyone to a team that has entered nothing is
+   * always free, which is the ordinary case. Rows this team ALREADY holds
+   * are excluded, so the captain somebody took off by mistake can be put
+   * back — their user id is on this team's own participation, and that is
+   * not a second row.
+   */
+  private async assertAddedMembersFree(teamId: number, memberIds: number[]): Promise<void> {
+    if (memberIds.length === 0) return;
+    const contestIds = (
+      await this.db
+        .select({ contestId: contestParticipations.contestId })
+        .from(contestParticipations)
+        .where(eq(contestParticipations.teamId, teamId))
+    ).map((row) => row.contestId);
+    if (contestIds.length === 0) return;
+
+    // The other teams these people are on, and who is on which — the second
+    // half is what lets the refusal name the PUPIL rather than whichever
+    // teammate happens to hold the rival row.
+    const otherTeams = await this.db
+      .select({ teamId: teamMembers.teamId, userId: teamMembers.userId })
+      .from(teamMembers)
+      .where(and(inArray(teamMembers.userId, memberIds), ne(teamMembers.teamId, teamId)));
+    const memberOfTeam = new Map(otherTeams.map((row) => [row.teamId, row.userId]));
+
+    const held = inArray(contestParticipations.userId, memberIds);
+    const [clash] = await this.db
+      .select({ userId: contestParticipations.userId, teamId: contestParticipations.teamId })
+      .from(contestParticipations)
+      .where(
+        and(
+          inArray(contestParticipations.contestId, contestIds),
+          // NOT this team's own rows. Spelled with the `is null` arm because
+          // `team_id <> $1` is NULL — and therefore false — for an
+          // individual entry, which would silently exempt one.
+          or(
+            isNull(contestParticipations.teamId),
+            ne(contestParticipations.teamId, teamId),
+          )!,
+          memberOfTeam.size === 0
+            ? held
+            : or(held, inArray(contestParticipations.teamId, [...memberOfTeam.keys()]))!,
+        ),
+      )
+      .limit(1);
+    if (!clash) return;
+
+    const offenderId = memberIds.includes(clash.userId)
+      ? clash.userId
+      : (clash.teamId === null ? undefined : memberOfTeam.get(clash.teamId));
+    const [offender] = offenderId === undefined
+      ? []
+      : await this.db
+          .select({ username: schema.users.username })
+          .from(schema.users)
+          .where(eq(schema.users.id, offenderId))
+          .limit(1);
+    throw new AppError(
+      409,
+      'contest_already_joined',
+      offender
+        ? `${offender.username} is already competing in a contest this team has entered.`
+        : 'Somebody on this roster is already competing in a contest this team has entered.',
+    );
   }
 
   /**

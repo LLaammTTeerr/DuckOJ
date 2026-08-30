@@ -444,6 +444,64 @@ describe('entering a team contest', () => {
     });
   }, 180_000);
 
+  it('refuses a ROSTER EDIT that would put one pupil on two rows of one board', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'school', ['anh', 'binh', 'cuong']);
+        await school.teacher
+          .post('/api/v1/orgs/school/teams')
+          .send({ slug: 'doi-1', name: 'Đội 1', members: ['anh'] });
+        await school.teacher
+          .post('/api/v1/orgs/school/teams')
+          .send({ slug: 'doi-2', name: 'Đội 2', members: ['binh'] });
+        await seedContest(db, { key: 'team-c', problemId: await problemId(db), orgSlug: 'school' });
+
+        for (const [pupil, team] of [
+          ['anh', 'doi-1'],
+          ['binh', 'doi-2'],
+        ] as const) {
+          const joined = await school.pupils
+            .get(pupil)!
+            .post('/api/v1/contests/team-c/join')
+            .send({ teamSlug: team });
+          expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+        }
+
+        // `join` refuses the second team that shares a member — but a PATCH
+        // is the same collision arriving by the back door, exactly as a
+        // rename was, and any admin of any of the contest's schools can make
+        // one while the round runs.
+        const clash = await school.teacher
+          .patch('/api/v1/orgs/school/teams/doi-2')
+          .send({ members: ['binh', 'anh'] });
+        expect(clash.status, JSON.stringify(clash.body)).toBe(409);
+        expect(clash.body.code).toBe('contest_already_joined');
+        expect(clash.body.detail).toContain('anh');
+
+        // A pupil competing in nothing is added freely…
+        const fine = await school.teacher
+          .patch('/api/v1/orgs/school/teams/doi-1')
+          .send({ members: ['anh', 'cuong'] });
+        expect(fine.status, JSON.stringify(fine.body)).toBe(200);
+
+        // …and so is somebody who competes only on THIS team's own row: the
+        // captain taken off by mistake has to be able to come back.
+        const off = await school.teacher
+          .patch('/api/v1/orgs/school/teams/doi-1')
+          .send({ members: ['cuong'] });
+        expect(off.status, JSON.stringify(off.body)).toBe(200);
+        const back = await school.teacher
+          .patch('/api/v1/orgs/school/teams/doi-1')
+          .send({ members: ['cuong', 'anh'] });
+        expect(back.status, JSON.stringify(back.body)).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
   it('has no virtual replay: a team that never entered is refused after the end', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
