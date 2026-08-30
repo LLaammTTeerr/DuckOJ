@@ -29,10 +29,12 @@ import { watchForBrokenRequests, type Allowance } from './watch.js';
  *   - **Unique names per run**, stamped with `RUN`, so a second run collides
  *     with nothing.
  *
- * Throwaway accounts are `bh14-*` and there are FOUR of them: registration is
+ * Throwaway accounts are `bh14-*` and there are TWO of them: registration is
  * metered 30/IP/hour (D26) and this file has to live beside `journey.spec.ts`
- * on the same address. Everything that needs a fifth pupil uses the three the
- * roster import mints, which come through D61's own path and not the meter.
+ * on the same address, which in practice means a run that asks for four is a
+ * run that 429s halfway. So journey 9 re-uses the two journeys 4 and 5 mint,
+ * and everything that needs a third pupil uses the three the roster import
+ * mints — those come through D61's own path and never touch the meter.
  *
  * Two things on the stack are mutated and both are put back in `afterAll`:
  * the editorial journey publishes `tong-hai-so`'s editorial (there is none on
@@ -191,7 +193,20 @@ let pupil: { username: string; password: string } | null = null;
  * screens this journey walks are keyed differently.
  */
 let imported: { username: string; displayName: string }[] = [];
-/** Journey 9's two identical-source competitors. */
+/**
+ * The two accounts journeys 4 and 5 mint, kept for journey 9 to re-use as its
+ * pair of competitors.
+ *
+ * Registration is metered 30/IP/hour (D26) and this file shares that meter
+ * with `journey.spec.ts`'s seven, so four accounts a run was two too many: a
+ * 429 in journey 9 stops the file dead having proved nothing about the
+ * exports. Nothing about journey 9 wants a FRESH competitor — it wants two
+ * people in one contest with the same source in front of them — so it
+ * borrows the two who already exist. The cost is that journey 9 can no
+ * longer be run on its own with `-g`.
+ */
+const competitors: Account[] = [];
+/** Journey 9's two identical-source competitors, by username. */
 const twins: [string, string] = ['', ''];
 /** Set by journey 5; restored in `afterAll` — the one mutation of seeded data. */
 let editorialPublished = false;
@@ -463,6 +478,7 @@ test('feature 4 — a pupil asks, the organiser answers and publishes, and the b
   const student = await pupilContext.newPage();
   const studentWatch = watchForBrokenRequests(student, [NOT_JOINED]);
   const account = await register(student, 's1');
+  competitors.push(account);
   await signIn(student, account.username, PASSWORD);
 
   await student.goto(`/contests/${contestKey}`);
@@ -547,6 +563,7 @@ test('feature 5 — an editorial is public, vanishes for the room still solving 
   const reader = await readerContext.newPage();
   const readerWatch = watchForBrokenRequests(reader, [NOT_JOINED]);
   const account = await register(reader, 's2');
+  competitors.push(account);
   await signIn(reader, account.username, PASSWORD);
 
   const editorial = reader.locator('details').filter({ hasText: 'Lời giải' });
@@ -868,12 +885,15 @@ test('feature 9 — once a contest is over its organiser can export the results 
   );
 
   // ── two pupils, the SAME source ──────────────────────────────────────
+  // The two journeys 4 and 5 already registered, rather than two more: see
+  // `competitors` for why the meter makes that the difference between this
+  // journey running and 429ing.
+  expect(competitors.length, 'features 4 and 5 must have run first').toBe(2);
   const contexts = [];
-  for (const suffix of ['s3', 's4'] as const) {
+  for (const [index, account] of competitors.entries()) {
     const context = await browser.newContext();
     const competitor = await context.newPage();
     const competitorWatch = watchForBrokenRequests(competitor, [NOT_JOINED]);
-    const account = await register(competitor, suffix);
     await signIn(competitor, account.username, PASSWORD);
     await competitor.goto(`/contests/${shortKey}`);
     await competitor.getByRole('button', { name: 'Tham gia' }).click();
@@ -882,7 +902,7 @@ test('feature 9 — once a contest is over its organiser can export the results 
     // Byte-for-byte the same program for both of them — feature 10 is about
     // what that looks like from the organiser's chair.
     await submitAndAwait(competitor, AC_SOURCE, 'AC');
-    twins[suffix === 's3' ? 0 : 1] = account.username;
+    twins[index] = account.username;
     contexts.push({ context, watch: competitorWatch, page: competitor });
   }
 
