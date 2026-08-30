@@ -7264,6 +7264,28 @@ export interface paths {
                         };
                     };
                 };
+                /** @description Ten confirmations have been attempted for this account in the last fifteen minutes (`totp_confirm_rate_limited`, D72). The meter is read BEFORE the code is checked, so a correct code inside a spent window is refused too. */
+                429: {
+                    headers: {
+                        /** @description Whole seconds until another attempt will be accepted */
+                        "Retry-After"?: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
             };
         };
         delete?: never;
@@ -7409,7 +7431,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Disable TOTP */
+        /**
+         * Disable TOTP, presenting the current password
+         * @description The account password is required (D72): a session is what an intruder steals, and stripping the second factor with the stolen thing is the move the second factor exists to stop. An admin's `POST /admin/users/{username}/totp/reset` is unaffected — it is not the account holder acting, and it is already gated on being an admin.
+         */
         delete: {
             parameters: {
                 query?: never;
@@ -7417,7 +7442,13 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        password: string;
+                    };
+                };
+            };
             responses: {
                 /** @description Disabled (or was already off) */
                 204: {
@@ -7426,7 +7457,7 @@ export interface paths {
                     };
                     content?: never;
                 };
-                /** @description Not signed in */
+                /** @description Not signed in, or the password is wrong (`invalid_credentials`) — the same code and status `POST /auth/password/change` answers for the same mistake */
                 401: {
                     headers: {
                         [name: string]: unknown;
@@ -7448,6 +7479,26 @@ export interface paths {
                 };
                 /** @description Signed in, but authenticated by an access token rather than an interactive session (`session_required`) — credential management is session-only */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No password was sent */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };

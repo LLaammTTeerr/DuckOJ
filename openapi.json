@@ -14972,6 +14972,59 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Ten confirmations have been attempted for this account in the last fifteen minutes (`totp_confirm_rate_limited`, D72). The meter is read BEFORE the code is checked, so a correct code inside a spent window is refused too.",
+            "headers": {
+              "Retry-After": {
+                "description": "Whole seconds until another attempt will be accepted",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
           }
         }
       }
@@ -15211,13 +15264,33 @@
         "tags": [
           "Auth"
         ],
-        "summary": "Disable TOTP",
+        "summary": "Disable TOTP, presenting the current password",
+        "description": "The account password is required (D72): a session is what an intruder steals, and stripping the second factor with the stolen thing is the move the second factor exists to stop. An admin's `POST /admin/users/{username}/totp/reset` is unaffected — it is not the account holder acting, and it is already gated on being an admin.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "required": [
+                  "password"
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "204": {
             "description": "Disabled (or was already off)"
           },
           "401": {
-            "description": "Not signed in",
+            "description": "Not signed in, or the password is wrong (`invalid_credentials`) — the same code and status `POST /auth/password/change` answers for the same mistake",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -15263,6 +15336,51 @@
           },
           "403": {
             "description": "Signed in, but authenticated by an access token rather than an interactive session (`session_required`) — credential management is session-only",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "No password was sent",
             "content": {
               "application/problem+json": {
                 "schema": {

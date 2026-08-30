@@ -23,6 +23,18 @@ export type TotpConfirmRequestDto = z.infer<typeof TotpConfirmRequest>;
 export const TotpRecoveryCodesResponse = z.object({ recoveryCodes: z.array(z.string()) });
 export type TotpRecoveryCodesResponseDto = z.infer<typeof TotpRecoveryCodesResponse>;
 
+/**
+ * Turning the second factor OFF is re-authentication, not a click (D72).
+ *
+ * The session alone is exactly what an intruder holds: `@SessionOnly` keeps
+ * a stolen access token out, and nothing else stood between a stolen cookie
+ * and an account with no second factor. The password is the one secret the
+ * thief of a session does not have; a TOTP code is not (the phone is what
+ * gets lost, which is why `POST /auth/totp/recovery/regenerate` exists).
+ */
+export const TotpDisableRequest = z.object({ password: z.string().min(1).max(1024) });
+export type TotpDisableRequestDto = z.infer<typeof TotpDisableRequest>;
+
 /** Regenerating proves control of the authenticator, so it carries a live code. */
 export const TotpRecoveryRegenerateRequest = z.object({ code: z.string().regex(/^\d{6}$/) });
 export type TotpRecoveryRegenerateRequestDto = z.infer<typeof TotpRecoveryRegenerateRequest>;
@@ -94,6 +106,19 @@ registry.registerPath({
         'login-time 401 `invalid_totp_code`',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
+    429: {
+      description:
+        'Ten confirmations have been attempted for this account in the last fifteen minutes ' +
+        '(`totp_confirm_rate_limited`, D72). The meter is read BEFORE the code is checked, so a ' +
+        'correct code inside a spent window is refused too.',
+      headers: {
+        'Retry-After': {
+          description: 'Whole seconds until another attempt will be accepted',
+          schema: { type: 'string' },
+        },
+      },
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
 
@@ -134,10 +159,25 @@ registry.registerPath({
   method: 'delete',
   path: '/auth/totp',
   tags: ['Auth'],
-  summary: 'Disable TOTP',
+  summary: 'Disable TOTP, presenting the current password',
+  description:
+    'The account password is required (D72): a session is what an intruder steals, and stripping ' +
+    "the second factor with the stolen thing is the move the second factor exists to stop. An " +
+    "admin's `POST /admin/users/{username}/totp/reset` is unaffected — it is not the account " +
+    'holder acting, and it is already gated on being an admin.',
+  request: { body: { content: { 'application/json': { schema: TotpDisableRequest } } } },
   responses: {
     204: { description: 'Disabled (or was already off)' },
-    401: NOT_SIGNED_IN,
+    401: {
+      description:
+        'Not signed in, or the password is wrong (`invalid_credentials`) — the same code and status ' +
+        '`POST /auth/password/change` answers for the same mistake',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
     403: SESSION_REQUIRED,
+    422: {
+      description: 'No password was sent',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
