@@ -30,3 +30,4 @@
 - F-7 dispatched (main, opus): org-restricted contests (D56), user settings (D57), migration 0023.
 - B-6 DONE, merged: 7 fixes (ownerless-org lock race, double clarification broadcast, zstd bomb cap D53, manifest↔files check, oj arg parsing, oj watch resilience, importer ENOENT). api redeployed, pushed.
 - B-7 dispatched (worktree, opus): rating/users/realtime + B-6 leftovers, D58–D60 reserved.
+- B-7 DONE, merged: 7 fixes (org roster pagination D58 + myRole, ordered announcement cap D59, POST /packages completeness D60, WS subscription cap/unsubscribe, reconnect backoff, DisplayName trim, rating error state). Conflicted with F-7's committed myRole work — kept F-7's rolesIn. Full ritual green; api + web redeployed; pushed.
