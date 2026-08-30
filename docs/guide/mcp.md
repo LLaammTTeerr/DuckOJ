@@ -163,6 +163,8 @@ Mỗi công cụ trả về **một dòng tóm tắt** rồi tới **JSON gọn*
 | Một công cụ trả `403` | Mã thiếu phạm vi ghi trong mô tả của công cụ đó. |
 | Không thấy `submissions_submit` | Chưa đặt `DUCKOJ_MCP_WRITES=1`. |
 | `submission_rate_limited` | Đúng thiết kế (D80). Chờ đủ `retryAfterSeconds` giây. |
+| `samples.source` là `api` | Ví dụ lấy thẳng từ gói của phiên bản đã xuất bản (D94) — nguyên văn từng byte, kể cả ký tự xuống dòng cuối. |
+| `samples.source` là `statement-table` | Máy chủ cũ hơn D94, hoặc không đọc được gói — ví dụ được bóc từ bảng trong đề, đã bị cắt khoảng trắng. |
 | `samples.source` là `none` | Đề không có bảng ví dụ theo mẫu — đọc thẳng phần đề. |
 
 ## English
@@ -301,4 +303,6 @@ carries `retryAfterSeconds`.
 | One tool answers `403` | The token lacks the scope named in that tool's description. |
 | `submissions_submit` is missing | `DUCKOJ_MCP_WRITES` is not `1`. |
 | `submission_rate_limited` | Working as designed (D80) — wait `retryAfterSeconds`. |
+| `samples.source` is `api` | Straight from the published revision's package (D94) — the files byte for byte, trailing newline included. |
+| `samples.source` is `statement-table` | An API older than D94, or a package it could not read: scraped from the statement's table, whitespace trimmed. |
 | `samples.source` is `none` | The statement has no sample table in the known shape; read the statement. |
