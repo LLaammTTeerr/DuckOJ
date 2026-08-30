@@ -63,3 +63,4 @@
 - F-15 DONE_WITH_CONCERNS (423ad13..6347b24): packages/similarity (winnowing), similarity runs (0028, D77), organiser report + side-by-side; Dockerfile deps stage + worktree-walking spec fixed. Deployed + pushed. Owed: stuck-'running' reaper.
 - F-16 dispatched (main, opus): similarity run reaper + student progress page (D83). PROVINCE-READINESS.md gained a loop summary section.
 - F-16 DONE_WITH_CONCERNS (de08363..d82f8d4): similarity reaper, /me/progress + public progress (D83); deployed + pushed.
+- Dispatched F-17 CodeMirror editor (main, D84) and B-14 Playwright coverage of loop features (worktree, features.spec.ts). B-13 still running.
