@@ -47,10 +47,8 @@ export interface OrgImportOptions {
   out?: string | undefined;
 }
 
-export interface ParsedArgs extends OrgImportOptions {}
-
 /** `--flag value`, no `--flag=value` form — matching `bootstrap-admin.ts`. */
-export function parseArgs(argv: string[]): ParsedArgs {
+export function parseArgs(argv: string[]): OrgImportOptions {
   const positional: string[] = [];
   let dryRun = false;
   let out: string | undefined;
@@ -141,7 +139,7 @@ if (invokedDirectly) {
     process.exit(1);
   }
 
-  let opts: ParsedArgs;
+  let opts: OrgImportOptions;
   try {
     opts = parseArgs(process.argv.slice(2));
   } catch (err) {

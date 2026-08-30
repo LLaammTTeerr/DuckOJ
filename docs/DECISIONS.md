@@ -1807,3 +1807,95 @@ wanted". It was wanted.
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B7 brief),
 no human available to consult. No migration.*
 
+
+## D61 — A school's roster is imported in one all-or-nothing call, and the accounts it mints must change their password
+
+A province seats thousands of pupils who will never sign themselves up.
+`POST /orgs/{slug}/members/import` takes a CSV or a JSON list of
+`{ username, displayName, email? }`, at most 2,000 rows, and either creates
+every account or none of them. The rulings inside it, each taken by the
+implementer with nobody available to ask:
+
+- **All-or-nothing, with every bad row named.** A partial import leaves a
+  teacher holding a printout that is right for some of their class and
+  silently wrong for the rest, and the natural repair — run it again — then
+  trips over the accounts the first run did create. The 422 is
+  `member_import_invalid` and every failure rides in `ProblemDetails.fields`
+  keyed `rows[<n>].<field>`, `n` being the 1-based data row, so a client can
+  put each message beside the line that caused it without widening the error
+  schema every other endpoint shares.
+- **Uniqueness is decided the way the unique indexes decide it** —
+  case-folded, against the database *and* against the rest of the file.
+  `users_username_lower_idx` means two rows differing only in case are one
+  account; a raw-string check passes validation and then fails the INSERT,
+  turning a legible 422 into a rolled-back 500.
+- **Owner or global admin, not an organization `admin`.** Approving a join
+  request is running the organization; minting two thousand accounts on a
+  province's judge is speaking FOR the school, which the rank below owner
+  does not. 404 before 403, as everywhere.
+- **`dryRun` validates, creates nothing, and consumes no meter.** It is what
+  the web's preview is built from, and the normal flow is a teacher fixing
+  one row and resubmitting — a meter that punished that would make the
+  preview useless. The real import is one per organization per minute,
+  through `RateLimiter.consumeOnce` (race-free by design) keyed on the
+  organization **ID**, because a slug is patchable and a meter keyed on one
+  could be reset by renaming the school.
+- **A missing address becomes `<username>@<slug>.import.invalid`, marked
+  verified.** `users.email` is `NOT NULL` and uniquely indexed and most
+  pupils have no school mailbox. `.invalid` is RFC 2606's reserved TLD, so
+  the placeholder can never be delivered to and can never be somebody's real
+  address; marking it verified is D19's ruling for `bootstrap-admin`, for
+  D19's reason — the alternative parks the account behind a mail that will
+  never arrive. An address the roster DOES supply is left unverified: a
+  school asserting a pupil's mailbox is not that mailbox having been
+  confirmed.
+- **A taken address is named in the 422**, which narrows D26's
+  anti-enumeration posture deliberately and in one place only: the caller is
+  session-authenticated, is an owner of this organization, and is metered,
+  so this is not the anonymous oracle D26 closed — and an all-or-nothing
+  import that cannot say which row it choked on is unusable.
+- **The passwords are twelve characters from an alphabet with no `I`, `L`,
+  `O`, `i`, `l`, `o`, `0` or `1`.** They are read off a printed sheet by a
+  thirteen-year-old; the failure this prevents is a pupil who cannot sign in
+  because two glyphs look alike. Hashing runs OUTSIDE the transaction (two
+  thousand argon2id hashes is tens of seconds) and at a concurrency of four,
+  so an import does not enqueue two thousand 19 MiB jobs ahead of everyone
+  else's sign-in.
+- **`users.must_change_password` (migration 0024) and
+  `POST /auth/password/change`.** An imported account holds a password it
+  never chose, so between the import and the first sign-in one sheet of
+  paper is the credential for a whole class. The flag is what lets the
+  change endpoint accept a new password WITHOUT the old one — demanding it
+  back would make that sheet the credential authorising its own replacement
+  — and what stands in for it is the route's `@SessionOnly` marker. For
+  every other account `currentPassword` is required, and its absence is a
+  422 rather than a silent success. Succeeding clears the flag and destroys
+  every session and token, as `resetPassword` does; a fresh cookie is issued
+  so the caller stays signed in on the device they are looking at.
+- **The flag is enforced by the web, not by the API.** `PasswordGate` swaps
+  the whole page (a redirect is one `history.back()` away from being undone)
+  while the flag is set. The API deliberately does not gate other routes on
+  it: doing so would mean auditing every endpoint for a new refusal code
+  that a client can already avoid, in exchange for stopping a pupil who
+  would have to be driving the API by hand to reach it.
+- **The CLI (`corepack pnpm org:import <slug> <file.csv>`) goes through the
+  database, not the API.** The brief offered either; the route is
+  `@SessionOnly`, so a token is refused before the handler runs and the
+  first option does not exist. It is not a second implementation: the rule
+  lives in `apps/api/src/authz/org-import.core.ts`, framework-free precisely
+  so `scripts/tsconfig.json` (no decorator support) can import it — the same
+  arrangement `bootstrap-admin.ts` has with `password.hash.ts`. That module
+  also writes the owners' notification itself rather than through
+  `NotificationsService`, which is otherwise the one writer of that table:
+  the service is `@Injectable`, so routing it there would mean the CLI
+  silently sent no notification at all, which is the case where it matters
+  most. Reaching `DATABASE_URL` is the authority, so the CLI has no owner
+  check and no meter, exactly as `bootstrap:admin` has none.
+- **The 100 KB JSON body limit stays for every route but this one.** A
+  full roster is up to ~1.2 MB; raising the limit globally would undo the
+  early `413` that `app.smoke.spec.ts` pins for an oversized submission. A
+  2 MB parser is mounted on the import path alone, ahead of the ordinary
+  one.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F8 brief),
+no human available to consult. Migration 0024.*
