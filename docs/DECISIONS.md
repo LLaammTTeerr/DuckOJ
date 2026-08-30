@@ -2638,3 +2638,45 @@ sweep), no human available to consult. No migration.*
 
 
 
+
+## D73 — The password check is metered wherever a session re-proves it
+
+D72 closed two doors by demanding the account password, on the argument
+that **a session is the thing an intruder steals** and both routes are
+reachable with exactly the stolen thing. It then left the check that reads
+that password unmetered, which is the same argument left half-finished: an
+unmetered password check reachable from the stolen session is an unlimited
+oracle for the password itself, answering 401 or 2xx on every guess, needing
+no email, no second factor and no fresh sign-in. `POST /auth/login` has been
+metered since B1 precisely so that door is shut; `POST /auth/password/change`
+and `DELETE /auth/totp` were the way round it.
+
+- **Ten attempts per account per fifteen minutes**, 429
+  `password_check_rate_limited` with a `Retry-After` — D72's shape for the
+  same class of guess, and generous for the human case it has to survive
+  (somebody mistyping their own password before getting it right).
+- **ONE budget across both routes**, `spendPasswordCheck` in
+  `authn/password-check.ts`. Not one meter per route: a budget spent per
+  endpoint grows with the number of endpoints that check a password, which
+  is the wrong direction for it to grow in. Keyed on the user id rather than
+  the session, so a fresh sign-in does not buy a fresh ten and one account
+  cannot spend another's.
+- **Read BEFORE the hash is verified**, and `allow` rather than
+  `consumeOnce` — both verbatim from D72, for D72's reasons: a limiter the
+  correct guess walks past is a limiter the attacker's winning guess walks
+  past, and a refused attempt should burn the window it was refused by.
+- **Nothing that checks no password spends it.** An account flagged
+  `mustChangePassword` (D61) changes its password without presenting one, so
+  that path is not metered — a class of pupils replacing the credential off
+  a printed sheet must never meet this 429. Neither `resetPassword` nor
+  `AdminUsersService.resetTotp` spends it either; they prove who they are
+  another way.
+
+There is a second reason for the bound that has nothing to do with guessing.
+Every check is one argon2id verification at 19 MiB on the libuv thread pool
+this process shares with every sign-in and every roster import (D61), so a
+loop on either route is a denial of service against signing in, driven from
+one ordinary session.
+
+*Ruled by the implementer during the 2026-08-30 B-11 review loop, no human
+available to consult. No migration.*

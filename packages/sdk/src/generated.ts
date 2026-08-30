@@ -3291,6 +3291,28 @@ export interface paths {
                         };
                     };
                 };
+                /** @description Ten password attempts have been made for this account in the last fifteen minutes (`password_check_rate_limited`, D73). ONE budget is shared with `DELETE /auth/totp`, keyed on the account, and it is read BEFORE the password is verified. An account flagged `mustChangePassword` never spends it: that path checks no password. */
+                429: {
+                    headers: {
+                        /** @description Whole seconds until another attempt will be accepted */
+                        "Retry-After"?: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
             };
         };
         delete?: never;
@@ -7895,6 +7917,28 @@ export interface paths {
                 /** @description No password was sent */
                 422: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Ten password attempts have been made for this account in the last fifteen minutes (`password_check_rate_limited`, D73). ONE budget is shared with `POST /auth/password/change`, keyed on the account, and it is read BEFORE the password is verified — so a correct password inside a spent window is refused too. */
+                429: {
+                    headers: {
+                        /** @description Whole seconds until another attempt will be accepted */
+                        "Retry-After"?: string;
                         [name: string]: unknown;
                     };
                     content: {

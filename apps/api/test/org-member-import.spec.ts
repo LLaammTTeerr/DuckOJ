@@ -528,7 +528,7 @@ describe('the CSV reader on its own', () => {
 
 describe('the password an imported account must replace (D61)', () => {
   function auth(db: Db): AuthService {
-    return new AuthService(db, new PasswordService());
+    return new AuthService(db, new PasswordService(), new RateLimiter(db));
   }
 
   it('accepts a new password with no old one while the flag is set, then never again', async () => {

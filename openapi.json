@@ -6720,6 +6720,59 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Ten password attempts have been made for this account in the last fifteen minutes (`password_check_rate_limited`, D73). ONE budget is shared with `DELETE /auth/totp`, keyed on the account, and it is read BEFORE the password is verified. An account flagged `mustChangePassword` never spends it: that path checks no password.",
+            "headers": {
+              "Retry-After": {
+                "description": "Whole seconds until another attempt will be accepted",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
           }
         }
       }
@@ -16114,6 +16167,59 @@
           },
           "422": {
             "description": "No password was sent",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Ten password attempts have been made for this account in the last fifteen minutes (`password_check_rate_limited`, D73). ONE budget is shared with `POST /auth/password/change`, keyed on the account, and it is read BEFORE the password is verified — so a correct password inside a spent window is refused too.",
+            "headers": {
+              "Retry-After": {
+                "description": "Whole seconds until another attempt will be accepted",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem+json": {
                 "schema": {

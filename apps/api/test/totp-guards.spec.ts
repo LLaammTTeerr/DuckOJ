@@ -114,3 +114,87 @@ describe('DELETE /auth/totp re-authenticates (D72)', () => {
     });
   }, 120_000);
 });
+
+/**
+ * D73 — the password check D72 introduced is itself metered.
+ *
+ * D72's own argument is that a session is the thing an intruder steals and
+ * both of these routes are reachable with exactly the stolen thing. It
+ * closed the door by demanding the password — and then left the check that
+ * reads it unmetered, so the stolen session became an unlimited oracle for
+ * the password itself, answering 401 or 204 on every guess. Login has been
+ * metered since B1; these two were the way round it.
+ */
+describe('the password check is metered (D73)', () => {
+  it('refuses the eleventh guess in the window, on `DELETE /auth/totp`', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = await signedIn(app, 'yara');
+        const secret = (await agent.post('/auth/totp/begin')).body.secret as string;
+        await agent.post('/auth/totp/confirm').send({ code: authenticator.generate(secret) });
+
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          const wrong = await agent.delete('/auth/totp').send({ password: `guess-${String(attempt)}` });
+          expect(wrong.status).toBe(401);
+        }
+
+        const refused = await agent.delete('/auth/totp').send({ password: 'guess-10' });
+        expect(refused.status).toBe(429);
+        expect(refused.body.code).toBe('password_check_rate_limited');
+        expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
+
+        // The meter is read BEFORE the password is verified, for D72's own
+        // reason: the guess that matters is the one that is right.
+        const correct = await agent.delete('/auth/totp').send({ password: PASSWORD });
+        expect(correct.status).toBe(429);
+        expect((await agent.get('/auth/me')).body.totpEnabled).toBe(true);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('is ONE budget across both routes, so the other is not a fresh ten', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = await signedIn(app, 'zeno');
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          const wrong = await agent
+            .post('/auth/password/change')
+            .send({ currentPassword: `guess-${String(attempt)}`, newPassword: 'another-long-password' });
+          expect(wrong.status).toBe(401);
+        }
+
+        // Same account, other route: an attacker who can spend ten guesses
+        // per endpoint has a limiter that scales with the endpoint count.
+        const refused = await agent.delete('/auth/totp').send({ password: 'guess-10' });
+        expect(refused.status).toBe(429);
+        expect(refused.body.code).toBe('password_check_rate_limited');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('meters per account, and never stands between an imported pupil and their first password', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const noisy = await signedIn(app, 'aiko');
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          await noisy.delete('/auth/totp').send({ password: `guess-${String(attempt)}` });
+        }
+
+        const quiet = await signedIn(app, 'bruno');
+        const changed = await quiet
+          .post('/auth/password/change')
+          .send({ currentPassword: PASSWORD, newPassword: 'yet-another-long-password' });
+        expect(changed.status).toBe(204);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});
