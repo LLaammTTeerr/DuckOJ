@@ -353,6 +353,8 @@ importers:
         specifier: ^7.13.0
         version: 7.13.0(typescript@5.9.3)
 
+  packages/similarity: {}
+
 packages:
 
   '@adobe/css-tools@4.5.0':
