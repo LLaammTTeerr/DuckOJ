@@ -104,6 +104,30 @@ describe('problem comments (D109)', () => {
     });
   });
 
+  // The endpoint advertises `?limit=` (PaginationQuery, 1..100), and it was
+  // parsed and then dropped — every page was a fixed 25 regardless. A client
+  // asking for a smaller page (a hot thread on a phone) got 25 anyway.
+  it('honours the page limit the caller asks for', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'c-lim-owner');
+      const a = await insertUser(db, 'c-lim-a');
+      await seedProblem(db, { code: 'c-lim', createdBy: owner.id });
+      const service = svc(db);
+      const ids: number[] = [];
+      for (const body of ['one', 'two', 'three']) {
+        ids.push((await service.create(actorFor(a.id), 'c-lim', { body })).id);
+      }
+
+      const first = await service.list(actorFor(a.id), 'c-lim', { limit: 2 });
+      expect(first.items.map((i) => i.id)).toEqual([ids[0], ids[1]]);
+      expect(first.nextCursor).not.toBeNull();
+
+      const second = await service.list(actorFor(a.id), 'c-lim', { cursor: first.nextCursor!, limit: 2 });
+      expect(second.items.map((i) => i.id)).toEqual([ids[2]]);
+      expect(second.nextCursor).toBeNull();
+    });
+  });
+
   it('is invisible on a problem the viewer may not see (404, not 403)', async () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'c-priv-owner');

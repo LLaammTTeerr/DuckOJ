@@ -5086,3 +5086,28 @@ rule in `app.css`. The banner for an *unattributable* server refusal
 *Ruled by the implementer during the 2026-08-31 a11y loop (b20 brief), no
 human available to consult. `apps/web` only; no migration.*
 
+
+## D112 — A comment page honours the caller's limit; the replies on a page are fetched whole, and that is a province-scale bound
+
+Found in the b21 comments cross-cut loop. `GET /problems/{code}/comments`
+advertises `PaginationQuery` (`limit`, 1..100), and the controller parsed the
+value and then dropped it: every page was a fixed 25 top-level threads
+whatever the caller asked for. The fix passes `limit` through, defaulted to 25
+and clamped to the schema's 100 in `pageLimit` — a caller may now ask for a
+smaller page (a hot thread on a phone) or a larger one, never for an unbounded
+one.
+
+- **The ceiling on top-level rows is what bounds the reply fan-out.** A page's
+  replies are fetched in ONE query for every parent on the page (never one
+  query per parent), with no per-parent cap — a top-level comment with two
+  hundred replies returns all two hundred. Bounding *that* would mean
+  paginating replies and adding a "xem thêm phản hồi" affordance with its own
+  cursor, which is a feature, not a fix. At province scale a thread is read by
+  a class, the write path is metered at ten comments per user per hour, and
+  the table is indexed by `parent_id`; the result set is small and the read is
+  fast, exactly the D108 "unbounded but safe at province scale" family. The
+  upgrade path, when a deployment outgrows it, is per-parent reply pagination
+  keyed on the same `(parent_id, id)` index.
+
+*Ruled by the implementer during the 2026-08-31 b21 loop, no human available
+to consult. No migration; a bugfix plus a recorded bound.*
