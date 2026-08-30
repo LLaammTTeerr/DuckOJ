@@ -468,14 +468,21 @@ async function seedResultsContest(
 }
 
 describe('GET /contests/{key}/results.csv', () => {
-  it('refuses an anonymous caller — this route is never @Public', async () => {
+  it('refuses an anonymous caller with 401', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
         const owner = await insertUser(db, 'anon-owner');
         await seedResultsContest(db, 'anon', owner.id);
         // Deny-by-default: the export is the live board, so there is no
-        // anonymous reading of it for a service to gate.
+        // anonymous reading of it for a service to gate. Two things enforce
+        // that and this pins the OUTCOME rather than either mechanism — the
+        // absent `@Public()` marker, and `@CurrentActor()`, which throws 401
+        // rather than hand a handler `null` (it "still fails closed on a
+        // route the guard does not protect", by its own doc comment). Adding
+        // `@Public()` to this route therefore does not make it anonymous;
+        // it would have to change the decorator too, and that does not
+        // typecheck.
         const res = await request(app.getHttpServer()).get('/contests/anon/results.csv');
         expect(res.status).toBe(401);
       } finally {
@@ -691,11 +698,16 @@ describe('GET /contests/{key}/certificates.pdf', () => {
           .get('/contests/awards/certificates.pdf?top=10')
           .set('Cookie', cookie);
         expect(res.status).toBe(200);
-        const doc = renderer.documents.at(-1)!;
+        // Read through the escaping: `escapeText` escapes `-`, so a
+        // username written literally into this assertion would never match
+        // the document even when the row IS in it — the assertion would
+        // pass for the wrong reason.
+        const doc = renderer.documents.at(-1)!.replace(/\\/g, '');
         expect(doc).toContain('GIẤY CHỨNG NHẬN');
         expect(doc).toContain('Nguyễn Văn An');
         // A certificate is an award, not a record: neither the expelled
         // competitor nor the virtual replay gets one, even at `top=10`.
+        expect(doc).toContain('(awards-an)');
         expect(doc).not.toContain('awards-binh');
         expect(doc).not.toContain('awards-cuong');
         // Signed by the contest's own organization (D56).
