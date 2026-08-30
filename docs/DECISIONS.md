@@ -52,7 +52,7 @@ A contest is rated when an administrator says so. "The contest ended" and "the
 results are final" are different claims, and the gap between them is where
 broken test data gets found.
 
-## D6 — Rank titles are a placeholder behind an adapter
+## D6 — Rank titles are a placeholder behind an adapter — SUPERSEDED by D46
 
 Deferred as a product decision, with a working placeholder in the meantime,
 modelled on **Codeforces or chess.com**.
@@ -60,8 +60,13 @@ modelled on **Codeforces or chess.com**.
 Implemented as a pure band table behind one function, so replacing the names
 and thresholds is a data edit rather than a code change.
 
-Partially closes foundation §15 question 1 — the *thresholds and names* remain
-open; the mechanism does not.
+Partially closed foundation §15 question 1 — the *thresholds and names*
+remained open; the mechanism did not.
+
+**Superseded (2026-08-29, D46).** The names are real now, in both locales,
+and the mechanism this entry chose is what made that a one-file edit —
+which is the outcome it was betting on. Foundation §15 question 1 is
+closed.
 
 ## D7 — No consent is required to be added to an organization
 
@@ -111,7 +116,7 @@ Closes foundation §15 question 5.
 
 ## Still open
 
-- **Rank title names and thresholds** (D6 covers only the mechanism).
+- ~~**Rank title names and thresholds**~~ — closed by D46.
 - **Frontend component library** — foundation §15 question 2. The retro
   terminal design is hand-written CSS, so nothing has needed one yet.
 - **i18n library** — needed when UI text is localised, not before.
@@ -245,8 +250,10 @@ and problem-revisions show those verbatim on purpose — D-less but
 long-standing: this is a tool for people who read `problem_code_taken`),
 `formatPoints`' bare numbers (a thousands separator would be wrong beside
 the rest of a monospace column), and CONTENT — problem statements, contest
-names, org names, usernames, and the `packages/glicko2` rank-band titles
-(D6).
+names, org names, usernames. The `packages/glicko2` rank-band titles were
+listed here too, and D46 moved them into the same shape a TAG has: both
+spellings on one data row, picked by locale at render time — content that
+is translated without being a catalogue entry.
 
 Dates, times and relative times DO follow the locale, via `Intl` with
 `vi-VN`/`en-US`. Fonts needed no change: the vendored IBM Plex Mono already
@@ -1295,3 +1302,128 @@ reads it is a ruling and not a permission bit.
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F4
 editorials brief), no human available to consult. Migration 0021.*
 
+## D46 — Rank titles are Vietnamese olympiad ranks, and they get a colour
+
+D6 shipped a Codeforces-shaped placeholder and deferred the words. These are
+the words. Thresholds are unchanged — D46 renamed the bands and moved
+nobody's title, because a rank that changes on the same rating is a rank
+nobody trusts.
+
+| key | Vietnamese | English | from |
+| --- | --- | --- | --- |
+| `newbie` | Tân binh | Newbie | — |
+| `pupil` | Học viên | Pupil | 1200 |
+| `specialist` | Chuyên gia | Specialist | 1400 |
+| `expert` | Cao thủ | Expert | 1600 |
+| `candidate-master` | Ứng viên kiện tướng | Candidate Master | 1900 |
+| `master` | Kiện tướng | Master | 2100 |
+| `international-master` | Kiện tướng quốc tế | International Master | 2300 |
+| `grandmaster` | Đại kiện tướng | Grandmaster | 2400 |
+| `international-grandmaster` | Đại kiện tướng quốc tế | International Grandmaster | 2600 |
+| `legendary-grandmaster` | Đại kiện tướng huyền thoại | Legendary Grandmaster | 3000 |
+
+- **Both locales live on the same row, not in the message catalogue.** A
+  band's words are DATA, exactly like a tag's two spellings (D18): the UI
+  picks a field rather than looking a key up in `en.ts`/`vi.ts`. That keeps
+  a rename a one-line edit in `packages/glicko2/src/bands.ts` instead of
+  three edits across three files that can drift apart, and it is what the
+  D18 i18n entry now says about rank titles.
+- **`rankBand()` returns `{ key, nameVi, nameEn, min }`.** The unused `color`
+  hex is gone. A hex on a data row could only ever be right in one of the
+  two palettes, and this app has both.
+- **The key IS the CSS class.** The profile renders
+  `<span class="rank specialist">`, and `app.css` owns `--rank-<key>` in the
+  light and the dark palette. A band renamed in the table and not in the
+  stylesheet loses its colour loudly (falls back to `--fg`); a web test
+  reads both files and refuses the drift.
+- **This is the one amendment to app.css rule 1, "colour is reserved for
+  verdicts", and it is written into that file's header.** The rank scale is
+  a single desaturated ramp — cool grey, sage, teal, steel, periwinkle,
+  plum, mulberry, terracotta, bronze, dark bronze — at roughly half the
+  chroma of any verdict hue; it appears on exactly one row of one screen (a
+  profile's rating line), where no verdict is ever rendered beside it; and
+  it is never colour alone, because the band's NAME is the information and
+  the hue only tints it. Every value clears 4.5:1 against both backgrounds.
+  The top band also takes the weight, so "legendary" reads as such without
+  needing a hue nobody had left.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F5 brief),
+no human available to consult. No migration: nothing persists a rank.*
+
+## D47 — The admin dashboard is one snapshot, and it tells the truth about what it cannot see
+
+`GET /admin/dashboard` (session-only, admin-only, tag `Admin`) answers one
+question — is judging healthy right now — with six panels in one response.
+One response rather than six endpoints because the panels only mean anything
+together: a queue backing up reads one way beside a live judge and another
+beside a silent one, and a 15-second refresh of six routes is six times the
+load for a page one admin has open. Nothing is cached; a cache would add a
+staleness question to a screen whose entire job is to be current.
+
+- **`grading_jobs` has no `running` state**, so the queue panel splits the
+  leased count by the only thing that distinguishes a working judge from a
+  dead one: whether the lease is still live. `running` + `expiredLeases` is
+  exactly the leased total, and `expiredLeases` is written to match
+  `reclaimExpiredLeases`'s WHERE clause *exactly*, because the reclaim
+  button is labelled with that number — if the two ever disagree the button
+  lies about its own effect. An empty queue reports `oldestQueuedSeconds:
+  null`, never `0`: zero reads as "queued this instant", which is the
+  opposite of calm.
+- **Judges and workers are two panels, and they do not join.** A
+  `judge_nodes` row is a DMOJ process that connects to judged's bridge; a
+  `grading_jobs.worker_id` is one of judged's own claim loops. No column
+  relates them, and inventing one would cost a migration plus a change to
+  judged's dispatch for a deployment that runs one of each. So liveness
+  lives on the judge panel (silent for 90 s = offline, the same
+  `PING_INTERVAL_MS × MISSED_PING_LIMIT` the bridge itself drops a judge
+  after, duplicated rather than imported because `apps/api` must not depend
+  on `apps/judged`) and throughput lives on the worker panel.
+- **A refusal is now recorded, because it was not derivable.** `rate_events`
+  holds one row per attempt, admitted or not, so no query over it could
+  answer "how many callers did the limiter turn away". A refusal therefore
+  writes a second row under `refused:<purpose>` — from `allow`, from
+  `consumeOnce` inside its transaction, and from `retryAfterSeconds`, which
+  IS how login refuses. `purpose` is plain text by design, so this needed no
+  migration; the two populations are disjoint because every existing count
+  filters on an exact purpose; and the expired-rows sweeper already bounds
+  the table by age. Known wart: login asks per key (user and IP), so one
+  refused sign-in can leave two markers. Counting refusals slightly high
+  during a stuffing run is the harmless direction.
+- **`JUDGED_CONCURRENCY` is reported as `null` when the API was not told.**
+  judged is a different container. `docker-compose.yml` now passes the same
+  compose variable to both, so the number shown is the number judged runs —
+  but an API started without it says "not reported" rather than printing a
+  guessed `1`. A dashboard that invents a capacity number is worse than one
+  that admits ignorance. Unparseable is also `null`, never a throw: unlike
+  `API_WORKERS`, this knob does not govern the process reading it and must
+  not be able to 500 the dashboard.
+- **`POST /admin/grading/reclaim` answers 200, not 202**, unlike the rejudge
+  routes: the requeue is one UPDATE that has already completed when it
+  returns. Nothing is deferred that was not already the queue's ordinary
+  business. It **bumps `attempt`**, which is the point of having a button at
+  all — `claim` already treats a lapsed lease as claimable, so a bare
+  requeue would be nearly a no-op, whereas incrementing the fencing token
+  cuts off a judge still working past its lease the instant an operator
+  presses it. The statement moved into `@duckoj/db` as
+  `reclaimExpiredLeases` so judged's `JobStore.reclaimExpired` — dead code
+  since it was written, flagged in the B3 report — and the API run the same
+  sweep instead of two copies that would eventually disagree about what
+  "expired" means.
+- **`DashboardService` lives in `apps/api/src/authz/`**, not in `admin/`:
+  two panels read `submissions` and `problems`, and the runbook's "Reading a
+  guarded table" rule is not relaxed for a read whose visibility rule is
+  simply "admin sees everything". `403 admin_forbidden`, not 404, because
+  `/admin/dashboard` is a fixed path in the published OpenAPI document —
+  there is no resource whose existence a 404 would be hiding.
+- **No index was added, deliberately.** The queue and worker panels
+  aggregate over all of `grading_jobs`, which grows forever (D11), and the
+  failures panel filters `submissions` with no supporting index. At province
+  scale these are scans of thousands of rows. The upgrade path, when
+  somebody measures a need: a partial index `on grading_jobs (state) where
+  state <> 'done'`, and one `on submissions (id desc) where verdict = 'IE'
+  or state = 'errored'`. Recorded here so the next person finds it rather
+  than rediscovering it; an index nobody has measured a need for is a
+  migration and a write cost paid against a guess.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F5 brief),
+no human available to consult. No migration.*
