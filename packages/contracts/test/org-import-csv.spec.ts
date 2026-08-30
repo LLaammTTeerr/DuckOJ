@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   importHeaderColumns,
+  importIdentities,
   importUsernames,
   parseCsvRecords,
   splitImportCsv,
@@ -76,5 +77,33 @@ describe('importUsernames', () => {
 
   it('reads a headerless file positionally', () => {
     expect(importUsernames('hs1,A\nhs2,B\n')).toEqual(['hs1', 'hs2']);
+  });
+});
+
+describe('importIdentities', () => {
+  it('reads both identity columns by the names the header gives them', () => {
+    expect(importIdentities('email,name,username\na@x.vn,A,hs1\nb@x.vn,B,hs2\n')).toEqual([
+      { username: 'hs1', email: 'a@x.vn' },
+      { username: 'hs2', email: 'b@x.vn' },
+    ]);
+  });
+
+  it('reads a headerless file positionally, as username,displayName,email', () => {
+    expect(importIdentities('hs1,A,a@x.vn\nhs2,B,b@x.vn\n')).toEqual([
+      { username: 'hs1', email: 'a@x.vn' },
+      { username: 'hs2', email: 'b@x.vn' },
+    ]);
+  });
+
+  it('gives an empty address to a file with no email column, and to a row that omits one', () => {
+    // The server invents `<username>@<slug>.import.invalid` for these (D61),
+    // which can only collide when the username already has — so the caller
+    // must be able to tell "no address" from "this address" and skip it.
+    expect(importIdentities('username,displayName\nhs1,A\n')).toEqual([
+      { username: 'hs1', email: '' },
+    ]);
+    expect(importIdentities('username,displayName,email\nhs1,A,\n')).toEqual([
+      { username: 'hs1', email: '' },
+    ]);
   });
 });

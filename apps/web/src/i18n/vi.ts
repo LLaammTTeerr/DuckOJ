@@ -251,6 +251,9 @@ export const vi = {
   'submit.submit': 'Nộp bài',
   'submit.gate': 'Đăng nhập để nộp bài giải.',
   'submit.failed': 'Nộp bài không thành công.',
+  'submit.rateLimited':
+    'Bạn nộp bài quá nhanh — mỗi 10 giây được nộp một lần, và tối đa 20 lần trong 10 phút. Thử lại sau {seconds} giây.',
+  'submit.cooldown': 'Có thể nộp bài tiếp sau {seconds} giây.',
   'submit.liveUnavailable':
     'Không nhận được cập nhật trực tiếp ({code}). Tải lại trang để xem trạng thái mới nhất.',
   'submit.status': 'Trạng thái: {state}',
@@ -674,6 +677,7 @@ export const vi = {
   'import.confirm': 'Tạo tài khoản',
   'import.progress': 'Đang gửi phần {done}/{total}…',
   'import.duplicate': 'Tên đăng nhập {username} xuất hiện nhiều lần trong tệp.',
+  'import.duplicateEmail': 'Địa chỉ email {email} xuất hiện nhiều lần trong tệp.',
   'import.stopped': 'Đã dừng sau {done}/{total} phần; các tài khoản dưới đây đã được tạo.',
   'import.error': 'Không nhập được danh sách.',
   'import.previewCount': 'Sẽ tạo {n} tài khoản.',

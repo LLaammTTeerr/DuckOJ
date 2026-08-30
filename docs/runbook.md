@@ -68,6 +68,23 @@ respectively) — no separate `pnpm exec` incantation is needed. `TOTP_ENC_KEY` 
 `PUBLIC_ORIGIN` are both required by `apps/api/src/config/config.schema.ts`; the API
 fails fast at boot with a clear Zod error if either is missing.
 
+**`PUBLIC_ORIGIN` + `WS_EXTRA_ORIGINS` is a security boundary, not just a CORS
+setting.** The two together are the browser-origin allow-list, and it now gates
+**three** things: CORS, the WebSocket upgrade (D70), and — since D82 — every
+cookie-authenticated `POST`/`PATCH`/`DELETE`, which is refused `403 csrf_origin`
+if its `Origin` (or `Referer`) is not on the list, or if it sends neither. So:
+
+- A browser client served from an origin that is not on this list can read the
+  API but cannot write to it. If a new front end, a staging host or a tunnel
+  starts getting 403s on every save, this list is the first thing to check.
+- **Anything scripted that carries a session cookie must send `Origin`
+  itself** — Node's `fetch` and Playwright's `context.request` send none. The
+  three `scripts/e2e-*.ts` do this, naming `E2E_BASE_URL`'s origin, so
+  `E2E_BASE_URL` has to be a value on this list (on this host,
+  `http://localhost:8080`, which is what `WS_EXTRA_ORIGINS` is set to).
+- Anything using a **bearer token** — `oj`, the judge agent, CI — is
+  unaffected and needs no origin.
+
 This exact sequence (container run, `migrate`, `api dev`, `curl /healthz`) was run
 end-to-end while writing this runbook: the container started, `migrate` printed
 `migrations applied`, the API mapped all routes and logged
@@ -1027,6 +1044,49 @@ Fourteen nightly backups on the same disk as the database protect against
 nothing that destroys the disk or the machine. Someone has to copy
 `~/duckoj-backups` off this host on a schedule.
 
+## Redis is unbounded on purpose
+
+`redis` runs with **`maxmemory 0`** (no limit) and the default `noeviction`
+policy, and that is deliberate rather than an oversight.
+
+It is safe because of a property of the code, not of the configuration:
+**every key this API writes carries a TTL.** There is exactly one write path,
+`SET … PX` (the scoreboard/booklet/statistics cache, D25/D48/D49), and
+realtime is pub/sub, which stores nothing. B12 scanned the live instance
+*during* a 500-VU hold and found **zero keys without a TTL**, 1.30 MB used
+against a 1.47 MB peak, 98.3% hit rate.
+
+Setting `maxmemory` + `allkeys-lru` was considered and refused: it configures
+an eviction policy for a workload that never needs one, and it would turn the
+first non-expiring key anyone adds from a visible growth problem into a value
+that silently disappears under memory pressure. Unbounded-with-a-TTL fails
+loudly; bounded-with-LRU fails quietly.
+
+**What keeps the ruling honest.** `api` reads `CONFIG GET maxmemory` once at
+startup — one worker only, whichever cluster worker is `#1` — and logs
+
+    WARN [RedisConfig] redis maxmemory is 0 (unbounded) with no eviction policy: …
+
+That line is expected on this deployment. It exists so that whoever adds a
+`SET` without an expiry meets the word `maxmemory` before the host's OOM
+killer does. If you ever do add a non-expiring key, that is the moment to set
+a limit and an eviction policy — and to come back and rewrite this section.
+
+The check never blocks a boot and never fails one: a Redis that is not up
+yet, or a managed Redis that forbids `CONFIG`, logs one `debug` line and
+nothing else. Absence of the warning therefore means "bounded, **or** could
+not ask" — check with `redis-cli config get maxmemory` if it matters.
+
+**A related line you may see under load**, once a minute at most:
+
+    WARN [RedisScoreboardCacheStore] scoreboard cache unavailable, folding every board until Redis returns: Stream isn't writeable…
+
+That is a transient cache drop-out (`enableOfflineQueue: false`, so a command
+that cannot be sent right now fails instead of queueing). It cannot fail a
+request — the board is simply folded from Postgres — and it is throttled to
+one line a minute per worker precisely because it used to arrive once per
+failed request, in the middle of the load that caused it.
+
 ## API workers — `API_WORKERS`
 
 `api` is a Node process, and Node runs JavaScript on one thread. Before this
@@ -1319,8 +1379,20 @@ it needs from the API.
 This burns the token hash and **keeps the row**. Do not `DELETE` it:
 `grading_jobs.judge_node_id` references `judge_nodes` `on delete set null`, so
 deleting the row erases which machine graded every submission it ever ran.
-Revoking is idempotent and takes effect on the judge's next handshake — stop
-the container too if you want it gone now.
+Revoking is idempotent.
+
+**It takes effect within about five seconds, even on a judge that is already
+connected** (D81). `judged` re-checks every connected judge against
+`judge_nodes` on a five-second timer and closes the socket of anything that is
+no longer admitted, logging one `dropping revoked judge` line with the id.
+Before that timer existed, the credential was verified once, at the handshake,
+so a revoked judge held its connection for as long as it stayed up and went on
+being dispatched to. Stopping the container is still the tidy end of it, but it
+is no longer what makes the revocation take effect.
+
+If a revocation appears not to land, look for `judge revalidation failed` in
+`judged`'s log: the poll fails **open** on purpose (a database blip must not
+disconnect the whole fleet), so a broken poll leaves every judge connected.
 
 ### A queue that is not moving, with a judge connected
 

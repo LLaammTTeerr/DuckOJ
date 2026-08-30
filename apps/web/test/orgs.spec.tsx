@@ -234,3 +234,50 @@ describe('OrgPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/no owner/i);
   });
 });
+
+/**
+ * The whole-file duplicate check, which is the only place a repeat spanning
+ * two chunks can be caught BEFORE any of them is sent (D61 amended).
+ *
+ * A preview creates nothing, so the server has nothing to compare chunk two
+ * against and every chunk previews clean; the real import then refuses chunk
+ * two — correctly — after chunk one has created accounts. The teacher is left
+ * with half a class and a printout to match.
+ */
+describe('the roster import panel refuses a duplicate that spans chunks', () => {
+  async function typeRoster(csv: string): Promise<void> {
+    serve('owner-person');
+    wrap(<OrgPage slug="hanoi" />);
+    const box = await screen.findByLabelText('Danh sách học sinh');
+    await userEvent.click(box);
+    await userEvent.paste(csv);
+    await userEvent.click(screen.getByRole('button', { name: 'Kiểm tra danh sách' }));
+  }
+
+  it('names a repeated ADDRESS and sends nothing', async () => {
+    await typeRoster('username,displayName,email\nhs001,A,dung@thpt.vn\nhs002,B,DUNG@thpt.vn\n');
+
+    // Case-folded, the way `users_email_lower_idx` folds it.
+    expect(await screen.findByRole('alert')).toHaveTextContent(/dung@thpt\.vn/i);
+    // Not one request: the point is that nothing is created before the
+    // duplicate is known.
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('still names a repeated username', async () => {
+    await typeRoster('username,displayName,email\nhs001,A,a@thpt.vn\nHS001,B,b@thpt.vn\n');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/hs001/i);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('sends a roster whose addresses differ, and one that supplies none', async () => {
+    // A row with no address is not a duplicate of another row with no
+    // address: the server invents `<username>@<slug>.import.invalid` for each
+    // (D61), which collides only when the username already has.
+    post.mockResolvedValue({ data: { rows: [] } });
+    await typeRoster('username,displayName\nhs001,A\nhs002,B\n');
+
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});

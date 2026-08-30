@@ -87,6 +87,42 @@ export interface BuildAppOptions {
    * does not block registration.
    */
   overrides?: RealtimeOverride[];
+  /**
+   * Skips the `Origin` stamp described on {@link browserOrigin} — for the
+   * tests that are ABOUT the missing header (D82's "a session cookie and
+   * nothing to say where it came from is a refusal").
+   */
+  rawOrigin?: boolean;
+}
+
+/**
+ * Stamps `Origin` on a request that names neither `Origin` nor `Referer`.
+ *
+ * `request.agent(...)` is a browser simulation — it keeps a cookie jar and
+ * replays it — and every browser this decade sends `Origin` on every unsafe
+ * method. Supertest does not, so without this the suite's 400-odd
+ * cookie-authenticated writes would all meet `CsrfOriginGuard` (D82) as
+ * requests from nowhere. This makes the simulation faithful rather than
+ * turning the guard off: it is exactly one header, added only when the
+ * request supplied neither, so a test that sets a HOSTILE origin is untouched
+ * and reaches the guard as written.
+ *
+ * The arrangement is deliberate in both directions: those 400-odd requests
+ * now exercise the guard's ADMIT path on every run — a guard that refused a
+ * legitimate origin would fail all of them — and `csrf-origin.spec.ts`, which
+ * passes `rawOrigin`, owns the refuse path.
+ */
+function browserOrigin(origin: string) {
+  return (
+    req: { headers: Record<string, string | string[] | undefined> },
+    _res: unknown,
+    next: () => void,
+  ): void => {
+    if (req.headers.origin === undefined && req.headers.referer === undefined) {
+      req.headers.origin = origin;
+    }
+    next();
+  };
 }
 
 export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<INestApplication> {
@@ -133,6 +169,9 @@ export async function buildApp(db: Db, options: BuildAppOptions = {}): Promise<I
   const app = moduleRef.createNestApplication();
   if (options.logging) {
     app.use(requestLogger(options.logging.level, options.logging.destination));
+  }
+  if (!options.rawOrigin) {
+    app.use(browserOrigin((options.configOverrides?.publicOrigin ?? TEST_CONFIG.publicOrigin)));
   }
   app.use(cookieParser());
   app.useGlobalFilters(new ProblemFilter());
@@ -188,6 +227,8 @@ export async function buildAppWithRealtime(
   const moduleRef = await builder.compile();
 
   const app = moduleRef.createNestApplication();
+  // Realtime tests POST submissions through an agent too — see `browserOrigin`.
+  app.use(browserOrigin(TEST_CONFIG.publicOrigin));
   app.use(cookieParser());
   app.useGlobalFilters(new ProblemFilter());
   await app.init();

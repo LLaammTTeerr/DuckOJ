@@ -25,7 +25,14 @@
  */
 import { randomBytes } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { createDb, hashJudgeToken, schema, type Db } from '@duckoj/db';
+import {
+  createDb,
+  hashJudgeToken,
+  isRevokedTokenHash,
+  REVOKED_TOKEN_PREFIX,
+  schema,
+  type Db,
+} from '@duckoj/db';
 
 /**
  * The only driver `judged` implements. `judge_nodes.driver` exists so a
@@ -61,11 +68,11 @@ function generateToken(): string {
  * `token_hash` — satisfiable when several nodes are revoked.
  */
 export function revokedHash(previousHash: string): string {
-  return `revoked:${previousHash}`;
+  return `${REVOKED_TOKEN_PREFIX}${previousHash}`;
 }
 
 export function isRevoked(tokenHash: string): boolean {
-  return tokenHash.startsWith('revoked:');
+  return isRevokedTokenHash(tokenHash);
 }
 
 export interface JudgeNodeRow {

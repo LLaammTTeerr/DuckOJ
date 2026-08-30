@@ -48,7 +48,17 @@ export interface AppConfig {
   sessionTtlHours: number;
   totpEncKey: Buffer;
   publicOrigin: string;
-  /** `PUBLIC_ORIGIN` plus `WS_EXTRA_ORIGINS` — the WebSocket Origin allow-list (D70). */
+  /**
+   * `PUBLIC_ORIGIN` plus `WS_EXTRA_ORIGINS` — the browser-origin allow-list.
+   *
+   * Two readers now: the WebSocket upgrade (D70) and `CsrfOriginGuard`, which
+   * checks the same list on every cookie-authenticated state change (D82).
+   * ONE list, deliberately not split in two: a deploy that may open a socket
+   * from an origin and may not write from it — or the reverse — is a
+   * configuration nobody wants and everybody would eventually produce by
+   * editing one variable and not the other. The name is kept as it is; a
+   * rename would touch `.env` on the live host to say nothing new.
+   */
   wsAllowedOrigins: readonly string[];
   logLevel: string;
   packageStoreDir: string;

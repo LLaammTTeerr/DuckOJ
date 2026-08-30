@@ -16,7 +16,13 @@ import { promisify } from 'node:util';
 import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { createDb, runMigrations, schema, verifyJudgeCredential } from '../src/index.js';
+import {
+  admittedJudgeNames,
+  createDb,
+  runMigrations,
+  schema,
+  verifyJudgeCredential,
+} from '../src/index.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -159,6 +165,35 @@ describe('judge-node.ts', () => {
     const again = await run(['revoke', 'judge-gone']);
     expect(again.code).toBe(0);
     expect(again.stdout).toContain('already revoked');
+  }, 180_000);
+
+  it('admittedJudgeNames drops a revoked judge, which is how a live socket is closed (D81)', async () => {
+    await run(['add', 'judge-live']);
+    await run(['add', 'judge-burned']);
+
+    const { db, close } = createDb(await dbUrl());
+    try {
+      // Before: both are admitted, so `judged` keeps both connections.
+      expect((await admittedJudgeNames(db, ['judge-live', 'judge-burned'])).sort()).toEqual([
+        'judge-burned',
+        'judge-live',
+      ]);
+
+      await run(['revoke', 'judge-burned']);
+
+      // After: the revoked one is absent from the answer, which is the whole
+      // signal `BridgeServer.revalidate` acts on. Nothing on the wire says so
+      // — that is why this is polled rather than pushed.
+      expect(await admittedJudgeNames(db, ['judge-live', 'judge-burned'])).toEqual(['judge-live']);
+      // A name that was never registered is absent too: a judge whose row an
+      // operator deleted by hand is not one to keep dispatching to.
+      expect(await admittedJudgeNames(db, ['never-registered'])).toEqual([]);
+      // No names, no query — the caller uses this to keep an idle bridge from
+      // polling for nothing.
+      expect(await admittedJudgeNames(db, [])).toEqual([]);
+    } finally {
+      await close();
+    }
   }, 180_000);
 
   it('refuses an unknown name and an unknown command, with a usage line', async () => {

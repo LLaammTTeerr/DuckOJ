@@ -189,22 +189,50 @@ export function splitImportCsv(text: string, size: number): string[] {
 const DEFAULT_HEADER_RECORD = ['username', 'displayName', 'email'];
 
 /**
- * Every username the file names, in order — the one field that has to be
+ * Both identity fields the file names, row by row — the two that have to be
  * unique across the WHOLE roster rather than within one request.
  *
  * The server validates a request against itself and against the database; it
- * cannot see a repeat that lands in a different chunk, and by the time the
- * unique index catches one, earlier chunks have already created accounts.
- * The caller doing the splitting is the only place that can refuse it first.
+ * cannot see a repeat that lands in a different chunk. For a REAL import that
+ * is answered anyway — chunk one's accounts are in `users` by the time chunk
+ * two validates, so chunk two is refused with a legible 422 and creates
+ * nothing (pinned by `org-member-import.spec.ts`). But a PREVIEW creates no
+ * accounts, so a whole-roster preview is clean and the import then strands
+ * the class half-made: the caller doing the splitting is the only place that
+ * sees the whole file before any of it is sent.
+ *
+ * **Both fields, not just the username.** They were username-only, and B11
+ * recorded the consequence as "one field short": `users.email` is uniquely
+ * indexed exactly as `users.username` is, so a repeated address strands a
+ * sequence in precisely the same way a repeated username would have.
+ *
+ * A row with no address contributes an empty string, which the caller skips —
+ * the server invents a placeholder from the username for those (D61), and
+ * that placeholder collides only when the username already has.
  */
-export function importUsernames(text: string): string[] {
+export interface ImportIdentity {
+  username: string;
+  email: string;
+}
+
+export function importIdentities(text: string): ImportIdentity[] {
   const records = importRecords(text);
   if (records.length === 0) return [];
   const declared = importHeaderColumns(records[0]!);
   const columns = declared ?? DEFAULT_IMPORT_COLUMNS;
   const body = declared === null ? records : records.slice(1);
-  const at = columns.indexOf('username');
-  return body.map((record) => (at === -1 ? '' : (record[at] ?? '').trim()));
+  const usernameAt = columns.indexOf('username');
+  const emailAt = columns.indexOf('email');
+  const cell = (record: string[], at: number): string => (at === -1 ? '' : (record[at] ?? '').trim());
+  return body.map((record) => ({
+    username: cell(record, usernameAt),
+    email: cell(record, emailAt),
+  }));
+}
+
+/** Just the usernames, in order. `importIdentities` for both fields. */
+export function importUsernames(text: string): string[] {
+  return importIdentities(text).map((identity) => identity.username);
 }
 
 /** One imported account, as the credential sheet lists it. */

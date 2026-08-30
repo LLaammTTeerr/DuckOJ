@@ -4,6 +4,9 @@ export { runMigrations } from './migrate.js';
 export {
   hashJudgeToken,
   verifyJudgeCredential,
+  admittedJudgeNames,
+  isRevokedTokenHash,
+  REVOKED_TOKEN_PREFIX,
   touchJudgeLastSeen,
   recordJudgeCapabilities,
 } from './judge-auth.js';

@@ -1,10 +1,12 @@
 import { availableParallelism } from 'node:os';
 import cluster from 'node:cluster';
 import 'reflect-metadata';
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { configureApp } from './app.setup.js';
 import { resolveWorkerCount, runPrimary } from './cluster.js';
+import { warnIfRedisUnbounded } from './common/redis-maxmemory.js';
 import { loadConfig } from './config/config.schema.js';
 import { SubmissionsGateway } from './realtime/submissions.gateway.js';
 
@@ -16,6 +18,15 @@ async function bootstrap(): Promise<void> {
   // After `listen`, so `getHttpServer()` returns the server that is actually
   // accepting connections rather than one still being bound.
   app.get(SubmissionsGateway).attach(app.getHttpServer());
+  // After `listen` too, and never awaited into the boot path: an unbounded
+  // Redis is worth a line in the log and is not worth a second of startup.
+  // Only ONE worker asks — `API_WORKERS=4` saying the same thing four times
+  // reads as four problems. Deliberately here rather than in a Nest provider:
+  // every API spec builds the module, and a provider would have each of them
+  // dial a Redis that `TEST_CONFIG` points at a closed port on purpose.
+  if (!cluster.isWorker || cluster.worker?.id === 1) {
+    void warnIfRedisUnbounded(config.redisUrl, new Logger('RedisConfig'));
+  }
 }
 
 // One process saturates one core (see cluster.ts). `API_WORKERS=1` is the

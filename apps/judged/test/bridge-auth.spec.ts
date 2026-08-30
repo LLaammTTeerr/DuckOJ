@@ -264,3 +264,113 @@ describe('BridgeServer authentication', () => {
     }
   }, 30_000);
 });
+
+/**
+ * Revocation reaches a judge that is ALREADY connected (D81).
+ *
+ * `verifyJudge` runs once, at the handshake, and B11 recorded the
+ * consequence: `judge:node revoke` burned the token hash and the revoked
+ * judge kept its socket for as long as it stayed connected — indefinitely,
+ * since the bridge pings it and it answers. The mitigation everyone leaned on
+ * ("its package fetches 401, so the work fails") is not a mitigation: it is
+ * every submission dispatched to that judge failing instead of being graded,
+ * which is worse than not dispatching at all.
+ *
+ * The check is a poll, not a `LISTEN`/`NOTIFY` — see D81.
+ */
+describe('BridgeServer revalidates connected judges', () => {
+  let server: BridgeServer | undefined;
+  let judge: ReturnType<typeof fakeJudge> | undefined;
+
+  afterEach(async () => {
+    judge?.close();
+    judge = undefined;
+    await server?.close();
+    server = undefined;
+  });
+
+  async function connectedJudge(
+    options: Partial<ConstructorParameters<typeof BridgeServer>[0]>,
+  ): Promise<void> {
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+      revalidateIntervalMs: 50,
+      ...options,
+    });
+    const port = await server.listen(0);
+    judge = fakeJudge(port, 'judge-1', 'a-key');
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+  }
+
+  it('drops a judge the poll no longer admits, and reports the disconnect', async () => {
+    let admitted = ['judge-1'];
+    const disconnected: string[] = [];
+    await connectedJudge({ admittedJudges: async () => admitted });
+    server!.onDisconnect((id) => disconnected.push(id));
+
+    // The revocation happens out of band — `judge:node revoke` against the
+    // database, with nothing on this socket to announce it.
+    admitted = [];
+
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(0), 10_000);
+    // The socket itself, not merely the bookkeeping: a judge left connected
+    // goes on being pinged and goes on believing it is in the fleet.
+    await vi.waitFor(() => expect(judge!.isClosed()).toBe(true), 10_000);
+    // Whoever was grading on it has to hear, exactly as for a judge that died.
+    expect(disconnected).toEqual(['judge-1']);
+  }, 30_000);
+
+  it('never dispatches to a revoked judge again', async () => {
+    let admitted = ['judge-1'];
+    await connectedJudge({ admittedJudges: async () => admitted });
+    expect(server!.connectionIds()).toEqual(['judge-1']);
+
+    admitted = [];
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(0), 10_000);
+
+    // The three things dispatch asks. All must answer "nobody".
+    expect(server!.connectionIds()).toEqual([]);
+    expect(server!.sendTo('judge-1', { name: 'ping', when: 0 })).toBe(false);
+    expect(server!.supportedLanguages()).toEqual([]);
+  }, 30_000);
+
+  it('keeps a judge the poll still admits', async () => {
+    const admittedJudges = vi.fn(async (ids: string[]) => ids);
+    await connectedJudge({ admittedJudges });
+
+    await vi.waitFor(() => expect(admittedJudges.mock.calls.length).toBeGreaterThan(2), 10_000);
+    expect(server!.judgeCount()).toBe(1);
+    expect(judge!.isClosed()).toBe(false);
+    expect(admittedJudges).toHaveBeenCalledWith(['judge-1']);
+  }, 30_000);
+
+  it('fails OPEN: a poll that throws never empties the fleet', async () => {
+    // The revalidation query runs against the same database every other part
+    // of this system depends on. A blip in it must not disconnect every judge
+    // in the province at once — that turns a transient read failure into a
+    // fleet-wide outage, which is strictly worse than the thing being guarded.
+    const admittedJudges = vi.fn(() => Promise.reject(new Error('database is down')));
+    await connectedJudge({ admittedJudges });
+
+    await vi.waitFor(() => expect(admittedJudges.mock.calls.length).toBeGreaterThan(2), 10_000);
+    expect(server!.judgeCount()).toBe(1);
+    expect(judge!.isClosed()).toBe(false);
+  }, 30_000);
+
+  it('polls nothing when no judge is connected', async () => {
+    const admittedJudges = vi.fn(async (ids: string[]) => ids);
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      verifyJudge: async () => true,
+      revalidateIntervalMs: 20,
+      admittedJudges,
+    });
+    await server.listen(0);
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    // An idle bridge must not run a query fifteen times a minute for nothing.
+    expect(admittedJudges).not.toHaveBeenCalled();
+  }, 30_000);
+});

@@ -2038,6 +2038,56 @@ the FILE repeats across two chunks before sending anything, since no single
 request can see that. A chunk that fails mid-sequence shows the credentials
 the earlier chunks did create, beside the reason it stopped.
 
+**Amended again 2026-08-30 (B13 leftovers):** the whole-file check covers
+**both identity columns**, not the username alone. B11 recorded the gap as
+"one field short", and the B13 brief carried a diagnosis of it that turned
+out to be wrong — worth writing down, because the wrong diagnosis is the
+expensive thing to build:
+
+- **The server already refuses a repeated address across chunks, and creates
+  nothing when it does.** Probed against a real database: chunk one imports
+  `dung@thpt.vn`, chunk two names it again, and `validateImportRows` answers
+  `422 member_import_invalid` with `rows[1].email`, because `takenIdentities`
+  reads `users` — where chunk one's accounts already are. Pinned now by a
+  test, so it cannot quietly stop being true.
+- **What is actually missing is in the PREVIEW.** A preview creates nothing,
+  so a whole-roster preview compares each chunk against an empty table and
+  every chunk comes back clean. The teacher then presses import and the
+  sequence strands: chunk one's accounts exist, chunk two is refused, half a
+  class holds a printout. That is the defect, and it lives where the file is
+  split rather than where a request is validated.
+
+So the fix is the panel's `crossChunkDuplicate`, extended from usernames to
+usernames **and** addresses, case-folded the way `users_username_lower_idx`
+and `users_email_lower_idx` fold them, with a blank address skipped (the
+placeholder is derived from the username, so it collides only when the
+username already has). `importUsernames` becomes `importIdentities` in
+`@duckoj/contracts`, beside the grammar it reads.
+
+**Three server-side shapes considered and refused**, each because it costs
+more than the client check that closes the case:
+
+- **A short-lived Redis set of addresses per organization.** Wrong substrate
+  for a refusal: every Redis use in this system is best-effort and fail-open
+  by design (D25), the test harness points `redisUrl` at a closed port on
+  purpose, and a correctness guard that silently stops guarding when Redis
+  blinks is worse than no guard. It also adds nothing the `users` check does
+  not already do for real imports.
+- **A claim ledger in `rate_events`.** Same information as `users` for a real
+  import, and for a preview it *breaks D61's own workflow*: the normal flow is
+  a teacher fixing one row and previewing again, which would collide with
+  their own previous preview. Scoping it to a sequence needs a client-supplied
+  sequence id — new contract surface to protect one client from duplicates in
+  a file that client is holding in full.
+- **Exempting `dryRun` from the 500-row cap**, so one preview sees the whole
+  file. It drags the row cap, the body-size limit and the preview table along
+  with it, for a case the client check kills outright.
+
+What remains after this is the preview→import race — somebody registering one
+of these addresses in the seconds between — and that already has its answer:
+the unique violation is caught, validation is re-run, and the caller gets the
+422 naming the row rather than a 500.
+
 ## D62 — A contest booklet carries the problems the reader may read, not the contest's whole list
 
 `GET /contests/{key}/booklet.pdf` (D48) read `problems.statement` for every
@@ -2982,6 +3032,215 @@ human available to consult. No migration, no code change — this entry is the
 deliverable.*
 
 
+## D80 — `POST /submissions` is metered: one per ten seconds and twenty per ten minutes, per user
+
+D79 ruled this endpoint should be metered, deliberately did not build it, and
+recorded the measurement a threshold should be set from. This is that limit.
+It is the last costly write in the API that was unmetered, and it enqueues the
+most expensive work the system does: one grading job, one container, one
+compile.
+
+**The numbers, and where each comes from.**
+
+- **One every ten seconds** is a burst bound, and it is a judgement rather
+  than a measurement. What it stops is the double-clicked button and the
+  script in a loop — neither is malicious and both cost a container per press.
+  Ten seconds is longer than anyone means to wait between two *different*
+  solutions and shorter than anyone notices after reading a rejected one.
+- **Twenty every ten minutes** is the sustained bound and it IS the
+  measurement. B12 recorded 35.3 verdicts a minute out of one judge, with the
+  queue reaching 23 and a p95 time-to-verdict of 39 s (`load/RESULTS.md`). Two
+  a minute per person means eighteen people can submit continuously before one
+  judge is the constraint — comfortably past what a room does. Somebody
+  submitting twenty times in ten minutes is debugging against the judge, and
+  the twenty-first attempt is worth ten seconds of thinking.
+
+The case that must NOT break is the one D79 named: a room re-submitting after
+a failed test. That is one submission per person at the same moment, and it
+meets neither bound — a per-user meter cannot be tripped by a room's size.
+
+**Organisers and admins are metered on the same terms — no exemption.** The
+thing being bounded is a grading container, and a container costs the same
+whoever enqueued it: an admin looping on `/submissions` starves a contest
+exactly as a contestant would. An exemption would also put the one account
+most likely to be scripted outside the only bound on the queue. Bulk grading
+has its own door, `POST /admin/rejudge`, metered as its own thing.
+
+**Keyed on the USER.** Not the session (signing out and in would buy a fresh
+budget), not the token (`POST /auth/tokens` mints them freely, so the meter
+would bound one token and nothing else), and above all not the IP: a school
+computer room is one address, and metering it would refuse thirty pupils for
+the actions of one. D16 pairs its per-IP window with a per-identifier one
+precisely because each catches what the other cannot; there is no second
+window to pair with here, because an authenticated submission has exactly one
+identity behind it.
+
+**`retryAfterSeconds` + `record`, never `allow`** — login's split (D16), for
+login's reason turned around. `allow` records the attempt it refuses. With a
+limit of ONE that is fatal: a double-clicked button would extend its own
+cooldown on every refusal, and somebody leaning on the key would never be
+allowed to submit at all. So the window is spent only by a submission that was
+actually created, and a refusal costs the caller nothing.
+
+**Where each half sits in `create`, and why:**
+
+- The **check runs first**, before a single row is read — D26's rule for
+  `register`, where the meter runs ahead of the argon2id hash. A refused caller
+  costs this process nothing, and a 429 decided without consulting the problem
+  can leak nothing about one.
+- The **record runs last**, after every other refusal and before the
+  transaction opens. After validation, so a mistyped problem code does not cost
+  a contestant ten seconds of cooldown for a submission the judge never saw;
+  before the transaction, so a failure to record can never leave a created
+  submission this meter did not count.
+- `record` is handed the **ten-minute** window, never the ten-second one. It
+  deletes this key's rows older than the window it is given, so the burst
+  window would sweep away the rows the sustained count is made of on every
+  submission — a limiter that passes every test about its short window and
+  enforces nothing. A test pins the row count for exactly this reason.
+
+**`Retry-After` is the LONGER of the two windows** when both are spent. A
+caller who has used their ten minutes and is told to come back in ten seconds
+comes back fifty times to be refused again, which is a limiter generating the
+load it exists to prevent.
+
+**What the two clients do with it.** The web submit page reads the header,
+disables the button for that many seconds and counts down in the reader's own
+language (`submit.rateLimited` / `submit.cooldown`, vi and en) — "wait a
+moment" with no number is the message that gets pressed again immediately.
+`oj submit` prints the wait in its refusal line, because somebody driving the
+CLI in a loop is exactly who needs the number.
+
+*Ruled by the implementer during the 2026-08-30 B-13 leftovers loop, no human
+available to consult. No migration — `rate_events` takes a new `purpose`
+without one, which is that column's whole design.*
+
+## D81 — A revoked judge loses its socket within five seconds, and the check is a POLL
+
+`verifyJudgeCredential` runs exactly once per connection, in the handshake.
+`judge:node revoke` (D68) burns the token hash in `judge_nodes` and there is
+nothing on the bridge socket to announce that it happened — so a judge
+revoked while connected **kept its connection**, kept answering pings, and
+kept being chosen by dispatch. B11 recorded it as "handshake-only
+verification; its package fetches 401, so the work fails rather than
+completing", which is not a mitigation: it is every submission sent to that
+judge failing instead of being graded, which is strictly worse than the judge
+not being there at all.
+
+`BridgeServer` now re-checks its connected set every **five seconds** through
+`@duckoj/db`'s `admittedJudgeNames`, and closes and retires anything the
+answer omits. Five seconds against a table holding one row per machine ever
+registered; the brief asked for ten and this leaves margin for a slow query
+inside it.
+
+**A poll, not `LISTEN`/`NOTIFY`.** NOTIFY is the better shape for a hot
+table, and this is the coldest table in the schema: a row is written when a
+judge is registered and rewritten when one is retired, perhaps twice a year.
+Paying for it in a dedicated long-lived `LISTEN` connection — which needs its
+own reconnect logic, its own "did I miss a notification while disconnected"
+answer, and a trigger plus a migration to emit from — buys nothing a
+five-second `select` over a handful of names does not already give, and adds
+three failure modes that are silent when they break. The poll's failure mode
+is one log line and a stale-by-five-seconds answer.
+
+**The poll fails OPEN.** A rejection from the query leaves every judge
+connected. This is the deliberate inverse of `verifyJudgeCredential`'s
+fail-closed `catch`, because the two failures are not the same failure: that
+one would admit an unauthenticated judge, this one would disconnect
+authenticated ones — turning a transient database blip into a fleet-wide
+grading outage on the day the database is already unhappy. A judge that
+should have been dropped stays connected for one more poll instead, which is
+the direction to be wrong in.
+
+Three details that are each a way this could have been wrong instead:
+
+- **Nothing connected, nothing asked.** An idle bridge runs no query.
+- **Never two polls at once**, so a slow query cannot stack one connection
+  per tick against a database already struggling.
+- **The connection is re-read from the map before it is closed.** A judge that
+  redialled while the query was in flight sits under the same id on a *new*
+  connection, which the reply says nothing about; closing that one would
+  disconnect a live judge on a stale answer.
+
+Dropping goes through `retire`, not a bare delete, so whoever was grading on
+that socket hears about it exactly as they do for a judge that died — and
+removal from `connections` is what "never dispatched to again" means, since
+every dispatch path (`connectionIds`, `sendTo`, `supportedLanguages`) reads
+that one map. A revoked judge redialling is already refused by the handshake.
+
+*Ruled by the implementer during the 2026-08-30 B-13 leftovers loop, no human
+available to consult. No migration.*
+
+
+## D82 — Every cookie-authenticated state change must name an allowed origin
+
+B10 cleared CSRF and wrote the clearance down as **single-layer**:
+`SameSite=Lax` withholds the session cookie from every cross-site unsafe
+method, every state change here is an unsafe method, and so Lax's
+top-level-GET allowance grants an attacker nothing. That argument is correct
+and it rests entirely on one browser feature behaving as documented — no
+token, no second check, nothing that fails independently of it. D70 made
+exactly this argument for the WebSocket upgrade and added an Origin check
+anyway; this is the same check for the other half of the surface.
+
+`CsrfOriginGuard`, one global guard, one rule: **a state-changing request
+that carries a session cookie must say where it came from, and where it came
+from must be ours.**
+
+- **The allow-list is `wsAllowedOrigins`** — `PUBLIC_ORIGIN` plus
+  `WS_EXTRA_ORIGINS`, D70's list, unchanged and not duplicated. A deploy that
+  may open a socket from an origin but not write from it is a configuration
+  nobody wants and everybody would eventually produce by editing one variable
+  and not the other.
+- **A negative method list**: `GET`, `HEAD` and `OPTIONS` are skipped and
+  everything else is checked. The positive `POST`/`PATCH`/`DELETE` is what
+  exists today, and a `PUT` added next month would be silently exempt from it.
+  `OPTIONS` is skipped so a CORS preflight — which carries no cookie and asks
+  permission for the request that follows — is never itself refused.
+- **Cookie PRESENCE, not validity.** The question is not "is this caller
+  signed in" but "could the browser have attached ambient credentials", and a
+  cookie the server will reject was still attached by the browser.
+- **Neither header, with a cookie, is a refusal.** This is the deliberate
+  opposite of D70's WebSocket ruling, which ALLOWS a missing `Origin` because
+  the clients that send none — `oj`, the judge agent — "carry no ambient
+  cookie". Here the cookie is the premise. `Origin: null`, which a sandboxed
+  iframe sends, fails list membership like any other stranger.
+- **`Referer` is a fallback, reduced to its origin first.** A `Referer`
+  carries a path, and a path is not a trust boundary: a check that matched the
+  whole header, or a prefix of it, would admit
+  `https://evil.example/http://localhost:5173`.
+- **Bearer requests are not checked**, even with a cookie riding along:
+  `AuthGuard.attachActor` authenticates by the token and never reads the
+  cookie, and no page can set an `Authorization` header without a preflight
+  this API answers only for its own origin. Every machine client has no origin
+  to send and must not be refused for it.
+- **Registered FIRST, ahead of `AuthGuard`.** It reads no actor, so it needs
+  nothing `AuthGuard` produces, and running it first is what makes a
+  cross-site request refused as what it is — `403 csrf_origin` — rather than
+  reaching `AuthGuard`, resolving the victim's perfectly valid cookie, and
+  being judged on the merits of a request they never made. A test pins that
+  precedence against a stale cookie: 403, never 401.
+
+**Nothing is registered per-route in `packages/contracts`.** This 403 is
+cross-cutting exactly as 401 is — it can happen to any unsafe route and is
+about the caller's browser rather than the endpoint — and adding it to every
+`registerPath` would be churn across a dozen files for a response no correct
+client can provoke.
+
+**What it costs, and who pays it.** Node's `fetch` sends no `Origin`, so the
+three `scripts/e2e-*.ts` — which drive the live stack through a session
+cookie — now send one naming `E2E_BASE_URL`'s origin, which must therefore be
+`PUBLIC_ORIGIN` or one of `WS_EXTRA_ORIGINS` (on the live host it is
+`http://localhost:8080`, already listed). `supertest` sends none either, so
+`app.harness.ts` stamps `Origin` on a request that named neither header —
+making the browser simulation faithful rather than turning the guard off. The
+suite's four-hundred-odd cookie-authenticated writes therefore exercise the
+ADMIT path on every run, and `csrf-origin.spec.ts` — the one file that opts
+out of the stamp — owns the refuse path.
+
+*Ruled by the implementer during the 2026-08-30 B-13 leftovers loop, no human
+available to consult. No migration.*
+
 ## D83 — Progress is what has already been decided: a run nobody is running is failed, and a live room counts for nothing until it closes
 
 Two things F16 shipped, and one rule joins them: this judge only reports what
@@ -3151,3 +3410,4 @@ written for, "the page reloaded" is not a rare event.
 
 *Ruled by the implementer during the 2026-08-30 feature loop (F17 brief), no
 human available to consult. No migration, no API change.*
+

@@ -239,6 +239,45 @@ describe('importing a roster', () => {
     });
   }, IMPORT_TEST_TIMEOUT_MS);
 
+  it('refuses a second chunk that repeats an ADDRESS from a chunk already committed', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'hieutruong');
+      await seedOrg(db, 'thpt-a', [{ userId: owner.id, role: 'owner' }]);
+      const service = importService(db);
+
+      const first = await service.importMembers(actorFor(owner.id), 'thpt-a', {
+        rows: [{ username: 'hsmot', displayName: 'Một', email: 'dung@thpt.vn' }],
+        dryRun: false,
+      });
+      expect(first.created).toBe(true);
+
+      // Different pupil, same address — and `users.email` is uniquely
+      // indexed, so this cannot become an account no matter what the caller
+      // wants. What has to be true is that it is a legible 422 naming the
+      // row rather than the rolled-back 500 a unique violation would be, and
+      // that it lands BEFORE anything is created.
+      const refused = (await service
+        .importMembers(actorFor(owner.id), 'thpt-a', {
+          rows: [{ username: 'hshai', displayName: 'Hai', email: 'DUNG@thpt.vn' }],
+          dryRun: false,
+        })
+        .catch((error: unknown) => error)) as AppError;
+
+      expect(refused.status).toBe(422);
+      expect(refused.code).toBe('member_import_invalid');
+      // Case-folded, the way `users_email_lower_idx` folds it: the address
+      // differs from the committed one only in case.
+      expect(refused.fields?.['rows[1].email']?.join(' ')).toMatch(/already has that address/i);
+      // Nothing from the refused chunk exists — the all-or-nothing rule holds
+      // across a sequence of chunks, not only within one.
+      const stragglers = await db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.username, 'hshai'));
+      expect(stragglers).toHaveLength(0);
+    });
+  }, IMPORT_TEST_TIMEOUT_MS);
+
   it('refuses more than five hundred rows in one request, and says to split the file', async () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'hieutruong');

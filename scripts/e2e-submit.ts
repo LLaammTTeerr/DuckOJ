@@ -45,7 +45,17 @@ let cookie = '';
 async function call(path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(`${BASE}/api/v1${path}`, {
     ...init,
-    headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...init.headers },
+    headers: {
+      'content-type': 'application/json',
+      // D82: a cookie-authenticated write must say where it came from, and
+      // Node's `fetch` sends no `Origin` of its own. This script drives the
+      // stack the way a browser at `BASE` would, so it says so — `BASE` must
+      // therefore be `PUBLIC_ORIGIN` or one of `WS_EXTRA_ORIGINS`, which is
+      // what the runbook's E2E_BASE_URL values already are.
+      origin: new URL(BASE).origin,
+      ...(cookie ? { cookie } : {}),
+      ...init.headers,
+    },
     redirect: 'follow',
   });
   // `res.headers.get('set-cookie')` joins multiple Set-Cookie values into one

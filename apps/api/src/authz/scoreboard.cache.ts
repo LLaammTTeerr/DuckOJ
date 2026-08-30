@@ -262,6 +262,42 @@ function parse<T>(value: string): T | null {
 }
 
 /**
+ * At most one line a minute out of a store whose Redis is misbehaving.
+ *
+ * The bound is on TIME, not on "the outage", and the distinction is the whole
+ * point. The first version of this was a boolean set on the first failure and
+ * cleared by the next success — one line per outage, which is right for a
+ * Redis that is either up or down. B12 measured the shape that actually
+ * happens: transient `Stream isn't writeable` drop-outs under load, one failed
+ * command between successful ones. Every failure there follows a success, so
+ * the boolean was clear every time and the "one line per outage" rule produced
+ * one line per failed request — on the hot path, in the middle of the load
+ * that caused it, which is exactly when the log is least affordable and least
+ * informative.
+ *
+ * A minute rather than "once, ever": an outage that lasts an hour should leave
+ * sixty lines saying so, not one at the start that has scrolled away by the
+ * time anyone looks.
+ */
+export const OUTAGE_LOG_INTERVAL_MS = 60_000;
+
+/**
+ * The subset of `ioredis` this store uses, named so a test can supply a
+ * connection that fails on demand.
+ *
+ * Not for mocking convenience: a flapping connection is a state a real Redis
+ * on a real port cannot be asked to enter, and the alternative — asserting the
+ * throttle only against a Redis that is uniformly down — cannot see the bug at
+ * all, because a store that never succeeds never re-arms.
+ */
+export interface CacheRedis {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, mode: 'PX', ttlMs: number): Promise<unknown>;
+  del(...keys: string[]): Promise<unknown>;
+  disconnect(): void;
+}
+
+/**
  * The production store. Mirrors `RedisSubmissionPublisher` deliberately, down
  * to the comments' reasoning: lazy connection, no offline queue, an `error`
  * listener attached with the connection, and `disconnect()` rather than
@@ -275,17 +311,21 @@ function parse<T>(value: string): T | null {
 @Injectable()
 export class RedisScoreboardCacheStore implements ScoreboardCacheStore, OnModuleDestroy {
   private readonly logger = new Logger(RedisScoreboardCacheStore.name);
-  private redis: Redis | null = null;
-  /** One line per outage, not one per request: this is on the hot path. */
-  private reportedDown = false;
+  private redis: CacheRedis | null = null;
+  /** When the outage line was last written. `null` until the first failure. */
+  private reportedAt: number | null = null;
 
-  constructor(@Inject(APP_CONFIG) private readonly config: Pick<AppConfig, 'redisUrl'>) {}
+  constructor(
+    @Inject(APP_CONFIG) private readonly config: Pick<AppConfig, 'redisUrl'>,
+    /** How a connection is opened. Injected only by the flapping-connection tests. */
+    private readonly connect: (url: string) => CacheRedis = openRedis,
+    /** The throttle's clock. Injected only so a test can cross a minute in no time. */
+    private readonly now: () => number = Date.now,
+  ) {}
 
   async get(key: string): Promise<string | null> {
     try {
-      const value = await this.connection().get(key);
-      this.reportedDown = false;
-      return value;
+      return await this.connection().get(key);
     } catch (error) {
       this.reportDown(error);
       return null;
@@ -299,7 +339,6 @@ export class RedisScoreboardCacheStore implements ScoreboardCacheStore, OnModule
       // drops between the two, and a scoreboard cached forever is worse than
       // no cache.
       await this.connection().set(key, value, 'PX', ttlMs);
-      this.reportedDown = false;
     } catch (error) {
       this.reportDown(error);
     }
@@ -309,40 +348,50 @@ export class RedisScoreboardCacheStore implements ScoreboardCacheStore, OnModule
     if (keys.length === 0) return;
     try {
       await this.connection().del(...keys);
-      this.reportedDown = false;
     } catch (error) {
       this.reportDown(error);
     }
   }
 
+  /**
+   * Writes the outage line, at most once per {@link OUTAGE_LOG_INTERVAL_MS}.
+   *
+   * A success deliberately does NOT re-arm this — see the constant's comment.
+   */
   private reportDown(error: unknown): void {
-    if (this.reportedDown) return;
-    this.reportedDown = true;
+    const at = this.now();
+    if (this.reportedAt !== null && at - this.reportedAt < OUTAGE_LOG_INTERVAL_MS) return;
+    this.reportedAt = at;
     this.logger.warn(
       'scoreboard cache unavailable, folding every board until Redis returns: ' +
         (error instanceof Error ? error.message : String(error)),
     );
   }
 
-  private connection(): Redis {
+  private connection(): CacheRedis {
     if (this.redis) return this.redis;
-    const redis = new Redis(this.config.redisUrl, {
-      // A cache command that cannot be sent must fail NOW. Queued offline it
-      // would turn a Redis outage into a latency outage on the one endpoint
-      // this whole change exists to make fast.
-      enableOfflineQueue: false,
-      maxRetriesPerRequest: 1,
-    });
-    // ioredis re-raises 'error' on the process when nothing listens; the
-    // reporting that matters happens at the call sites above, once per
-    // outage, so this listener exists only to keep the process alive.
-    redis.on('error', () => undefined);
-    this.redis = redis;
-    return redis;
+    this.redis = this.connect(this.config.redisUrl);
+    return this.redis;
   }
 
   onModuleDestroy(): void {
     this.redis?.disconnect();
     this.redis = null;
   }
+}
+
+/** The real connection, with the options this store depends on. */
+function openRedis(url: string): CacheRedis {
+  const redis = new Redis(url, {
+    // A cache command that cannot be sent must fail NOW. Queued offline it
+    // would turn a Redis outage into a latency outage on the one endpoint
+    // this whole change exists to make fast.
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+  });
+  // ioredis re-raises 'error' on the process when nothing listens; the
+  // reporting that matters happens at the call sites above, throttled, so
+  // this listener exists only to keep the process alive.
+  redis.on('error', () => undefined);
+  return redis;
 }

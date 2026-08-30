@@ -9,7 +9,8 @@
  */
 import type { ReactElement } from 'react';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const post = vi.fn();
 const get = vi.fn();
@@ -46,5 +47,66 @@ describe('SubmitPage', () => {
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.getByText(/luyện tập/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * D80's refusal, on the one screen a contestant meets it.
+ *
+ * The API answers 429 `submission_rate_limited` with `Retry-After` in whole
+ * seconds. Rendering the server's `detail` would put an English sentence with
+ * no number in front of somebody mid-contest — and a cooldown with no number
+ * is the message that gets pressed again in the same second, which is how a
+ * limiter generates the load it exists to prevent.
+ */
+describe('SubmitPage on a 429', () => {
+  afterEach(() => {
+    post.mockReset();
+    get.mockReset();
+  });
+
+  function refuse(retryAfter: string | null) {
+    post.mockResolvedValue({
+      error: { code: 'submission_rate_limited', detail: 'You are submitting too quickly.' },
+      response: { status: 429, headers: new Headers(retryAfter === null ? {} : { 'Retry-After': retryAfter }) },
+    });
+  }
+
+  async function attempt(): Promise<void> {
+    wrap(<SubmitPage problemCode="aplusb" />);
+    await userEvent.click(screen.getByLabelText(/Mã nguồn/));
+    await userEvent.paste('int main(){}');
+    await userEvent.click(screen.getByRole('button', { name: /Nộp bài/ }));
+  }
+
+  it('says how long to wait, in the reader\'s language, and disables the button', async () => {
+    refuse('7');
+    await attempt();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/quá nhanh/);
+    expect(screen.getByRole('alert')).toHaveTextContent('7');
+    // The button, not just the words: pressing it again inside the window can
+    // only be refused again.
+    expect(screen.getByRole('button', { name: /Nộp bài/ })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent(/7 giây/);
+  });
+
+  it('still cools down when the header is missing, rather than inviting an instant retry', async () => {
+    refuse(null);
+    await attempt();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/quá nhanh/);
+    expect(screen.getByRole('button', { name: /Nộp bài/ })).toBeDisabled();
+  });
+
+  it('leaves an ordinary refusal exactly as it was — the API detail, no cooldown', async () => {
+    post.mockResolvedValue({
+      error: { code: 'problem_not_submittable', detail: 'This problem has no published tests yet.' },
+      response: { status: 409, headers: new Headers() },
+    });
+    await attempt();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no published tests/);
+    expect(screen.getByRole('button', { name: /Nộp bài/ })).not.toBeDisabled();
   });
 });

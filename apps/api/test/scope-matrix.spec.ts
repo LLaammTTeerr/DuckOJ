@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { packDirectory, packageHash } from '@duckoj/package-format';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
-import { registerAndLogin, seedProblemAndLanguage } from './submissions.fixtures.js';
+import { clearSubmissionMeter, registerAndLogin, seedProblemAndLanguage } from './submissions.fixtures.js';
 
 /**
  * Two things this file exists to close, both against real routes (not the
@@ -210,9 +210,17 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           const session = await agent.post('/submissions').send(body);
           expect(session.status).toBe(201);
 
+          // This row of the matrix is about SCOPES, and D80's meter is keyed
+          // on the user — which is the same user for the session and for
+          // every token it mints, so the second 201 would be a 429 without
+          // this. The meter has its own file.
+          await clearSubmissionMeter(db);
           const withScope = await bearer(app, await mintToken(agent, ['submissions:write'])).post('/submissions').send(body);
           expect(withScope.status).toBe(201);
 
+          // A 403 for a missing scope must be decided by the scope, not by
+          // the meter the 201 above just spent.
+          await clearSubmissionMeter(db);
           const withoutScope = await bearer(app, await mintToken(agent, ['submissions:read'])).post('/submissions').send(body);
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');

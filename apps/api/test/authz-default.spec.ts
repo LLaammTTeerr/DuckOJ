@@ -135,6 +135,13 @@ describe('authentication is the default, not an opt-in', () => {
   it('still logs out a caller whose session cookie is already dead', async () => {
     const res = await request(app.getHttpServer())
       .post('/auth/logout')
+      // A browser, which is who this test is about, sends `Origin` on every
+      // unsafe method — and since D82 a cookie-bearing write that does not is
+      // refused `403 csrf_origin` before `AuthGuard` runs at all. Stated here
+      // rather than stamped by the harness because this file assembles its own
+      // application; the subject is still `AuthGuard`'s cookie/bearer
+      // asymmetry, and it must not be decided by a missing header.
+      .set('Origin', TEST_CONFIG.publicOrigin)
       .set('Cookie', `${TEST_CONFIG.sessionCookieName}=a-stale-token-that-resolves-to-nothing`);
 
     expect(res.status).toBe(204);

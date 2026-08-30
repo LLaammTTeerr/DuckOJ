@@ -19,6 +19,7 @@ import type {
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
+import { RateLimiter } from '../common/rate-limiter.js';
 import type { Actor } from './actor.js';
 import { canViewProblem, loadProblemContext } from './problem.visibility.js';
 import { resolveContestTarget } from './participation.js';
@@ -58,14 +59,110 @@ const contestLinkParticipation = alias(contestParticipations, 'link_contest_part
 const contestLinkContest = alias(contests, 'link_contests');
 
 /**
+ * The submission meter (D80). Two windows, checked together, counted under
+ * one purpose against one key — the user id.
+ *
+ * **One every ten seconds** is the burst bound. It is not about volume: it is
+ * about the double-clicked button and the script in a loop, both of which
+ * enqueue a container and a compile per press. Ten seconds is longer than any
+ * human means to wait between two *different* solutions and shorter than any
+ * human notices after a rejected one.
+ *
+ * **Twenty in ten minutes** is the sustained bound, and it is the one set from
+ * a measurement rather than a judgement. B12's soak recorded 35.3 verdicts a
+ * minute out of one judge against `tong-hai-so`, with the queue reaching 23 and
+ * a p95 time-to-verdict of 39 s (`load/RESULTS.md`). Two a minute per person
+ * means eighteen contestants can submit continuously before one judge is the
+ * constraint, which is well past what a room does: a contestant who submits
+ * twenty times in ten minutes is debugging against the judge, and the twenty-
+ * first attempt is worth ten seconds of thinking.
+ *
+ * The number that must NOT break is the burst after a failed test — a room
+ * re-submitting a fix. That is one submission per person, not twenty, and it
+ * meets neither bound.
+ */
+export const SUBMISSION_PURPOSE = 'submission';
+export const SUBMISSION_BURST_LIMIT = 1;
+export const SUBMISSION_BURST_WINDOW_MS = 10_000;
+export const SUBMISSION_SUSTAINED_LIMIT = 20;
+export const SUBMISSION_SUSTAINED_WINDOW_MS = 600_000;
+
+/**
  * The ONLY module permitted to import `@duckoj/db/guarded` for submissions,
  * exactly as `org.access.ts` is for organizations.
  */
 @Injectable()
 export class SubmissionAccessService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  private readonly limiter: RateLimiter;
+
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    @Inject(RateLimiter) limiter?: RateLimiter,
+    ) {
+    // Defaulted rather than required so the dozens of specs that construct
+    // this service by hand keep doing so — and they get the REAL limiter, not
+    // a bypass, which is the point: a test that submits repeatedly as one
+    // person is a test of behaviour this meter now changes, and it should be
+    // the one to say so.
+    this.limiter = limiter ?? new RateLimiter(db);
+  }
+
+  /**
+   * How long until this actor may submit again, or `null` when they may now
+   * (D80).
+   *
+   * Both windows are asked, even when the first already refuses, so the
+   * `Retry-After` is the honest one: a caller who has spent both budgets must
+   * not be told ten seconds when the real answer is nine minutes, or they will
+   * come back nine times to be refused again.
+   *
+   * `retryAfterSeconds` + `record`, never `allow` — login's split, for
+   * login's reason turned around. `allow` records the attempt it refuses, so
+   * with a limit of ONE a double-clicked button would extend its own cooldown
+   * every time it was refused, and a contestant leaning on the key would never
+   * be allowed to submit at all. Here the window is spent by a submission that
+   * was actually created, and a refusal costs nothing.
+   */
+  private async submissionRetryAfter(actor: Actor): Promise<number | null> {
+    const key = meterKeyFor(actor);
+    const burst = await this.limiter.retryAfterSeconds(
+      SUBMISSION_PURPOSE,
+      key,
+      SUBMISSION_BURST_LIMIT,
+      SUBMISSION_BURST_WINDOW_MS,
+    );
+    const sustained = await this.limiter.retryAfterSeconds(
+      SUBMISSION_PURPOSE,
+      key,
+      SUBMISSION_SUSTAINED_LIMIT,
+      SUBMISSION_SUSTAINED_WINDOW_MS,
+    );
+    if (burst === null && sustained === null) return null;
+    return Math.max(burst ?? 0, sustained ?? 0);
+  }
 
   async create(actor: Actor, input: CreateSubmissionRequestDto): Promise<{ id: number }> {
+    // FIRST, before a single row is read: a refused caller must cost this
+    // process nothing, which is D26's rule for `register` and the reason the
+    // check there runs ahead of the hash. It also means the 429 is answered
+    // without consulting the problem at all, so it can leak nothing about one.
+    //
+    // No exemption for organisers or admins (D80). The cost being metered is
+    // a grading container, and a container costs the same whoever enqueued it
+    // — an admin looping on `/submissions` starves a contest exactly as a
+    // contestant would. Anyone who genuinely needs to grade in bulk has
+    // `POST /admin/rejudge`, which is metered as its own thing.
+    const retryAfter = await this.submissionRetryAfter(actor);
+    if (retryAfter !== null) {
+      throw new AppError(
+        429,
+        'submission_rate_limited',
+        'You are submitting too quickly. Wait a moment and try again.',
+        undefined,
+        { 'Retry-After': String(retryAfter) },
+      );
+    }
+
     const problem = (
       await this.db
         .select({ id: problems.id, currentRevisionId: problems.currentRevisionId, visibility: problems.visibility })
@@ -135,6 +232,18 @@ export class SubmissionAccessService {
     const target = input.contestKey
       ? await this.resolveContest(actor, input.contestKey, problem.id)
       : null;
+
+    // The window is spent HERE — after every refusal above and before
+    // anything is written (D80). After validation, so a mistyped problem code
+    // does not cost a contestant ten seconds of cooldown for a submission the
+    // judge never saw; before the transaction, so a failure to record cannot
+    // leave a created submission that this meter never counted.
+    //
+    // `SUBMISSION_SUSTAINED_WINDOW_MS`, never the burst window: `record`
+    // deletes this key's rows older than the window it is handed, so passing
+    // ten seconds would sweep away the very rows the twenty-in-ten-minutes
+    // count is made of, and the sustained bound would silently never fire.
+    await this.limiter.record(SUBMISSION_PURPOSE, meterKeyFor(actor), SUBMISSION_SUSTAINED_WINDOW_MS);
 
     // One transaction: a submission must never exist without a job to grade
     // it, or it would sit at `queued` forever with nothing to move it. The
@@ -495,6 +604,23 @@ export class SubmissionAccessService {
       : detail;
     return isSubmissionFrozen(actor, row, freezeCtx, now) ? maskFrozenDetail(shown) : shown;
   }
+}
+
+/**
+ * The submission meter's key: the USER, never the session, the token or the
+ * IP (D80).
+ *
+ * The session is wrong because signing out and in again would buy a fresh
+ * budget. The token is wrong because `POST /auth/tokens` mints them freely, so
+ * the meter would bound how fast one token can submit and nothing else. The IP
+ * is wrong in the direction that matters most here: a school computer room is
+ * one address, and metering it would refuse thirty pupils for the actions of
+ * one — the exact failure D16 pairs its per-IP window with a per-identifier one
+ * to avoid, and there is no second window to pair with here because there is
+ * only ever one identity behind an authenticated submission.
+ */
+function meterKeyFor(actor: Actor): string {
+  return `user:${String(actor.userId)}`;
 }
 
 /**
