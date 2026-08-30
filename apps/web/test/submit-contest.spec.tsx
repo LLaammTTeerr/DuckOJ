@@ -1,3 +1,4 @@
+import { EditorView } from '@codemirror/view';
 /**
  * m23 — the submit page never said which contest it was submitting into.
  *
@@ -8,7 +9,7 @@
  * is actually made, so it has to say which one it made.
  */
 import type { ReactElement } from 'react';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -74,8 +75,15 @@ describe('SubmitPage on a 429', () => {
 
   async function attempt(): Promise<void> {
     wrap(<SubmitPage problemCode="aplusb" />);
-    await userEvent.click(screen.getByLabelText(/Mã nguồn/));
-    await userEvent.paste('int main(){}');
+    // The submit box is a lazily-loaded CodeMirror editor (D84): wait for it,
+    // then write one transaction rather than "typing" into contenteditable,
+    // which jsdom cannot drive.
+    const content = await screen.findByLabelText(/Mã nguồn/);
+    const view = EditorView.findFromDOM(content.closest('.cm-editor') as HTMLElement);
+    if (!view) throw new Error('the editor did not mount');
+    act(() => {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'int main(){}' } });
+    });
     await userEvent.click(screen.getByRole('button', { name: /Nộp bài/ }));
   }
 

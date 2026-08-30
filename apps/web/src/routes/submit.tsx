@@ -713,7 +713,7 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
           const wait = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 1;
           setCooldown(wait);
           setSubmitError(t('submit.rateLimited', { seconds: String(wait) }));
-          return;
+          return false;
         }
         setSubmitError(error?.detail ?? t('submit.failed'));
         return false;
