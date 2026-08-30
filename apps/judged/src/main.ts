@@ -1,5 +1,6 @@
 import { Redis } from 'ioredis';
 import {
+  admittedJudgeNames,
   createDb,
   recordJudgeCapabilities,
   touchJudgeLastSeen,
@@ -50,6 +51,11 @@ async function main(): Promise<void> {
     // Same check, same table, as the API's `JudgeGuard` — see
     // `verifyJudgeCredential`'s doc comment in `@duckoj/db`.
     verifyJudge: (id, key) => verifyJudgeCredential(db, id, key),
+    // `verifyJudge` answers once, at the handshake. This answers again every
+    // five seconds for the judges already connected, so `judge:node revoke`
+    // reaches a judge that is holding a socket open rather than only the ones
+    // that have yet to dial (D81).
+    admittedJudges: (ids) => admittedJudgeNames(db, ids),
     // Design §8: "`lastSeen` gets written on handshake and heartbeat" — see
     // `touchJudgeLastSeen`'s and `BridgeOptions.recordLastSeen`'s doc
     // comments for exactly which two signals that means.

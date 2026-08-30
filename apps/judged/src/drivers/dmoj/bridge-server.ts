@@ -33,6 +33,19 @@ const MISSED_PING_LIMIT = 3;
  */
 export const LAST_SEEN_THROTTLE_MS = 15_000;
 
+/**
+ * How often every connected judge's registration is re-checked against
+ * `judge_nodes` (D81).
+ *
+ * `verifyJudge` runs once, at the handshake, so `judge:node revoke` used to
+ * reach only judges that had not connected yet: a revoked judge kept its
+ * socket, kept answering pings, and kept being dispatched to — B11 recorded
+ * exactly this. Five seconds against a table with one row per machine ever
+ * registered, so the poll costs an indexed lookup of a handful of names, and
+ * a revocation is honoured well inside ten seconds.
+ */
+export const REVALIDATE_INTERVAL_MS = 5_000;
+
 export interface BridgeOptions {
   /** Our language key → judge-server executor key. */
   languageToExecutor(languageKey: string): string;
@@ -89,10 +102,35 @@ export interface BridgeOptions {
    * the same fail-open contract `touchJudgeLastSeen` itself carries.
    */
   recordLastSeen?(id: string): Promise<void>;
+  /**
+   * Given the ids currently connected, answers which of them are STILL
+   * registered and un-revoked — production wires this to `@duckoj/db`'s
+   * `admittedJudgeNames` (D81).
+   *
+   * This exists because `verifyJudge` answers only once, at the handshake:
+   * `judge:node revoke` burns a token hash in the database with nothing on
+   * this socket to announce it, so a judge revoked while connected kept its
+   * connection, and dispatch kept choosing it. Anything connected but missing
+   * from this callback's answer is closed and retired.
+   *
+   * **A rejection is fail-OPEN** — every judge keeps its connection. The
+   * query runs against the same database everything else depends on, and
+   * evicting the whole fleet on a transient read failure is a fleet-wide
+   * outage manufactured out of a blip. The opposite of `verifyJudge`'s
+   * fail-closed contract, deliberately: that one would admit an
+   * unauthenticated judge, this one would evict authenticated ones.
+   *
+   * Optional, so every test double and the `NullDriver`-shaped constructions
+   * keep compiling; absent, nothing is revalidated and the pre-D81 behaviour
+   * stands.
+   */
+  admittedJudges?(ids: string[]): Promise<string[]>;
   /** Overrides `PING_INTERVAL_MS`. Tests inject a short value; production uses the default. */
   pingIntervalMs?: number;
   /** Overrides `LAST_SEEN_THROTTLE_MS`. Tests inject 0 to observe every write. */
   lastSeenThrottleMs?: number;
+  /** Overrides `REVALIDATE_INTERVAL_MS`. Tests inject a short value; production uses the default. */
+  revalidateIntervalMs?: number;
 }
 
 /**
@@ -172,12 +210,17 @@ export class BridgeServer {
   private handler: PacketHandler = () => {};
   private disconnectHandler: DisconnectHandler = () => {};
   private pingTimer: ReturnType<typeof setInterval> | undefined;
+  private revalidateTimer: ReturnType<typeof setInterval> | undefined;
+  /** True while a revalidation query is in flight, so a slow one cannot stack up. */
+  private revalidating = false;
   private readonly pingIntervalMs: number;
   private readonly lastSeenThrottleMs: number;
+  private readonly revalidateIntervalMs: number;
 
   constructor(readonly options: BridgeOptions) {
     this.pingIntervalMs = options.pingIntervalMs ?? PING_INTERVAL_MS;
     this.lastSeenThrottleMs = options.lastSeenThrottleMs ?? LAST_SEEN_THROTTLE_MS;
+    this.revalidateIntervalMs = options.revalidateIntervalMs ?? REVALIDATE_INTERVAL_MS;
   }
 
   /** Our language key for one of the judge's executor names. */
@@ -356,6 +399,9 @@ export class BridgeServer {
         this.server!.off('error', onListenError);
         const address = this.server!.address();
         this.pingTimer = setInterval(() => this.sweep(), this.pingIntervalMs);
+        if (this.options.admittedJudges) {
+          this.revalidateTimer = setInterval(() => void this.revalidate(), this.revalidateIntervalMs);
+        }
         resolve(typeof address === 'object' && address ? address.port : port);
       });
     });
@@ -384,6 +430,63 @@ export class BridgeServer {
         continue;
       }
       connection.send({ name: 'ping', when: Math.floor(Date.now() / 1000) });
+    }
+  }
+
+  /**
+   * Re-checks every connected judge against the registration table and drops
+   * whichever ones are no longer admitted (D81).
+   *
+   * `sweep`'s sibling, and deliberately a separate timer: silence and
+   * revocation are different signals on different clocks — a judge answering
+   * every ping is exactly the one this must be able to disconnect, and
+   * folding the check into the ping loop would tie a five-second revocation
+   * budget to a thirty-second liveness interval.
+   *
+   * Three rules, each of which is a way this could go wrong instead:
+   *
+   * - **Nothing connected, nothing asked.** An idle bridge must not run a
+   *   query twelve times a minute to be told about no judges.
+   * - **Never two at once.** A slow query under a stacked timer would queue
+   *   one connection per tick against the database it is already struggling
+   *   to reach.
+   * - **A throw changes nothing.** See `BridgeOptions.admittedJudges`.
+   */
+  private async revalidate(): Promise<void> {
+    const check = this.options.admittedJudges;
+    if (!check) return;
+    if (this.revalidating) return;
+    const ids = [...this.connections.keys()];
+    if (ids.length === 0) return;
+    this.revalidating = true;
+    try {
+      const admitted = new Set(await check(ids));
+      for (const id of ids) {
+        if (admitted.has(id)) continue;
+        // Re-read from the map: the answer is about the connection that was
+        // there when the query was issued, and a judge that redialled while
+        // it was in flight has a *new* connection under this id which this
+        // answer says nothing about. Closing that one would disconnect a
+        // judge on the strength of a stale reply.
+        const connection = this.connections.get(id);
+        if (!connection) continue;
+        console.warn(
+          JSON.stringify({ msg: 'dropping revoked judge', id }),
+        );
+        connection.close();
+        // `retire`, not a bare delete — whoever is grading on that socket
+        // has to hear about it, exactly as for a judge that died.
+        this.retire(id);
+      }
+    } catch (error) {
+      // Fail OPEN, and say so once per failed poll rather than silently: an
+      // operator who revoked a judge and watched nothing happen needs this
+      // line to tell "the poll is broken" from "the poll disagrees".
+      console.error(
+        JSON.stringify({ msg: 'judge revalidation failed', error: describeError(error) }),
+      );
+    } finally {
+      this.revalidating = false;
     }
   }
 
@@ -551,6 +654,8 @@ export class BridgeServer {
     // server socket itself are gone.
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.pingTimer = undefined;
+    if (this.revalidateTimer) clearInterval(this.revalidateTimer);
+    this.revalidateTimer = undefined;
     for (const connection of this.connections.values()) connection.close();
     this.connections.clear();
     this.lastSeenAt.clear();

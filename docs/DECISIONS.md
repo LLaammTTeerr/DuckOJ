@@ -2981,3 +2981,59 @@ without a number is how a limit ends up refusing a legitimate contest.
 human available to consult. No migration, no code change — this entry is the
 deliverable.*
 
+## D81 — A revoked judge loses its socket within five seconds, and the check is a POLL
+
+`verifyJudgeCredential` runs exactly once per connection, in the handshake.
+`judge:node revoke` (D68) burns the token hash in `judge_nodes` and there is
+nothing on the bridge socket to announce that it happened — so a judge
+revoked while connected **kept its connection**, kept answering pings, and
+kept being chosen by dispatch. B11 recorded it as "handshake-only
+verification; its package fetches 401, so the work fails rather than
+completing", which is not a mitigation: it is every submission sent to that
+judge failing instead of being graded, which is strictly worse than the judge
+not being there at all.
+
+`BridgeServer` now re-checks its connected set every **five seconds** through
+`@duckoj/db`'s `admittedJudgeNames`, and closes and retires anything the
+answer omits. Five seconds against a table holding one row per machine ever
+registered; the brief asked for ten and this leaves margin for a slow query
+inside it.
+
+**A poll, not `LISTEN`/`NOTIFY`.** NOTIFY is the better shape for a hot
+table, and this is the coldest table in the schema: a row is written when a
+judge is registered and rewritten when one is retired, perhaps twice a year.
+Paying for it in a dedicated long-lived `LISTEN` connection — which needs its
+own reconnect logic, its own "did I miss a notification while disconnected"
+answer, and a trigger plus a migration to emit from — buys nothing a
+five-second `select` over a handful of names does not already give, and adds
+three failure modes that are silent when they break. The poll's failure mode
+is one log line and a stale-by-five-seconds answer.
+
+**The poll fails OPEN.** A rejection from the query leaves every judge
+connected. This is the deliberate inverse of `verifyJudgeCredential`'s
+fail-closed `catch`, because the two failures are not the same failure: that
+one would admit an unauthenticated judge, this one would disconnect
+authenticated ones — turning a transient database blip into a fleet-wide
+grading outage on the day the database is already unhappy. A judge that
+should have been dropped stays connected for one more poll instead, which is
+the direction to be wrong in.
+
+Three details that are each a way this could have been wrong instead:
+
+- **Nothing connected, nothing asked.** An idle bridge runs no query.
+- **Never two polls at once**, so a slow query cannot stack one connection
+  per tick against a database already struggling.
+- **The connection is re-read from the map before it is closed.** A judge that
+  redialled while the query was in flight sits under the same id on a *new*
+  connection, which the reply says nothing about; closing that one would
+  disconnect a live judge on a stale answer.
+
+Dropping goes through `retire`, not a bare delete, so whoever was grading on
+that socket hears about it exactly as they do for a judge that died — and
+removal from `connections` is what "never dispatched to again" means, since
+every dispatch path (`connectionIds`, `sendTo`, `supportedLanguages`) reads
+that one map. A revoked judge redialling is already refused by the handshake.
+
+*Ruled by the implementer during the 2026-08-30 B-13 leftovers loop, no human
+available to consult. No migration.*
+

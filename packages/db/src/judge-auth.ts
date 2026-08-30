@@ -1,7 +1,22 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, notLike } from 'drizzle-orm';
 import { judgeNodes } from './schema/judging.js';
 import type { Db } from './client.js';
+
+/**
+ * What `scripts/judge-node.ts revoke` writes over `token_hash` (D68).
+ *
+ * It lives here rather than in the script because two things now read it: the
+ * script that writes it, and `admittedJudgeNames` below, which `judged` polls
+ * to drop a revoked judge's live socket (D81). A second copy of the string is
+ * how a revoked judge would go on being admitted by one of them.
+ */
+export const REVOKED_TOKEN_PREFIX = 'revoked:';
+
+/** True for a `token_hash` that `revoke` has burned. */
+export function isRevokedTokenHash(tokenHash: string): boolean {
+  return tokenHash.startsWith(REVOKED_TOKEN_PREFIX);
+}
 
 /**
  * sha256-hex, matching the convention `apps/api`'s `SessionService` and
@@ -51,6 +66,49 @@ export async function verifyJudgeCredential(db: Db, name: string, token: string)
   } catch {
     return false;
   }
+}
+
+/**
+ * Which of these judge names are still admitted — the row exists AND its
+ * token has not been burned (D81).
+ *
+ * `verifyJudgeCredential` answers the same question for a judge that is
+ * PRESENTING a credential, which happens exactly once, at the handshake.
+ * This is the question for a judge that is already connected: `judge:node
+ * revoke` changes the answer with nothing on the wire to announce it, so
+ * `judged` polls this for its connected set and drops whatever is missing
+ * from the reply.
+ *
+ * Two properties the caller depends on:
+ *
+ * - It **throws** on a database failure rather than answering "none
+ *   admitted". Returning an empty array on an outage would disconnect every
+ *   judge in the fleet at once, which is the opposite of what a transient
+ *   read failure should cost; the caller (`BridgeServer`) fails open on the
+ *   throw. That is the deliberate inverse of `verifyJudgeCredential`'s
+ *   fail-closed catch, because the two failures are not the same failure: one
+ *   would admit an unauthenticated judge, this one would evict authenticated
+ *   ones.
+ * - A name it does not return is either revoked or **gone from the table** —
+ *   both mean "do not keep this connection". The script never deletes a row,
+ *   but nothing stops an operator from doing it by hand, and a judge whose
+ *   registration has vanished is not one to keep dispatching to.
+ */
+export async function admittedJudgeNames(db: Db, names: string[]): Promise<string[]> {
+  if (names.length === 0) return [];
+  const rows = await db
+    .select({ name: judgeNodes.name })
+    .from(judgeNodes)
+    .where(
+      and(
+        inArray(judgeNodes.name, names),
+        // `not like 'revoked:%'` rather than reading every hash back: the
+        // predicate belongs in the database, and a token hash is a credential
+        // digest that has no business crossing the wire on a timer.
+        notLike(judgeNodes.tokenHash, `${REVOKED_TOKEN_PREFIX}%`),
+      ),
+    );
+  return rows.map((row) => row.name);
 }
 
 /**

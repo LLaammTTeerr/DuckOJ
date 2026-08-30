@@ -1319,8 +1319,20 @@ it needs from the API.
 This burns the token hash and **keeps the row**. Do not `DELETE` it:
 `grading_jobs.judge_node_id` references `judge_nodes` `on delete set null`, so
 deleting the row erases which machine graded every submission it ever ran.
-Revoking is idempotent and takes effect on the judge's next handshake — stop
-the container too if you want it gone now.
+Revoking is idempotent.
+
+**It takes effect within about five seconds, even on a judge that is already
+connected** (D81). `judged` re-checks every connected judge against
+`judge_nodes` on a five-second timer and closes the socket of anything that is
+no longer admitted, logging one `dropping revoked judge` line with the id.
+Before that timer existed, the credential was verified once, at the handshake,
+so a revoked judge held its connection for as long as it stayed up and went on
+being dispatched to. Stopping the container is still the tidy end of it, but it
+is no longer what makes the revocation take effect.
+
+If a revocation appears not to land, look for `judge revalidation failed` in
+`judged`'s log: the poll fails **open** on purpose (a database blip must not
+disconnect the whole fleet), so a broken poll leaves every judge connected.
 
 ### A queue that is not moving, with a judge connected
 
