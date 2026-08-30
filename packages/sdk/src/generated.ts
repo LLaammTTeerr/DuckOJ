@@ -7030,6 +7030,234 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/submissions/{id}/previous": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The viewer's previous own submission to the same problem, or null
+         * @description The most recent submission by the CALLER to the same problem as `{id}`, with a lower id (D111) — the one a "So sánh với lần nộp trước" toggle diffs against. Same language preferred, falling back to any. `{ "previousId": null }` when the caller has no earlier attempt. 404 if `{id}` itself is not visible to the caller, exactly as `GET /submissions/{id}`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The previous submission's id, or null */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            previousId: number | null;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such submission, or one the caller may not see */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The `id` path parameter is not a valid submission id */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/submissions/{id}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Line diff of a submission against the viewer's earlier attempt
+         * @description A server-computed unified line diff (D111) between `{id}` (the "new" side, `base`) and the `against` submission (the "old" side). Both sources must be readable by the caller under the SAME rule the `source` field uses — D23 freeze and D27 contest-window masking — or the route answers 404: it never becomes a way to read a rival's live contest source. The two must be for the same problem (422 `diff_problem_mismatch`).
+         */
+        get: {
+            parameters: {
+                query: {
+                    against: number;
+                };
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Both sources and the computed hunks */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            base: {
+                                id: number;
+                                languageKey: string;
+                                source: string;
+                            };
+                            against: {
+                                id: number;
+                                languageKey: string;
+                                source: string;
+                            };
+                            hunks: {
+                                oldStart: number;
+                                oldLines: number;
+                                newStart: number;
+                                newLines: number;
+                                lines: {
+                                    /** @enum {string} */
+                                    op: "context" | "added" | "removed";
+                                    text: string;
+                                }[];
+                            }[];
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such submission (either id), or one whose source the caller may not read — the cases are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description An id path/query parameter is invalid, or the two submissions are for different problems (`diff_problem_mismatch`) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/problems": {
         parameters: {
             query?: never;

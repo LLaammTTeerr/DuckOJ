@@ -311,3 +311,136 @@ registry.registerPath({
     },
   },
 });
+
+// ── D111: diff a submission against the viewer's own earlier attempt ────────
+
+/**
+ * One op of a unified diff. `context` is a line present unchanged in both,
+ * `added` a line only in the submission being viewed, `removed` a line only in
+ * the earlier attempt — the `GET /submissions/{id}/diff` direction, where the
+ * `{id}` submission is the "new" side and `against` is the "old" one.
+ */
+export const DiffLine = z.object({
+  op: z.enum(['context', 'added', 'removed']),
+  text: z.string(),
+});
+export type DiffLineDto = z.infer<typeof DiffLine>;
+
+/**
+ * A unified-diff hunk. `oldStart`/`newStart` are 1-based; a side with no lines
+ * in the hunk reports `0` (a pure insertion or deletion at a file edge).
+ */
+export const DiffHunk = z.object({
+  oldStart: z.number().int(),
+  oldLines: z.number().int(),
+  newStart: z.number().int(),
+  newLines: z.number().int(),
+  lines: z.array(DiffLine),
+});
+export type DiffHunkDto = z.infer<typeof DiffHunk>;
+
+/** One submission in the diff, with its full source. */
+export const SubmissionDiffSide = z.object({
+  id: z.number().int(),
+  languageKey: z.string(),
+  /**
+   * The source in full. Present, never `null`: the route answers 404 unless
+   * the caller may read BOTH sources, so a side that reached the response is
+   * one whose source was already visible under D23/D27.
+   */
+  source: z.string(),
+});
+export type SubmissionDiffSideDto = z.infer<typeof SubmissionDiffSide>;
+
+/**
+ * The server-computed line diff (D111). The web renders the hunks directly and
+ * ships no diff library; `base` is the `{id}` submission (the "new" side),
+ * `against` the earlier attempt (the "old" side), and each hunk's lines carry
+ * that direction: `added` lines are `base`'s, `removed` lines are `against`'s.
+ */
+export const SubmissionDiff = z.object({
+  base: SubmissionDiffSide,
+  against: SubmissionDiffSide,
+  hunks: z.array(DiffHunk),
+});
+export type SubmissionDiffDto = z.infer<typeof SubmissionDiff>;
+
+/** `?against=` — the earlier submission to diff against, a positive id. */
+export const SubmissionDiffQuery = z.object({ against: SubmissionIdParam });
+export type SubmissionDiffQueryDto = z.infer<typeof SubmissionDiffQuery>;
+
+/**
+ * The viewer's previous own submission to the same problem, or `null`. Only an
+ * id: the web fetches the pair through `GET /submissions/{id}/diff` once it
+ * knows one exists, so nothing here needs the source or the visibility gate a
+ * diff does.
+ */
+export const SubmissionPrevious = z.object({ previousId: z.number().int().nullable() });
+export type SubmissionPreviousDto = z.infer<typeof SubmissionPrevious>;
+
+registry.registerPath({
+  method: 'get',
+  path: '/submissions/{id}/previous',
+  tags: ['Submissions'],
+  summary: "The viewer's previous own submission to the same problem, or null",
+  description:
+    'The most recent submission by the CALLER to the same problem as `{id}`, with a lower id ' +
+    '(D111) — the one a "So sánh với lần nộp trước" toggle diffs against. Same language ' +
+    'preferred, falling back to any. `{ "previousId": null }` when the caller has no earlier ' +
+    'attempt. 404 if `{id}` itself is not visible to the caller, exactly as `GET /submissions/{id}`.',
+  request: { params: z.object({ id: SubmissionIdParamSchema }) },
+  responses: {
+    200: {
+      description: "The previous submission's id, or null",
+      content: { 'application/json': { schema: SubmissionPrevious } },
+    },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    404: {
+      description: 'No such submission, or one the caller may not see',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: {
+      description: 'The `id` path parameter is not a valid submission id',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/submissions/{id}/diff',
+  tags: ['Submissions'],
+  summary: "Line diff of a submission against the viewer's earlier attempt",
+  description:
+    'A server-computed unified line diff (D111) between `{id}` (the "new" side, `base`) and the ' +
+    '`against` submission (the "old" side). Both sources must be readable by the caller under ' +
+    'the SAME rule the `source` field uses — D23 freeze and D27 contest-window masking — or the ' +
+    'route answers 404: it never becomes a way to read a rival\'s live contest source. The two ' +
+    'must be for the same problem (422 `diff_problem_mismatch`).',
+  request: {
+    params: z.object({ id: SubmissionIdParamSchema }),
+    query: SubmissionDiffQuery,
+  },
+  responses: {
+    200: { description: 'Both sources and the computed hunks', content: { 'application/json': { schema: SubmissionDiff } } },
+    401: {
+      description: 'Not signed in',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    404: {
+      description:
+        'No such submission (either id), or one whose source the caller may not read — the ' +
+        'cases are indistinguishable',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    422: {
+      description:
+        'An id path/query parameter is invalid, or the two submissions are for different ' +
+        'problems (`diff_problem_mismatch`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
