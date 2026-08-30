@@ -59,6 +59,15 @@ describe('AppModule composition root', () => {
     expect(res.body.database).toBe('ok');
   });
 
+  // Express stamps `X-Powered-By: Express` on every response by default — a
+  // free version/tech-stack disclosure. `configureApp` disables it; without
+  // that line this response carries the header. (The Caddyfile strips it at
+  // the edge too, but this pins the source so neither half alone is load-bearing.)
+  it('does not disclose the server framework', async () => {
+    const res = await request(app.getHttpServer()).get('/healthz');
+    expect(res.headers['x-powered-by']).toBeUndefined();
+  });
+
   it('answers the API under /api/v1 and denies it by default', async () => {
     const res = await request(app.getHttpServer()).get('/api/v1/auth/me');
     expect(res.status).toBe(401);

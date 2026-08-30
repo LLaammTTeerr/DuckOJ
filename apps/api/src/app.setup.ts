@@ -33,6 +33,12 @@ export function configureApp(
   config: AppConfig,
   logDestination?: DestinationStream,
 ): void {
+  // Express advertises itself with `X-Powered-By: Express` on every response —
+  // a free version/tech-stack disclosure that hands an attacker the framework
+  // to look up CVEs for before they have done anything. Off at the source; the
+  // Caddyfile also strips it at the edge, so the two cover each other.
+  // `app.smoke.spec.ts` pins that no response carries the header.
+  (app as NestExpressApplication).disable('x-powered-by');
   app.use(requestLogger(config.logLevel, logDestination));
   configureBodyParsers(app);
   app.use(cookieParser());
