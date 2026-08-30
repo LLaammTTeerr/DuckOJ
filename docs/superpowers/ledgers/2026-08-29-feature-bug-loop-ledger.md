@@ -77,3 +77,4 @@
 - B-14 DONE_WITH_CONCERNS, merged: features.spec.ts (11 journeys green on live), certificates link + rank box, guide nav lists; web rebuilt, pushed. Its Origin concern is covered by playwright.config's extraHTTPHeaders.
 - B-15 DONE, merged: app.boot.spec against dist (esbuild drops decorator metadata — the outage class is now caught), crash-loop breaker (D85), worker-aware healthcheck (D86), scripts/deploy.sh with rollback (first live run: see line above). Pushed.
 - deploy.sh first live run rolled back on its :8443 probe (TLS reset on this host); default probe now :8080; second run: see line above.
+- F-21 DONE, merged (0fe45e7): packages/prepare + `pnpm prepare` gate/publisher (D90), guide chuan-bi-de.md; live e2e published prep-20260830-222437. Finding → next hunt: GET /problems/{code} publishedVersion null for every problem.
