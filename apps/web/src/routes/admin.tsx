@@ -24,6 +24,7 @@ import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { apiError } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { globalRoleLabel, useT } from '../i18n/index.js';
 
@@ -102,9 +103,9 @@ function RateContests() {
   const contests = useQuery({
     queryKey: ['contests'],
     queryFn: async () => {
-      const { data, error: err } = await api.GET('/contests', {});
-      if (err) throw new Error(t('contests.loadError'));
-      return data;
+      const result = await api.GET('/contests', {});
+      if (result.error) throw apiError(result, t('contests.loadError'));
+      return result.data;
     },
   });
 

@@ -17,6 +17,7 @@ const { createQueryClient, retryTransientOnly } = await import('../src/query.js'
 const { UserPage } = await import('../src/routes/user.js');
 const { OrgPage } = await import('../src/routes/orgs.js');
 const { SubmissionPage } = await import('../src/routes/submission.js');
+const { ContestPage, ScoreboardPage } = await import('../src/routes/contests.js');
 
 afterEach(() => get.mockReset());
 
@@ -73,6 +74,22 @@ describe('a 404 detail page under the shipped query client', () => {
   it('says "no such submission" at once', async () => {
     get.mockImplementation(notFound);
     wrap(<SubmissionPage id={999999} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Không có mục này.');
+  });
+
+  // The two that made the first pass at this incomplete: /contests/NOPE and
+  // its scoreboard were still measured at 7401 ms and 7381 ms on a build
+  // that had already fixed the profile, org and submission pages, because
+  // their queryFns still threw a status-less Error.
+  it('says "no such contest" at once', async () => {
+    get.mockImplementation(notFound);
+    wrap(<ContestPage contestKey="nope" />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Không có mục này.');
+  });
+
+  it('says so on the scoreboard too', async () => {
+    get.mockImplementation(notFound);
+    wrap(<ScoreboardPage contestKey="nope" />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Không có mục này.');
   });
 });

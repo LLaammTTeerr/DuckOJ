@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { apiError } from '../api-error.js';
 import { formatMemoryMb } from './problems.js';
 import { useT } from '../i18n/index.js';
 
@@ -52,13 +53,13 @@ export function ProblemRevisionsPage(props: { code: string }) {
   const query = useQuery({
     queryKey: ['problem-revisions', code],
     queryFn: async () => {
-      const { data, error } = await api.GET('/problems/{code}/revisions', { params: { path: { code } } });
-      if (error || !data) {
-        throw new Error(t('revisions.loadError'));
+      const result = await api.GET('/problems/{code}/revisions', { params: { path: { code } } });
+      if (result.error || !result.data) {
+        throw apiError(result, t('revisions.loadError'));
       }
-      return data;
+      return result.data;
     },
-    retry: false,
+    // Was `retry: false` locally; `src/query.ts` is that policy globally now.
   });
 
   const [packageHash, setPackageHash] = useState('');

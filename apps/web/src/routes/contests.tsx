@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { apiError } from '../api-error.js';
 import { formatPoints } from '../format.js';
 import { meQueryOptions } from '../me.js';
 import { formatDateTime, formatTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
@@ -54,12 +55,12 @@ export function ContestsPage() {
   const query = useQuery({
     queryKey: ['contests'],
     queryFn: async () => {
-      const { data, error } = await api.GET('/contests', {});
+      const result = await api.GET('/contests', {});
       // `GET /contests` declares no error response, so `error` is typed
       // `never` — there is nothing to read a message off, and a transport
       // failure still lands here.
-      if (error) throw new Error(t('contests.loadError'));
-      return data;
+      if (result.error) throw apiError(result, t('contests.loadError'));
+      return result.data;
     },
   });
 
@@ -125,9 +126,9 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
   const contest = useQuery({
     queryKey: ['contest', contestKey],
     queryFn: async (): Promise<ContestDetail> => {
-      const { data, error } = await api.GET('/contests/{key}', { params: { path: { key: contestKey } } });
-      if (error) throw new Error(error.detail ?? t('contest.notFound'));
-      return data;
+      const result = await api.GET('/contests/{key}', { params: { path: { key: contestKey } } });
+      if (result.error) throw apiError(result, t('contest.notFound'));
+      return result.data;
     },
   });
 
@@ -333,11 +334,11 @@ function ClarificationsPanel({
   const feed = useQuery({
     queryKey: ['clarifications', contestKey],
     queryFn: async () => {
-      const { data, error: failure } = await api.GET('/contests/{key}/clarifications', {
+      const result = await api.GET('/contests/{key}/clarifications', {
         params: { path: { key: contestKey } },
       });
-      if (failure) throw new Error(failure.detail ?? t('clar.loadError'));
-      return data;
+      if (result.error) throw apiError(result, t('clar.loadError'));
+      return result.data;
     },
     refetchInterval: phase === 'running' ? 30_000 : false,
   });
@@ -626,11 +627,11 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
   const query = useQuery({
     queryKey: ['scoreboard', contestKey],
     queryFn: async (): Promise<Scoreboard> => {
-      const { data, error } = await api.GET('/contests/{key}/scoreboard', {
+      const result = await api.GET('/contests/{key}/scoreboard', {
         params: { path: { key: contestKey } },
       });
-      if (error) throw new Error(error.detail ?? t('scoreboard.loadError'));
-      return data;
+      if (result.error) throw apiError(result, t('scoreboard.loadError'));
+      return result.data;
     },
   });
 
