@@ -636,7 +636,7 @@ export const en = {
   'admin.depDown': 'down',
   'admin.apiWorkers': 'API workers',
   'admin.judgedConcurrency': 'Judge concurrency',
-  'admin.notReported': 'not reported',
+  'admin.notReported': 'judged did not report JUDGED_CONCURRENCY to the API',
   'admin.ageSeconds': '{n} s',
   'admin.ageMinutes': '{n} min',
   'admin.ageHours': '{n} h',

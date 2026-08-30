@@ -604,7 +604,7 @@ export const vi = {
   'admin.depDown': 'không kết nối được',
   'admin.apiWorkers': 'Tiến trình API',
   'admin.judgedConcurrency': 'Số luồng chấm',
-  'admin.notReported': 'không được báo',
+  'admin.notReported': 'judged chưa báo JUDGED_CONCURRENCY cho API',
   'admin.ageSeconds': '{n} giây',
   'admin.ageMinutes': '{n} phút',
   'admin.ageHours': '{n} giờ',

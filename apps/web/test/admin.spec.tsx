@@ -286,7 +286,11 @@ describe('AdminPage operations dashboard (D47)', () => {
   it('admits it was not told judged\'s concurrency instead of printing a guess', async () => {
     serve('admin', [CONTEST], { ...DASHBOARD, runtime: { apiWorkers: 4, judgedConcurrency: null } });
     wrap(<AdminPage />);
-    expect(await screen.findByText('không được báo')).toBeInTheDocument();
+    // An em dash, not a blank and not a word in the number column: a cell
+    // left empty in a row of counts reads as zero threads. The reason rides
+    // in the tooltip.
+    const cell = await screen.findByTitle(/JUDGED_CONCURRENCY/);
+    expect(cell).toHaveTextContent('\u2014');
   });
 
   it('requeues expired leases and reports how many moved', async () => {
@@ -326,6 +330,32 @@ describe('AdminPage operations dashboard (D47)', () => {
     });
     wrap(<AdminPage />);
     expect(await screen.findByRole('alert')).toHaveTextContent(/Không tải được bảng vận hành/);
+  });
+
+  it('stops polling while the tab is hidden, and resumes when it is not', async () => {
+    // A dashboard left open in a background tab polled every fifteen seconds
+    // forever. TanStack Query's `refetchIntervalInBackground` defaults to
+    // false and its focus manager reads `document.visibilityState`, so this
+    // holds today — the test exists because turning that default on is one
+    // word, and nothing else would notice.
+    serve('admin');
+    const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      wrap(<AdminPage />);
+      await screen.findByRole('heading', { name: /Vận hành/ });
+      const before = get.mock.calls.filter((call) => call[0] === '/admin/dashboard').length;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(get.mock.calls.filter((call) => call[0] === '/admin/dashboard')).toHaveLength(before);
+
+      hidden.mockReturnValue('visible');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(
+        get.mock.calls.filter((call) => call[0] === '/admin/dashboard').length,
+      ).toBeGreaterThan(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('polls every fifteen seconds, so a stale board is never left on screen', async () => {

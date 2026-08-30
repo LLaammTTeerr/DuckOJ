@@ -270,11 +270,16 @@ function agePhrase(t: TFunction, seconds: number): string {
   return t('admin.ageHours', { n: Math.round(seconds / 3600) });
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+/**
+ * One tile. `title` is the tooltip a value needs when it is not a number —
+ * an em dash alone says "nothing here", and the reader deserves to be told
+ * WHY there is nothing (D47: a null is "judged never said", not "zero").
+ */
+function Stat({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
     <div className="stat">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong title={title}>{value}</strong>
     </div>
   );
 }
@@ -377,9 +382,10 @@ function Operations() {
               label={t('admin.judgedConcurrency')}
               value={
                 data.runtime.judgedConcurrency === null
-                  ? t('admin.notReported')
+                  ? '\u2014'
                   : String(data.runtime.judgedConcurrency)
               }
+              title={data.runtime.judgedConcurrency === null ? t('admin.notReported') : undefined}
             />
           </div>
 
