@@ -206,7 +206,11 @@ registry.registerPath({
   path: '/orgs/{slug}/teams/{teamSlug}',
   tags: ['Organizations'],
   summary: 'Rename a team or replace its roster (owner or admin)',
-  description: '`members`, when present, replaces the whole roster.',
+  description:
+    '`members`, when present, replaces the whole roster. A **rename** is refused (409 ' +
+    '`contest_team_name_taken`) when it would put two same-named teams on one scoreboard: the ' +
+    'board’s `teams` sidecar is keyed by the name, so a collision makes the disqualify control ' +
+    'act on the wrong team and the results sheet print the wrong roster (D99).',
   request: {
     params: TeamParam,
     body: { content: { 'application/json': { schema: UpdateTeamRequest } } },
@@ -216,7 +220,12 @@ registry.registerPath({
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: TEAM_NOT_FOUND,
-    409: TEAM_SLUG_TAKEN,
+    409: {
+      description:
+        'This organization already has a team with that slug (`team_slug_taken`), or the new ' +
+        'name is already competing on a board this team is on (`contest_team_name_taken`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
     422: TEAM_VALIDATION_FAILED,
   },
 });

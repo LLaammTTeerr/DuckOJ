@@ -21,7 +21,8 @@
  *    minting *accounts*, which this does not (D99).
  */
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, ne, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { contestParticipations, organizations, orgMembers, teamMembers, teams } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import type {
@@ -172,6 +173,9 @@ export class TeamAccessService {
     const { row: org } = await this.orgs.loadForEdit(actor, slug);
     const team = await this.findTeam(org.id, teamSlug);
     const memberIds = patch.members ? await this.resolveMembers(org.id, patch.members) : undefined;
+    if (patch.name !== undefined && patch.name.toLowerCase() !== team.name.toLowerCase()) {
+      await this.assertRenameKeepsBoardsUnambiguous(team.id, patch.name);
+    }
 
     const values: Partial<typeof teams.$inferInsert> = {};
     if (patch.slug !== undefined) values.slug = patch.slug;
@@ -193,6 +197,47 @@ export class TeamAccessService {
       throw toTeamConflict(error);
     }
     return toDetail(await this.findTeamById(team.id), await this.membersOf(team.id), true);
+  }
+
+  /**
+   * A rename may not make two teams on one scoreboard share a name (D99).
+   *
+   * `join` already refuses the second of two same-named teams entering one
+   * contest — but a rename is the same collision arriving by the back door,
+   * and it is an ordinary PATCH any admin of any of the contest's schools can
+   * make while the round is running. It is NOT a display problem: the board's
+   * `teams` sidecar is keyed by the name, so two rows sharing one would
+   * collapse to a single entry, and then the scoreboard's disqualify button
+   * sends the WRONG team's captain and the results sheet prints the wrong
+   * roster against one of the two rows. Enforcement and exports, not
+   * cosmetics — so the rule is checked wherever the name can change.
+   *
+   * Scoped to the contests this team actually competes in: renaming a team
+   * that has never entered anything is always free, which is the ordinary
+   * case (fixing a typo the week before the round).
+   */
+  private async assertRenameKeepsBoardsUnambiguous(teamId: number, name: string): Promise<void> {
+    const rival = alias(contestParticipations, 'rival');
+    const [clash] = await this.db
+      .select({ id: rival.id })
+      .from(contestParticipations)
+      .innerJoin(
+        rival,
+        and(
+          eq(rival.contestId, contestParticipations.contestId),
+          ne(rival.teamId, contestParticipations.teamId),
+        ),
+      )
+      .innerJoin(teams, eq(teams.id, rival.teamId))
+      .where(and(eq(contestParticipations.teamId, teamId), sql`lower(${teams.name}) = lower(${name})`))
+      .limit(1);
+    if (clash) {
+      throw new AppError(
+        409,
+        'contest_team_name_taken',
+        'Another team of that name is competing in a contest this team has entered.',
+      );
+    }
   }
 
   /**

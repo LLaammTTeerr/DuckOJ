@@ -4227,10 +4227,19 @@ replays are byte-identical, untouched.
   the results sheet, the certificates, the similarity report's `{a}/{b}` pair
   links. One check at the one moment the collision can be created costs a
   query; teaching five readers to disambiguate a name would cost a response
-  shape. *Residual, stated rather than fixed:* two same-named teams joining
-  in the same instant are not serialised, and the loser of that race would
-  share the winner's sidecar entry — a display degradation, not a scoring
-  one, and closing it needs a lock on a table that has no natural one.
+  shape. **Checked wherever the name can change**, which is `join` AND a
+  rename: `PATCH /orgs/{slug}/teams/{teamSlug}` refuses a new name already
+  competing on a board this team is on, because a rename is the same
+  collision arriving by the back door — an ordinary PATCH any admin of any of
+  the contest's schools can make while the round runs. The consequence is not
+  cosmetic: two rows sharing a name collapse to one sidecar entry, and then
+  the scoreboard's disqualify control moves the WRONG team and the results
+  sheet prints the wrong roster against one of the two rows. *Residual,
+  stated rather than fixed:* two same-named teams **joining in the same
+  instant** are not serialised — neither check sees the other's uncommitted
+  row — so that one race can still land both. Closing it needs a lock on a
+  table that has no natural one; the same misfire is possible for as long as
+  it lasts, which is milliseconds rather than a contest.
 - **The board's `teams` is a camelCase sidecar, absent for an individual
   contest.** Built inside `computeScoreboard` from the same participation
   rows the fold consumed, so it rides D25's two-second cache and cannot

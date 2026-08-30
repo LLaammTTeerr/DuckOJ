@@ -11456,7 +11456,7 @@ export interface paths {
         head?: never;
         /**
          * Rename a team or replace its roster (owner or admin)
-         * @description `members`, when present, replaces the whole roster.
+         * @description `members`, when present, replaces the whole roster. A **rename** is refused (409 `contest_team_name_taken`) when it would put two same-named teams on one scoreboard: the board’s `teams` sidecar is keyed by the name, so a collision makes the disqualify control act on the wrong team and the results sheet print the wrong roster (D99).
          */
         patch: {
             parameters: {
@@ -11562,7 +11562,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description This organization already has a team with that slug (`team_slug_taken`) */
+                /** @description This organization already has a team with that slug (`team_slug_taken`), or the new name is already competing on a board this team is on (`contest_team_name_taken`) */
                 409: {
                     headers: {
                         [name: string]: unknown;

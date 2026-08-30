@@ -410,6 +410,39 @@ describe('entering a team contest', () => {
     });
   }, 180_000);
 
+  it('refuses a RENAME that would put two same-named teams on one board', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const school = await ready(app, db);
+        await school.teacher
+          .post('/api/v1/orgs/school/teams')
+          .send({ slug: 'doi-2', name: 'Đội 2', members: ['cuong'] });
+        await school.pupils.get('anh')!.post('/api/v1/contests/team-c/join').send({ teamSlug: 'doi-1' });
+        await school.pupils.get('cuong')!.post('/api/v1/contests/team-c/join').send({ teamSlug: 'doi-2' });
+
+        // The join gate is not enough on its own: a rename is the same
+        // collision by the back door, and it is not cosmetic — the board's
+        // sidecar is keyed by the NAME, so two rows sharing one would make
+        // the disqualify button move the wrong team.
+        const collide = await school.teacher
+          .patch('/api/v1/orgs/school/teams/doi-2')
+          .send({ name: 'đội 1' });
+        expect(collide.status, JSON.stringify(collide.body)).toBe(409);
+        expect(collide.body.code).toBe('contest_team_name_taken');
+
+        // A name nobody on that board holds is still free, and so is any
+        // rename of a team that has entered nothing.
+        const fine = await school.teacher
+          .patch('/api/v1/orgs/school/teams/doi-2')
+          .send({ name: 'Đội 3' });
+        expect(fine.status, JSON.stringify(fine.body)).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
   it('has no virtual replay: a team that never entered is refused after the end', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
