@@ -3120,6 +3120,14 @@ written for, "the page reloaded" is not a rare event.
   templates are the boilerplate that decides verdicts — the two fast-IO lines
   in C++, `sys.stdin` in Python, and the class name `Main`, which the Java
   driver requires rather than prefers.
+- **A write the PAGE made is annotated, so it is not mistaken for typing.**
+  A restored draft, a starter template and an uploaded file all reach the
+  buffer through `props.value`, and CodeMirror's update listener cannot tell
+  them from a keystroke — so a template inserted on a language switch was
+  filed as a draft 500 ms later, and the next visit greeted the pupil with
+  "Khôi phục bản nháp" over code they never wrote. Every catch-up transaction
+  now carries an `External` annotation the listener skips. Drafts are the
+  pupil's own work, and this is what makes that true.
 - **The size counter reads its ceiling off the contract**
   (`CreateSubmissionRequest.shape.source.maxLength`), and counts UTF-16 code
   units exactly as Zod's `.max()` does. A byte count would disagree with the

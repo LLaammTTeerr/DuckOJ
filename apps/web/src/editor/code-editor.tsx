@@ -15,7 +15,13 @@
  * cursor mid-keystroke.
  */
 import { useEffect, useMemo, useRef } from 'react';
-import { Compartment, EditorState, Prec, type Extension } from '@codemirror/state';
+import {
+  Annotation,
+  Compartment,
+  EditorState,
+  Prec,
+  type Extension,
+} from '@codemirror/state';
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
 import { bracketMatching, indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -24,6 +30,19 @@ import { cpp } from '@codemirror/lang-cpp';
 import { python } from '@codemirror/lang-python';
 import { java } from '@codemirror/lang-java';
 import { modeForLanguage, type EditorMode } from './languages.js';
+
+/**
+ * Marks a transaction this component dispatched to catch the buffer up with
+ * `props.value` — a restored draft, a starter template, an uploaded file.
+ *
+ * Without it those writes echo straight back out through the update listener
+ * as if the pupil had typed them, and the page cannot tell its own writes
+ * from theirs. The visible cost was a starter template being filed as a
+ * "draft" 500 ms after a language switch, so the next visit greeted the
+ * pupil with "Khôi phục bản nháp" over code they never wrote — and the same
+ * echo cleared the notice on the one path that legitimately raises it.
+ */
+const External = Annotation.define<boolean>();
 
 function grammarFor(mode: EditorMode): Extension {
   if (mode === 'cpp') return cpp();
@@ -155,7 +174,10 @@ export default function CodeEditor(props: CodeEditorProps) {
           language.of([]),
           appearance.of([]),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+            if (!update.docChanged) return;
+            // Only a change the PUPIL made counts as an edit; see `External`.
+            if (update.transactions.some((tr) => tr.annotation(External))) return;
+            onChangeRef.current(update.state.doc.toString());
           }),
         ],
       }),
@@ -200,7 +222,10 @@ export default function CodeEditor(props: CodeEditorProps) {
     if (!view) return;
     const current = view.state.doc.toString();
     if (current === props.value) return;
-    view.dispatch({ changes: { from: 0, to: current.length, insert: props.value } });
+    view.dispatch({
+      changes: { from: 0, to: current.length, insert: props.value },
+      annotations: External.of(true),
+    });
   }, [props.value]);
 
   return <div className="editor-host" ref={hostRef} />;

@@ -78,6 +78,28 @@ describe('starter templates', () => {
     await userEvent.selectOptions(screen.getByLabelText('Ngôn ngữ'), 'java17');
     expect(view.state.doc.toString()).toContain('public class Main');
   });
+
+  it('does not file its own starter as if the pupil had typed it', async () => {
+    // The template reaches the buffer through `props.value`, so it comes
+    // back out of CodeMirror's update listener looking exactly like a
+    // keystroke. Filed as a draft, it makes the NEXT visit greet the pupil
+    // with "Khôi phục bản nháp" over code they never wrote.
+    const { view } = await mount(accept);
+    typeInto(view, '');
+    // Fake timers BEFORE the switch: the write this is hunting for is
+    // scheduled by the switch itself, so a clock installed afterwards would
+    // never see it and the test would pass against the bug.
+    vi.useFakeTimers();
+    act(() => {
+      fireEvent.change(screen.getByLabelText('Ngôn ngữ'), { target: { value: 'py3' } });
+    });
+    act(() => {
+      vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS * 4);
+    });
+
+    expect(view.state.doc.toString()).toContain('import sys');
+    expect(localStorage.getItem(draftKey(PROBLEM, 'py3'))).toBeNull();
+  });
 });
 
 describe('drafts', () => {
