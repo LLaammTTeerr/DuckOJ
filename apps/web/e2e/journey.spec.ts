@@ -398,7 +398,9 @@ test('journey 5 — two-factor: enrol, sign out, sign in with a code, disable', 
 
   // ── disable, so the account ends the run as it started ───────────────
   await page.goto('/account/security');
-  page.once('dialog', (dialog) => void dialog.accept());
+  // D72: turning the second factor off asks for the account password, not a
+  // confirm() dialog.
+  await page.getByLabel('Mật khẩu hiện tại').fill(PASSWORD);
   await page.getByRole('button', { name: 'Tắt xác thực hai lớp' }).click();
   await expect(page.getByRole('status')).toHaveText('Tài khoản này chưa bật xác thực hai lớp.');
 
