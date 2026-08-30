@@ -15,6 +15,11 @@ import {
   DEFAULT_SIMILARITY_BOUNDS,
   SIMILARITY_BOUNDS,
 } from './contest.similarity.js';
+import {
+  DEFAULT_SIMILARITY_REAPER_BOUNDS,
+  SIMILARITY_REAPER_BOUNDS,
+  SimilarityRunReaper,
+} from './similarity.reaper.js';
 import { OrgAccessService } from './org.access.js';
 import { OrgImportService } from './org.import.js';
 import { ProblemAccessService } from './problem.access.js';
@@ -49,6 +54,12 @@ import {
     // The two caps, injected so a test can meet them at three participants
     // rather than three thousand (`PROGRESS_EXPORT_BOUNDS`' precedent).
     { provide: SIMILARITY_BOUNDS, useValue: DEFAULT_SIMILARITY_BOUNDS },
+    // The reaper for runs whose process died mid-comparison (D83). A
+    // provider rather than a method on the service above, on
+    // `ExpiredRowsSweeper`'s precedent: it owns a timer and a lifecycle,
+    // which is a different kind of object from a request-scoped read.
+    SimilarityRunReaper,
+    { provide: SIMILARITY_REAPER_BOUNDS, useValue: DEFAULT_SIMILARITY_REAPER_BOUNDS },
     // `RateLimiter` is stateless — it counts rows in `rate_events` — so
     // providing it here rather than importing `AuthnModule` (which would
     // close a cycle: `AuthnModule` is imported by every controller module

@@ -608,6 +608,44 @@ describe('POST + GET /contests/{key}/similarity (D77)', () => {
     });
   }, 180_000);
 
+  it('gives the button back once the reaper marks a dead run abandoned (D83)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'sim-reaped');
+        const ownerId = await userIdOf(db, 'sim-reaped');
+        const seeded = await seedSimilarityContest(db, 'simreaped', ownerId);
+        // The row F15's concern describes: a process killed mid-comparison,
+        // twenty minutes ago, with nothing left holding the contest's lock.
+        await db.insert(similarityRuns).values({
+          contestId: seeded.contestId,
+          status: 'running',
+          threshold: 0.6,
+          startedAt: new Date(Date.now() - 20 * MINUTE),
+        });
+        const stuck = await agent
+          .post('/contests/simreaped/similarity')
+          .set('Cookie', cookie)
+          .send({});
+        expect(stuck.status).toBe(409);
+
+        const { SimilarityRunReaper } = await import('../src/authz/similarity.reaper.js');
+        expect(await app.get(SimilarityRunReaper).reap()).toBe(1);
+
+        const again = await agent
+          .post('/contests/simreaped/similarity')
+          .set('Cookie', cookie)
+          .send({});
+        expect(again.status).toBe(201);
+        const { ContestSimilarityService } = await import('../src/authz/contest.similarity.js');
+        await app.get(ContestSimilarityService).settle(seeded.contestId);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
   it('refuses a contest with more participants than the cap (422)', async () => {
     await withTestDb(async (db) => {
       const bounds: SimilarityBounds = { maxParticipants: 2, maxPairsPerProblem: 500 };
