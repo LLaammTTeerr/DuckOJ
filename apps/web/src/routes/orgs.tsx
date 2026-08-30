@@ -2,12 +2,12 @@
  * Organization screens — the UI for what Phase 3e made joinable over HTTP.
  *
  * One deliberate asymmetry against the contests screens: membership is not a
- * separate `/me` endpoint here. The members list is visible to anyone who can
- * see the organization at all (contract note on `OrgMember`), so the viewer's
- * own standing is derived by finding their username in it — one query, and
- * the list and the viewer's role cannot disagree.
+ * separate `/me` endpoint here. The organization row carries the viewer's own
+ * `myRole` (D58), so the viewer's standing is one field on a row already
+ * fetched rather than a search through a roster — which matters now that the
+ * roster is paged and no longer necessarily contains them.
  */
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import type { paths } from '@duckoj/sdk';
@@ -17,7 +17,8 @@ import { meQueryOptions } from '../me.js';
 import { useT, type MsgKey, type TFunction } from '../i18n/index.js';
 
 type Org = paths['/orgs']['get']['responses'][200]['content']['application/json']['items'][number];
-type Member = paths['/orgs/{slug}/members']['get']['responses'][200]['content']['application/json'][number];
+type Member =
+  paths['/orgs/{slug}/members']['get']['responses'][200]['content']['application/json']['items'][number];
 type JoinRequest =
   paths['/orgs/{slug}/requests']['get']['responses'][200]['content']['application/json'][number];
 
@@ -226,16 +227,31 @@ export function OrgPage({ slug }: { slug: string }) {
       return result.data;
     },
   });
-  const members = useQuery({
+  // Paged since D58: the roster is no longer downloadable whole, so this is
+  // the same `useInfiniteQuery` + "load more" shape the problems and
+  // submissions lists use.
+  const members = useInfiniteQuery({
     queryKey: ['org-members', slug],
-    queryFn: async (): Promise<Member[]> => {
-      const { data } = await api.GET('/orgs/{slug}/members', { params: { path: { slug } } });
-      return data ?? [];
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: { cursor?: string } = {};
+      if (pageParam !== undefined) query.cursor = pageParam;
+      const result = await api.GET('/orgs/{slug}/members', {
+        params: { path: { slug }, query },
+      });
+      if (result.error) throw apiError(result, t('org.notFound'));
+      return result.data;
     },
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
+  const memberRows: Member[] = members.data?.pages.flatMap((page) => page.items) ?? [];
 
+  // Both queries: `myRole` now rides on the organization row (D58), so a
+  // join, a leave or a role change that refreshed only the roster would
+  // leave the buttons above it describing the viewer's previous standing.
   async function refresh(): Promise<void> {
     await client.invalidateQueries({ queryKey: ['org-members', slug] });
+    await client.invalidateQueries({ queryKey: ['org', slug] });
   }
 
   async function join(): Promise<void> {
@@ -279,8 +295,11 @@ export function OrgPage({ slug }: { slug: string }) {
   if (!org.data) return null;
 
   const myName = me.data?.username ?? null;
-  const mine = myName === null ? undefined : members.data?.find((m) => m.username === myName);
-  const decider = mine !== undefined && (mine.role === 'owner' || mine.role === 'admin');
+  // The viewer's own standing comes from the organization row (D58), NOT from
+  // searching the roster: the roster is a page now, and a member sorted past
+  // it would otherwise read as an outsider and be offered "Join".
+  const myRole = org.data.myRole;
+  const decider = myRole === 'owner' || myRole === 'admin';
 
   return (
     <section className="panel">
@@ -291,7 +310,7 @@ export function OrgPage({ slug }: { slug: string }) {
       {org.data.about ? <p>{org.data.about}</p> : null}
       {actionError ? <p role="alert">{actionError}</p> : null}
 
-      {myName !== null && mine === undefined && !requested && org.data.joinPolicy !== 'invite' ? (
+      {myName !== null && myRole === null && !requested && org.data.joinPolicy !== 'invite' ? (
         <p>
           <button type="button" onClick={() => void join()}>
             {org.data.joinPolicy === 'open' ? t('org.join') : t('org.requestToJoin')}
@@ -303,17 +322,17 @@ export function OrgPage({ slug }: { slug: string }) {
       {decider ? <RequestsQueue slug={slug} onDecided={refresh} /> : null}
 
       <h2>{t('org.members')}</h2>
-      {members.data && members.data.length > 0 ? (
+      {memberRows.length > 0 ? (
         <table>
           <thead>
             <tr>
               <th>{t('org.colMember')}</th>
               <th>{t('common.role')}</th>
-              {decider || mine !== undefined ? <th /> : null}
+              {decider || myRole !== null ? <th /> : null}
             </tr>
           </thead>
           <tbody>
-            {members.data.map((member) => (
+            {memberRows.map((member) => (
               <tr key={member.username}>
                 <td>
                   <Link to="/users/$username" params={{ username: member.username }}>
@@ -335,7 +354,7 @@ export function OrgPage({ slug }: { slug: string }) {
                     roleLabel(t, member.role)
                   )}
                 </td>
-                {decider || mine !== undefined ? (
+                {decider || myRole !== null ? (
                   <td>
                     {member.username === myName ? (
                       <button type="button" onClick={() => void leave(member.username)}>
@@ -355,6 +374,17 @@ export function OrgPage({ slug }: { slug: string }) {
       ) : (
         <p className="muted">{t('org.noMembers')}</p>
       )}
+      {members.hasNextPage ? (
+        <p>
+          <button
+            type="button"
+            onClick={() => void members.fetchNextPage()}
+            disabled={members.isFetchingNextPage}
+          >
+            {t('common.loadMore')}
+          </button>
+        </p>
+      ) : null}
     </section>
   );
 }

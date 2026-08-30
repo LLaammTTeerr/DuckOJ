@@ -1599,3 +1599,37 @@ same path from `attachRevision`, so a stored package could do it too.
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B6 brief),
 no human available to consult. No migration.*
 
+
+## D58 — A roster is a page, and the viewer's own standing rides on the row
+
+`GET /orgs/{slug}/members` served every row of `org_members` in one array,
+and so did the four writes that answer with the roster. `org_members` has no
+bound: a province's school with 5,000 accounts serialised 5,000 rows on every
+click, on the one shape every sibling list (`/problems`, `/contests`,
+`/orgs`, `/submissions`, `/users`) abandoned long ago. The B6 report named
+it; this closes it.
+
+- **Keyset on `username`, which is also the sort column.** The cursor is the
+  last username on the page, so it is stable under concurrent joins and
+  departures — a member added before the cursor cannot push a later one onto
+  a page already read, and one removed cannot make the walk skip a row.
+  `users.username` is unique, so no tiebreaker is needed, and `>` and
+  `ORDER BY` resolve under the same collation, so the walk cannot disagree
+  with the sort.
+- **The four writes answer the FIRST page**, with its own `nextCursor`. A
+  write's body is a convenience refresh, not the roster of record; a client
+  that needs the rest pages the read endpoint like anybody else.
+- **A cursor longer than a username is 422 `invalid_cursor`**, not a scan —
+  the same refusal every sibling list makes for a cursor its ordering column
+  could never hold.
+- **`OrgSummary` gains `myRole`, and that is required by the above, not a
+  bonus.** The org screen derived "am I in this?" by searching the roster it
+  had just downloaded whole. Once the roster is a page, a member sorted past
+  the first page reads as an outsider and is offered a "Join" button for an
+  organization they already belong to. The viewer's own standing is one fact
+  about one row, so it travels with the row. It leaks nothing — it says only
+  what the caller already knows about themselves — and the list computes it
+  for a whole page in ONE extra query (`rolesOf`), never one per row.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B7 brief),
+no human available to consult. No migration.*

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import { organizations, orgJoinRequests, orgMembers } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
@@ -9,6 +9,7 @@ import type {
   OrgJoinRequestListDto,
   OrgJoinResultDto,
   OrgMemberDto,
+  OrgMemberPageDto,
   OrgPageDto,
   OrgRoleDto,
   OrgSummaryDto,
@@ -26,6 +27,30 @@ import { visibleOrgsWhere } from './org.visibility.js';
 export const ORG_OWNER_LOCK = 0x0e6f7267; // 'org'
 
 const UNIQUE_VIOLATION = '23505';
+
+/**
+ * What a write answers with: the first page of the roster it just changed.
+ * `limit` matches `PaginationQuery`'s own default, so a write's body and the
+ * client's first `GET .../members` describe the same page.
+ */
+const ROSTER_FIRST_PAGE: PaginationQueryDto = { limit: 25 };
+
+/**
+ * The longest a username can be (`RegisterRequest`'s own bound), which is
+ * therefore the longest a roster cursor can meaningfully be. Refused rather
+ * than passed through: a 100 KB cursor is not a page anybody left off at, and
+ * every sibling list rejects a cursor its ordering column could never hold
+ * (`invalid_cursor`, 422) rather than quietly scanning on it.
+ */
+const MAX_MEMBER_CURSOR = 64;
+
+function parseMemberCursor(cursor: string | undefined): string | null {
+  if (cursor === undefined) return null;
+  if (cursor.length === 0 || cursor.length > MAX_MEMBER_CURSOR) {
+    throw new AppError(422, 'invalid_cursor', 'That page cursor is not valid.');
+  }
+  return cursor;
+}
 const ORG_SLUG_CONSTRAINT = 'organizations_slug_lower_idx';
 
 /**
@@ -71,13 +96,29 @@ export class OrgAccessService {
       .orderBy(asc(organizations.id))
       .limit(page.limit + 1);
 
-    const items = rows.slice(0, page.limit).map(toOrgSummary);
+    const page_ = rows.slice(0, page.limit);
+    // One extra query for the whole page, never one per row: `myRole` is a
+    // fact about the viewer, and asking per organization would make this
+    // list's cost scale with its own page size.
+    const mine = await this.rolesOf(actor, page_.map((row) => row.id));
+    const items = page_.map((row) => toOrgSummary(row, mine.get(row.id) ?? null));
     const nextCursor = rows.length > page.limit ? String(items.at(-1)!.id) : null;
     return { items, nextCursor };
   }
 
   async getVisible(actor: Actor | null, slug: string): Promise<OrgSummaryDto> {
-    return toOrgSummary(await this.findVisibleOrgRow(actor, slug));
+    const row = await this.findVisibleOrgRow(actor, slug);
+    return toOrgSummary(row, await this.roleIn(actor, row.id));
+  }
+
+  /** The actor's role in each of `orgIds`, absent where they hold none. */
+  private async rolesOf(actor: Actor | null, orgIds: number[]): Promise<Map<number, OrgRoleDto>> {
+    if (!actor || orgIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({ orgId: orgMembers.orgId, role: orgMembers.role })
+      .from(orgMembers)
+      .where(and(eq(orgMembers.userId, actor.userId), inArray(orgMembers.orgId, orgIds)));
+    return new Map(rows.map((row) => [row.orgId, row.role]));
   }
 
   async roleIn(actor: Actor | null, orgId: number): Promise<'owner' | 'admin' | 'member' | null> {
@@ -95,15 +136,13 @@ export class OrgAccessService {
    * organization's roster is credit, not a secret — the same reasoning
    * `ProblemDetail.members` already applies.
    */
-  async listMembers(actor: Actor | null, slug: string): Promise<OrgMemberDto[]> {
+  async listMembers(
+    actor: Actor | null,
+    slug: string,
+    query: PaginationQueryDto,
+  ): Promise<OrgMemberPageDto> {
     const row = await this.findVisibleOrgRow(actor, slug);
-    const rows = await this.db
-      .select({ username: schema.users.username, role: orgMembers.role, joinedAt: orgMembers.joinedAt })
-      .from(orgMembers)
-      .innerJoin(schema.users, eq(schema.users.id, orgMembers.userId))
-      .where(eq(orgMembers.orgId, row.id))
-      .orderBy(asc(schema.users.username));
-    return rows.map((r) => ({ username: r.username, role: r.role as OrgRoleDto, joinedAt: r.joinedAt.toISOString() }));
+    return this.rosterOf(row.id, query);
   }
 
   /**
@@ -149,7 +188,9 @@ export class OrgAccessService {
       throw toOrgConflict(error);
     }
 
-    return toOrgSummary((await this.findRowById(orgId))!);
+    // The creator was just seeded as `owner` in the transaction above, so
+    // that is what they are — no round trip needed to learn it.
+    return toOrgSummary((await this.findRowById(orgId))!, 'owner');
   }
 
   /**
@@ -186,7 +227,7 @@ export class OrgAccessService {
       }
     }
 
-    return toOrgSummary((await this.findRowById(row.id))!);
+    return toOrgSummary((await this.findRowById(row.id))!, await this.roleIn(actor, row.id));
   }
 
   /**
@@ -332,7 +373,7 @@ export class OrgAccessService {
     slug: string,
     requestId: number,
     approve: boolean,
-  ): Promise<OrgMemberDto[]> {
+  ): Promise<OrgMemberPageDto> {
     const { row } = await this.loadForEdit(actor, slug);
     await this.db.transaction(async (tx) => {
       const [request] = await tx
@@ -378,7 +419,7 @@ export class OrgAccessService {
   }
 
   /** Adds a member directly. Owner or admin; only an owner may grant a rank. */
-  async addMember(actor: Actor, slug: string, body: AddOrgMemberRequestDto): Promise<OrgMemberDto[]> {
+  async addMember(actor: Actor, slug: string, body: AddOrgMemberRequestDto): Promise<OrgMemberPageDto> {
     const { row, role } = await this.loadForEdit(actor, slug);
     const effective = isAdmin(actor) ? 'owner' : role;
     if (body.role !== 'member' && effective !== 'owner') {
@@ -402,7 +443,7 @@ export class OrgAccessService {
   }
 
   /** Removes a member. Owner or admin, or yourself leaving. */
-  async removeMember(actor: Actor, slug: string, username: string): Promise<OrgMemberDto[]> {
+  async removeMember(actor: Actor, slug: string, username: string): Promise<OrgMemberPageDto> {
     const row = await this.findVisibleOrgRow(actor, slug);
     const target = await this.userIdOf(username);
     const targetRole = await this.roleIn({ ...actor, userId: target }, row.id);
@@ -448,7 +489,7 @@ export class OrgAccessService {
     slug: string,
     username: string,
     role: OrgRoleDto,
-  ): Promise<OrgMemberDto[]> {
+  ): Promise<OrgMemberPageDto> {
     const { row, role: actorRole } = await this.loadForEdit(actor, slug);
     if (!isAdmin(actor) && actorRole !== 'owner') {
       throw new AppError(403, 'organization_forbidden', 'Only an owner may set roles.');
@@ -535,7 +576,23 @@ export class OrgAccessService {
     return user.id;
   }
 
-  private async rosterOf(orgId: number): Promise<OrgMemberDto[]> {
+  /**
+   * One keyset page of a roster (D58), ordered by username.
+   *
+   * The cursor is the last username on the page rather than a row id: the
+   * ordering column IS the cursor, which is what makes the page stable while
+   * people join and leave underneath it — a member added before the cursor
+   * cannot push a later one onto a page the client has already seen, and one
+   * removed cannot make it skip a row. `users.username` is unique, so no
+   * tiebreaker is needed; `>` and `ORDER BY` resolve under the same
+   * collation, so the walk cannot disagree with the sort.
+   *
+   * The writes call this with `ROSTER_FIRST_PAGE` — see `OrgMemberPage`'s
+   * doc comment in `@duckoj/contracts` for why a write answers a bounded
+   * page rather than the roster it just changed.
+   */
+  private async rosterOf(orgId: number, query: PaginationQueryDto = ROSTER_FIRST_PAGE): Promise<OrgMemberPageDto> {
+    const after = parseMemberCursor(query.cursor);
     const rows = await this.db
       .select({
         username: schema.users.username,
@@ -544,9 +601,23 @@ export class OrgAccessService {
       })
       .from(orgMembers)
       .innerJoin(schema.users, eq(schema.users.id, orgMembers.userId))
-      .where(eq(orgMembers.orgId, orgId))
-      .orderBy(asc(schema.users.username));
-    return rows.map((r) => ({ username: r.username, role: r.role, joinedAt: r.joinedAt.toISOString() }));
+      .where(
+        after === null
+          ? eq(orgMembers.orgId, orgId)
+          : and(eq(orgMembers.orgId, orgId), gt(schema.users.username, after)),
+      )
+      .orderBy(asc(schema.users.username))
+      // One row past the page, so "is there more" is answered by the same
+      // query rather than by a second COUNT that could disagree with it.
+      .limit(query.limit + 1);
+
+    const items: OrgMemberDto[] = rows
+      .slice(0, query.limit)
+      .map((r) => ({ username: r.username, role: r.role as OrgRoleDto, joinedAt: r.joinedAt.toISOString() }));
+    return {
+      items,
+      nextCursor: rows.length > query.limit ? items.at(-1)!.username : null,
+    };
   }
 
   private async loadForEdit(actor: Actor | null, slug: string): Promise<{ row: OrgRow; role: OrgRoleDto | null }> {
@@ -633,8 +704,9 @@ function parseCursor(cursor: string | undefined): number {
   return after;
 }
 
-function toOrgSummary(row: typeof organizations.$inferSelect): OrgSummaryDto {
+function toOrgSummary(row: typeof organizations.$inferSelect, myRole: OrgRoleDto | null): OrgSummaryDto {
   return {
+    myRole,
     id: row.id,
     slug: row.slug,
     name: row.name,

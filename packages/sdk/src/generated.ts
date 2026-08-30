@@ -3243,6 +3243,8 @@ export interface paths {
                                 joinPolicy: "open" | "request" | "invite";
                                 /** Format: date-time */
                                 createdAt: string;
+                                /** @enum {string|null} */
+                                myRole: "owner" | "admin" | "member" | null;
                             }[];
                             nextCursor: string | null;
                         };
@@ -3296,6 +3298,8 @@ export interface paths {
                             joinPolicy: "open" | "request" | "invite";
                             /** Format: date-time */
                             createdAt: string;
+                            /** @enum {string|null} */
+                            myRole: "owner" | "admin" | "member" | null;
                         };
                     };
                 };
@@ -3423,6 +3427,8 @@ export interface paths {
                             joinPolicy: "open" | "request" | "invite";
                             /** Format: date-time */
                             createdAt: string;
+                            /** @enum {string|null} */
+                            myRole: "owner" | "admin" | "member" | null;
                         };
                     };
                 };
@@ -3494,6 +3500,8 @@ export interface paths {
                             joinPolicy: "open" | "request" | "invite";
                             /** Format: date-time */
                             createdAt: string;
+                            /** @enum {string|null} */
+                            myRole: "owner" | "admin" | "member" | null;
                         };
                     };
                 };
@@ -3611,7 +3619,10 @@ export interface paths {
         /** The members of an organization visible to the caller */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                };
                 header?: never;
                 path: {
                     slug: string;
@@ -3620,19 +3631,22 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Every member, sorted by username */
+                /** @description A page of members, sorted by username */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
-                            username: string;
-                            /** @enum {string} */
-                            role: "owner" | "admin" | "member";
-                            /** Format: date-time */
-                            joinedAt: string;
-                        }[];
+                            items: {
+                                username: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "member";
+                                /** Format: date-time */
+                                joinedAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
                     };
                 };
                 /** @description No such organization, or one the caller may not see — the two are indistinguishable */
@@ -3688,12 +3702,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            username: string;
-                            /** @enum {string} */
-                            role: "owner" | "admin" | "member";
-                            /** Format: date-time */
-                            joinedAt: string;
-                        }[];
+                            items: {
+                                username: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "member";
+                                /** Format: date-time */
+                                joinedAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
                     };
                 };
                 /** @description Not signed in */
@@ -4073,12 +4090,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            username: string;
-                            /** @enum {string} */
-                            role: "owner" | "admin" | "member";
-                            /** Format: date-time */
-                            joinedAt: string;
-                        }[];
+                            items: {
+                                username: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "member";
+                                /** Format: date-time */
+                                joinedAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
                     };
                 };
                 /** @description Not signed in */
@@ -4198,12 +4218,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            username: string;
-                            /** @enum {string} */
-                            role: "owner" | "admin" | "member";
-                            /** Format: date-time */
-                            joinedAt: string;
-                        }[];
+                            items: {
+                                username: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "member";
+                                /** Format: date-time */
+                                joinedAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
                     };
                 };
                 /** @description Not signed in */
@@ -4324,12 +4347,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            username: string;
-                            /** @enum {string} */
-                            role: "owner" | "admin" | "member";
-                            /** Format: date-time */
-                            joinedAt: string;
-                        }[];
+                            items: {
+                                username: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "member";
+                                /** Format: date-time */
+                                joinedAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
                     };
                 };
                 /** @description Not signed in */
@@ -4443,12 +4469,15 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            username: string;
-                            /** @enum {string} */
-                            role: "owner" | "admin" | "member";
-                            /** Format: date-time */
-                            joinedAt: string;
-                        }[];
+                            items: {
+                                username: string;
+                                /** @enum {string} */
+                                role: "owner" | "admin" | "member";
+                                /** Format: date-time */
+                                joinedAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
                     };
                 };
                 /** @description Not signed in */

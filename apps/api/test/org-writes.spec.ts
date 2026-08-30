@@ -198,11 +198,11 @@ describe('OrgAccessService.listMembers', () => {
       await seedOrg(db, { slug: 'lm-private', name: 'Private', visibility: 'private' });
       const service = new OrgAccessService(db, new NotificationsService(db));
 
-      await expect(service.listMembers(actorFor(outsider.id), 'lm-private')).rejects.toMatchObject({
+      await expect(service.listMembers(actorFor(outsider.id), 'lm-private', { limit: 25 })).rejects.toMatchObject({
         status: 404,
         code: 'organization_not_found',
       });
-      await expect(service.listMembers(null, 'lm-private')).rejects.toMatchObject({ status: 404 });
+      await expect(service.listMembers(null, 'lm-private', { limit: 25 })).rejects.toMatchObject({ status: 404 });
     });
   }, 120_000);
 
@@ -217,7 +217,7 @@ describe('OrgAccessService.listMembers', () => {
       ]);
       const service = new OrgAccessService(db, new NotificationsService(db));
 
-      const members = await service.listMembers(null, 'lm-public');
+      const members = (await service.listMembers(null, 'lm-public', { limit: 25 })).items;
       expect(members.map((m) => ({ username: m.username, role: m.role })).sort((a, b) => a.username.localeCompare(b.username))).toEqual(
         [
           { username: 'lm-alice', role: 'owner' },
@@ -235,12 +235,76 @@ describe('OrgAccessService.listMembers', () => {
       await db.insert(orgMembers).values({ orgId: org.id, userId: member.id, role: 'member' });
       const service = new OrgAccessService(db, new NotificationsService(db));
 
-      const members = await service.listMembers(actorFor(member.id), 'lm-secret');
-      expect(members.map((m) => m.username)).toEqual(['lm-member']);
+      const members = await service.listMembers(actorFor(member.id), 'lm-secret', { limit: 25 });
+      expect(members.items.map((m) => m.username)).toEqual(['lm-member']);
 
-      await expect(service.listMembers(actorFor(outsider.id), 'lm-secret')).rejects.toMatchObject({
+      await expect(service.listMembers(actorFor(outsider.id), 'lm-secret', { limit: 25 })).rejects.toMatchObject({
         status: 404,
       });
+    });
+  }, 120_000);
+});
+
+
+/**
+ * D58. `listMembers`/`rosterOf` used to serialise every row of `org_members`
+ * into one response — the shape every sibling list abandoned long ago, and
+ * the concern the B6 report closed with.
+ */
+describe('OrgAccessService.listMembers — pagination (D58)', () => {
+  it('answers one keyset page at a time, in username order, with a cursor that resumes exactly after it', async () => {
+    await withTestDb(async (db) => {
+      const org = await seedOrg(db, { slug: 'pg-org', name: 'Paged', visibility: 'public' });
+      // Inserted in DESCENDING username order on purpose: without an explicit
+      // `ORDER BY` a sequential scan hands back physical (insertion) order, so
+      // an ascending assertion that passed would be passing by luck.
+      for (const name of ['pg-e', 'pg-d', 'pg-c', 'pg-b', 'pg-a']) {
+        const user = await insertUser(db, name);
+        await db.insert(orgMembers).values({ orgId: org.id, userId: user.id, role: 'member' });
+      }
+      const service = new OrgAccessService(db, new NotificationsService(db));
+
+      const first = await service.listMembers(null, 'pg-org', { limit: 2 });
+      expect(first.items.map((m) => m.username)).toEqual(['pg-a', 'pg-b']);
+      expect(first.nextCursor).toBe('pg-b');
+
+      const second = await service.listMembers(null, 'pg-org', { limit: 2, cursor: first.nextCursor! });
+      expect(second.items.map((m) => m.username)).toEqual(['pg-c', 'pg-d']);
+      expect(second.nextCursor).toBe('pg-d');
+
+      const third = await service.listMembers(null, 'pg-org', { limit: 2, cursor: second.nextCursor! });
+      expect(third.items.map((m) => m.username)).toEqual(['pg-e']);
+      // The last page says so — a client must not have to issue an extra
+      // empty request to discover the roster ended.
+      expect(third.nextCursor).toBeNull();
+    });
+  }, 120_000);
+
+  it('refuses a cursor no username could be, rather than scanning on it', async () => {
+    await withTestDb(async (db) => {
+      await seedOrg(db, { slug: 'pg-bad', name: 'Bad cursor', visibility: 'public' });
+      const service = new OrgAccessService(db, new NotificationsService(db));
+
+      await expect(
+        service.listMembers(null, 'pg-bad', { limit: 25, cursor: 'x'.repeat(200) }),
+      ).rejects.toMatchObject({ status: 422, code: 'invalid_cursor' });
+    });
+  }, 120_000);
+
+  it('answers the first page from a write, too — a roster refresh is bounded like every other read', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'pgw-owner');
+      const org = await seedOrg(db, { slug: 'pg-write', name: 'Write', visibility: 'public' });
+      await db.insert(orgMembers).values({ orgId: org.id, userId: owner.id, role: 'owner' });
+      for (const name of ['pgw-a', 'pgw-b', 'pgw-c']) {
+        const user = await insertUser(db, name);
+        await db.insert(orgMembers).values({ orgId: org.id, userId: user.id, role: 'member' });
+      }
+      const service = new OrgAccessService(db, new NotificationsService(db));
+
+      const roster = await service.setMemberRole(actorFor(owner.id), 'pg-write', 'pgw-a', 'admin');
+      expect(roster.items.map((m) => m.username)).toEqual(['pgw-a', 'pgw-b', 'pgw-c', 'pgw-owner']);
+      expect(roster.nextCursor).toBeNull();
     });
   }, 120_000);
 });

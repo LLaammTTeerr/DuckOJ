@@ -1,11 +1,13 @@
 /**
  * The organization screens' load-bearing branches: what each role is offered.
  *
- * Everything here rides on one derivation — the viewer's standing is their
- * row in the members list, not a separate endpoint — so the fixtures vary
- * that row and assert what appears: a stranger gets Join, a member gets
- * Leave, a decider gets the queue and the role controls, and an
- * invite-only organization offers a stranger nothing at all.
+ * Everything here rides on one field — the organization row's `myRole`
+ * (D58) — so the fixtures vary that field and assert what appears: a
+ * stranger gets Join, a member gets Leave, a decider gets the queue and the
+ * role controls, and an invite-only organization offers a stranger nothing
+ * at all. It is deliberately NOT derived from the roster any more: the
+ * roster is a page, and a member sorted past it used to read as an
+ * outsider.
  */
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -50,13 +52,28 @@ const MEMBERS = [
   { username: 'plain-person', role: 'member', joinedAt: '2026-01-02T00:00:00Z' },
 ];
 
-/** Wires GET for a viewer signed in as `username` (or nobody, with null). */
-function serve(username: string | null, org = ORG, members = MEMBERS, requests: unknown[] = []) {
+/**
+ * Wires GET for a viewer signed in as `username` (or nobody, with null).
+ *
+ * `myRole` defaults to whatever `members` says about this viewer — which is
+ * what the API computes — but a caller can override it on `org` to model the
+ * case D58 exists for: a member who is NOT on the page of the roster the
+ * screen has loaded.
+ */
+function serve(
+  username: string | null,
+  org: Record<string, unknown> = ORG,
+  members = MEMBERS,
+  requests: unknown[] = [],
+) {
+  const derived = members.find((m) => m.username === username)?.role ?? null;
+  const orgRow = { ...org, myRole: 'myRole' in org ? org.myRole : derived };
   get.mockImplementation((path: string) => {
     if (path === '/auth/me')
       return Promise.resolve({ data: username === null ? undefined : { username, displayName: username } });
-    if (path === '/orgs/{slug}') return Promise.resolve({ data: org });
-    if (path === '/orgs/{slug}/members') return Promise.resolve({ data: members });
+    if (path === '/orgs/{slug}') return Promise.resolve({ data: orgRow });
+    if (path === '/orgs/{slug}/members')
+      return Promise.resolve({ data: { items: members, nextCursor: null } });
     if (path === '/orgs/{slug}/requests') return Promise.resolve({ data: requests });
     return Promise.resolve({ data: undefined });
   });
@@ -154,7 +171,7 @@ describe('OrgPage', () => {
 
   it('a decider sees the queue and can approve into the roster', async () => {
     serve('owner-person', ORG, MEMBERS, [{ id: 7, username: 'hopeful', createdAt: '2026-02-01T00:00:00Z' }]);
-    post.mockResolvedValue({ data: MEMBERS });
+    post.mockResolvedValue({ data: { items: MEMBERS, nextCursor: null } });
     wrap(<OrgPage slug="hanoi" />);
 
     const approve = await screen.findByRole('button', { name: /^Duyệt$/ });
@@ -166,7 +183,7 @@ describe('OrgPage', () => {
 
   it("a decider changes another member's role but never their own", async () => {
     serve('owner-person');
-    patch.mockResolvedValue({ data: MEMBERS });
+    patch.mockResolvedValue({ data: { items: MEMBERS, nextCursor: null } });
     wrap(<OrgPage slug="hanoi" />);
 
     const select = await screen.findByRole('combobox', { name: /Vai trò của plain-person/ });
@@ -178,6 +195,34 @@ describe('OrgPage', () => {
       params: { path: { slug: 'hanoi', username: 'plain-person' } },
       body: { role: 'admin' },
     });
+  });
+
+  it('still knows a member is a member when the roster page does not contain them (D58)', async () => {
+    // The regression paginating the roster would otherwise have shipped: this
+    // viewer holds `member`, but sorts past the page the screen has loaded.
+    serve('offpage-person', { ...ORG, myRole: 'member' });
+    wrap(<OrgPage slug="hanoi" />);
+    await screen.findByText('Hanoi CS');
+    expect(screen.queryByRole('button', { name: /gia nhập/i })).toBeNull();
+  });
+
+  it('pages the roster on demand rather than downloading it whole (D58)', async () => {
+    get.mockImplementation((path: string, opts?: { params?: { query?: { cursor?: string } } }) => {
+      if (path === '/auth/me') return Promise.resolve({ data: { username: 'stranger', displayName: 'S' } });
+      if (path === '/orgs/{slug}') return Promise.resolve({ data: { ...ORG, myRole: null } });
+      if (path === '/orgs/{slug}/members') {
+        return opts?.params?.query?.cursor === undefined
+          ? Promise.resolve({ data: { items: [MEMBERS[0]], nextCursor: 'owner-person' } })
+          : Promise.resolve({ data: { items: [MEMBERS[1]], nextCursor: null } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    wrap(<OrgPage slug="hanoi" />);
+
+    expect(await screen.findByText('owner-person')).toBeInTheDocument();
+    expect(screen.queryByText('plain-person')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /^Tải thêm$/ }));
+    expect(await screen.findByText('plain-person')).toBeInTheDocument();
   });
 
   it('surfaces the API detail when a removal is refused', async () => {
