@@ -74,3 +74,4 @@
 - F-19 dispatched (main, opus): authoring round-trip from a revision, problem clone, contest clone (D88).
 - Owner asks (2026-08-30): MCP for agents + problem-prepare system. Dispatched F-20 apps/mcp (worktree, D89: reads default, writes opt-in, no admin tools) and F-21 packages/prepare gate+publisher (worktree, D90) wrapping the competitive-programming skills' output.
 - GitGuardian flagged f921aa3: a fixed e2e fixture password (not a credential). Replaced with a per-run random; 57 throwaway test accounts on live locked (password_hash '!'). Admin/student creds were never in git.
+- B-14 DONE_WITH_CONCERNS, merged: features.spec.ts (11 journeys green on live), certificates link + rank box, guide nav lists; web rebuilt, pushed. Its Origin concern is covered by playwright.config's extraHTTPHeaders.
