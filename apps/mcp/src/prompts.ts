@@ -16,7 +16,7 @@
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { unwrap } from './errors.js';
+import { guarded, unwrap } from './errors.js';
 import { resolveSamples } from './samples.js';
 import type { Client } from './tool.js';
 
@@ -145,7 +145,7 @@ export function registerPrompts(server: McpServer, client: Client, writes: boole
           .describe('submit into this contest instead of practice'),
       },
     },
-    async ({ code, contestKey }) => {
+    guarded(async ({ code, contestKey }) => {
       const problem = unwrap(await client.GET('/problems/{code}', { params: { path: { code } } }));
       const limits = [
         problem.timeMs === null ? null : `time limit ${String(problem.timeMs)} ms`,
@@ -203,7 +203,7 @@ export function registerPrompts(server: McpServer, client: Client, writes: boole
           },
         ],
       };
-    },
+    }),
   );
 
   server.registerPrompt(
@@ -221,7 +221,7 @@ export function registerPrompts(server: McpServer, client: Client, writes: boole
           .describe('an existing problem code to attach a new revision to'),
       },
     },
-    ({ code }) => {
+    guarded(({ code }) => {
       const target = code === undefined ? 'the problem' : `\`${code}\``;
       const draftFlow = writes
         ? `1. \`problems_draft_create\` on ${target} — it answers a \`draftId\`, an \`expiresAt\` and the\n` +
@@ -269,6 +269,6 @@ export function registerPrompts(server: McpServer, client: Client, writes: boole
           },
         ],
       };
-    },
+    }),
   );
 }

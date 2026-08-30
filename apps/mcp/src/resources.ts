@@ -12,7 +12,7 @@
  * All four are read-only, so none of them is affected by the writes switch.
  */
 import { ResourceTemplate, type McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { unwrap } from './errors.js';
+import { guarded, unwrap } from './errors.js';
 import type { Client } from './tool.js';
 
 /** The scopes a token needs before the resources are worth exposing. */
@@ -33,7 +33,7 @@ export function registerResources(server: McpServer, client: Client): void {
       description: 'A problem statement as Markdown, exactly as the judge stores it.',
       mimeType: 'text/markdown',
     },
-    async (uri, variables) => {
+    guarded(async (uri, variables) => {
       const code = String(variables['code']);
       const problem = unwrap(await client.GET('/problems/{code}', { params: { path: { code } } }));
       return {
@@ -48,7 +48,7 @@ export function registerResources(server: McpServer, client: Client): void {
           },
         ],
       };
-    },
+    }),
   );
 
   server.registerResource(
@@ -59,13 +59,13 @@ export function registerResources(server: McpServer, client: Client): void {
       description: "A contest's scoreboard as JSON, as its format computes it.",
       mimeType: 'application/json',
     },
-    async (uri, variables) => {
+    guarded(async (uri, variables) => {
       const key = String(variables['key']);
       const board = unwrap(
         await client.GET('/contests/{key}/scoreboard', { params: { path: { key } } }),
       );
       return jsonContents(uri.href, board);
-    },
+    }),
   );
 
   server.registerResource(
@@ -76,10 +76,10 @@ export function registerResources(server: McpServer, client: Client): void {
       description: 'Every topic tag a problem can carry — the vocabulary `problems_search` filters by.',
       mimeType: 'application/json',
     },
-    async (uri) => {
+    guarded(async (uri) => {
       const tags = unwrap(await client.GET('/tags'));
       return jsonContents(uri.href, tags.items);
-    },
+    }),
   );
 
   server.registerResource(
@@ -90,9 +90,9 @@ export function registerResources(server: McpServer, client: Client): void {
       description: 'Every language key `submissions_submit` accepts, with its display name.',
       mimeType: 'application/json',
     },
-    async (uri) => {
+    guarded(async (uri) => {
       const languages = unwrap(await client.GET('/languages'));
       return jsonContents(uri.href, languages.items);
-    },
+    }),
   );
 }
