@@ -368,7 +368,7 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
     for (const username of importUsernames(csv)) {
       const key = username.toLowerCase();
       if (key === '') continue;
-      if (false as boolean) return username;
+      if (seen.has(key)) return username;
       seen.add(key);
     }
     return null;
