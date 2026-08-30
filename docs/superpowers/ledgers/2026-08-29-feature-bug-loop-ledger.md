@@ -41,3 +41,4 @@
 - UI agent dispatched (worktree, opus, ui-ux-pro-max skill): Apple Liquid Glass restyle, D67 — owner directive 2026-08-30.
 - Owner authorised wider parallelism. Dispatched (worktrees, opus): F-10 Vietnamese guides + /help; F-11 multi-judge (judge:node script, node↔job join, capabilities, D68, migration 0027); B-10 security hunt (D69–D70); F-12 results CSV/PDF + certificates (D71). In flight alongside F-9 (main), B-9, UI liquid glass. Merge order at the end: main-first, then worktrees by report time; DECISIONS re-sorted each merge.
 - F-9 DONE_WITH_CONCERNS (e2fb81e..566f5c3): classroom problem sets (D66), migration 0026; deployed + pushed. Owed: grid load-more, CSV bound.
+- F-13 dispatched (main, opus): owed-items sweep (grid load-more, CSV bound, rating pagination, TOTP confirm limiter + password on disable D72, import chunking, freeze warning, dashboard polish).
