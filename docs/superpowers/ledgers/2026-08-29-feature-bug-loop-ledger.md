@@ -94,3 +94,4 @@
 - Dispatched F-25 teams/monitor consolidation (main, D100, migration 0037) and B-18 whole-diff review II (worktree, D101–D103). Full api suite + full e2e running in the background.
 - Full e2e on live after the teams deploy: 31/31 (journeys, features, authoring, smoke).
 - Full api suite on merged main (serial): 1035/1035.
+- B-18 DONE_WITH_CONCERNS on `worktree-agent-a26b0afb8b1818dee` (ccd320d..4c1508a): BLOCKER team members (non-captain) 404'd on private contest problems; removed member still submits; roster PATCH double-row; presence counted captains; similarity team links; team-list error state (D101). Merge blocked by F-25's dirty team files → after F-25. Open ruling owed: must_change_password vs tokens/MCP/oj (D102).
