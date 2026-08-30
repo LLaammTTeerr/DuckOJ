@@ -1164,6 +1164,22 @@ export class ProblemAccessService {
   }
 
   /**
+   * The public face of `loadForEdit`: the problem row, once the actor has
+   * been shown to be allowed to edit it — 404 for a problem they may not
+   * see, 403 for one they may see but not edit, in that order.
+   *
+   * Exists for D87's draft endpoints, which are authoring surface on a
+   * problem but do not themselves touch a revision, so they have no other
+   * call into this service to inherit the ordering from. A second
+   * hand-rolled copy of "may this actor edit this problem" is exactly how
+   * `PATCH /problems/{code}` and a sibling route come to disagree.
+   */
+  async loadEditableProblem(actor: Actor | null, code: string): Promise<{ id: number }> {
+    const { problem } = await this.loadForEdit(actor, code);
+    return { id: problem.id };
+  }
+
+  /**
    * Loads a problem's `{ id, visibility }` by code, 404ing if no problem has
    * that code (case-insensitively) — the first half of the 404-then-403
    * ordering every write path needs. Split out of `loadForEdit` so

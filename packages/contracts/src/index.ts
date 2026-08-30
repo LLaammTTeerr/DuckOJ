@@ -9,6 +9,7 @@ export * from './spreadsheet-csv.js';
 export * from './orgs.js';
 export * from './packages.js';
 export * from './problems.js';
+export * from './problem-drafts.js';
 export * from './users.js';
 export * from './registry.js';
 export * from './scopes.js';
