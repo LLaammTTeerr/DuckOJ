@@ -81,3 +81,4 @@
 - B-16 dispatched (worktree, opus): publishedVersion null, F-18 drafts edge cases, harness realism (configureApp + loadConfig, D91), forced-password UX, browser authoring probe.
 - F-19 DONE (7a13cab..8b6529e): draft from revision + file read-back, problem clone (edit rights required), contest clone (D88); deployed via deploy.sh; pushed.
 - F-20 DONE, merged (094513c): apps/mcp (19 tools, D89), oj mcp, docs/guide/mcp.md; live e2e AC via MCP. Root 'prepare' lifecycle name broke image builds → renamed prepare:problem; api deployed via deploy.sh (see line above); pushed.
+- Dispatched F-22 structured samples (main, D94) and F-23 organiser live monitor (worktree, D95). e2e full run in flight; B-16 running.
