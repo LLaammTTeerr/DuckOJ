@@ -4,6 +4,7 @@
  * name rather than vanishing — the server may grow kinds before this file
  * learns them.
  */
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
@@ -121,11 +122,38 @@ export function NotificationsPage() {
   const t = useT();
   const { locale } = useLocale();
   const client = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const feed = useQuery(notificationsQueryOptions);
 
+  /**
+   * The one write on this screen, in the shape every other write in this app
+   * uses (see contests.tsx's `patchRow`): a busy flag so one click is one
+   * POST, a `catch` because openapi-fetch RETHROWS network-level failures
+   * rather than resolving them to `{ error }`, and a visible error either
+   * way. Without all three, a click during an outage was an unhandled
+   * promise rejection and a button that looked like it had done nothing.
+   *
+   * The response is written into `notificationsQueryOptions.queryKey` — the
+   * same `['notifications']` entry the shell's bell reads (router.tsx's
+   * `ShellNav` spreads this very object), so the count in the nav clears with
+   * the rows on the page rather than lingering until the next poll.
+   */
   async function markAllRead(): Promise<void> {
-    const { data } = await api.POST('/notifications/read');
-    if (data) client.setQueryData(notificationsQueryOptions.queryKey, data);
+    setBusy(true);
+    setError(null);
+    try {
+      const { data, error: failure } = await api.POST('/notifications/read');
+      if (failure) {
+        setError(failure.detail ?? t('notifications.markAllReadError'));
+        return;
+      }
+      client.setQueryData(notificationsQueryOptions.queryKey, data);
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (feed.isPending) return <p className="muted">{t('common.loading')}</p>;
@@ -136,11 +164,12 @@ export function NotificationsPage() {
       <h1>{t('notifications.title')}</h1>
       {feed.data.unreadCount > 0 ? (
         <p>
-          <button type="button" onClick={() => void markAllRead()}>
+          <button type="button" disabled={busy} onClick={() => void markAllRead()}>
             {t('notifications.markAllRead', { count: feed.data.unreadCount })}
           </button>
         </p>
       ) : null}
+      {error ? <p role="alert">{error}</p> : null}
       {feed.data.items.length === 0 ? (
         <p className="muted">{t('notifications.empty')}</p>
       ) : (

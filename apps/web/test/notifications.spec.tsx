@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const get = vi.fn();
@@ -12,11 +12,29 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a href="#">{children}</a>,
 }));
 
-const { NotificationsPage } = await import('../src/routes/notifications.js');
+const { NotificationsPage, notificationsQueryOptions } = await import(
+  '../src/routes/notifications.js',
+);
 
 function wrap(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
+/**
+ * A stand-in for the shell's bell.
+ *
+ * `router.tsx`'s `ShellNav` renders the count from
+ * `useQuery({ ...notificationsQueryOptions, enabled, refetchInterval })` —
+ * this reads the SAME options object, so it shares the same
+ * `['notifications']` cache entry and answers the question the real bell
+ * would: does the unread count in the nav clear when the page marks
+ * everything read, or does it linger until the next sixty-second poll?
+ * Rendering the real `ShellNav` here would drag in the whole route tree.
+ */
+function Bell() {
+  const feed = useQuery(notificationsQueryOptions);
+  return <span data-testid="bell">{feed.data?.unreadCount ?? 0}</span>;
 }
 
 const FEED = {
@@ -89,6 +107,72 @@ describe('NotificationsPage', () => {
     expect(post).toHaveBeenCalledWith('/notifications/read');
     // The button keys off unreadCount, which the response zeroed.
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  // `markAllRead` was the one write in this app with no busy flag, no
+  // try/catch and no error branch — a shape every other handler here follows
+  // (see contests.tsx's `patchRow`). openapi-fetch RETHROWS network-level
+  // failures rather than resolving them to `{ error }`, so a click during an
+  // outage produced an unhandled promise rejection and a button that looked
+  // like it had simply done nothing.
+  it('says so when the mark-all-read request fails on the network', async () => {
+    get.mockResolvedValue({ data: FEED });
+    post.mockRejectedValue(new TypeError('Failed to fetch'));
+    wrap(<NotificationsPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Đánh dấu đã đọc tất cả/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không kết nối được/i);
+    // The unread rows are still unread — nothing was optimistically zeroed.
+    expect(screen.getByRole('button', { name: /Đánh dấu đã đọc tất cả \(1\)/ })).toBeEnabled();
+  });
+
+  it('says so when the server refuses the mark-all-read', async () => {
+    get.mockResolvedValue({ data: FEED });
+    post.mockResolvedValue({ data: undefined, error: { detail: 'Not signed in.' } });
+    wrap(<NotificationsPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Đánh dấu đã đọc tất cả/ }));
+    // The server's own wording, verbatim (D18).
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Not signed in/i);
+  });
+
+  it('holds the button down while the request is in flight, so one click is one post', async () => {
+    get.mockResolvedValue({ data: FEED });
+    let release: (value: unknown) => void = () => undefined;
+    post.mockReturnValue(new Promise((resolve) => (release = resolve)));
+    wrap(<NotificationsPage />);
+
+    const button = await screen.findByRole('button', { name: /Đánh dấu đã đọc tất cả/ });
+    await userEvent.click(button);
+    expect(button).toBeDisabled();
+    await userEvent.click(button);
+    expect(post).toHaveBeenCalledTimes(1);
+
+    release({ data: { ...FEED, unreadCount: 0 } });
+  });
+
+  it("clears the shell bell's unread count, not just the rows on the page", async () => {
+    get.mockResolvedValue({ data: FEED });
+    post.mockResolvedValue({
+      data: {
+        ...FEED,
+        unreadCount: 0,
+        items: FEED.items.map((i) => ({ ...i, readAt: '2026-08-02T00:00:00Z' })),
+      },
+    });
+    wrap(
+      <>
+        <Bell />
+        <NotificationsPage />
+      </>,
+    );
+
+    // `findByTestId` would resolve on the first paint, when the query has not
+    // answered yet and the bell honestly reads 0 — `waitFor` is what makes
+    // this assert the loaded state rather than the empty one.
+    await waitFor(() => expect(screen.getByTestId('bell')).toHaveTextContent('1'));
+    await userEvent.click(await screen.findByRole('button', { name: /Đánh dấu đã đọc tất cả/ }));
+    await waitFor(() => expect(screen.getByTestId('bell')).toHaveTextContent('0'));
   });
 
   it('tells a signed-out viewer to sign in rather than erroring', async () => {
