@@ -2981,3 +2981,96 @@ without a number is how a limit ends up refusing a legitimate contest.
 human available to consult. No migration, no code change — this entry is the
 deliverable.*
 
+
+## D83 — Progress is what has already been decided: a run nobody is running is failed, and a live room counts for nothing until it closes
+
+Two things F16 shipped, and one rule joins them: this judge only reports what
+is **finished**. A similarity run whose process died is finished (badly), and
+a contest still being sat has decided nothing yet.
+
+### The reaper (F15's first concern)
+
+`ContestSimilarityService.start` commits a `running` row before the work
+begins, so a deploy or an OOM kill between the two left that contest's button
+answering `409 similarity_running` for the life of the installation.
+`SimilarityRunReaper` sweeps every five minutes on `ExpiredRowsSweeper`'s
+shape — an `unref`'d interval, no sweep at boot, every failure a log line.
+
+- **Two staleness predicates, both gated on the contest's advisory lock.** A
+  `running` row older than fifteen minutes, or one whose `started_at`
+  predates this process's boot, is a *candidate*; it is only marked when
+  `pg_try_advisory_xact_lock(SIMILARITY_LOCK, contest_id)` succeeds. `execute`
+  holds that lock for its whole transaction, so the lock — not the clock — is
+  what tells "nobody is running this" from "this contest is large". Fifteen
+  minutes alone would cancel a slow report; the lock alone would never fire
+  on a row whose contest is idle. The lock is also what makes the
+  process-start branch safe on a forked cluster (`API_WORKERS`), where a
+  sibling worker may legitimately be running a row this worker never started.
+- **`status = 'failed'`, `error = 'abandoned'`**, distinct from
+  `similarity_run_failed`: the organiser learns that nothing is wrong with
+  their contest and pressing the button again is the whole fix. No migration
+  — `similarity_runs.status` is plain text by design.
+- **The UPDATE restates `status = 'running'`.** A run that lands between the
+  candidate query and the write must not have its finished report stamped
+  over. (The service's own `.catch` can still write `similarity_run_failed`
+  over an `abandoned` row afterwards: terminal over terminal, harmless,
+  recorded rather than fixed.)
+
+### What a progress page counts
+
+`GET /users/me/progress` (session or `users:read`, mirroring `/users/me`;
+there is no `profile:read` scope in this build) and `GET /users/{u}/progress`
+(`@Public` + `users:read`, mirroring the profile it hangs off).
+
+- **D49's window exclusion is the one rule for every outcome** — the bars and
+  the streak — reused as `contestWindowOpenWhere`, never transcribed. Not
+  D23's freeze mask, for two independent reasons: D23 never masks a submitter
+  from themselves, so on your own page that predicate is constant `false` and
+  "a frozen contest's late verdicts don't count until reveal" would not bind
+  at all; and the answer is cached, so a viewer-dependent predicate would
+  poison one cache entry for every other viewer (D49's own argument). It is
+  **D35's mask for free**: a live room's problem contributes no tag and no
+  difficulty to anybody's bars until that window closes. Accepted
+  consequence: a pupil mid-contest does not see today's solves in their own
+  bars — the calendar below is where that day shows up.
+- **The heatmap and `recent` are deliberately NOT excluded.** A heatmap
+  counts that a submission exists, which is exactly what D23 says a freeze
+  never hides and what `UserStats.submissionCount` already publishes
+  unfiltered; `recent` is the reader's own verdicts, which D23 never masks
+  from their author.
+- **Public counts public problems only; your own page counts every problem
+  you submitted to.** The first is `UserStats`' §3/§4 rule unchanged — a
+  number that moved with the reader would leak, by arithmetic, that a private
+  problem exists. The second is the province's actual student, whose week is
+  mostly school-visible homework; it is their own work, and the public route
+  serves a *narrower object* rather than the same one masked, so nothing
+  leaks by forgetting a field.
+- **The public route serves the bars and the heatmap and nothing else.** No
+  streak, no recent verdicts, no contests, no homework: a rival's calendar is
+  already implied by `GET /submissions`, but where they go to school and what
+  they owe on Friday is not (D8/D23/D66).
+- **A day is a day where the SUBJECT was standing** — `users.timezone`,
+  `NULL` → `Asia/Ho_Chi_Minh` (D57's mail precedent: a server has no
+  `navigator.language`) — bucketed in SQL with `at time zone`, and the zone
+  travels on the answer so no client re-buckets it. Bucketing in the browser
+  would make a teacher in Hanoi and one abroad disagree about which day a
+  pupil worked.
+- **A streak is consecutive days with a counted `AC`, alive if the last one
+  is today or yesterday**, over the heatmap's twelve months. Dying at
+  midnight would zero every reader before their first submission of the day.
+- **Homework completion is the pupil's own view, not the teacher's grid**:
+  every `AC` counts, on time or late, with no window exclusion — D66 exempts
+  the pupil's own page explicitly, and its "a late solve is shown beside the
+  on-time one rather than instead of it" is the same instinct. The deadline
+  is printed beside the count so nobody reads it as a mark. Sets come only
+  from schools the reader belongs to, D66's membership gate.
+- **Sixty seconds in Redis, one key per user per shape**
+  (`duckoj:progress:v1:me:<id>`, `…:user:<id>`), through `ScoreboardCache`'s
+  read-through — generic since D48. Both objects are viewer-independent by
+  construction, which is what makes a per-user key correct rather than a
+  cache with a mask baked into it. **No migration**: every aggregate here is
+  led by `submissions.user_id`, which `submissions_user_problem_points_idx`
+  already covers.
+
+*Ruled by the implementer during the 2026-08-30 feature/bug loop (F16 brief),
+no human available to consult. No migration.*
