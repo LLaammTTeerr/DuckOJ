@@ -320,7 +320,18 @@ export const submissions = pgTable(
   // system ever takes. `points DESC` and `id` (ascending, its default) are
   // in the index so "max points, ties broken by the earliest submission" is
   // served by the index's own order, with no separate sort step.
-  (t) => [index('submissions_user_problem_points_idx').on(t.userId, t.problemId, t.points.desc(), t.id)],
+  (t) => [
+    index('submissions_user_problem_points_idx').on(t.userId, t.problemId, t.points.desc(), t.id),
+    // D49's statistics: `GET /problems/{code}/stats` and the solved/attempted
+    // counts on every row of `GET /problems` both group by `problem_id` and
+    // count DISTINCT users, filtered on `verdict = 'AC'`. Postgres indexes no
+    // foreign key on its own, and the composite above is led by `user_id`, so
+    // without this the most public page in the app sequentially scanned a
+    // table that grows forever (D11) once per render. All three columns are in
+    // the index, in the order the group-by wants them, so the aggregate is an
+    // index-only scan.
+    index('submissions_problem_user_verdict_idx').on(t.problemId, t.userId, t.verdict),
+  ],
 );
 
 export const submissionCases = pgTable(

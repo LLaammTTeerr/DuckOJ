@@ -112,6 +112,76 @@ export function isSubmissionFrozen(
 }
 
 /**
+ * `participationEndMs`, restated in SQL, over a `contest_participations` row
+ * joined to its `contests` row.
+ *
+ * Read it beside that function, not alone: spectators take the contest's end,
+ * a live entrant is capped by it, and a virtual entrant measures the
+ * contest's *duration* from their own start — which is how a virtual attempt
+ * legitimately outlives the contest.
+ *
+ * ONE function, called by both predicates below. A second transcription of
+ * this CASE in a second file is the split-predicate bug this project has
+ * found once per phase, and the D49 statistics need exactly the same instant
+ * the freeze does.
+ */
+export function participationEndsAtSql(): SQL {
+  return sql`case
+      when ${contestParticipations.virtual} = ${SPECTATE} then ${contests.endTime}
+      when ${contestParticipations.virtual} = ${LIVE} then
+        case
+          when ${contests.timeLimitSeconds} is null then ${contests.endTime}
+          else least(
+            ${contestParticipations.startTime} + ${contests.timeLimitSeconds} * interval '1 second',
+            ${contests.endTime}
+          )
+        end
+      else
+        case
+          when ${contests.timeLimitSeconds} is null
+            then ${contestParticipations.startTime} + (${contests.endTime} - ${contests.startTime})
+          else ${contestParticipations.startTime} + ${contests.timeLimitSeconds} * interval '1 second'
+        end
+    end`;
+}
+
+/**
+ * D49 — whether this submission belongs to a contest participation whose
+ * window is **still open** at `now`, as a boolean expression over the outer
+ * `submissions` row.
+ *
+ * The statistics exclude exactly these, for every viewer including admins.
+ * That uniformity is the point: an acceptance rate is a difficulty hint of
+ * the same family D35 withholds from a room still solving, and a per-viewer
+ * answer would make the 30 s cache key a per-viewer key — four caches with
+ * four miss rates, and a mask that has to be reapplied identically in five
+ * places or it leaks in one.
+ *
+ * Open-ended at the start and closed at the end, matching
+ * `isContestSourceHidden` and `participationEndMs` everywhere else: at
+ * `now === end` the window is over and the submission joins the statistics,
+ * the same instant its source is released and its board unfreezes.
+ */
+export function contestWindowOpenWhere(now: Date): SQL<boolean> {
+  const endsAt = participationEndsAtSql();
+  const at = sql`${now.toISOString()}::timestamptz`;
+  const predicate = sql`exists (
+    select 1
+    from ${contestSubmissions}
+    join ${contestParticipations}
+      on ${contestParticipations.id} = ${contestSubmissions.participationId}
+    join ${contests} on ${contests.id} = ${contestParticipations.contestId}
+    where ${contestSubmissions.submissionId} = ${submissions.id}
+      and ${at} < (${endsAt})
+  )`;
+  // Wrapped a second time for the reason `frozenSubmissionsWhere` documents
+  // at length: drizzle rewrites a top-level `Column` in a single-table
+  // select into a bare identifier, and four tables are in scope inside this
+  // `EXISTS`.
+  return sql<boolean>`${predicate}`;
+}
+
+/**
  * The SQL form of `isSubmissionFrozen`, as a boolean expression over the outer
  * `submissions` row. Usable as a selected column (the list's `frozen` flag)
  * and inside a `WHERE` (excluding frozen rows from a `?verdict=` page).
@@ -130,27 +200,7 @@ export function frozenSubmissionsWhere(actor: Actor | null, now: Date): SQL<bool
   // uses for the clause that makes its own predicate trivially true.
   if (actor !== null && isAdmin(actor)) return sql<boolean>`false`;
 
-  // `participationEndMs`, restated in SQL. Read it beside that function, not
-  // alone: spectators take the contest's end, a live entrant is capped by it,
-  // and a virtual entrant measures the contest's *duration* from their own
-  // start — which is how a virtual attempt legitimately outlives the contest.
-  const endsAt = sql`case
-      when ${contestParticipations.virtual} = ${SPECTATE} then ${contests.endTime}
-      when ${contestParticipations.virtual} = ${LIVE} then
-        case
-          when ${contests.timeLimitSeconds} is null then ${contests.endTime}
-          else least(
-            ${contestParticipations.startTime} + ${contests.timeLimitSeconds} * interval '1 second',
-            ${contests.endTime}
-          )
-        end
-      else
-        case
-          when ${contests.timeLimitSeconds} is null
-            then ${contestParticipations.startTime} + (${contests.endTime} - ${contests.startTime})
-          else ${contestParticipations.startTime} + ${contests.timeLimitSeconds} * interval '1 second'
-        end
-    end`;
+  const endsAt = participationEndsAtSql();
   const freezeAt = sql`((${endsAt}) - ${contests.frozenLastMinutes} * interval '1 minute')`;
   // Cast rather than a bare bind parameter: an untyped parameter compared
   // against a `timestamptz` is resolvable, but only by inference, and this

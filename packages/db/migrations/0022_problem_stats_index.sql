@@ -1,0 +1,1 @@
+CREATE INDEX "submissions_problem_user_verdict_idx" ON "submissions" USING btree ("problem_id","user_id","verdict");

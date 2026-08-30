@@ -148,6 +148,13 @@
       "when": 1788062399129,
       "tag": "0021_editorials",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788067736589,
+      "tag": "0022_problem_stats_index",
+      "breakpoints": true
     }
   ]
 }
