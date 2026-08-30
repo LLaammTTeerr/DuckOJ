@@ -50,13 +50,34 @@ const REDIS_DB = 4;
 
 async function freshRedis(): Promise<string> {
   const url = await ensureRedisUrl(REDIS_DB);
+  await flushDb(url);
+  return url;
+}
+
+async function flushDb(url: string): Promise<void> {
   const redis = new Redis(url);
   try {
     await redis.flushdb();
   } finally {
     redis.disconnect();
   }
-  return url;
+}
+
+/**
+ * One throwaway request, then empty the database again.
+ *
+ * The cache store opens its Redis connection lazily with `enableOfflineQueue`
+ * off, so the very FIRST command a fresh worker sends fails while the socket
+ * is still connecting — the store reports it and carries on as though the key
+ * were absent, which is the designed behaviour and not what any test here is
+ * about. Every assertion below is "did the entry get written", so a silently
+ * dropped first write is exactly the failure mode that would make this file
+ * flake under whole-suite load and pass alone. `contest-booklet.spec.ts`
+ * warms up the same way, for the same reason.
+ */
+async function warmCache(server: Parameters<typeof request>[0], url: string): Promise<void> {
+  await request(server).get('/problems/aplusb');
+  await flushDb(url);
 }
 
 /** One problem with `n` distinct solvers, plus one who only ever failed. */
@@ -81,9 +102,11 @@ async function seedAttempts(db: Db, n: number): Promise<number> {
 describe('the problem counters are cached per problem (D49 amended)', () => {
   it('does not recompute the aggregate for a problem it has already counted', async () => {
     await withTestDb(async (db) => {
-      const app = await buildApp(db, { configOverrides: { redisUrl: await freshRedis() } });
+      const url = await freshRedis();
+      const app = await buildApp(db, { configOverrides: { redisUrl: url } });
       try {
         const problemId = await seedAttempts(db, 3);
+        await warmCache(app.getHttpServer(), url);
 
         const first = await request(app.getHttpServer()).get('/problems/aplusb');
         expect(first.status).toBe(200);
@@ -121,9 +144,11 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
 
   it('serves exactly what the uncached aggregate would have said', async () => {
     await withTestDb(async (db) => {
-      const app = await buildApp(db, { configOverrides: { redisUrl: await freshRedis() } });
+      const url = await freshRedis();
+      const app = await buildApp(db, { configOverrides: { redisUrl: url } });
       try {
         const problemId = await seedAttempts(db, 2);
+        await warmCache(app.getHttpServer(), url);
 
         const cached = await request(app.getHttpServer()).get('/problems/aplusb');
 
@@ -148,9 +173,11 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
 
   it('counts a new solver once the entry expires, and not before', async () => {
     await withTestDb(async (db) => {
-      const app = await buildApp(db, { configOverrides: { redisUrl: await freshRedis() } });
+      const url = await freshRedis();
+      const app = await buildApp(db, { configOverrides: { redisUrl: url } });
       try {
         const problemId = await seedAttempts(db, 1);
+        await warmCache(app.getHttpServer(), url);
 
         const before = await request(app.getHttpServer()).get('/problems/aplusb');
         expect(before.body.solvedCount).toBe(1);
@@ -190,9 +217,11 @@ describe('the problem counters are cached per problem (D49 amended)', () => {
 
   it('still blanks the counters for a viewer sitting a contest that uses the problem (D35)', async () => {
     await withTestDb(async (db) => {
-      const app = await buildApp(db, { configOverrides: { redisUrl: await freshRedis() } });
+      const url = await freshRedis();
+      const app = await buildApp(db, { configOverrides: { redisUrl: url } });
       try {
         await seedAttempts(db, 2);
+        await warmCache(app.getHttpServer(), url);
         // The mask lives OUTSIDE the cache — every call site checks
         // `contestHiddenProblemIds` and hands back `BLANK_COUNTS` without
         // reaching the cache at all, so a masked answer can never be what
