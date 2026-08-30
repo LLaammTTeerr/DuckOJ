@@ -2,7 +2,20 @@
 	encode gzip zstd
 
 	handle /api/* {
-		reverse_proxy api:3000
+		reverse_proxy api:3000 {
+			# Every proxy to `api` keeps its own pool of idle upstream
+			# connections. Caddy's default is to hold one for 2 minutes, while
+			# Node's `http.Server.keepAliveTimeout` closes it far sooner — so
+			# the proxy is the last to know, and a request written onto a
+			# connection the server is closing in the same instant dies as a
+			# 502 for a request the API would have answered. `app.setup.ts`
+			# now holds the server side open for 185s; this is the other half,
+			# stated explicitly so the invariant (proxy idle < server idle)
+			# does not rest on a default this repo cannot see.
+			transport http {
+				keepalive 60s
+			}
+		}
 	}
 
 	# The WebSocket upgrade endpoint SubmissionsGateway listens on
@@ -15,7 +28,13 @@
 	# works, masking the break. Caddy's reverse_proxy handles the WebSocket
 	# upgrade natively; no extra directives are needed beyond routing here.
 	handle /ws {
-		reverse_proxy api:3000
+		reverse_proxy api:3000 {
+			# See the /api handle above: proxy idle must stay under the API's
+			# 185s `keepAliveTimeout`, per pool.
+			transport http {
+				keepalive 60s
+			}
+		}
 	}
 
 	# Both probes must be listed. Anything not matched here falls through to the
@@ -25,7 +44,13 @@
 	# A named `path` matcher, because `handle` takes exactly one matcher token.
 	@probes path /healthz /readyz
 	handle @probes {
-		reverse_proxy api:3000
+		reverse_proxy api:3000 {
+			# See the /api handle above: proxy idle must stay under the API's
+			# 185s `keepAliveTimeout`, per pool.
+			transport http {
+				keepalive 60s
+			}
+		}
 	}
 
 	handle {
