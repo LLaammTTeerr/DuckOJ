@@ -170,6 +170,49 @@ describe('AppModule composition root', () => {
   });
 
   /**
+   * D61 — the roster import is the ONE route allowed past the 100 KB limit
+   * the test above pins, and it is allowed past it because a two-thousand-row
+   * class list does not fit in it.
+   *
+   * A 401 (or anything that is not a 413) is the assertion: the body reached
+   * the guard, which is exactly as far as an anonymous caller gets. The point
+   * is that the request was not refused by the PARSER — if the larger parser
+   * were dropped, or mounted on the wrong path, this would be a 413 and the
+   * feature would fail at precisely the size it exists for, with no other
+   * test noticing.
+   */
+  it('lets a roster larger than the default body limit reach the guard', async () => {
+    const rows = Array.from({ length: 2000 }, (_, i) => ({
+      username: `hs${String(i).padStart(6, '0')}`,
+      displayName: `Nguyễn Văn Học Sinh Số ${String(i)}`,
+    }));
+    const body = JSON.stringify({ rows });
+    expect(body.length).toBeGreaterThan(100 * 1024);
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/orgs/thpt-a/members/import')
+      .set('content-type', 'application/json')
+      .send(body);
+
+    expect(res.status).not.toBe(413);
+    expect(res.status).toBe(401);
+  });
+
+  /**
+   * The other half: the larger parser is mounted on that ONE path, not on
+   * `/orgs/**`. A neighbour route inheriting a 2 MB limit would quietly undo
+   * the property the 413 test above exists to hold.
+   */
+  it('does not extend the larger limit to the neighbouring member routes', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/orgs/thpt-a/members')
+      .set('content-type', 'application/json')
+      .send(JSON.stringify({ username: 'x'.repeat(400_000), role: 'member' }));
+
+    expect(res.status).toBe(413);
+  });
+
+  /**
    * The other half of the same rule: an error that merely *has* a numeric
    * `status` must not be able to pick its own response code. Only the
    * `http-errors` client-error shape (4xx AND `expose: true`) is honoured;

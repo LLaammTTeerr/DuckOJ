@@ -11,6 +11,7 @@ import { ContestAccessService } from './contest.access.js';
 import { DashboardService, REDIS_HEALTH, RedisHealthProbe } from './dashboard.access.js';
 import { ContestClarificationsService } from './contest.clarifications.js';
 import { OrgAccessService } from './org.access.js';
+import { OrgImportService } from './org.import.js';
 import { ProblemAccessService } from './problem.access.js';
 import { RatingService } from './rating.service.js';
 import { RejudgeService } from './rejudge.access.js';
@@ -34,6 +35,11 @@ import {
     // that also imports this one) costs nothing but a second instance.
     RateLimiter,
     OrgAccessService,
+    // D61's roster import. A provider of its own rather than more methods on
+    // `OrgAccessService`: it needs the rate limiter and the notifier, neither
+    // of which anything else in that class touches, and its rule lives in a
+    // framework-free module the CLI also runs.
+    OrgImportService,
     ProblemAccessService,
     RatingService,
     RejudgeService,
@@ -64,6 +70,7 @@ import {
     DashboardService,
     ScoreboardCache,
     OrgAccessService,
+    OrgImportService,
     ProblemAccessService,
     RatingService,
     RejudgeService,

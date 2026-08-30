@@ -68,11 +68,18 @@ export type UpdateOrgPatch = UpdateOrgRequestDto;
 type OrgRow = { id: number; slug: string; visibility: 'public' | 'private' };
 
 /**
- * The ONLY *service* permitted to import `@duckoj/db/guarded` for
- * organizations — with `org.visibility.ts` holding the shared visibility
- * condition and membership loader, exactly as `problem.visibility.ts` does
- * for problems. Every read of an organization anywhere in the API goes
- * through here, so visibility cannot be forgotten at a call site.
+ * The service that decides who may see and change an organization — with
+ * `org.visibility.ts` holding the shared visibility condition and membership
+ * loader, exactly as `problem.visibility.ts` does for problems. Every read of
+ * an organization anywhere in the API goes through here, so visibility cannot
+ * be forgotten at a call site.
+ *
+ * Two other files under `authz/` reach the organization tables:
+ * `org.visibility.ts` (the shared condition) and `org-import.core.ts` (D61's
+ * roster import, which is framework-free so that `scripts/org-import.ts` can
+ * run the identical rule with no Nest container). Neither decides who may
+ * act — `OrgImportService` asks `loadForOwner` below before either of them
+ * runs.
  */
 @Injectable()
 export class OrgAccessService {
@@ -244,6 +251,33 @@ export class OrgAccessService {
    * separately by `findVisibleOrgRow`/`loadForEdit` so a caller who reaches
    * this point never learns anything beyond "some slug exists or does not".
    */
+  /**
+   * The gate for an operation only an OWNER of this organization (or a global
+   * admin) may perform — today, the roster import (D61).
+   *
+   * Deliberately not `loadForEdit`, which admits an org `admin` as well:
+   * approving a join request or renaming a club is running the organization,
+   * whereas minting two thousand accounts on a province's judge is speaking
+   * FOR the school, and the rank below owner does not. Same 404-then-403
+   * order as `loadForEdit`, so an organization the caller may not see is
+   * never disclosed by a 403.
+   *
+   * Lives here rather than in `org.import.ts` because this is the file that
+   * decides who may do what to an organization, and a second copy of the
+   * 404/403 dance is a second chance to get it wrong.
+   */
+  async loadForOwner(actor: Actor, slug: string): Promise<{ id: number; slug: string; name: string }> {
+    const row = await this.findOrgRow(slug);
+    if (!(await this.canViewRow(actor, row))) {
+      throw new AppError(404, 'organization_not_found', 'No such organization.');
+    }
+    if (!isAdmin(actor) && (await this.roleIn(actor, row.id)) !== 'owner') {
+      throw new AppError(403, 'organization_forbidden', 'Only an owner of this organization may do that.');
+    }
+    const full = await this.findRowById(row.id);
+    return { id: row.id, slug: row.slug, name: full?.name ?? row.slug };
+  }
+
   private async findOrgRow(slug: string): Promise<OrgRow> {
     const row = (
       await this.db

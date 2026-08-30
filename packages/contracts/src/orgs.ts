@@ -149,6 +149,76 @@ export type AddOrgMemberRequestDto = z.infer<typeof AddOrgMemberRequest>;
 export const SetOrgMemberRoleRequest = z.object({ role: OrgRole }).strict();
 export type SetOrgMemberRoleRequestDto = z.infer<typeof SetOrgMemberRoleRequest>;
 
+/**
+ * The largest roster one import may carry (D61). Declared here as well as in
+ * the API so a client can refuse a file before uploading it.
+ */
+export const ORG_IMPORT_MAX_ROWS = 2000;
+
+/** One roster row. `email` is optional — most pupils have no school mailbox. */
+export const OrgMemberImportRow = z.object({
+  username: z.string(),
+  displayName: z.string(),
+  email: z.string().optional(),
+});
+export type OrgMemberImportRowDto = z.infer<typeof OrgMemberImportRow>;
+
+/**
+ * A roster, as either a CSV blob or a parsed list — exactly one of the two.
+ *
+ * Both shapes rather than one because both callers are real: a teacher drops
+ * the file their office suite exported (`csv`, parsed by the server so the
+ * browser and the CLI cannot disagree about what a quoted field means), and a
+ * script that already holds structured data sends `rows`. Sending neither, or
+ * both, is `import_body_invalid`.
+ *
+ * `dryRun` validates and reports and creates nothing. It is what the web's
+ * preview table is built from, and it deliberately does NOT consume the
+ * one-import-per-minute window: the normal flow is a teacher fixing one bad
+ * row and trying again, and a meter that punished that would make the preview
+ * useless.
+ */
+export const OrgMemberImportRequest = z
+  .object({
+    csv: z.string().max(4_000_000).optional(),
+    rows: z.array(OrgMemberImportRow).optional(),
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+export type OrgMemberImportRequestDto = z.infer<typeof OrgMemberImportRequest>;
+
+/** What a `dryRun` answers with: the rows as the server understood them. */
+export const OrgMemberImportPreview = z.object({
+  rows: z.array(
+    z.object({
+      username: z.string(),
+      displayName: z.string(),
+      email: z.string(),
+      /** False when the server synthesised the address (no mailbox was given). */
+      emailProvided: z.boolean(),
+    }),
+  ),
+});
+export type OrgMemberImportPreviewDto = z.infer<typeof OrgMemberImportPreview>;
+
+/**
+ * The credentials, handed over ONCE.
+ *
+ * `password` is the only time the plaintext exists anywhere outside the
+ * caller's response body — it is argon2id-hashed on the way into the
+ * database and nothing can recover it afterwards, which is why the `csv`
+ * field is served beside the array rather than left to the client to build:
+ * a printed sheet that disagrees with the archived file is the one failure
+ * nobody can debug later.
+ */
+export const OrgMemberImportResult = z.object({
+  created: z.array(
+    z.object({ username: z.string(), displayName: z.string(), password: z.string() }),
+  ),
+  csv: z.string(),
+});
+export type OrgMemberImportResultDto = z.infer<typeof OrgMemberImportResult>;
+
 registry.registerPath({
   method: 'get',
   path: '/orgs',
@@ -370,5 +440,67 @@ registry.registerPath({
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     422: VALIDATION_FAILED,
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/orgs/{slug}/members/import',
+  tags: ['Organizations'],
+  summary: 'Create accounts in bulk from a roster and add them as members (owner or global admin)',
+  description:
+    'D61 — a province seats thousands of pupils who will never self-register. Every row is validated ' +
+    'FIRST (username shape per D8, uniqueness case-folded against the database and against the rest ' +
+    'of the file, addresses likewise); if anything fails, nothing is created and the 422 lists every ' +
+    'bad row. Otherwise each account is created with a generated twelve-character password, flagged ' +
+    '`mustChangePassword`, and added to the organization as a `member`. The plaintext passwords are ' +
+    'in the response and NOWHERE else — there is no second chance to read them. Only an OWNER of the ' +
+    'organization or a global admin may call it (an org `admin` may not: minting accounts on a ' +
+    "province's judge is speaking for the school, which the rank below owner does not). Session-only, " +
+    'and metered at one real import per organization per minute; `dryRun` is exempt from the meter.',
+  request: {
+    params: OrgSlugParam,
+    body: { content: { 'application/json': { schema: OrgMemberImportRequest } } },
+  },
+  responses: {
+    200: {
+      description: 'A `dryRun` that validated cleanly — nothing was created',
+      content: { 'application/json': { schema: OrgMemberImportPreview } },
+    },
+    201: {
+      description: 'The accounts were created; the passwords are here and are not stored anywhere',
+      content: { 'application/json': { schema: OrgMemberImportResult } },
+    },
+    401: NOT_SIGNED_IN,
+    403: {
+      description:
+        'Not an owner of this organization and not a global admin (`organization_forbidden`), or ' +
+        'authenticated by an access token rather than a session (`session_required`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    404: ORG_NOT_FOUND,
+    422: {
+      description:
+        'One or more rows are unacceptable (`member_import_invalid`) and NOTHING was created. Every ' +
+        'failure is listed in `fields`, keyed `rows[<n>].<field>` with `n` the 1-based data row — so ' +
+        'a client can put each message beside the row that caused it. `rows[0].file` is a problem ' +
+        'with the file as a whole (empty, or over ' +
+        `${String(ORG_IMPORT_MAX_ROWS)}` +
+        ' rows). `import_body_invalid` means neither or both of `csv` and `rows` were sent.',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+    429: {
+      description:
+        'An import for this organization has run within the last minute (`member_import_rate_limited`). ' +
+        '`Retry-After` carries the whole seconds until another will be accepted.',
+      headers: {
+        'Retry-After': {
+          description: 'Whole seconds until another import will be accepted',
+          required: true,
+          schema: { type: 'integer' },
+        },
+      },
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });

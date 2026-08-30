@@ -16,12 +16,16 @@ import {
   AddOrgMemberRequest,
   CreateOrgRequest,
   PaginationQuery,
+  OrgMemberImportRequest,
   SetOrgMemberRoleRequest,
   UpdateOrgRequest,
   type AddOrgMemberRequestDto,
   type CreateOrgRequestDto,
   type OrgJoinRequestListDto,
   type OrgJoinResultDto,
+  type OrgMemberImportPreviewDto,
+  type OrgMemberImportRequestDto,
+  type OrgMemberImportResultDto,
   type OrgMemberPageDto,
   type SetOrgMemberRoleRequestDto,
   type OrgPageDto,
@@ -35,6 +39,8 @@ import { CurrentActor, MaybeActor, Public } from '../authn/auth.guard.js';
 import { RequireScope } from '../authn/require-scope.decorator.js';
 import type { Actor } from '../authz/actor.js';
 import { OrgAccessService } from '../authz/org.access.js';
+import { OrgImportService } from '../authz/org.import.js';
+import { SessionOnly } from '../authn/session-only.guard.js';
 
 /**
  * Anonymous callers are served on every `GET` here deliberately — they see
@@ -44,7 +50,10 @@ import { OrgAccessService } from '../authz/org.access.js';
  */
 @Controller('orgs')
 export class OrgsController {
-  constructor(@Inject(OrgAccessService) private readonly orgs: OrgAccessService) {}
+  constructor(
+    @Inject(OrgAccessService) private readonly orgs: OrgAccessService,
+    @Inject(OrgImportService) private readonly imports: OrgImportService,
+  ) {}
 
   // `@Public()` is marked per handler, never on the class: `Public()` only ever
   // sets true, so a class-level marker is a one-way door that would silently
@@ -148,6 +157,35 @@ export class OrgsController {
     @Body(new ZodValidationPipe(AddOrgMemberRequest)) body: AddOrgMemberRequestDto,
   ): Promise<OrgMemberPageDto> {
     return this.orgs.addMember(actor, slug, body);
+  }
+
+  /**
+   * D61 — bulk student accounts.
+   *
+   * `@SessionOnly()` is this route's ONE marker: no `@RequireScope`, because
+   * there is no scope that should let a personal access token mint two
+   * thousand accounts and read their passwords out of the response. The same
+   * reasoning `TokensController` applies to minting tokens applies here with
+   * more force — this endpoint creates credentials for people, not for
+   * machines. It is also what forces `scripts/org-import.ts` to reach the
+   * database directly rather than call this route (D61).
+   *
+   * `200` for a `dryRun`, `201` for a real import: the status is set from the
+   * service's answer rather than fixed on the decorator, exactly as `join`
+   * does, because a client must never be told accounts were created when they
+   * were not.
+   */
+  @Post(':slug/members/import')
+  @SessionOnly()
+  async importMembers(
+    @CurrentActor() actor: Actor,
+    @Param('slug') slug: string,
+    @Body(new ZodValidationPipe(OrgMemberImportRequest)) body: OrgMemberImportRequestDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrgMemberImportResultDto | OrgMemberImportPreviewDto> {
+    const outcome = await this.imports.importMembers(actor, slug, body);
+    res.status(outcome.created ? 201 : 200);
+    return outcome.created ? outcome.result : outcome.preview;
   }
 
   /** Leaving is this route with your own username — see the service. */

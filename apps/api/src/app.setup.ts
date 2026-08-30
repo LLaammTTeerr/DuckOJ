@@ -1,5 +1,7 @@
 import type { Server } from 'node:http';
+import type { IncomingMessage } from 'node:http';
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import cookieParser from 'cookie-parser';
 import type { DestinationStream } from 'pino';
@@ -32,6 +34,7 @@ export function configureApp(
   logDestination?: DestinationStream,
 ): void {
   app.use(requestLogger(config.logLevel, logDestination));
+  configureBodyParsers(app);
   app.use(cookieParser());
   app.useGlobalFilters(new ProblemFilter());
   // The probes stay off the versioned prefix: they are infrastructure contracts
@@ -40,6 +43,66 @@ export function configureApp(
   app.setGlobalPrefix(API_PREFIX, { exclude: ['healthz', 'readyz'] });
   app.enableCors({ origin: config.publicOrigin, credentials: true, exposedHeaders: EXPOSED_HEADERS });
   configureKeepAlive(app.getHttpServer() as Server);
+}
+
+/**
+ * The JSON body limit, per route rather than globally (D61).
+ *
+ * Express' default of 100 KB is right for every endpoint this API had until
+ * the roster import: `CreateSubmissionRequest` caps `source` at 64 KB, every
+ * other schema caps its fields far below that, and refusing an oversized
+ * paste at the PARSER — before Zod, before a handler, before a database
+ * connection — is a property worth keeping. `app.smoke.spec.ts` pins it: a
+ * 400 KB submission answers `413 payload_too_large`.
+ *
+ * A two-thousand-row roster does not fit in it. Worst case each row carries a
+ * 32-character username, a 100-character display name (Vietnamese, so up to
+ * three bytes a character) and a 254-character address — about 600 bytes,
+ * 1.2 MB for a full file. Raising the limit globally to cover that would undo
+ * the paragraph above for every other route at once, so instead the larger
+ * parser is mounted FIRST and matches only the import path; the ordinary
+ * 100 KB parser runs behind it and sees every other request untouched
+ * (`body-parser` sets `req._body` once it has parsed, and the next parser in
+ * the chain steps aside).
+ *
+ * The default pair is registered here explicitly rather than left to Nest:
+ * `ExpressAdapter.registerParserMiddleware` skips any parser whose middleware
+ * NAME is already on the router stack, and `express.json()` is named
+ * `jsonParser` whichever limit it was built with — so a lone `useBodyParser`
+ * call would silently take JSON parsing away from the rest of the API. Doing
+ * it here means the chain is correct whether or not Nest adds its own copy
+ * behind us (it would be a no-op either way).
+ */
+const IMPORT_BODY_LIMIT = '2mb';
+const DEFAULT_BODY_LIMIT = '100kb';
+
+/**
+ * True only for `POST /<API_PREFIX>/orgs/<slug>/members/import`.
+ *
+ * Built from `API_PREFIX` rather than a literal, for the reason that constant
+ * exists at all: the last time this path was written out by hand in three
+ * places, one of them omitted the prefix and nothing caught it until a real
+ * bring-up.
+ */
+const ROSTER_IMPORT_PATH = new RegExp(`^/${API_PREFIX}/orgs/[^/]+/members/import/?$`);
+
+function isRosterImport(req: IncomingMessage): boolean {
+  if (req.method !== 'POST') return false;
+  return ROSTER_IMPORT_PATH.test((req.url ?? '').split('?')[0] ?? '');
+}
+
+function configureBodyParsers(app: INestApplication): void {
+  const express = app as unknown as NestExpressApplication;
+  express.useBodyParser('json', {
+    limit: IMPORT_BODY_LIMIT,
+    // `type` decides whether THIS parser touches the request at all. It must
+    // still require JSON: a raw package upload that happened to be posted to
+    // this path must not be buffered as a body.
+    type: (req: IncomingMessage) =>
+      isRosterImport(req) && (req.headers['content-type'] ?? '').includes('application/json'),
+  });
+  express.useBodyParser('json', { limit: DEFAULT_BODY_LIMIT });
+  express.useBodyParser('urlencoded', { limit: DEFAULT_BODY_LIMIT, extended: true });
 }
 
 /**
