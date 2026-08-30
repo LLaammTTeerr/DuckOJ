@@ -3411,3 +3411,81 @@ written for, "the page reloaded" is not a rare event.
 *Ruled by the implementer during the 2026-08-30 feature loop (F17 brief), no
 human available to consult. No migration, no API change.*
 
+
+## D87 — A problem's test data is authored in the browser, one file at a time, and built into a package on the server
+
+Every path to a graded problem ran through a shell: `polygon:import`,
+`package:build`, `curl` an archive at `POST /packages`, `curl` a revision.
+A provincial setter who has never opened a terminal could write a statement
+in the web app and then could not give it a single test. This closes that,
+without reopening the door the 7a ruling (2026-08-22) shut.
+
+- **No zips, in either direction.** 7a refused server-side archive ingestion
+  — zip-slip and zip-bomb surface nothing needs — and a file picker is not a
+  loophole in it. A bulk add is MANY INDIVIDUAL FILES, paired by stem in the
+  browser (`apps/web/src/testdata/pairing.ts`); the only archive in the story
+  is the tar+zstd the server builds at the end, from files it wrote itself.
+- **A draft is a directory, and the build is the same `buildPackage`.**
+  `POST /problems/{code}/drafts` opens one, `PUT .../files/{name}` fills it,
+  `POST .../build` runs the function `package:build` runs, over that
+  directory. `buildPackage` moved out of `scripts/lib` into
+  `@duckoj/package-format` for exactly this — `apps/api` cannot import from
+  `scripts/`, and a second implementation of "what does this directory hash
+  to" is how a seed registers one hash while the CLI prints another. The
+  built package then goes through `PackagesService.upload`, which re-unpacks
+  and re-derives the hash rather than trusting the one just computed in the
+  same process: there is ONE place a package becomes storable, carrying the
+  collision rule, D60's completeness rule and the idempotent insert.
+- **Names are flat and narrow: `^[A-Za-z0-9._-]+$`, with `.` and `..`
+  refused by name.** The class ADMITS both of those (`.` and `-` are members),
+  and they are the whole traversal vocabulary on a POSIX filesystem — the
+  pattern alone is not the rule. Neither is reachable over HTTP anyway (every
+  client resolves a dot segment away before writing the request), which is
+  precisely why the guard cannot rest on that: this endpoint is reachable by
+  anything that speaks HTTP. `FilesystemDraftStore` re-checks the name itself
+  rather than trusting the pipe that already did.
+- **There is no drafts TABLE.** A draft is bytes on the volume every
+  `API_WORKERS` process shares, by necessity; a row beside them would be a
+  second source of truth for one object, with a window where one exists and
+  the other does not. `meta.json` lives OUTSIDE the `files/` subtree — inside
+  it, `buildPackage` would tar the author's user id into the problem's
+  package and change its hash.
+- **Expiry is enforced at ACCESS time; the sweeper only reclaims disk.** 24
+  hours, read off `meta.createdAt` on every request, so a dead draft is
+  unreachable the instant it dies rather than at the next hourly tick — a
+  rule only the sweeper applied would keep accepting files into it for an
+  hour. An unreadable or unparseable meta counts as expired: nothing can ever
+  open it again, and treating "unreadable" as "fresh" would make a corrupt
+  directory immortal.
+- **Caps: 500 files and 512 MiB per draft, plus the existing 256 MiB wire cap
+  per request** (`readRawBody`, now shared with `POST /packages` rather than
+  copied), and D53's 1 GiB unpacked ceiling still applies to the package the
+  build produces. A re-PUT is measured as a REPLACEMENT: a setter fixing one
+  wrong answer file must not be told the draft is full because the version
+  being replaced is still counted.
+- **A refused build leaves the draft intact and carries `buildPackage`'s own
+  message verbatim** (422 `draft_build_failed`). "The manifest names files
+  this package does not contain: 02.out" is the sentence that makes the next
+  act obvious; flattening it to "invalid package" would cost the whole
+  feature its usability. A successful build deletes the draft *after* the
+  attach, never before. The web client discards its own draft on any failure
+  regardless — it holds every byte in memory and will simply send them again.
+- **A sample is `points: 0` in group 0.** The manifest has no `sample` field
+  and is not gaining one: a zero-point case runs exactly as any other and
+  awards nothing, which IS what a sample is, and Polygon's own `samples`
+  group already arrives here as 0 points (`content/README.md`). The web's
+  sample checkbox therefore DISABLES the points box rather than ignoring it.
+- **`problems:publish`, not `packages:write`.** A draft exists to become a
+  revision, so it carries its neighbour `POST /problems/{code}/revisions`'s
+  scope; a token allowed to edit a statement but not to touch what grades
+  submissions must not get there through this door. Authorization is
+  `PATCH /problems/{code}`'s, through a new public
+  `ProblemAccessService.loadEditableProblem` rather than a second hand-rolled
+  copy — 404 for a problem the caller may not see, then 403. A draft's
+  `problemId` is checked against the URL's problem as well: without it, an
+  editor of A holding a draft id minted against B could fill B's draft and
+  build it into A.
+
+*Ruled by the implementer during the 2026-08-30 feature loop (F18 brief), no
+human available to consult. No migration — the filesystem is the whole
+record.*
