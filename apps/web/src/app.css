@@ -1,57 +1,70 @@
+@import './design/tokens.css';
+
 /*
- * The retro terminal. IBM Plex Mono only, self-hosted, no glass, no blur, no
- * gradients, no shadows, no rounded corners.
+ * Liquid Glass (D67). The material lives in `./design/tokens.css`; this file
+ * is the component layer plus the two colour scales that carry MEANING.
  *
- * Reference: docs/design/mockup-v1.html (approved). Two rules from it are
- * structural, not cosmetic, and this file exists to keep them intact:
+ * D67 replaced the retro terminal this file used to be. Two of its rules were
+ * structural rather than cosmetic and SURVIVE the change unaltered; the third
+ * is new and is what the glass costs:
  *
  *   1. COLOUR IS RESERVED FOR VERDICTS — and, since D46, for exactly one
- *      other scale. Chrome is monochrome: a green- or amber-phosphor chrome
- *      would collide with AC-green and TLE-amber, and on a judge the verdict
- *      must read before anything else. Every verdict carries a GLYPH as well
+ *      other scale. Chrome is monochrome, and under D67 it is monochrome
+ *      GLASS: translucency, blur, a specular hairline and depth are what
+ *      separate one surface from another, never a hue. A tinted chrome would
+ *      collide with AC-green and TLE-amber, and on a judge the verdict must
+ *      read before anything else. Every verdict still carries a GLYPH as well
  *      as a hue (`.badge::before` / `.case::before` below), never colour
  *      alone, so it survives colour-blindness and a monochrome screenshot.
  *
- *      The one amendment (D46): a RANK BAND gets a hue too, from the `.rank`
- *      scale near the bottom of this file. It does not break the rule it
- *      amends, because the scale is deliberately built not to collide — it
- *      is one desaturated ramp (cool grey → steel → plum → bronze) at half
- *      the chroma of any verdict, it appears on exactly one row of exactly
- *      one screen (a profile's rating), and no verdict ever appears beside
- *      it. And it is never colour alone either: the band's NAME is the
- *      carrier, the hue only tints it.
+ *      The one amendment (D46) is unchanged: a RANK BAND gets a hue too, from
+ *      the `.rank` scale near the bottom of this file. It is one desaturated
+ *      ramp at half the chroma of any verdict, on exactly one row of one
+ *      screen, and never colour alone.
+ *
+ *      Both scales stay in THIS file rather than in the token layer: the hue
+ *      and the rule that paints it are one decision, `test/user.spec.tsx`
+ *      reads this file to prove the rank ramp matches `packages/glicko2`, and
+ *      a scale kept somewhere else is a scale that drifts.
+ *
  *   2. THE STATEMENT IS THE ONLY NON-DENSE SURFACE: 68ch measure, 1.7
  *      line-height (`main > section > div`, below — the problem statement's
- *      `dangerouslySetInnerHTML` container). Everything else is a table
- *      meant for scanning.
+ *      `dangerouslySetInnerHTML` container). Everything else is a table meant
+ *      for scanning.
  *
- * Mechanism, unchanged from before this file: style ELEMENTS, not classes.
- * The app carries exactly one pre-existing `className` (`shell-nav`, on the
- * shell's own `<nav>` — Playwright's e2e suite selects it by that name) plus
- * a small number of class families, because a handful of things genuinely
- * cannot be expressed on an element alone:
+ *   3. GLASS IS CHROME; DATA IS NOT (new in D67). The floating nav, the page
+ *      sheet, panels, buttons, fields and chips are translucent. A table, a
+ *      statement, a code block and a case grid sit on an opaque-enough INSET
+ *      well inside them, and never blur their own backdrop — nested
+ *      backdrop-filters are what turn a scoreboard into fog. Every text/glass
+ *      pairing in both schemes was measured against the lightest and darkest
+ *      ground the wash can produce; the numbers are in D67.
+ *
+ * Mechanism: style ELEMENTS, not classes, wherever an element is enough. The
+ * class families that exist, and why each one has to:
+ *   - `.shell-nav` — the shell's own <nav>; Playwright's e2e suite selects it
+ *     by that name.
  *   - `.badge` (+ a lowercase verdict-code modifier, e.g. `.badge.wa`) — the
- *     verdict glyph. Reused for the submit page's live verdict, the
- *     revisions table's state column (`published` maps to the same "good"
- *     modifier as `AC`; `draft`/`archived` map to the same neutral modifier
- *     as a pending verdict — two different domains, one visual language),
- *     the problem list's `me` column, and the submissions list's `verdict`
- *     column — every screen that shows a verdict-shaped result shares this
- *     one mapper (`verdictToken`, submit.tsx) and this one class, never a
- *     second copy of either.
+ *     verdict glyph. Reused for the submit page's live verdict, the revisions
+ *     table's state column (`published` maps to the same "good" modifier as
+ *     `AC`; `draft`/`archived` map to the same neutral modifier as a pending
+ *     verdict — two different domains, one visual language), the problem
+ *     list's `me` column, and the submissions list's `verdict` column — every
+ *     screen that shows a verdict-shaped result shares this one mapper
+ *     (`verdictToken`, submit.tsx) and this one class.
  *   - `.cases`/`.case` (+ the same verdict-code modifiers, + `.skip`) — the
  *     case grid, and `.sr-only` for the fully-scoped-per-case text a
- *     colour+number box can't carry directly (kept in the DOM for screen
- *     readers and for the "skipped is faint, not absent" property to be
- *     assertable at all).
- *   - `.num` (Phase 3b Stream B part 2) — a right-aligned, tabular-numerals
- *     table cell/header, matching mockup-v1.html's `.num`. Added because the
- *     problem list originally concatenated `1000 ms / 65536 KB` into one
- *     free-text cell, throwing away the entire reason a dense table uses
- *     tabular numerals: magnitudes lining up vertically down a column. Used
- *     wherever a table shows a number meant to be scanned down a column —
- *     the problem list's time/mem columns, the submissions list's id/points
- *     columns.
+ *     colour+number box can't carry directly.
+ *   - `.num` — a right-aligned, tabular-numerals table cell/header. Used
+ *     wherever a table shows a number meant to be scanned down a column.
+ *   - `.panel`, `.muted`, `.field` — three class names the routes were
+ *     already emitting with nothing to style them. D67 gave them meanings
+ *     (a sheet, secondary text, a form row) rather than adding a fourteenth
+ *     className to the JSX: the concurrent work on this app is in the route
+ *     files, and a design that lands entirely in CSS does not collide with it.
+ *   - `.stats`/`.stat` — the admin dashboard's tiles.
+ *   - `.rank` (+ the band key), `.dq`, `.tag`, `.no-print`,
+ *     `.print-credentials` — one each, documented at their rules.
  * No other class is added beyond these.
  */
 
@@ -79,6 +92,13 @@
  * fingerprints these files into `dist/assets/*.woff2` and rewrites the
  * reference — a `public/` copy would be served byte-identical on every
  * deploy, uncachable and unproven by the build.
+ *
+ * D67 narrowed WHERE this face is used, not whether it is shipped: body
+ * prose moved to the system UI stack (`--font-ui`), and everything a
+ * competitor reads as DATA — tables, scoreboards, code, verdicts, case
+ * grids, field values, numbers — is still set in it. The vietnamese subset
+ * therefore still covers every problem code, username and org name that
+ * lands in a table.
  */
 @font-face {
   font-family: 'IBM Plex Mono';
@@ -129,23 +149,19 @@
   unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB;
 }
 
-/* ── palette ──────────────────────────────────────────────────────────────
- * Light is the default (`:root`), dark under `prefers-color-scheme: dark` —
- * same structure the old file used. `color-scheme: light dark` is kept so
- * native form controls (date pickers etc., none in this app today but this
- * is a shared shell) still pick a matching UA chrome.
+/* ── the two semantic scales ──────────────────────────────────────────────
+ * Everything else — neutrals, glass, radii, blur, shadows, spacing, motion —
+ * is in ./design/tokens.css. These are here because they mean something.
+ *
+ * The values are the D46/D18-era hues, unchanged in light mode. Dark mode has
+ * exactly one correction: `--rte` was left at the LIGHT palette's deep red
+ * (#cf222e) when the dark scheme was written, which measures 2.7–3.3:1 on
+ * every dark surface in this app — a runtime-error verdict that a reader
+ * with normal vision cannot reliably see. It is now #ef6a5f (4.8:1 worst
+ * case), still the darkest red of the three so it stays distinguishable from
+ * `--wa` and `--ir`, which it was already distinguished from by glyph.
  */
 :root {
-  color-scheme: light dark;
-
-  --bg: #f5f3ee;
-  --panel: #ffffff;
-  --fg: #1a1d22;
-  --dim: #5c6470;
-  --faint: #b8bec7;
-  --line: #d9d5cc;
-  --sel: #ebe7de;
-
   --ac: #1a7f37;
   --wa: #cf222e;
   --tle: #9a6700;
@@ -155,7 +171,7 @@
   --ir: #d1242f;
   --ie: #8250df;
   --ce: #0969da;
-  --pend: #5c6470;
+  --pend: #4b535f;
 
   /* The rank scale (D46) — see `.rank` below for why it is allowed to
      exist beside the verdict hues, and why it looks nothing like them. */
@@ -169,31 +185,20 @@
   --rank-grandmaster: #854840;
   --rank-international-grandmaster: #75552b;
   --rank-legendary-grandmaster: #5a4620;
-
-  --space: 1rem;
-  --measure: 68ch;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b0d10;
-    --panel: #12151a;
-    --fg: #d6d3cd;
-    --dim: #7e8894;
-    --faint: #3a424e;
-    --line: #242a33;
-    --sel: #1b2029;
-
     --ac: #3fb950;
     --wa: #f85149;
     --tle: #d29922;
     --mle: #db6d28;
     --ole: #bf8700;
-    --rte: #cf222e;
+    --rte: #ef6a5f;
     --ir: #ff7b72;
     --ie: #a371f7;
     --ce: #58a6ff;
-    --pend: #7e8894;
+    --pend: #aeb8c6;
 
     --rank-newbie: #9aa0a8;
     --rank-pupil: #8fb69c;
@@ -208,6 +213,8 @@
   }
 }
 
+/* ── base ─────────────────────────────────────────────────────────────── */
+
 * {
   box-sizing: border-box;
 }
@@ -218,75 +225,172 @@ body {
   padding: 0;
 }
 
+/* The floating bar overlaps the page, so an element scrolled to by the
+   browser (a fragment link, or `:focus` moved by the keyboard) must stop
+   short of it — WCAG 2.2's "Focus Not Obscured (Minimum)". Top on desktop,
+   bottom on the phone, where the bar is at the bottom. */
+html {
+  scroll-padding-top: 84px;
+}
+
+/*
+ * The ground. Two low-alpha radial washes over a flat floor — the only
+ * "scene" the glass has to refract, and deliberately something this app
+ * draws rather than a photograph, so the composite behind every pane is
+ * knowable and D67's contrast table can be measured rather than guessed.
+ * `fixed` so the wash belongs to the window, not to the document: a page
+ * that scrolls its own backdrop under its own glass looks like a bug.
+ */
 body {
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(58rem 40rem at 8% -12%, var(--wash-1), transparent 62%),
+    radial-gradient(48rem 34rem at 104% 2%, var(--wash-2), transparent 58%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
   color: var(--fg);
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1.55;
+  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a {
   color: inherit;
-  text-decoration: none;
-  border-bottom: 1px solid var(--faint);
+  text-decoration: underline;
+  text-decoration-color: var(--faint);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur-fast) var(--ease);
 }
 a:hover {
-  border-bottom-color: var(--fg);
+  text-decoration-color: currentColor;
 }
+
+/* One ring, everywhere, and never removed. `--fg` rather than a hue keeps
+   rule 1 intact and is the only value that is guaranteed to clear 3:1
+   against every glass surface in both schemes. */
 :focus-visible {
   outline: 2px solid var(--fg);
-  outline-offset: 1px;
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
 }
 
-/* --- shell --------------------------------------------------------------
- * `.shell-nav` is the one pre-existing className — see router.tsx and
- * e2e/smoke.spec.ts, which selects it by name. Everything under it is
- * plain elements.
+/* --- the shell: a floating glass bar ------------------------------------
+ * `.shell-nav` is the pre-existing className — see router.tsx and
+ * e2e/smoke.spec.ts, which selects it by name and asserts its computed
+ * `border-bottom-width` is not `0px` (the proof the stylesheet applied at
+ * all). The hairline that satisfies that assertion is also the specular edge
+ * the material needs, so it is a real 1px border on all four sides here and
+ * in every breakpoint below.
+ *
+ * The DOM is untouched: this is the same <nav> > <div> > flat children the
+ * shell has always rendered. That is deliberate — router.tsx is where the
+ * concurrent problem-set work adds routes, and a design that needs no JSX
+ * cannot conflict with it.
  */
-
 .shell-nav {
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  position: sticky;
+  top: var(--sp-2);
+  z-index: 50;
+  width: calc(100% - 2 * var(--sp-4));
+  max-width: 960px;
+  margin: var(--sp-3) auto var(--sp-5);
+  border: 1px solid var(--glass-stroke);
+  border-radius: var(--r-xl);
+  background-color: var(--glass-bar);
+  background-image: var(--glass-specular);
+  background-repeat: no-repeat;
+  background-size: 100% 22px;
+  box-shadow: var(--shadow-bar), 0 0 0 1px var(--glass-edge);
+  -webkit-backdrop-filter: blur(var(--blur-bar)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--blur-bar)) saturate(var(--glass-saturate));
 }
 
 .shell-nav > div {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 4px 16px;
   display: flex;
   align-items: center;
-  /* Wrap, never clip: on a phone the signed-in bar carries eight items,
-     and the first screenshot review caught "Sign in" cut off at 390px. */
+  /* Wrap, never clip: on a phone the signed-in bar carries eight items, and
+     the first screenshot review caught "Sign in" cut off at 390px. */
   flex-wrap: wrap;
-  column-gap: 20px;
-  row-gap: 2px;
-  min-height: 38px;
+  column-gap: var(--sp-1);
+  row-gap: 0;
+  padding: var(--sp-1) var(--sp-3);
+  min-height: 52px;
 }
 
 .shell-nav strong {
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-size: 15px;
+  padding: 0 var(--sp-2) 0 var(--sp-1);
 }
 
-.shell-nav a {
-  border: 0;
+/* Every nav item is a 44px-tall pill, so the whole row is one band of tap
+   targets rather than a line of 13px text that is a coin-flip with a thumb. */
+.shell-nav a,
+.shell-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  min-width: 34px;
+  padding: 0 var(--sp-3);
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: transparent;
   color: var(--dim);
-  font-size: 13px;
-  padding: 2px 0;
-  border-bottom: 1px solid transparent;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
-.shell-nav a:hover {
+.shell-nav a:hover,
+.shell-nav button:hover {
+  background: var(--sel);
   color: var(--fg);
+  text-decoration: none;
 }
+
 /* TanStack Router's <Link> sets aria-current="page" on the active route by
    default — no extra prop, no extra class. The plain <a> to /api/v1/docs
-   (Scalar's own page, outside this router) never gets it, which is correct:
-   it is never "the current route" as far as this router is concerned. */
+   (Scalar's own page, outside this router) never gets it, which is correct.
+   The active item is a raised glass pill: the one place in the chrome that
+   gets depth, because "where am I" is the question a nav answers. */
 .shell-nav a[aria-current='page'] {
   color: var(--fg);
-  border-bottom-color: var(--fg);
+  font-weight: 600;
+  background: var(--glass-raised);
+  border-color: var(--glass-stroke);
+  box-shadow: var(--shadow-1);
+}
+
+/* The VI | EN toggle (P2). Two buttons and a group wrapper, not a <select>:
+   the choice has exactly two values and both are always worth showing, and
+   the active one is marked with `aria-pressed` rather than colour (rule 1). */
+.shell-nav button {
+  min-width: var(--tap);
+  padding: 0 var(--sp-2);
+  letter-spacing: 0.04em;
+  margin-top: 0;
+  box-shadow: none;
+}
+.shell-nav button[aria-pressed='true'] {
+  color: var(--fg);
+  background: var(--glass-raised);
+  border-color: var(--glass-stroke);
+  box-shadow: var(--shadow-1);
+}
+.shell-nav [role='group'] {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0 var(--sp-1);
 }
 
 /* The trailing "Signed in as …" / "Sign in" slot (router.tsx's
@@ -294,82 +398,90 @@ a:hover {
    other — targeted by position, not tag, so both get pushed right. */
 .shell-nav > div > :last-child {
   margin-left: auto;
-  color: var(--dim);
-  font-size: 13px;
-}
-
-/* The VI | EN toggle (P2). Two buttons and a divider, not a <select>: the
-   choice has exactly two values and both are always worth showing, and the
-   active one is marked with `aria-pressed` rather than colour (app.css rule
-   1 reserves colour for verdicts).
-
-   No new className — this is `.shell-nav button`, styled by element, the
-   same contract the rest of this file keeps. The page-level `button` rule
-   below gives every button a `margin-top` and a boxy border, neither of
-   which belongs in a nav row, so both are reset here.
-
-   44×44px is the tap target, which is why the nav row's `min-height` above
-   is no longer what sets its height: a 13px-tall link is unmissable with a
-   mouse and a coin-flip with a thumb, and this app is meant to be usable on
-   the phone a contestant actually has. */
-.shell-nav button {
-  margin-top: 0;
-  border: 0;
-  padding: 0 6px;
-  min-width: 44px;
-  min-height: 44px;
-  color: var(--dim);
-  font-size: 13px;
-  letter-spacing: 0.04em;
-}
-.shell-nav button:hover {
-  background: transparent;
-  color: var(--fg);
-}
-.shell-nav button[aria-pressed='true'] {
-  color: var(--fg);
 }
 
 main {
   max-width: 960px;
   margin: 0 auto;
-  padding: 20px 16px 56px;
+  padding: 0 var(--sp-4) var(--sp-8);
 }
 
-main > section > h1:first-child {
+/* --- the page sheet ------------------------------------------------------
+ * Every route's outermost block is either `<section>`, `<section
+ * class="panel">` or (the sign-in form at `/`) a bare `<form>`. All three get
+ * the same pane, so a route added later is styled without being told to be —
+ * and `.panel`, which the routes were already emitting against nothing,
+ * finally means what its name says.
+ *
+ * The specular highlight is a background-image on the element rather than a
+ * ::before, so it costs no pseudo-element and no stacking context; the
+ * `background-size` confines it to the top edge, which is what a highlight
+ * is — a gradient down a whole 2000px page is not.
+ */
+main > section,
+main > form,
+main > .panel {
+  position: relative;
+  padding: var(--sp-5) var(--sp-5) var(--sp-6);
+  margin: 0 0 var(--sp-4);
+  border: 1px solid var(--glass-stroke);
+  border-radius: var(--r-xl);
+  background-color: var(--glass-sheet);
+  background-image: var(--glass-specular);
+  background-repeat: no-repeat;
+  background-size: 100% 120px;
+  box-shadow: var(--shadow-2), 0 0 0 1px var(--glass-edge);
+  -webkit-backdrop-filter: blur(var(--blur-sheet)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--blur-sheet)) saturate(var(--glass-saturate));
+}
+
+main > section > h1:first-child,
+main > form > h1:first-child {
   margin-top: 0;
 }
 
-/* --- type ----------------------------------------------------------------- */
+/* A bare <p> between sheets (a loading line, the recovery links) is not a
+   pane and must not be padded like one. */
+main > p {
+  margin: var(--sp-3) var(--sp-1);
+  color: var(--dim);
+}
+
+/* --- type --------------------------------------------------------------- */
 
 h1 {
-  font-size: 19px;
-  font-weight: 600;
-  margin: 0 0 2px;
-  letter-spacing: 0.01em;
+  font-family: var(--font-ui);
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--sp-1);
+  line-height: 1.25;
 }
 h2 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 22px 0 8px;
+  font-family: var(--font-ui);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: var(--sp-6) 0 var(--sp-2);
 }
 h3 {
-  font-size: 13px;
-  letter-spacing: 0.09em;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--dim);
-  font-weight: 500;
-  margin: 20px 0 6px;
+  font-weight: 600;
+  margin: var(--sp-5) 0 var(--sp-2);
+  padding-bottom: var(--sp-1);
   border-bottom: 1px solid var(--line);
-  padding-bottom: 4px;
 }
 
 small {
   color: var(--dim);
-  font-size: 0.85em;
+  font-size: 0.86em;
 }
 h1 small {
-  font-size: 0.6em;
+  font-size: 0.55em;
   font-weight: 400;
 }
 
@@ -378,16 +490,26 @@ li {
   max-width: var(--measure);
 }
 
+/* Secondary prose. `.muted` was already on ~60 elements across the routes
+   with no rule behind it; this is that rule. */
+.muted {
+  color: var(--dim);
+}
+
+/* Data, not prose: an identifier a setter pastes into a search. */
 code,
-pre {
-  font-family: inherit;
+pre,
+kbd,
+samp {
+  font-family: var(--font-mono);
   font-size: 0.9em;
 }
 
 pre {
-  background: var(--sel);
+  background: var(--glass-inset);
   border: 1px solid var(--line);
-  padding: 9px 11px;
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-3);
   overflow-x: auto;
 }
 
@@ -398,54 +520,97 @@ pre {
  * submit page's verdict panel is also a nested <section> containing <div>s
  * (compiler output, the case grid's wrapper) that must stay dense, not gain
  * 68ch/1.7 reading typography.
+ *
+ * Under D67 this is also the one place the system UI face is set at reading
+ * size: a statement is prose, and prose in a monospace at 68ch is a wall.
  */
 main > section > div {
   max-width: var(--measure);
-  font-size: 14.5px;
+  font-family: var(--font-ui);
+  font-size: 15.5px;
   line-height: 1.7;
 }
 main > section > div p {
-  margin: 0 0 12px;
+  margin: 0 0 var(--sp-3);
 }
 main > section > div pre {
-  margin: 0 0 12px;
+  margin: 0 0 var(--sp-3);
 }
 
-/* --- tables ----------------------------------------------------------------- */
-
+/* --- tables -------------------------------------------------------------
+ * A table is DATA and therefore not glass: it is an inset well inside
+ * whatever pane holds it, in the monospace face, with tabular numerals so
+ * magnitudes line up down a column. Nothing here blurs its own backdrop —
+ * a blurred scoreboard is a scoreboard nobody can scan, and a per-row
+ * backdrop-filter is also the single most expensive thing this app could
+ * ask a phone to composite.
+ *
+ * `border-collapse: separate` (was `collapse`) is what lets the well have
+ * rounded corners at all; the four corner-cell rules below round the well
+ * without needing an `overflow: hidden` that a <table> box does not honour
+ * consistently.
+ */
 table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
-  margin: var(--space) 0;
+  margin: var(--sp-4) 0;
+  font-family: var(--font-mono);
+  background: var(--glass-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
 }
 
 th {
+  font-family: var(--font-ui);
   font-size: 11px;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--dim);
   text-align: left;
-  font-weight: 500;
-  padding: 0 12px 6px 0;
+  font-weight: 600;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--sel);
   border-bottom: 1px solid var(--line);
+  white-space: nowrap;
 }
 
 td {
-  padding: 5px 12px 5px 0;
+  padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--line);
-  font-size: 13.5px;
+  font-size: 13px;
   vertical-align: top;
 }
 
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+thead tr:first-child th:first-child {
+  border-top-left-radius: var(--r-lg);
+}
+thead tr:first-child th:last-child {
+  border-top-right-radius: var(--r-lg);
+}
+tbody tr:last-child td:first-child {
+  border-bottom-left-radius: var(--r-lg);
+}
+tbody tr:last-child td:last-child {
+  border-bottom-right-radius: var(--r-lg);
+}
+
+tbody tr {
+  transition: background-color var(--dur-fast) var(--ease);
+}
 tr:hover td {
   background: var(--sel);
 }
 
-/* Right-aligned, tabular numerals — mockup-v1.html's `.num`. Applied to both
-   the `<th>` and the `<td>`s of a numeric column so the header and its
-   values share the same right edge; `font-variant-numeric: tabular-nums`
-   is what makes digits line up vertically column-over-column instead of
-   each row's width drifting with proportional-width digits like `1`/`0`. */
+/* Right-aligned, tabular numerals. Applied to both the `<th>` and the
+   `<td>`s of a numeric column so the header and its values share the same
+   right edge; `font-variant-numeric: tabular-nums` is what makes digits line
+   up vertically column-over-column instead of each row's width drifting with
+   proportional-width digits like `1`/`0`. */
 .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -463,7 +628,7 @@ tr:hover td {
   /* `--dim`, not `--muted`: no such variable is declared anywhere in this
      file, so the `inherit` fallback always won and this declaration did
      nothing. `test/app-css.spec.ts` now fails on any `var()` naming a
-     property the stylesheet does not define. */
+     property neither stylesheet defines. */
   color: var(--dim);
 }
 
@@ -476,11 +641,7 @@ tr:hover td {
    `documentElement.scrollWidth <= innerWidth` on a 390x844 viewport.
 
    `display: block` is what makes the table a scroll container at all — a
-   `<table>` is not one, and `overflow-x` alone does nothing to it. The cost
-   is that a table NARROWER than the screen no longer stretches to the panel's
-   full width on a phone, so its rules stop short of the right edge; that is a
-   cosmetic loss on one breakpoint against a page that could not be read at
-   all. Desktop layout is untouched: the rule lives inside the breakpoint. */
+   `<table>` is not one, and `overflow-x` alone does nothing to it. */
 @media (max-width: 700px) {
   table {
     display: block;
@@ -490,125 +651,210 @@ tr:hover td {
   }
 }
 
-/* --- forms ------------------------------------------------------------- */
+/* --- forms --------------------------------------------------------------
+ * A field is an inset well in the pane, at a 44px thumb target, in the
+ * monospace face — what is typed into these boxes is a username, a problem
+ * code, a token or a time limit, all of which are read character by
+ * character.
+ */
 
 label {
   display: block;
-  font-size: 11px;
-  letter-spacing: 0.09em;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--dim);
-  margin: 12px 0 4px;
+  font-weight: 600;
+  margin: var(--sp-4) 0 var(--sp-1);
+}
+
+/* A form row. `.field` was already on the submissions filter, the register
+   form and the recovery screens with nothing to style it. */
+.field {
+  display: block;
+  margin: var(--sp-4) 0;
+}
+.field label {
+  margin-top: 0;
 }
 
 input,
 select,
 textarea {
   font: inherit;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
   color: inherit;
-  background: var(--panel);
+  background: var(--glass-inset);
   border: 1px solid var(--line);
-  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  padding: 0 var(--sp-3);
+  min-height: var(--tap);
   width: 100%;
   max-width: 32rem;
   outline: none;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
 }
 
-/* A tick box is not a text box. The rule above carries no type filter, so
-   `width: 100%` also caught every `type="checkbox"` and `type="radio"` in
-   the app: on the problem list's topic filter each of the twenty-five boxes
-   was laid out 100–156px wide and 13px tall, painted straight over the
-   label text beside it, and the fieldset it sits in pushed the whole page
-   64px past a 390px viewport. The border/background/padding go too — a
-   checkbox drawn as a bordered box with a 9px inset is not the control any
-   phone user recognises. Measured on the live stack at 1280px and 390px
-   before and after; pinned by `test/app-css.spec.ts`. */
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--faint);
+}
+
+/* A tick box is not a text box. The `input` rule above carries no type
+   filter, so `width: 100%` also caught every `type="checkbox"` and
+   `type="radio"` in the app: on the problem list's topic filter each of the
+   twenty-five boxes was laid out 100–156px wide and 13px tall, painted
+   straight over the label text beside it, and the fieldset it sits in pushed
+   the whole page 64px past a 390px viewport. The border/background/padding
+   go too — a checkbox drawn as a bordered box with a 9px inset is not the
+   control any phone user recognises. `min-height` joins them under D67 for
+   the same reason: a 44px-tall checkbox is not a checkbox. The TAP TARGET is
+   the wrapping label instead — see `fieldset label` below. Measured on the
+   live stack at 1280px and 390px; pinned by `test/app-css.spec.ts`. */
 input[type='checkbox'],
 input[type='radio'] {
   width: auto;
   max-width: none;
+  min-height: auto;
   padding: 0;
   border: none;
   background: none;
+  accent-color: var(--fg);
 }
 
 /* The one place a numeric input shares a line with its own label: the
    difficulty bounds on the problem filter. Left at 100% they wrapped onto
    their own rows and stranded "TỪ"/"ĐẾN" beside the wrong box. */
 fieldset input[type='number'] {
-  width: 5rem;
+  width: 6rem;
 }
 
 textarea {
   max-width: none;
   min-height: 150px;
+  padding: var(--sp-2) var(--sp-3);
+  line-height: 1.5;
   resize: vertical;
+}
+
+select {
+  padding-right: var(--sp-6);
 }
 
 /* `:disabled` is load-bearing, not decoration: the problem code field is
    disabled on the edit route because codes are immutable, and a field that
    looks editable but silently discards input is worse than one that does
    not. */
-input:disabled {
+input:disabled,
+select:disabled,
+textarea:disabled {
   background: var(--sel);
   color: var(--dim);
   cursor: not-allowed;
 }
 
+/* --- buttons -----------------------------------------------------------
+ * A raised glass pill at a 44px thumb target. The press is a 2% scale rather
+ * than a colour flip: under `prefers-reduced-motion` the duration token goes
+ * to nothing and the state change is instant, which is the point.
+ */
 button {
-  font: inherit;
-  font-size: 13px;
-  background: transparent;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
   color: var(--fg);
-  border: 1px solid var(--fg);
-  padding: 4px 14px;
+  background-color: var(--glass-raised);
+  background-image: var(--glass-specular);
+  background-repeat: no-repeat;
+  background-size: 100% 50%;
+  border: 1px solid var(--glass-stroke);
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--glass-edge);
+  min-height: var(--tap);
+  padding: 0 var(--sp-5);
   margin-top: var(--space);
   cursor: pointer;
+  -webkit-backdrop-filter: blur(var(--blur-chip)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--blur-chip)) saturate(var(--glass-saturate));
+  transition:
+    box-shadow var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
 }
 
 button:hover {
-  background: var(--fg);
-  color: var(--bg);
+  box-shadow: var(--shadow-2), 0 0 0 1px var(--glass-edge);
+}
+
+button:active {
+  transform: scale(0.98);
+  box-shadow: var(--shadow-1), 0 0 0 1px var(--glass-edge);
 }
 
 button:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
-  background: transparent;
+  box-shadow: none;
   color: var(--dim);
-  border-color: var(--line);
+  transform: none;
 }
 
 /* A per-row action (the revisions table's Publish button, one per revision)
-   is not a page-level call to action — the global `margin-top` above would
-   give every row a ~1rem-tall button block; compact instead, matching the
-   mockup's row-button treatment. */
+   is not a page-level call to action — a 44px-tall control in every row
+   destroys exactly the scanning a dense table exists for, so these take
+   WCAG 2.2's 24px minimum-with-spacing instead of the 44px thumb target. */
 td button {
   margin-top: 0;
-  padding: 1px 8px;
+  min-height: var(--tap-dense);
+  padding: 0 var(--sp-3);
   font-size: 12px;
 }
 
-/* --- panels: any <section> nested inside this app's page-level <section>
-   is a self-contained block — today, the submit page's live verdict panel
-   and the edit page's read-only members list. Its first paragraph (the
-   verdict panel's "Status: …" line) reads as the panel's header. */
-
+/* --- panels: a raised card inside the page sheet -------------------------
+ * Any <section> nested inside a page-level <section> is a self-contained
+ * block — the submit page's live verdict panel, the contest page's
+ * clarification feed, the edit page's read-only members list, and every one
+ * of the admin dashboard's panels. Its first paragraph (the verdict panel's
+ * "Status: …" line) reads as the panel's header.
+ *
+ * NO backdrop-filter here, on purpose: this pane already sits on a blurred
+ * sheet, and stacking a second backdrop filter on top of the first is both
+ * visually muddy and the one thing in this design a phone would feel.
+ */
 section section {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  padding: 12px;
-  margin-top: 12px;
+  border: 1px solid var(--glass-stroke);
+  border-radius: var(--r-lg);
+  background-color: var(--glass-raised);
+  background-image: var(--glass-specular);
+  background-repeat: no-repeat;
+  background-size: 100% 60px;
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-4);
+  margin-top: var(--sp-4);
 }
 section section > p:first-child {
+  font-family: var(--font-ui);
   color: var(--dim);
-  font-size: 11px;
-  letter-spacing: 0.09em;
+  font-size: 11.5px;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  margin: -12px -12px 12px;
-  padding: 6px 12px;
+  font-weight: 600;
+  margin: calc(-1 * var(--sp-4)) calc(-1 * var(--sp-4)) var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
   border-bottom: 1px solid var(--line);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--sel);
   max-width: none;
+}
+section section > h2:first-child,
+section section > h3:first-child {
+  margin-top: 0;
 }
 
 /* --- verdicts: the primary colour scale --------------------------------
@@ -616,16 +862,32 @@ section section > p:first-child {
  * result (a <strong> on the submit page, a <span> in the revisions state
  * column) alongside a lowercase modifier class matching the verdict code —
  * `ac wa tle mle ole rte ir ce ie`, plus `pend` for "no verdict yet" /
- * "not the live revision". Colour AND a glyph, never colour alone — see
- * this file's header comment.
+ * "not the live revision". Colour AND a glyph, never colour alone.
+ *
+ * D67 gave the badge an inset backing pill. That is not decoration: a
+ * verdict hue sitting directly on a translucent sheet inherits whatever the
+ * sheet is over, and the amber verdicts (`--tle`, `--mle`) measured 4.3:1
+ * that way. On the backing they measure 4.5:1 or better everywhere, in both
+ * schemes — the backing is what makes the hue's contrast a property of the
+ * component instead of a property of the page behind it.
  */
 .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-family: var(--font-mono);
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--glass-inset);
+  white-space: nowrap;
 }
 .badge::before {
-  margin-right: 5px;
-  opacity: 0.9;
+  opacity: 0.85;
+  font-weight: 700;
 }
 .badge.ac {
   color: var(--ac);
@@ -697,35 +959,40 @@ section section > p:first-child {
  * runtime) and a breakpoint tuned for one would be wrong for the other. On a
  * 390px phone this lands on two columns; on a desktop panel, five.
  *
- * The 1px gap over a `--line` background is the same hairline-grid trick the
- * rest of the design uses for tables: one border colour, no double rules
- * between adjacent cells, and nothing to keep in sync when a tile is added.
+ * The old 1px-gap-over-a-line-colour hairline grid is gone with the terminal
+ * it belonged to: on glass, adjacent hairlines read as a seam rather than as
+ * a rule, so the tiles are separate inset wells with real space between them.
  * Monochrome throughout — a tile is a number, not a signal, and the two
  * dependency tiles say `up`/`down` in words for exactly that reason.
  */
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
-  margin: 12px 0;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0;
 }
 .stat {
-  background: var(--panel);
-  padding: 8px 10px;
+  background: var(--glass-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
 }
 .stat > span {
   display: block;
+  font-family: var(--font-ui);
   font-size: 11px;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
+  font-weight: 600;
   color: var(--dim);
+  margin-bottom: 2px;
 }
 .stat > strong {
-  font-size: 18px;
+  font-family: var(--font-mono);
+  font-size: 21px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
 /* --- rank bands (D46) ----------------------------------------------------
@@ -750,8 +1017,9 @@ section section > p:first-child {
  *     No verdict is ever rendered beside it.
  *   - It is never colour alone. The band's NAME is the information; the hue
  *     tints it. A monochrome screenshot loses nothing.
- * Every value clears 4.5:1 against both `--bg`s; the top band also takes the
- * weight, because "legendary" should read as such without a new hue.
+ * Every value clears 4.5:1 against every glass surface in both schemes
+ * (measured; D67 carries the table). The top band also takes the weight,
+ * because "legendary" should read as such without a new hue.
  */
 .rank {
   color: var(--fg);
@@ -797,30 +1065,31 @@ section section > p:first-child {
  *
  * Still a real <ul>/<li> list (role=list/listitem) — this is a styled list,
  * not a div soup, and each <li> carries a visually-hidden (`.sr-only`)
- * description alongside the compact on-screen glyph: "skipped is faint, not
- * absent" has to survive to screen readers and to anything that reads DOM
- * text, not just to sighted colour vision.
+ * description alongside the compact on-screen glyph.
  */
 .cases {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
-  margin: 4px 0 12px;
+  gap: var(--sp-1);
+  margin: var(--sp-1) 0 var(--sp-3);
   padding: 0;
   max-width: none;
 }
 .case {
   position: relative;
-  width: 26px;
-  height: 22px;
+  width: 28px;
+  height: 26px;
   border: 1px solid var(--line);
-  background: var(--panel);
+  border-radius: var(--r-xs);
+  background: var(--glass-inset);
   display: flex;
   align-items: center;
   justify-content: center;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   max-width: none;
 }
 .case.ac {
@@ -862,11 +1131,17 @@ section section > p:first-child {
 .case.pend {
   color: var(--pend);
 }
-/* Skipped: faint, not absent. No border colour of its own (unlike every
-   verdict above) — the point is that it visually recedes, not that it reads
-   as another verdict. */
+/* Skipped: RECESSED, not faint. Until D67 this was a `--faint` fill, which
+   measured 1.6:1 — the case number was decoration, and the only accessible
+   copy of it was the `.sr-only` text. It now recedes STRUCTURALLY instead:
+   no fill and a dashed hairline where every real verdict has a solid one and
+   a well, at `--dim` (5.2:1 light, 4.5:1 dark). It still reads as "did not
+   run" at a glance, and now it reads at all. */
 .case.skip {
-  color: var(--faint);
+  color: var(--dim);
+  background: none;
+  border-style: dashed;
+  border-color: var(--faint);
 }
 
 .sr-only {
@@ -881,61 +1156,186 @@ section section > p:first-child {
   border: 0;
 }
 
-/* --- state -------------------------------------------------------------
+/* --- banners: alerts and confirmations ---------------------------------
  * Deliberately NOT colour: "colour is reserved for verdicts" (this file's
  * header comment), and a red alert competing for attention with a WA badge
  * on the same screen (submit) is exactly the collision that rule exists to
- * prevent. Weight and a border carry it instead.
+ * prevent. A glass well, a weight and a 3px edge carry it instead — and the
+ * edge is on the LEFT for a refusal and the same width for a confirmation,
+ * so the two are told apart by their words, which is the only way this app
+ * has ever told a reader anything.
+ *
+ * These two roles are also this app's whole toast system: nothing here
+ * floats, animates in, or auto-dismisses, because nothing in the app emits a
+ * transient message — every `role="alert"` and `role="status"` is a
+ * persistent line rendered beside the control that produced it. A floating
+ * toast component with no producer would be furniture.
  */
-[role='alert'] {
+[role='alert'],
+[role='status'] {
+  display: block;
+  max-width: var(--measure);
   font-weight: 600;
-  border-left: 2px solid var(--fg);
-  padding-left: 9px;
+  background: var(--glass-inset);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--fg);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  margin: var(--sp-3) 0;
+}
+[role='status'] {
+  border-left-color: var(--dim);
+  font-weight: 500;
 }
 
 /* The revisions and submit screens surface the server's error `code`
    verbatim — `package_not_found`, not "Something went wrong". Monospace
-   because it is an identifier a setter will paste into a search, not prose;
-   already true of every `code`/`pre` in this file, kept explicit here since
-   it sits inside an alert rather than a panel. */
-[role='alert'] code {
+   because it is an identifier a setter will paste into a search. */
+[role='alert'] code,
+[role='status'] code {
   background: var(--sel);
   border: 1px solid var(--line);
-  padding: 0.05em 0.35em;
+  border-radius: var(--r-xs);
+  padding: 0.08em 0.4em;
 }
 
 /* --- topic tags --------------------------------------------------------
- * A chip is a link (every entity is a hyperlink), so it inherits the link
- * colour and underline; the box around it is what makes a row of them read
- * as a set rather than as running prose. Deliberately NOT coloured per
- * topic: colour is reserved for verdicts (this file's header comment), and
- * twenty-five hues would drown the one signal that has to survive.
+ * A chip is a link (every entity is a hyperlink). Deliberately NOT coloured
+ * per topic: colour is reserved for verdicts, and twenty-five hues would
+ * drown the one signal that has to survive. The pill is what makes a row of
+ * them read as a set rather than as running prose, and the 24px minimum
+ * height is WCAG 2.2's target size for a dense inline control.
  */
 .tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-dense);
+  padding: 0 var(--sp-2);
   border: 1px solid var(--line);
-  padding: 0.05em 0.4em;
+  border-radius: var(--r-pill);
+  background: var(--glass-inset);
+  font-family: var(--font-mono);
   font-size: 12px;
   white-space: nowrap;
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.tag:hover {
+  background: var(--sel);
+  text-decoration: none;
 }
 
 /* The filter bar on the problem list, and the tag picker on the edit form.
  * Checkboxes laid out inline and wrapping, so twenty-five topics are one
- * block to scan rather than twenty-five lines to scroll past. */
+ * block to scan rather than twenty-five lines to scroll past.
+ *
+ * The LABEL is the tap target, not the 13px box inside it: 36px tall with an
+ * 8px gutter clears WCAG 2.2's 24px minimum with room to spare, without the
+ * 44px-per-topic wall that would push a twenty-five-topic filter off a phone.
+ */
 fieldset {
   border: 1px solid var(--line);
-  padding: 6px 10px;
-  margin: 8px 0;
+  border-radius: var(--r-lg);
+  background: var(--glass-inset);
+  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  margin: var(--sp-3) 0;
 }
 fieldset legend {
+  font-family: var(--font-ui);
   color: var(--dim);
-  font-size: 11px;
-  letter-spacing: 0.09em;
+  font-size: 11.5px;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
+  font-weight: 600;
+  padding: 0 var(--sp-1);
 }
 fieldset label {
-  display: inline-block;
-  margin-right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 36px;
+  margin: 0 var(--sp-2) 0 0;
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--fg);
   white-space: nowrap;
+  cursor: pointer;
+}
+
+/* --- the phone: the bar goes to the bottom ------------------------------
+ * Same <nav>, same children, different edge. A thumb reaches the bottom of a
+ * 390×844 screen and does not reach the top of one, and the safe area on a
+ * notched phone is at the bottom too — which is why `index.html` carries
+ * `viewport-fit=cover`: without it `env(safe-area-inset-bottom)` is always
+ * 0 and the bar sits under the home indicator.
+ *
+ * The item row scrolls sideways INSIDE the bar rather than wrapping to three
+ * rows: the signed-in shell carries twelve items, and a three-row bar eats a
+ * third of the screen. `overflow-x` on the inner div (never on the document)
+ * is what keeps journey 6's `scrollWidth <= innerWidth` true; the vertical
+ * padding is there so a focus ring on a pill is not clipped by the scroller.
+ */
+@media (max-width: 700px) {
+  html {
+    scroll-padding-top: var(--sp-4);
+    scroll-padding-bottom: 88px;
+  }
+
+  .shell-nav {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    /* Kept explicitly non-zero: e2e/smoke.spec.ts reads this exact computed
+       property as its proof that the stylesheet applied at all. */
+    border-bottom: 1px solid var(--glass-stroke);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background-size: 100% 14px;
+  }
+
+  .shell-nav > div {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    padding: var(--sp-1) var(--sp-2);
+    min-height: 56px;
+  }
+
+  .shell-nav > div > :last-child {
+    margin-left: var(--sp-1);
+  }
+
+  .shell-nav a,
+  .shell-nav button {
+    flex: 0 0 auto;
+  }
+
+  main {
+    padding-left: var(--sp-3);
+    padding-right: var(--sp-3);
+    /* Clear of the fixed bar plus the home indicator. */
+    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  }
+
+  main > section,
+  main > form,
+  main > .panel {
+    padding: var(--sp-4) var(--sp-3) var(--sp-5);
+    border-radius: var(--r-lg);
+  }
+
+  h1 {
+    font-size: 20px;
+  }
 }
 
 /* The credential sheet a school prints once (D61).
@@ -945,6 +1345,9 @@ fieldset label {
  * onto paper. So printing this page prints the TABLE and nothing else: no
  * nav, no buttons, no textarea full of the same thing again, and no colour
  * that a monochrome laser turns into unreadable grey.
+ *
+ * Under D67 it also has to strip the material: a printer cannot composite a
+ * backdrop filter, and a translucent tint over white paper is a grey box.
  *
  * `.no-print` is the escape hatch for the controls that only make sense on
  * screen; the rule below hides the shell wholesale so a screen added later
@@ -961,6 +1364,22 @@ fieldset label {
   body {
     background: #fff;
     color: #000;
+    background-image: none;
+  }
+  main > section,
+  main > form,
+  main > .panel,
+  section section,
+  table,
+  fieldset,
+  .stat,
+  .badge,
+  .tag {
+    background: #fff !important;
+    background-image: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
   .panel {
     border: none;
@@ -980,7 +1399,7 @@ fieldset label {
      * a proportional face where l and 1 look alike. The alphabet already
      * excludes the pairs that confuse; this keeps the rest legible. */
     white-space: nowrap;
-    font-family: inherit;
+    font-family: var(--font-mono);
   }
   /* Repeat the header on every page: a class of forty is two pages, and the
    * second one is unreadable without it. */

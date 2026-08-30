@@ -18,10 +18,23 @@ import { afterEach, describe, expect, it } from 'vitest';
 // environment `import.meta.url` is an `http://localhost/` URL, not a `file:`
 // one, so `fileURLToPath` throws. Both candidates are tried because vitest's
 // cwd is the workspace root when the suite is run with `-r`.
-const CSS_PATH = ['src/app.css', 'apps/web/src/app.css']
-  .map((candidate) => resolve(process.cwd(), candidate))
-  .find((candidate) => existsSync(candidate));
-const CSS = readFileSync(CSS_PATH!, 'utf8');
+function read(...candidates: string[]): string {
+  const found = candidates
+    .map((candidate) => resolve(process.cwd(), candidate))
+    .find((candidate) => existsSync(candidate));
+  return readFileSync(found!, 'utf8');
+}
+
+const CSS = read('src/app.css', 'apps/web/src/app.css');
+/**
+ * The token layer (D67). `app.css` `@import`s it, and jsdom does not follow
+ * that import — it never fetches a subresource for an injected <style> — so
+ * the cascade assertions below run against `app.css` alone, exactly as
+ * before. Only the "no undefined variable" check needs both files, because
+ * that check is about the pair: tokens.css DECLARES, app.css CONSUMES, and a
+ * typo on either side is the same silent no-op it always was.
+ */
+const TOKENS = read('src/design/tokens.css', 'apps/web/src/design/tokens.css');
 
 function withStylesheet(html: string): HTMLElement {
   const style = document.createElement('style');
@@ -92,14 +105,63 @@ describe('app.css', () => {
     expect(block).toContain('display: table-header-group');
   });
 
-  it('names no custom property that the stylesheet never defines', () => {
+  it('names no custom property that the stylesheets never define', () => {
     // `.dq td { color: var(--muted, inherit) }` shipped naming a variable
     // that does not exist — the fallback always won, so the disqualified-row
     // styling was dead. Any future typo in a variable name is the same class
-    // of silent no-op.
-    const declared = new Set([...CSS.matchAll(/^\s*(--[\w-]+)\s*:/gm)].map((m) => m[1]));
-    const used = new Set([...CSS.matchAll(/var\(\s*(--[\w-]+)/g)].map((m) => m[1]));
+    // of silent no-op. Both files are read: D67 split the material tokens
+    // into `design/tokens.css`, so "declared" and "used" now span the pair.
+    const both = `${TOKENS}\n${CSS}`;
+    const declared = new Set([...both.matchAll(/^\s*(--[\w-]+)\s*:/gm)].map((m) => m[1]));
+    const used = new Set([...both.matchAll(/var\(\s*(--[\w-]+)/g)].map((m) => m[1]));
     const undefinedVars = [...used].filter((name) => !declared.has(name!));
     expect(undefinedVars).toEqual([]);
+  });
+
+  /**
+   * The D67 material has to have a solid twin, and the twin has to be
+   * declared once — in the token layer — rather than remembered by each
+   * component rule. Two readers depend on it: someone who has asked their OS
+   * to reduce transparency, and any browser that cannot composite a backdrop
+   * filter at all. Both must get a fully opaque interface, not a half-glass
+   * one. Asserted as text because jsdom matches neither at-rule.
+   */
+  it('collapses every glass token to a solid surface when transparency or backdrop-filter is unavailable', () => {
+    const glassTokens = [...TOKENS.matchAll(/^\s*(--glass-(?:bar|sheet|raised))\s*:/gm)].map(
+      (m) => m[1]!,
+    );
+    expect(glassTokens.length).toBeGreaterThan(0);
+
+    for (const guard of [
+      /@media \(prefers-reduced-transparency: reduce\)\s*\{([\s\S]*?)\n\}/,
+      /@supports not \([\s\S]*?backdrop-filter[\s\S]*?\{([\s\S]*?)\n\}/,
+    ]) {
+      const block = guard.exec(TOKENS)?.[1];
+      expect(block, `no fallback block for ${String(guard)}`).toBeDefined();
+      for (const token of new Set(glassTokens)) {
+        expect(block).toContain(`${token}: var(--panel);`);
+      }
+      // A blurred backdrop with an opaque tint is wasted compositing, and on
+      // the reduced-transparency path it is also the effect that was refused.
+      for (const blur of ['--blur-bar', '--blur-sheet', '--blur-chip']) {
+        expect(block).toContain(`${blur}: 0px;`);
+      }
+    }
+  });
+
+  /**
+   * Reduced motion has to reach every transition, which is only true if
+   * every transition names a duration token rather than a literal.
+   */
+  it('flattens every motion duration under prefers-reduced-motion', () => {
+    const block = /@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/.exec(TOKENS)?.[1];
+    expect(block).toBeDefined();
+    for (const token of ['--dur-fast', '--dur', '--dur-slow']) {
+      expect(block).toContain(`${token}: 0.01ms;`);
+    }
+    // Any literal duration in a component rule is a transition the reduced
+    // motion setting cannot reach.
+    const literalDurations = [...CSS.matchAll(/transition[^;]*?(\d+m?s)\b/g)].map((m) => m[0]);
+    expect(literalDurations).toEqual([]);
   });
 });

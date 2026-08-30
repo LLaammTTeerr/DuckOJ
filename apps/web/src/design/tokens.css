@@ -1,0 +1,251 @@
+/*
+ * DuckOJ design tokens — the Liquid Glass material layer (D67).
+ *
+ * This file owns the MATERIAL: neutrals, glass surfaces, radii, blur,
+ * shadows, spacing, motion and the two font stacks. It owns no MEANING.
+ * The two semantic colour scales — the verdict hues and the D46 rank ramp —
+ * stay in `app.css`, beside the `.badge`/`.case`/`.rank` rules that carry
+ * them and beside the header comment that governs them; `test/user.spec.tsx`
+ * reads `src/app.css` as text and asserts the rank scale lives there, and
+ * splitting a scale from the rule that paints it is how the two drift.
+ *
+ * The direction is Apple's Liquid Glass: translucent layered surfaces over a
+ * quiet ground, hairline specular edges, soft depth, continuous-feeling
+ * corners, motion that is fluid but short. Two properties of that language
+ * are load-bearing here rather than decorative:
+ *
+ *   1. GLASS IS FOR CHROME, NOT FOR CONTENT. Navigation, panels, controls
+ *      and chips are glass; the text, tables and statements they carry sit on
+ *      their own opaque-enough layer. A judge is read, not admired, and a
+ *      scoreboard blurred into its own background is a scoreboard nobody can
+ *      scan.
+ *   2. EVERY GLASS SURFACE HAS A SOLID TWIN. `prefers-reduced-transparency`
+ *      and a browser without `backdrop-filter` both resolve every `--glass-*`
+ *      token to `--panel` and every `--blur-*` to `0px`, in one place, at the
+ *      bottom of this file. No component rule has to remember.
+ *
+ * Because the ground is a two-stop wash this app draws itself — never a
+ * photograph, never user imagery — the composite behind every pane is
+ * knowable, and D67 records the measured contrast of each text/glass pairing
+ * against the lightest and darkest pixel that wash can produce.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* ── type ───────────────────────────────────────────────────────────────
+   * Two stacks, deliberately. Body prose moves to the system UI face (D67
+   * amends D18's "IBM Plex Mono only"): Vietnamese diacritics are what a
+   * system UI face is best at, at 14px, on the phone a contestant owns.
+   * Everything a competitor READS AS DATA — code, verdicts, case grids,
+   * tables, scoreboards, numbers — stays on the vendored IBM Plex Mono,
+   * which is the subset that was self-hosted for exactly that text.
+   * No web-font download is added; `--font-ui` resolves entirely locally.
+   */
+  --font-ui: -apple-system, 'SF Pro Text', 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* ── ground ─────────────────────────────────────────────────────────────
+   * `--bg` is the flat floor; the two washes are the only "scene" behind the
+   * glass, and their alphas are low on purpose — this is a judge, not a
+   * wallpaper. Their composites over `--bg` are the backgrounds D67's
+   * contrast table measures against.
+   */
+  --bg: #eceef3;
+  --wash-1: rgba(108, 134, 178, 0.2);
+  --wash-2: rgba(168, 142, 186, 0.14);
+
+  /* ── neutrals ───────────────────────────────────────────────────────── */
+  --fg: #14171c;
+  --dim: #4b535f;
+  --faint: #757e8b;
+  --line: rgba(18, 22, 28, 0.14);
+  --sel: rgba(18, 22, 28, 0.055);
+  /* The solid twin every glass token collapses to. Also the print surface. */
+  --panel: #ffffff;
+
+  /* ── glass ──────────────────────────────────────────────────────────────
+   * Four depths, not a continuum: the floating bar, a page sheet, a raised
+   * card that sits on a sheet, and an inset well (a field, a code block, a
+   * badge's backing). `--glass-stroke` is the specular hairline on the lit
+   * edge; `--glass-edge` is the shadowed outer edge that separates a pane
+   * from whatever it floats over.
+   */
+  --glass-bar: rgba(255, 255, 255, 0.78);
+  --glass-sheet: rgba(255, 255, 255, 0.72);
+  --glass-raised: rgba(255, 255, 255, 0.86);
+  --glass-inset: rgba(255, 255, 255, 0.62);
+  --glass-stroke: rgba(255, 255, 255, 0.75);
+  --glass-edge: rgba(16, 20, 26, 0.1);
+  /* The lit top edge, painted as a background-image on a ::before so it never
+     costs a wrapper element. Fades out well before the middle: a specular
+     highlight is an edge, and a gradient across a whole pane is a gradient. */
+  --glass-specular: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(255, 255, 255, 0.24) 38%,
+    rgba(255, 255, 255, 0) 64%
+  );
+
+  --blur-bar: 24px;
+  --blur-sheet: 18px;
+  --blur-chip: 12px;
+  /* Saturation is what makes backdrop blur read as glass rather than as fog:
+     the ground's colour survives the blur instead of washing to grey. */
+  --glass-saturate: 180%;
+
+  /* ── radii ──────────────────────────────────────────────────────────────
+   * CSS has no squircle, so the continuous-corner feel is approximated the
+   * only way it can be: generous radii, and a consistent step between a
+   * control (10px) and the pane holding it (18px) so corners stay concentric
+   * rather than parallel.
+   */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-xl: 26px;
+  --r-pill: 999px;
+
+  /* ── depth ──────────────────────────────────────────────────────────────
+   * Two shadows per level: a tight contact shadow that grounds the pane, and
+   * a wide soft one that gives it altitude. `--shadow-bar` is the highest.
+   */
+  --shadow-1: 0 1px 2px rgba(16, 20, 26, 0.07);
+  --shadow-2:
+    0 1px 2px rgba(16, 20, 26, 0.06), 0 8px 24px -8px rgba(16, 20, 26, 0.14);
+  --shadow-3:
+    0 1px 3px rgba(16, 20, 26, 0.08), 0 18px 44px -14px rgba(16, 20, 26, 0.24);
+  --shadow-bar:
+    0 1px 2px rgba(16, 20, 26, 0.06), 0 12px 32px -12px rgba(16, 20, 26, 0.26);
+
+  /* ── space ──────────────────────────────────────────────────────────────
+   * A 4px grid. `--space` is kept under its old name because rules written
+   * against it (table margins, button margins) predate this file.
+   */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+  --space: 1rem;
+  --measure: 68ch;
+
+  /* The smallest thing a thumb may hit, and the smallest thing a mouse may.
+     Both are tokens because the dense tables deliberately use the second:
+     WCAG 2.2's 24px minimum with spacing, not the 44px a page-level control
+     gets — a 44px-tall button in every row of a scoreboard destroys the
+     scanning the table exists for. */
+  --tap: 44px;
+  --tap-dense: 24px;
+
+  /* ── motion ─────────────────────────────────────────────────────────────
+   * Fluid but restrained: nothing longer than a third of a second, and the
+   * easing is Apple-ish — fast out of the gate, long settle. Every duration
+   * is a token so `prefers-reduced-motion` can flatten all of them at once.
+   */
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 300ms;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-inout: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── dark ─────────────────────────────────────────────────────────────────
+ * Not an inversion. Dark glass is a dark tint that LETS the ground through
+ * (low alpha over a near-black floor would go muddy), the specular hairline
+ * becomes a faint white edge rather than a bright one, and the outer edge
+ * becomes shadow rather than a line.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0e12;
+    --wash-1: rgba(64, 96, 150, 0.22);
+    --wash-2: rgba(122, 78, 128, 0.16);
+
+    --fg: #e7e9ee;
+    --dim: #aeb8c6;
+    --faint: #79838f;
+    --line: rgba(255, 255, 255, 0.13);
+    --sel: rgba(255, 255, 255, 0.06);
+    --panel: #171b22;
+
+    --glass-bar: rgba(24, 28, 35, 0.7);
+    --glass-sheet: rgba(26, 31, 38, 0.62);
+    --glass-raised: rgba(35, 41, 50, 0.74);
+    --glass-inset: rgba(0, 0, 0, 0.24);
+    --glass-stroke: rgba(255, 255, 255, 0.14);
+    --glass-edge: rgba(0, 0, 0, 0.5);
+    --glass-specular: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.16) 0%,
+      rgba(255, 255, 255, 0.05) 38%,
+      rgba(255, 255, 255, 0) 64%
+    );
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+    --shadow-3: 0 1px 3px rgba(0, 0, 0, 0.45), 0 18px 44px -14px rgba(0, 0, 0, 0.7);
+    --shadow-bar: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 32px -12px rgba(0, 0, 0, 0.7);
+  }
+}
+
+/* ── the solid twin ───────────────────────────────────────────────────────
+ * Two triggers, one outcome. A reader who has asked their OS to reduce
+ * transparency, and a browser that cannot composite a backdrop filter at all,
+ * must both get the same fully opaque interface — not a half-glass one, and
+ * not an unreadable one. Collapsing the tokens rather than rewriting the
+ * component rules is what makes that true for every surface added later,
+ * including any added by a screen this file has never heard of.
+ *
+ * `--glass-inset` keeps a hairline of its own in this mode (`--sel`) so a
+ * field, a code block and a badge backing stay distinguishable from the pane
+ * they sit in once the blur that separated them is gone.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-bar: var(--panel);
+    --glass-sheet: var(--panel);
+    --glass-raised: var(--panel);
+    --glass-inset: var(--sel);
+    --glass-specular: none;
+    --glass-stroke: var(--line);
+    --blur-bar: 0px;
+    --blur-sheet: 0px;
+    --blur-chip: 0px;
+    --glass-saturate: 100%;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-bar: var(--panel);
+    --glass-sheet: var(--panel);
+    --glass-raised: var(--panel);
+    --glass-inset: var(--sel);
+    --glass-specular: none;
+    --glass-stroke: var(--line);
+    --blur-bar: 0px;
+    --blur-sheet: 0px;
+    --blur-chip: 0px;
+    --glass-saturate: 100%;
+  }
+}
+
+/* ── stillness ────────────────────────────────────────────────────────────
+ * Reduced motion flattens the durations to a value that still fires
+ * `transitionend` (a listener waiting on one must not hang) but is not seen,
+ * and neutralises the two easings so nothing overshoots.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms;
+    --dur: 0.01ms;
+    --dur-slow: 0.01ms;
+    --ease: linear;
+    --ease-inout: linear;
+  }
+}

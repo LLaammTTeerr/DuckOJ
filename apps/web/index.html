@@ -2,7 +2,15 @@
 <html lang="vi">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- `viewport-fit=cover` is load-bearing, not cosmetic: without it
+         `env(safe-area-inset-bottom)` always resolves to 0, and the phone
+         shell nav (a fixed glass bar at the bottom edge — app.css's
+         `@media (max-width: 700px)` block, D67) sits under the home
+         indicator on every notched phone. `initial-scale=1` with no
+         `maximum-scale`/`user-scalable` so pinch-zoom stays available. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- The chrome around the page follows the scheme the stylesheet does. -->
+    <meta name="color-scheme" content="light dark" />
     <title>DuckOJ</title>
   </head>
   <body>
