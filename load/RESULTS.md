@@ -417,3 +417,99 @@ question**, because the planner correctly refuses to use an index that would
 not help. The honest result is "cleared at this scale, and this scale is not
 the one that matters" — the province-scale version needs a seeded database,
 which is how the last two real index findings were both made.
+
+## 2026-08-31 — c1: the consolidation re-baseline
+
+B-12/B-9's tables above predate a great deal — the editor, the CSRF origin
+guard (D82), the submission meter (D80), teams (D99), the monitor (D95/D100),
+the per-problem counter cache. This is the whole profile re-measured against
+the **deployed** stack, which is `main` at **`9bb8291`** (the post-B-19 merge;
+this consolidation branch's own changes are NOT deployed and do not touch the
+runtime). Same host, same 16 cores, k6 sharing the box as always, host load
+0.5–1.7 at the start of each read run.
+
+### 500-VU read profile — the clean A/B against B12
+
+Same `load/k6-contest-day.js`, same 45/17/10/10/8/5/4/1 mix, `VUS=500
+DURATION=60s`, cookieless, host load 0.6. 121,926 requests, **0 failed**,
+`leg_errors` 0.00%.
+
+| route | B12 (`f960b06…`) | c1 (`9bb8291`) | change |
+| --- | --- | --- | --- |
+| `problem_stats` | 455 ms | **412 ms** | −9% |
+| `problem_detail` | 455 ms | **411 ms** | −10% |
+| `scoreboard` | 369 ms | **362 ms** | −2% |
+| `booklet` | 323 ms | **280 ms** | −13% |
+| `clarifications` | 304 ms | **275 ms** | −10% |
+| `problems_list` | 305 ms | **277 ms** | −9% |
+| `problems_filtered` | 159 ms | **142 ms** | −11% |
+| `tags_list` | 152 ms | **138 ms** | −9% |
+| **aggregate p95** | 428 ms | **397 ms** ✓ | −7% |
+| req/s | 1716 | **1734** | +1% |
+
+**Every route is under the 800 ms bar and every route improved on B12.** No
+regression in either direction — the whole table moved the right way, by the
+margin a slightly newer build and a quiet host buy. This is the row to trust:
+identical script, identical mix, identical VU count, minutes-apart A/B.
+
+### The submission meter (D80) does NOT throttle the read profile
+
+Confirmed, not assumed. The k6 profile is **reads only** — it issues no `POST
+/submissions` — so D80 cannot touch it, and the 0.00% failure rate says it
+did not. Separately probed live: two `POST /submissions` back-to-back on one
+fresh account returned **201 then 429 `submission_rate_limited`**, so the
+meter is deployed and enforcing. It throttles the *soak* (below) by design and
+is the reason the soak needs many accounts; it is invisible to the read k6.
+
+### 2000-VU headline (the one-shot)
+
+Full profile: 2 min ramp to 2000, 3 min hold, 30 s down. 535,593 requests,
+**0 failed**, `leg_errors` 0.00%, `vus` reached the full 2000. Host load ~1.7
+at start.
+
+| | req/s | p95 all | problems_list | problem_detail | scoreboard | problem_stats |
+| --- | --- | --- | --- | --- | --- | --- |
+| B12 (`f960b06…`) | 1557 | 2.15 s | 1.68 s | 2.52 s | 1.97 s | 2.55 s |
+| c1 (`9bb8291`) | **1623** | **1.73 s** | **1.20 s** | **1.77 s** | **1.78 s** | **1.80 s** |
+
++4% throughput, −20% aggregate p95, and every per-route p95 down 10–30% on
+B12. The 800 ms bar is still crossed on the heavier routes — this is the same
+four-worker saturation ceiling this file has documented since P8, with the
+same unpulled lever (`API_WORKERS=8` + a `max_connections` raise, which needs
+a redeploy). `problems_filtered` (614 ms) and `tags_list` (610 ms) stay under
+the bar even at 2000 VUs.
+
+### Judging soak — the single judge now keeps up
+
+200 AC C++ solutions to `tong-hai-so` (12 tests, 1000 ms) from **20 throwaway
+`c1-soak-*` accounts**, 10 each, round-robin one every 1.5 s = **40/min**, the
+same arrival rate B12 offered. Twenty accounts (not B12's five) because D80
+now caps each account at 20/10 min and 1/10 s; at 30 s per-account spacing the
+soak measures the judge, not the meter. Same single-judge topology as B12
+(`duckoj_judge_1`, `JUDGED_CONCURRENCY=1`).
+
+| | B12 (`f960b06…`) | c1 (`9bb8291`) |
+| --- | --- | --- |
+| verdicts | 200/200 AC | **200/200 AC**, 0 rejected, 0 internal errors |
+| measured throughput | 35.3/min | **39.4/min** (offered 40/min) |
+| queue depth (peak → end) | 23 → 0 | **2 → 0** |
+| TTV p50 | 24.0 s | **1.1 s** |
+| TTV p95 | 39.3 s | **1.5 s** |
+| TTV min / max | 2.9 s / 41.2 s | **0.7 s / 2.0 s** |
+| drain past last submit | 40 s | **0 s** |
+
+**The 12% deficit B12 measured is gone: the queue never built past 2 and TTV
+stayed near its unloaded floor.** B12's queue climbed linearly to 23 because
+its per-grade cost (first-submission TTV 2.9 s) put throughput below the
+offered rate; here the first submission verdicts in 0.7 s and the judge clears
+each faster than they arrive, so a room offering 40/min is served with p95 TTV
+of 1.5 s. Same single judge — the improvement is per-grade cost (a warmer
+build and a quiet host), not more judges. The B-12 conclusion still holds in
+principle: a room whose *sustained* aggregate exceeds this judge's ceiling
+needs a second judge (F11's multi-judge path), but that ceiling is now
+comfortably above 40/min rather than just below it.
+
+*Measured by the c1 consolidation loop, 2026-08-31, against deployed
+`9bb8291`. Left on the live stack: 20 `c1-soak-*` accounts plus one
+`c1-soak-*-probe`, and their 202 AC submissions on `tong-hai-so`. Nothing was
+stopped or rebuilt.*
