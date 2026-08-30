@@ -140,3 +140,35 @@ describe('the rank scale', () => {
     }
   });
 });
+
+/**
+ * The rating query used to fold every failure into `[]` (`return data ?? []`),
+ * and an empty history renders as "Chưa được xếp hạng" — so a 500, a
+ * dropped connection or an API restart told the reader this person has never
+ * been rated. That is a statement about somebody, made from no evidence.
+ */
+describe('UserPage — the rating history', () => {
+  it('reports a failed rating request instead of claiming the user is unrated', async () => {
+    get.mockImplementation((path: string) =>
+      path === '/users/{username}/rating'
+        ? Promise.resolve({ error: { detail: 'boom' }, response: { status: 500 } })
+        : Promise.resolve({ data: PROFILE }),
+    );
+    wrap(<UserPage username="kim" />);
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('Chưa được xếp hạng.')).toBeNull();
+  });
+
+  it('still says "not rated" when the history is genuinely empty', async () => {
+    get.mockImplementation((path: string) =>
+      path === '/users/{username}/rating'
+        ? Promise.resolve({ data: [] })
+        : Promise.resolve({ data: PROFILE }),
+    );
+    wrap(<UserPage username="kim" />);
+
+    expect(await screen.findByText('Chưa được xếp hạng.')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
