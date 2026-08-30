@@ -313,4 +313,84 @@ describe('EventWriter', () => {
       errorSpy.mockRestore();
     });
   }, 120_000);
+
+  /**
+   * Final review's **m7**, closed.
+   *
+   * `apply` checks `isCurrentAttempt` once — a separate SELECT — and then
+   * inserts case rows. Every `submissions` UPDATE folds the attempt into its
+   * own WHERE (`fencedById`), but the `submission_cases` INSERT did not: it
+   * was check-then-act, and `RejudgeService.requeueAll` bumps `attempt` on the
+   * same `grading_jobs` row and DELETEs the old case rows. A stale insert
+   * landing in that gap re-creates rows for the superseded attempt, and
+   * `getVisible` picks the attempt by `max(attempt)` — so until the re-claim
+   * reports its first case, the UI shows the OLD per-case verdicts beside a
+   * `queued` submission.
+   *
+   * Deterministic, not a race: the check is stubbed to have already passed,
+   * and the supersession is applied in the gap it leaves.
+   */
+  it('does not insert case rows for an attempt superseded between the check and the insert', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+
+      // The check has already passed — this is the state `apply` is in when
+      // it reaches the insert.
+      vi.spyOn(store, 'isCurrentAttempt').mockResolvedValue(true);
+      // …and a rejudge lands in the gap.
+      await db.execute(
+        sql`update grading_jobs set attempt = attempt + 1 where id = ${job.id}`,
+      );
+
+      await writer.apply(job, {
+        type: 'caseResult',
+        groupIndex: 0,
+        caseIndex: 0,
+        verdict: 'AC',
+        skipped: false,
+        flags: [],
+        timeMs: 1,
+        memoryKb: 1,
+        points: 10,
+        maxPoints: 10,
+        feedback: '',
+      });
+
+      const rows = await db
+        .select()
+        .from(submissionCases)
+        .where(eq(submissionCases.submissionId, submissionId));
+      expect(rows).toEqual([]);
+    });
+  }, 120_000);
+
+  it('still inserts the case row for the current attempt', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+
+      await writer.apply(job, {
+        type: 'caseResult',
+        groupIndex: 0,
+        caseIndex: 0,
+        verdict: 'AC',
+        skipped: false,
+        flags: [],
+        timeMs: 1,
+        memoryKb: 1,
+        points: 10,
+        maxPoints: 10,
+        feedback: '',
+      });
+
+      const rows = await db
+        .select()
+        .from(submissionCases)
+        .where(eq(submissionCases.submissionId, submissionId));
+      expect(rows).toHaveLength(1);
+    });
+  }, 120_000);
 });
