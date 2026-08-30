@@ -173,6 +173,22 @@
   --ce: #0969da;
   --pend: #4b535f;
 
+  /* The syntax scale (D84) — the submit editor's only colours.
+     A THIRD semantic scale, and it earns its place the same way the rank
+     ramp did: it means something the verdict hues do not. It is deliberately
+     narrow (seven roles, not the thirty a full theme paints) and it is
+     deliberately NOT reused from the verdict palette — a `wa` red on the
+     word `return` would teach a reader that red means wrong here too.
+     Measured on `--glass-inset` in both schemes; the dimmest role, the
+     comment, is the one that has to clear 4.5:1 and does. */
+  --syn-keyword: #8250df;
+  --syn-string: #0a5a3c;
+  --syn-comment: #5a6169;
+  --syn-number: #0550ae;
+  --syn-type: #8a4600;
+  --syn-name: #1f4bb8;
+  --syn-punct: #57606a;
+
   /* The rank scale (D46) — see `.rank` below for why it is allowed to
      exist beside the verdict hues, and why it looks nothing like them. */
   --rank-newbie: #5f6570;
@@ -199,6 +215,14 @@
     --ie: #a371f7;
     --ce: #58a6ff;
     --pend: #aeb8c6;
+
+    --syn-keyword: #d2a8ff;
+    --syn-string: #7ee2a8;
+    --syn-comment: #9aa4b0;
+    --syn-number: #79c0ff;
+    --syn-type: #ffa657;
+    --syn-name: #a8c7ff;
+    --syn-punct: #9aa4b0;
 
     --rank-newbie: #9aa0a8;
     --rank-pupil: #8fb69c;
@@ -1124,6 +1148,175 @@ textarea:disabled {
   background: var(--sel);
   color: var(--dim);
   cursor: not-allowed;
+}
+
+/* --- the submit editor (D84) --------------------------------------------
+ * CodeMirror 6 replaced the submit page's <textarea>. The MATERIAL — the
+ * inset well, the hairline, the mono face, the caret — is set in JS
+ * (`src/editor/code-editor.tsx`) from tokens, because CodeMirror composes
+ * its own stylesheet and a rule here would be fighting it for specificity.
+ * What lives HERE is what D67 says lives here: the size of the thing, the
+ * controls around it, and the one semantic colour scale it paints.
+ */
+.editor-host,
+.editor-pending {
+  margin: var(--sp-2) 0;
+}
+
+/* The height is a stylesheet decision, not a prop: a phone gets 40vh so the
+   keyboard, the statement link and the submit button all still fit on
+   screen with it, and a desktop gets a fixed 22rem so the verdict panel
+   below does not walk down the page as the solution grows. `.editor-pending`
+   matches exactly, so the form does not jump when the lazy chunk lands. */
+.editor-host .cm-editor,
+.editor-pending {
+  height: 22rem;
+}
+
+.editor-pending {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--glass-inset);
+}
+
+/* The row above the editor: open-a-file on the left, the two font-size
+   steppers on the right. */
+.editor-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.editor-font {
+  margin-left: auto;
+  display: inline-flex;
+  gap: var(--sp-1);
+}
+
+.editor-tools button {
+  margin-top: 0;
+  min-height: var(--tap-dense);
+  padding: 0 var(--sp-3);
+  font-family: var(--font-mono);
+}
+
+/* A file input renders as a browser-drawn control that no token can reach,
+   and the `input { width: 100% }` form rule stretched it across the page.
+   The LABEL is the button; the input itself is present, focusable and
+   keyboard-reachable, just not painted. */
+.editor-upload {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+}
+
+.editor-upload span {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-dense);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--glass-stroke);
+  border-radius: var(--r-pill);
+  background-color: var(--glass-raised);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+}
+
+.editor-upload input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-height: 0;
+  opacity: 0;
+}
+
+.editor-upload:focus-within span {
+  border-color: var(--fg);
+}
+
+/* The draft notice and the size counter are both status text, not data. */
+.editor-note {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--dim);
+  margin: var(--sp-2) 0 0;
+}
+
+.editor-size {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--dim);
+  margin: var(--sp-1) 0 var(--sp-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* Past the contract's 64 KiB the submit button is disabled, so the counter
+   has to say why in something other than the button's own grey. */
+.editor-size.over {
+  color: var(--wa);
+  font-weight: 600;
+}
+
+/* Syntax. `classHighlighter` (@lezer/highlight) emits these stable class
+   names for every grammar, so C++, Python and Java share one palette and a
+   fourth language added later is coloured the day it arrives. */
+.cm-content .tok-keyword {
+  color: var(--syn-keyword);
+}
+.cm-content .tok-comment {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+.cm-content .tok-string,
+.cm-content .tok-string2,
+.cm-content .tok-literal {
+  color: var(--syn-string);
+}
+.cm-content .tok-number,
+.cm-content .tok-bool,
+.cm-content .tok-atom {
+  color: var(--syn-number);
+}
+.cm-content .tok-typeName,
+.cm-content .tok-className,
+.cm-content .tok-namespace {
+  color: var(--syn-type);
+}
+.cm-content .tok-propertyName,
+.cm-content .tok-macroName,
+.cm-content .tok-meta,
+.cm-content .tok-labelName {
+  color: var(--syn-name);
+}
+.cm-content .tok-operator,
+.cm-content .tok-punctuation {
+  color: var(--syn-punct);
+}
+/* An unparsable token is the one place the editor borrows a verdict hue,
+   and it is the right one: this is the compiler error, early. */
+.cm-content .tok-invalid {
+  color: var(--wa);
+  text-decoration: underline wavy;
+}
+
+/* D76's breakpoint, reused rather than re-guessed. 22rem of editor plus a
+   soft keyboard leaves nothing of the page on a 390px screen; 40vh leaves
+   the submit button and the size counter reachable without scrolling the
+   editor out of view. */
+@media (max-width: 700px) {
+  .editor-host .cm-editor,
+  .editor-pending {
+    height: 40vh;
+  }
 }
 
 /* --- buttons -----------------------------------------------------------

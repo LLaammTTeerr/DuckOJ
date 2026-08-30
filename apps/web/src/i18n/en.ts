@@ -254,6 +254,16 @@ export const en = {
   'submit.title': 'Submit a solution — {code}',
   'submit.language': 'Language',
   'submit.sourceCode': 'Source code',
+  // The editor (D84). `{size}`/`{max}` are character counts, matching the
+  // contract's own `z.string().max()`, which counts UTF-16 code units.
+  'submit.sourceSize': '{size} / {max} characters',
+  'submit.sourceTooLarge': 'The source is longer than the {max}-character limit. Trim it before submitting.',
+  'submit.editorHint': 'Ctrl/Cmd + Enter submits · Tab indents',
+  'submit.draftRestored': 'Restored the draft you left here.',
+  'submit.uploadFile': 'Open a file',
+  'submit.uploadFailed': 'That file could not be read.',
+  'submit.fontSmaller': 'Smaller editor text',
+  'submit.fontLarger': 'Larger editor text',
   'submit.submit': 'Submit',
   'submit.gate': 'Sign in to submit a solution.',
   'submit.failed': 'Submission failed.',

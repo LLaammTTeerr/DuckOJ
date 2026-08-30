@@ -238,6 +238,16 @@ export const vi = {
   'submit.title': 'Nộp bài giải — {code}',
   'submit.language': 'Ngôn ngữ',
   'submit.sourceCode': 'Mã nguồn',
+  // Trình soạn thảo (D84). `{size}`/`{max}` đếm theo ký tự, đúng như
+  // `z.string().max()` của contract.
+  'submit.sourceSize': '{size} / {max} ký tự',
+  'submit.sourceTooLarge': 'Mã nguồn dài hơn giới hạn {max} ký tự. Hãy rút gọn trước khi nộp.',
+  'submit.editorHint': 'Ctrl/Cmd + Enter để nộp · Tab để thụt lề',
+  'submit.draftRestored': 'Khôi phục bản nháp bạn để lại ở đây.',
+  'submit.uploadFile': 'Mở tệp',
+  'submit.uploadFailed': 'Không đọc được tệp này.',
+  'submit.fontSmaller': 'Thu nhỏ chữ trong trình soạn thảo',
+  'submit.fontLarger': 'Phóng to chữ trong trình soạn thảo',
   'submit.submit': 'Nộp bài',
   'submit.gate': 'Đăng nhập để nộp bài giải.',
   'submit.failed': 'Nộp bài không thành công.',

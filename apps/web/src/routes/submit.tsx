@@ -1,9 +1,20 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react';
 import { Link } from '@tanstack/react-router';
+import { CreateSubmissionRequest } from '@duckoj/contracts';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { ApiError, read } from '../api-error.js';
 import { formatPoints } from '../format.js';
+import { LazyCodeEditor } from '../editor/lazy.js';
+import { draftKey, loadDraft, useDraft } from '../editor/drafts.js';
+import { templateForLanguage } from '../editor/languages.js';
 import { useT, verdictName, type MsgKey, type TFunction } from '../i18n/index.js';
 
 export type SubmissionDetail =
@@ -25,6 +36,31 @@ const STATE_KEYS: Record<SubmissionState, MsgKey> = {
 
 const TERMINAL_STATES: ReadonlySet<SubmissionState> = new Set(['done', 'errored']);
 
+/**
+ * The ceiling the API itself enforces, read off the contract rather than
+ * retyped. `CreateSubmissionRequest.source` is `z.string().max(64 * 1024)`,
+ * so a longer paste is a 422 — and a counter that disagreed with the server
+ * about the number would be worse than no counter.
+ *
+ * It counts UTF-16 code units, exactly as Zod's `.max()` does. A byte count
+ * (`new Blob([source]).size`) would read differently the moment a pupil
+ * writes a Vietnamese comment, and would be wrong about which side of the
+ * limit they were on.
+ */
+export const MAX_SOURCE_CHARS: number = CreateSubmissionRequest.shape.source.maxLength ?? 64 * 1024;
+
+/**
+ * The editor's font sizes, smallest first. A phone screen is where this
+ * matters — 13.5px of monospace at 390px is about 42 columns, which is
+ * narrower than one line of the C++ template — so the toggle is not a
+ * desktop preference panel, it is the phone's only way to see the code.
+ */
+const FONT_SIZES = [11.5, 13.5, 16, 19] as const;
+const DEFAULT_FONT_INDEX = 1;
+
+/** What a file picker will accept as a solution. */
+const UPLOAD_ACCEPT = '.cpp,.py,.java,.c,.txt';
+
 export interface SubmitValues {
   languageKey: string;
   source: string;
@@ -33,25 +69,118 @@ export interface SubmitValues {
 /**
  * Presentational only: props in, callback out. No server access, so it is
  * testable on its own.
+ *
+ * `onSubmit` answers whether the submission was ACCEPTED. The draft is
+ * cleared on `true` and kept on `false`, which is the whole point of the
+ * return value: a submission the API rejected (a closed contest window, a
+ * rate limit, a dead network) must not also cost the pupil their code.
  */
 export function SubmitForm(props: {
-  onSubmit: (values: SubmitValues) => Promise<void> | void;
+  onSubmit: (values: SubmitValues) => Promise<boolean> | boolean;
   languages: string[];
   busy: boolean;
+  /** Drafts are keyed per (problem, language) — see `editor/drafts.ts`. */
+  problemCode: string;
 }) {
   const t = useT();
-  const [languageKey, setLanguageKey] = useState(() => props.languages[0] ?? '');
-  const [source, setSource] = useState('');
+  const firstLanguage = props.languages[0] ?? '';
+  const [languageKey, setLanguageKey] = useState(firstLanguage);
+
+  /**
+   * The buffer's opening contents, decided once: a draft left behind on a
+   * previous visit wins, and only a genuinely empty editor gets the
+   * language's starter template. Computed in a ref rather than in two
+   * `useState` initialisers so `localStorage` is read exactly once.
+   */
+  const opening = useRef<{ source: string; restored: boolean } | null>(null);
+  if (opening.current === null) {
+    const stored = loadDraft(draftKey(props.problemCode, firstLanguage));
+    opening.current = {
+      source: stored ?? templateForLanguage(firstLanguage),
+      restored: stored !== null,
+    };
+  }
+  const [source, setSource] = useState(opening.current.source);
+  const [restored, setRestored] = useState(opening.current.restored);
+  const [fontIndex, setFontIndex] = useState(DEFAULT_FONT_INDEX);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const draft = useDraft(props.problemCode, languageKey);
+
+  const tooLarge = source.length > MAX_SOURCE_CHARS;
+  const blocked = props.busy || tooLarge;
+
+  /** A change the PUPIL made — the only kind that starts the autosave clock. */
+  function edit(next: string): void {
+    setSource(next);
+    // The notice describes the moment the page opened. Once they have typed,
+    // it is just a stale banner over their own work.
+    setRestored(false);
+    draft.schedule(next);
+  }
+
+  /**
+   * The submit path shared by the button and Ctrl/Cmd+Enter. Held in a ref
+   * as well, because the editor's keymap is built once and would otherwise
+   * capture the first render's `source` forever.
+   */
+  async function submit(): Promise<void> {
+    if (blocked) return;
+    const accepted = await props.onSubmit({ languageKey, source });
+    if (accepted) {
+      draft.clear();
+      setRestored(false);
+    }
+  }
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
 
   function handleSubmit(event: FormEvent): void {
     event.preventDefault();
-    void props.onSubmit({ languageKey, source });
+    void submitRef.current();
+  }
+
+  /**
+   * Switching language KEEPS the code. A pupil who opens the dropdown to
+   * read the options must not lose a half-written program to it, and the
+   * same algorithm is often retyped rather than rewritten. Only an editor
+   * that is already empty takes on the new language's draft — or, failing
+   * that, its starter template, which is the one moment a template is
+   * inserted after the first render.
+   */
+  function changeLanguage(next: string): void {
+    setLanguageKey(next);
+    if (source !== '') return;
+    const stored = loadDraft(draftKey(props.problemCode, next));
+    setSource(stored ?? templateForLanguage(next));
+    setRestored(stored !== null);
+  }
+
+  async function handleUpload(event: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const input = event.target;
+    const file = input.files?.[0];
+    // Resetting the value is what lets the same file be picked twice in a
+    // row after an edit — without it the second `change` never fires.
+    input.value = '';
+    if (!file) return;
+    setUploadError(null);
+    try {
+      edit(await file.text());
+    } catch {
+      setUploadError(t('submit.uploadFailed'));
+    }
   }
 
   return (
     <form onSubmit={handleSubmit}>
       <label htmlFor="language">{t('submit.language')}</label>
-      <select id="language" value={languageKey} onChange={(e) => setLanguageKey(e.target.value)}>
+      <select
+        id="language"
+        value={languageKey}
+        onChange={(e) => {
+          changeLanguage(e.target.value);
+        }}
+      >
         {/* The option text is the API's own language key (`cpp17`), which is
             an identifier, not a word — untranslated on purpose. */}
         {props.languages.map((lang) => (
@@ -61,8 +190,64 @@ export function SubmitForm(props: {
         ))}
       </select>
       <label htmlFor="source">{t('submit.sourceCode')}</label>
-      <textarea id="source" value={source} onChange={(e) => setSource(e.target.value)} />
-      <button type="submit" disabled={props.busy}>
+      <div className="editor-tools">
+        <label className="editor-upload">
+          <span>{t('submit.uploadFile')}</span>
+          <input
+            type="file"
+            accept={UPLOAD_ACCEPT}
+            aria-label={t('submit.uploadFile')}
+            onChange={(e) => {
+              void handleUpload(e);
+            }}
+          />
+        </label>
+        <span className="editor-font">
+          <button
+            type="button"
+            aria-label={t('submit.fontSmaller')}
+            disabled={fontIndex === 0}
+            onClick={() => {
+              setFontIndex((i) => Math.max(0, i - 1));
+            }}
+          >
+            A-
+          </button>
+          <button
+            type="button"
+            aria-label={t('submit.fontLarger')}
+            disabled={fontIndex === FONT_SIZES.length - 1}
+            onClick={() => {
+              setFontIndex((i) => Math.min(FONT_SIZES.length - 1, i + 1));
+            }}
+          >
+            A+
+          </button>
+        </span>
+      </div>
+      {restored ? (
+        <p className="editor-note" role="status">
+          {t('submit.draftRestored')}
+        </p>
+      ) : null}
+      <LazyCodeEditor
+        id="source"
+        value={source}
+        onChange={edit}
+        onSubmit={() => {
+          void submitRef.current();
+        }}
+        languageKey={languageKey}
+        ariaLabel={t('submit.sourceCode')}
+        fontSize={FONT_SIZES[fontIndex]!}
+      />
+      <p className={`editor-size${tooLarge ? ' over' : ''}`}>
+        <span>{t('submit.sourceSize', { size: source.length, max: MAX_SOURCE_CHARS })}</span>{' '}
+        <span className="muted">{t('submit.editorHint')}</span>
+      </p>
+      {tooLarge ? <p role="alert">{t('submit.sourceTooLarge', { max: MAX_SOURCE_CHARS })}</p> : null}
+      {uploadError ? <p role="alert">{uploadError}</p> : null}
+      <button type="submit" disabled={blocked}>
         {t('submit.submit')}
       </button>
     </form>
@@ -483,7 +668,12 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
 
   useSubmissionSocket(submissionId, fetchSubmission, terminalRef, handleSubscriptionError);
 
-  async function handleSubmit(values: SubmitValues): Promise<void> {
+  /**
+   * Answers whether the API ACCEPTED the submission — the form clears its
+   * saved draft on `true` and keeps it on `false`, so a rejected submission
+   * never also costs the pupil their code (D84).
+   */
+  async function handleSubmit(values: SubmitValues): Promise<boolean> {
     setBusy(true);
     setSubmitError(null);
     try {
@@ -497,10 +687,11 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
       });
       if (error || !data) {
         setSubmitError(error?.detail ?? t('submit.failed'));
-        return;
+        return false;
       }
       setSubmission(null);
       setSubmissionId(data.id);
+      return true;
     } catch {
       // openapi-fetch rethrows network-level failures (no `onError`
       // middleware registered) rather than returning them as `{ error }` —
@@ -509,6 +700,7 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
       // Without this, busy still resets via `finally`, but the click
       // otherwise does nothing visible.
       setSubmitError(t('common.networkError'));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -533,7 +725,12 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
           </Link>
         </p>
       )}
-      <SubmitForm onSubmit={handleSubmit} languages={LANGUAGES} busy={busy} />
+      <SubmitForm
+        onSubmit={handleSubmit}
+        languages={LANGUAGES}
+        busy={busy}
+        problemCode={problemCode}
+      />
       {submitError ? <p role="alert">{submitError}</p> : null}
       {submission ? <VerdictPanel submission={submission} /> : null}
     </section>
