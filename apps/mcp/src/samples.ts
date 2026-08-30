@@ -1,12 +1,14 @@
 /**
- * Samples, pulled out of the statement, because the API does not model them.
+ * Samples scraped out of a statement — the FALLBACK path since D94.
  *
- * `GET /problems/{code}` returns `statement` as one Markdown string and there
- * is no `samples` field anywhere in `openapi.json` — the sample input and
- * output live inside the prose, as a table, and that is where the web app
- * renders them from too. An agent asked to solve a problem needs them as
- * DATA (it has to feed them to a program), so this file is the one place that
- * turns the convention back into structure.
+ * `GET /problems/{code}` now carries `samples` read from the published
+ * revision's package (the files the judge grades against), so this file is no
+ * longer how `problems_get` answers; it is how it answers a DuckOJ deployed
+ * before D94, or a problem whose package the API could not read. An MCP
+ * client is routinely pointed at an older server than the SDK it was built
+ * against, and dropping the scraper outright would turn "your API is a
+ * version behind" into "this problem has no samples" — silently, which is the
+ * exact failure D94 exists to end.
  *
  * It is deliberately narrow, and it says so in what it returns: the extractor
  * knows exactly the shape every DuckOJ statement uses — a Markdown table
@@ -14,15 +16,27 @@
  * backticked, `<br>` between lines — and returns an empty list rather than a
  * guess for anything else. A wrong sample is worse than no sample: it sends
  * an agent hunting a bug in a correct program. The `source` field in the tool
- * output says which of the two happened, so a caller that gets none knows to
- * read the statement itself instead of concluding the problem has no samples.
+ * output says which of the three happened (`api`, `statement-table`, `none`),
+ * so a caller that gets none knows to read the statement itself instead of
+ * concluding the problem has no samples.
+ *
+ * One difference from the API's samples matters and is not fixable here: a
+ * table cell is trimmed prose, so these strings carry no trailing newline,
+ * where `source: 'api'` hands back the sample file byte for byte.
  */
 
 export interface Sample {
   input: string;
   output: string;
-  /** The explanation column, when the table has one. */
+  /**
+   * The setter's prose for this sample: the manifest's `explanation` when the
+   * samples came from the API, the table's third column when they were
+   * scraped. One key for both, so an agent does not branch on `source` to
+   * read the same sentence.
+   */
   note?: string;
+  /** Only ever set by `source: 'api'`: the file was longer than the API inlines. */
+  truncated?: boolean;
 }
 
 /**
@@ -102,3 +116,47 @@ export function extractSamples(statement: string): Sample[] {
 
   return samples;
 }
+
+/** What a `problems_get` response says about where its samples came from. */
+export type SampleSource = 'api' | 'statement-table' | 'none';
+
+export interface ResolvedSamples {
+  source: SampleSource;
+  items: Sample[];
+}
+
+/**
+ * The samples for one problem, preferring the API's over the scraper's.
+ *
+ * `samples` is read with `?? []` rather than as the required field the
+ * contract says it is, because an MCP server is routinely pointed at a DuckOJ
+ * older than the SDK it was built against — the same reason the web reads
+ * `problem.editorial ?? null`. An older server sends no `samples` key at all,
+ * and reading it as an array would throw on the one call every agent makes
+ * first.
+ *
+ * An EMPTY array falls through to the scraper too, not just an absent one: a
+ * package the API could not read and a problem whose tests are all scored
+ * both answer `[]`, and the statement's table is the better answer than
+ * nothing in either case.
+ */
+export function resolveSamples(problem: {
+  statement: string;
+  samples?: Array<{ input: string; output: string; explanation: string | null; truncated: boolean }>;
+}): ResolvedSamples {
+  const fromApi = problem.samples ?? [];
+  if (fromApi.length > 0) {
+    return {
+      source: 'api',
+      items: fromApi.map((sample) => ({
+        input: sample.input,
+        output: sample.output,
+        ...(sample.explanation === null ? {} : { note: sample.explanation }),
+        ...(sample.truncated ? { truncated: true } : {}),
+      })),
+    };
+  }
+  const scraped = extractSamples(problem.statement);
+  return { source: scraped.length > 0 ? 'statement-table' : 'none', items: scraped };
+}
+

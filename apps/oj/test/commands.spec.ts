@@ -9,6 +9,7 @@ import {
   CliError,
   inferLanguage,
   listProblems,
+  showProblem,
   submit,
   watch,
   whoami,
@@ -259,5 +260,58 @@ describe('listProblems', () => {
     });
     await listProblems(clientWith({ GET: get }), io);
     expect(io.lines).toEqual(['aplusb\tA plus B']);
+  });
+});
+
+describe('showProblem', () => {
+  const detail = {
+    code: 'tong-hai-so',
+    name: 'Tổng hai số',
+    timeMs: 1000,
+    memoryKb: 262144,
+    totalPoints: 100,
+    samples: [
+      { input: '2 3\n', output: '5\n', explanation: null, truncated: false },
+      { input: '10 20\n', output: '30\n', explanation: 'Cộng hai số.', truncated: true },
+    ],
+  };
+
+  it('prints the limits and every sample as fenced blocks, without the file\'s trailing newline doubling', async () => {
+    const io = fakeIo();
+    const get = vi.fn().mockResolvedValue({ data: detail });
+    await showProblem(clientWith({ GET: get }), io, 'tong-hai-so');
+    expect(get.mock.calls[0]![1]).toEqual({ params: { path: { code: 'tong-hai-so' } } });
+    expect(io.lines).toEqual([
+      'tong-hai-so\tTổng hai số',
+      'limits: 1000 ms, 262144 KB · 100 points',
+      '--- sample 1 input',
+      '2 3',
+      '--- sample 1 output',
+      '5',
+      '--- sample 2 input (truncated)',
+      '10 20',
+      '--- sample 2 output',
+      '30',
+      '--- sample 2 note: Cộng hai số.',
+    ]);
+  });
+
+  it('says so rather than printing nothing when the problem has no samples', async () => {
+    const io = fakeIo();
+    const get = vi.fn().mockResolvedValue({ data: { ...detail, samples: [] } });
+    await showProblem(clientWith({ GET: get }), io, 'p');
+    expect(io.lines.at(-1)).toContain('no samples');
+  });
+
+  it('survives an API deployed before D94, which sends no samples key at all', async () => {
+    const io = fakeIo();
+    const get = vi.fn().mockResolvedValue({ data: { ...detail, samples: undefined } });
+    await showProblem(clientWith({ GET: get }), io, 'p');
+    expect(io.lines.at(-1)).toContain('no samples');
+  });
+
+  it('fails with the code in the message when the problem cannot be read', async () => {
+    const get = vi.fn().mockResolvedValue({ error: { code: 'problem_not_found' } });
+    await expect(showProblem(clientWith({ GET: get }), fakeIo(), 'nope')).rejects.toThrow(/nope/);
   });
 });

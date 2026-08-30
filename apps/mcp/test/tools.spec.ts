@@ -128,7 +128,45 @@ describe('problems_search', () => {
 });
 
 describe('problems_get', () => {
-  it('reads the problem and parses its samples out of the statement', async () => {
+  /**
+   * D94: the API's own `samples` win. The fixtures below deliberately make
+   * the two disagree — the package's files carry a trailing newline and an
+   * explanation, the statement's table carries neither — so a test that
+   * passes cannot be reading the wrong one.
+   */
+  const API_SAMPLES = [
+    { input: '2 3\n', output: '5\n', explanation: 'Cộng hai số.', truncated: false },
+  ];
+
+  it("prefers the API's samples, verbatim, over anything scraped out of the prose", async () => {
+    const result = await call('problems_get', { code: 'tong-hai-so' }, () =>
+      json({ ...PROBLEM_DETAIL, samples: API_SAMPLES }),
+    );
+    const data = result.data as { samples: { source: string; items: unknown[] } };
+    expect(data.samples).toEqual({
+      source: 'api',
+      items: [{ input: '2 3\n', output: '5\n', note: 'Cộng hai số.' }],
+    });
+  });
+
+  it('marks a truncated sample so an agent knows the file it has is not the whole file', async () => {
+    const result = await call('problems_get', { code: 'p' }, () =>
+      json({
+        ...PROBLEM_DETAIL,
+        samples: [{ input: 'x', output: 'y', explanation: null, truncated: true }],
+      }),
+    );
+    const data = result.data as { samples: { items: Array<{ truncated?: boolean; note?: string }> } };
+    expect(data.samples.items[0]).toEqual({ input: 'x', output: 'y', truncated: true });
+  });
+
+  it('falls back to the table when the API answers an empty list — an unreadable package, not "no samples"', async () => {
+    const result = await call('problems_get', { code: 'p' }, () => json({ ...PROBLEM_DETAIL, samples: [] }));
+    const data = result.data as { samples: { source: string; items: unknown[] } };
+    expect(data.samples).toEqual({ source: 'statement-table', items: [{ input: '2 3', output: '5' }] });
+  });
+
+  it('falls back to the table against an API deployed before D94, which sends no samples key at all', async () => {
     const result = await call('problems_get', { code: 'tong-hai-so' }, () => json(PROBLEM_DETAIL));
     expect(new URL(result.last.url).pathname).toBe('/api/v1/problems/tong-hai-so');
     const data = result.data as { samples: { source: string; items: unknown[] }; statement: string };

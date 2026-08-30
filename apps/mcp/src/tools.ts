@@ -25,7 +25,7 @@
  * fields it will actually use.
  */
 import { z } from 'zod';
-import { extractSamples } from './samples.js';
+import { resolveSamples } from './samples.js';
 import { ApiFailure, unwrap } from './errors.js';
 import { definedOnly, defineTool, type Client, type ToolContext, type ToolSpec } from './tool.js';
 
@@ -301,9 +301,9 @@ const readTools: ToolSpec[] = [
     name: 'problems_get',
     title: 'Read a problem',
     description:
-      'The full problem: statement Markdown, time and memory limits, the sample tests parsed out of ' +
-      'the statement, tags, difficulty and whether an editorial is available. This is what to read ' +
-      'before writing a solution.',
+      'The full problem: statement Markdown, time and memory limits, the sample tests as data, ' +
+      'tags, difficulty and whether an editorial is available. This is what to read before ' +
+      'writing a solution.',
     scope: 'problems:read',
     mutates: false,
     shape: { code: problemCode },
@@ -311,12 +311,12 @@ const readTools: ToolSpec[] = [
       const problem = unwrap(
         await client.GET('/problems/{code}', { params: { path: { code: args.code } } }),
       );
-      const samples = extractSamples(problem.statement);
+      const samples = resolveSamples(problem);
       return {
         summary:
           `${problem.code} — ${problem.name} ` +
           `(${problem.timeMs === null ? 'no' : String(problem.timeMs) + ' ms'} limit, ` +
-          `${String(samples.length)} sample(s))`,
+          `${String(samples.items.length)} sample(s))`,
         data: {
           ...problemSummary(problem),
           visibility: problem.visibility,
@@ -324,10 +324,13 @@ const readTools: ToolSpec[] = [
           checkerKind: problem.checkerKind,
           editorialAvailable: problem.editorialAvailable,
           statement: problem.statement,
-          // `source` says where the samples came from, because the API models
-          // none: `none` means "read the statement yourself", NOT "this
-          // problem has no samples". See `samples.ts`.
-          samples: { source: samples.length > 0 ? 'statement-table' : 'none', items: samples },
+          // `source` says where the samples came from. `api` is the sample
+          // FILES out of the published package (D94), trailing newline and
+          // all — feed them to a program as they are. `statement-table` is
+          // the old scraper, still here for an API deployed before D94.
+          // `none` means "read the statement yourself", NOT "this problem has
+          // no samples". See `samples.ts`.
+          samples,
         },
       };
     },

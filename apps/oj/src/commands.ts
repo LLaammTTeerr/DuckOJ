@@ -53,6 +53,48 @@ export async function listProblems(client: Client, io: Io): Promise<void> {
   }
 }
 
+/**
+ * `oj problems show <code>` — one problem, with its samples as data (D94).
+ *
+ * The samples are the reason this command exists: `oj problems` lists codes
+ * and names, and everything else about a problem is readable in a browser,
+ * but a sample you can pipe into a program is not. They print as
+ * `--- sample N input`/`output` fences rather than a table, because the
+ * output of this command is read by a person about to copy two blocks into
+ * two files, and a table would put a newline where the file has none.
+ *
+ * `samples` is read with `?? []`: the CLI is routinely a version ahead of the
+ * DuckOJ it is pointed at (the web reads `problem.editorial ?? null` for the
+ * same reason), and a missing key must print a problem without samples, not
+ * crash on the one command that shows them.
+ */
+export async function showProblem(client: Client, io: Io, code: string): Promise<void> {
+  const { data, error } = await client.GET('/problems/{code}', { params: { path: { code } } });
+  if (error || !data) io.fail(`could not read problem ${code}`);
+  io.print(`${data.code}\t${data.name}`);
+  io.print(
+    `limits: ${data.timeMs === null ? '—' : `${String(data.timeMs)} ms`}, ` +
+      `${data.memoryKb === null ? '—' : `${String(data.memoryKb)} KB`}` +
+      (data.totalPoints === null ? '' : ` · ${String(data.totalPoints)} points`),
+  );
+  const samples = data.samples ?? [];
+  if (samples.length === 0) {
+    io.print('no samples (read the statement on the web, or ask for the PDF)');
+    return;
+  }
+  for (const [i, sample] of samples.entries()) {
+    const n = String(i + 1);
+    io.print(`--- sample ${n} input${sample.truncated ? ' (truncated)' : ''}`);
+    // The file's own bytes, with the one trailing newline the print adds
+    // removed first: `io.print` is a line writer, and a sample file that ends
+    // in a newline would otherwise gain a blank line it does not have.
+    io.print(sample.input.replace(/\n$/, ''));
+    io.print(`--- sample ${n} output`);
+    io.print(sample.output.replace(/\n$/, ''));
+    if (sample.explanation !== null) io.print(`--- sample ${n} note: ${sample.explanation}`);
+  }
+}
+
 export async function listLanguages(client: Client, io: Io): Promise<void> {
   const { data, error } = await client.GET('/languages');
   if (error || !data) io.fail('could not list languages');

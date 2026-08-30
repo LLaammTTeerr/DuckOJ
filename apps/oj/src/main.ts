@@ -7,13 +7,24 @@
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@duckoj/sdk';
 import { parseArgs } from './args.js';
-import { CliError, inferLanguage, listLanguages, listProblems, submit, watch, whoami, type Io } from './commands.js';
+import {
+  CliError,
+  inferLanguage,
+  listLanguages,
+  listProblems,
+  showProblem,
+  submit,
+  watch,
+  whoami,
+  type Io,
+} from './commands.js';
 import { configPath, loadConfig, saveConfig } from './config.js';
 
 const USAGE = `usage:
   oj login --url <baseUrl> --token <accessToken>
   oj whoami
   oj problems
+  oj problems show <problemCode>   (limits and the sample tests, as data)
   oj languages
   oj submit <problemCode> <file> [--language <key>] [--contest <key>] [--watch]
   oj watch <submissionId>
@@ -53,8 +64,15 @@ async function run(argv: string[]): Promise<void> {
     }
     case 'whoami':
       return whoami(await requireClient(), io);
-    case 'problems':
-      return listProblems(await requireClient(), io);
+    case 'problems': {
+      // `oj problems` lists; `oj problems show <code>` reads one. A
+      // subcommand rather than `oj problem <code>`, so the two live under the
+      // noun a user already knows.
+      const [sub, code] = args.positionals;
+      if (sub === undefined) return listProblems(await requireClient(), io);
+      if (sub !== 'show' || code === undefined) throw new CliError(USAGE);
+      return showProblem(await requireClient(), io, code);
+    }
     case 'languages':
       return listLanguages(await requireClient(), io);
     case 'submit': {
