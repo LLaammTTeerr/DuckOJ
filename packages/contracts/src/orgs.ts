@@ -150,10 +150,19 @@ export const SetOrgMemberRoleRequest = z.object({ role: OrgRole }).strict();
 export type SetOrgMemberRoleRequestDto = z.infer<typeof SetOrgMemberRoleRequest>;
 
 /**
- * The largest roster one import may carry (D61). Declared here as well as in
- * the API so a client can refuse a file before uploading it.
+ * The largest roster one import may carry (D61, amended by the F13 owed
+ * sweep). Declared here as well as in the API so a client can refuse — or,
+ * better, SPLIT — a file before uploading it.
+ *
+ * Five hundred, not two thousand: every row costs one argon2id hash at the
+ * parameters every other account is held to, so two thousand of them held a
+ * request open for twenty-odd seconds, and the F8 report's own concern was
+ * that a proxy or browser timeout there strands accounts that were created
+ * with passwords nobody ever received. Five hundred keeps a request under
+ * about six seconds; a larger roster is several requests, which the web
+ * panel makes for the teacher rather than asking them to cut up a file.
  */
-export const ORG_IMPORT_MAX_ROWS = 2000;
+export const ORG_IMPORT_MAX_ROWS = 500;
 
 /** One roster row. `email` is optional — most pupils have no school mailbox. */
 export const OrgMemberImportRow = z.object({
@@ -486,13 +495,16 @@ registry.registerPath({
         'a client can put each message beside the row that caused it. `rows[0].file` is a problem ' +
         'with the file as a whole (empty, or over ' +
         `${String(ORG_IMPORT_MAX_ROWS)}` +
-        ' rows). `import_body_invalid` means neither or both of `csv` and `rows` were sent.',
+        ' rows — split the file and send it as several requests, which is what the web panel does). ' +
+        '`import_body_invalid` means neither or both of `csv` and `rows` were sent.',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     429: {
       description:
-        'An import for this organization has run within the last minute (`member_import_rate_limited`). ' +
-        '`Retry-After` carries the whole seconds until another will be accepted.',
+        'Ten imports have run for this organization within the last minute ' +
+        '(`member_import_rate_limited`) — enough for a five-thousand-pupil roster in 500-row chunks, ' +
+        'and the same rows-per-minute the old single 2,000-row call could do. `Retry-After` carries ' +
+        'the whole seconds until another will be accepted.',
       headers: {
         'Retry-After': {
           description: 'Whole seconds until another import will be accepted',

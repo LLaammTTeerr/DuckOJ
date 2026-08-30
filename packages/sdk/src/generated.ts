@@ -4894,7 +4894,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description One or more rows are unacceptable (`member_import_invalid`) and NOTHING was created. Every failure is listed in `fields`, keyed `rows[<n>].<field>` with `n` the 1-based data row — so a client can put each message beside the row that caused it. `rows[0].file` is a problem with the file as a whole (empty, or over 2000 rows). `import_body_invalid` means neither or both of `csv` and `rows` were sent. */
+                /** @description One or more rows are unacceptable (`member_import_invalid`) and NOTHING was created. Every failure is listed in `fields`, keyed `rows[<n>].<field>` with `n` the 1-based data row — so a client can put each message beside the row that caused it. `rows[0].file` is a problem with the file as a whole (empty, or over 500 rows — split the file and send it as several requests, which is what the web panel does). `import_body_invalid` means neither or both of `csv` and `rows` were sent. */
                 422: {
                     headers: {
                         [name: string]: unknown;
@@ -4914,7 +4914,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description An import for this organization has run within the last minute (`member_import_rate_limited`). `Retry-After` carries the whole seconds until another will be accepted. */
+                /** @description Ten imports have run for this organization within the last minute (`member_import_rate_limited`) — enough for a five-thousand-pupil roster in 500-row chunks, and the same rows-per-minute the old single 2,000-row call could do. `Retry-After` carries the whole seconds until another will be accepted. */
                 429: {
                     headers: {
                         /** @description Whole seconds until another import will be accepted */

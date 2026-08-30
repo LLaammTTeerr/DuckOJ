@@ -1,0 +1,185 @@
+/**
+ * The CSV grammar of D61's roster import, shared by everything that has to
+ * agree about it.
+ *
+ * It lives in `@duckoj/contracts` rather than beside the server's validation
+ * because THREE callers now read the same file: the API (which maps records
+ * to rows), the `org:import` CLI, and — since the 500-row cap — the web
+ * panel, which has to cut a large roster into requests along the same record
+ * boundaries the server will read them back on. A second parser in the
+ * browser is a parser that disagrees about where a quoted newline ends, and
+ * the symptom would be a 422 about a pupil nobody typed.
+ *
+ * Nothing here validates: a record is a record, and whether it names an
+ * acceptable account is `org-import.core.ts`'s question.
+ */
+
+/**
+ * RFC 4180 with the concessions a spreadsheet export actually needs: CRLF or
+ * LF, `""` for a literal quote inside a quoted field, and a trailing newline
+ * that does not invent an empty final row.
+ *
+ * Hand-written rather than a dependency because the whole grammar is thirty
+ * lines and the alternative is a parser with its own options, its own
+ * type-coercion opinions and its own idea of what a header is — three things
+ * that would each need pinning down here anyway.
+ */
+export function parseCsvRecords(text: string): string[][] {
+  const records: string[][] = [];
+  let record: string[] = [];
+  let field = '';
+  let quoted = false;
+  let sawAnyChar = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (quoted) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          quoted = false;
+        }
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+    if (ch === '"' && field === '') {
+      quoted = true;
+      sawAnyChar = true;
+      continue;
+    }
+    if (ch === ',' || ch === ';' || ch === '\t') {
+      record.push(field);
+      field = '';
+      sawAnyChar = true;
+      continue;
+    }
+    if (ch === '\r') continue;
+    if (ch === '\n') {
+      record.push(field);
+      if (sawAnyChar || record.some((cell) => cell.trim() !== '')) records.push(record);
+      record = [];
+      field = '';
+      sawAnyChar = false;
+      continue;
+    }
+    field += ch;
+    sawAnyChar = true;
+  }
+  record.push(field);
+  if (sawAnyChar || record.some((cell) => cell.trim() !== '')) records.push(record);
+  return records;
+}
+
+/** The three things a roster row can say. */
+export type ImportColumn = 'username' | 'displayName' | 'email';
+
+/**
+ * Header names recognised, in both languages a teacher's spreadsheet is
+ * likely to be in. A file with none of them is read positionally
+ * (`username, displayName, email`), which is what a file pasted out of a
+ * mail merge looks like.
+ */
+const HEADER_ALIASES: Record<string, ImportColumn> = {
+  username: 'username',
+  user: 'username',
+  tendangnhap: 'username',
+  taikhoan: 'username',
+  displayname: 'displayName',
+  display_name: 'displayName',
+  name: 'displayName',
+  fullname: 'displayName',
+  hoten: 'displayName',
+  email: 'email',
+  mail: 'email',
+  thudientu: 'email',
+};
+
+/** The positional reading of a file that has no header. */
+export const DEFAULT_IMPORT_COLUMNS: Array<ImportColumn | null> = ['username', 'displayName', 'email'];
+
+/** Lowercased, stripped of spaces, punctuation and Vietnamese diacritics. */
+function headerKey(cell: string): string {
+  return cell
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/gi, 'd')
+    .toLowerCase()
+    .replace(/[^a-z_]/g, '');
+}
+
+/**
+ * The columns a record declares, or `null` when it is not a header at all.
+ *
+ * A header is detected rather than assumed: a first record naming at least a
+ * username column is a header, anything else is data. Assuming one would
+ * silently swallow the first pupil of every headerless file; requiring one
+ * would refuse the file a teacher typed by hand.
+ */
+export function importHeaderColumns(record: string[]): Array<ImportColumn | null> | null {
+  const columns = record.map((cell) => HEADER_ALIASES[headerKey(cell)] ?? null);
+  return columns.includes('username') ? columns : null;
+}
+
+/** Strips the BOM a spreadsheet export puts in front of everything. */
+export function importRecords(text: string): string[][] {
+  return parseCsvRecords(text.replace(/^\ufeff/, ''));
+}
+
+/** One record back to a CSV line, escaped as RFC 4180 wants it. */
+function csvLine(record: string[]): string {
+  return record
+    .map((cell) => (/[",;\t\n\r]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell))
+    .join(',');
+}
+
+/**
+ * One roster file as several, each at most `size` DATA rows and each
+ * carrying the file's own header when it has one.
+ *
+ * The header travels with every chunk rather than only the first: the server
+ * reads each request on its own and would otherwise take chunk two's first
+ * pupil for a header row — or, worse, read a headerless file's columns in a
+ * different order from the one the teacher wrote.
+ *
+ * Records are re-serialised rather than sliced out of the original text so a
+ * quoted newline cannot become a chunk boundary; they round-trip through
+ * `parseCsvRecords` unchanged.
+ */
+export function splitImportCsv(text: string, size: number): string[] {
+  const records = importRecords(text);
+  if (records.length === 0) return [];
+  const header = importHeaderColumns(records[0]!) === null ? null : records[0]!;
+  const body = header === null ? records : records.slice(1);
+  if (body.length === 0) return [];
+
+  const chunks: string[] = [];
+  for (let start = 0; start < body.length; start += size) {
+    const lines = body.slice(start, start + size).map(csvLine);
+    if (header !== null) lines.unshift(csvLine(header));
+    chunks.push(`${lines.join('\n')}\n`);
+  }
+  return chunks;
+}
+
+/**
+ * Every username the file names, in order — the one field that has to be
+ * unique across the WHOLE roster rather than within one request.
+ *
+ * The server validates a request against itself and against the database; it
+ * cannot see a repeat that lands in a different chunk, and by the time the
+ * unique index catches one, earlier chunks have already created accounts.
+ * The caller doing the splitting is the only place that can refuse it first.
+ */
+export function importUsernames(text: string): string[] {
+  const records = importRecords(text);
+  if (records.length === 0) return [];
+  const declared = importHeaderColumns(records[0]!);
+  const columns = declared ?? DEFAULT_IMPORT_COLUMNS;
+  const body = declared === null ? records : records.slice(1);
+  const at = columns.indexOf('username');
+  return body.map((record) => (at === -1 ? '' : (record[at] ?? '').trim()));
+}
