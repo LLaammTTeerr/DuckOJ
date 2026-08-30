@@ -3074,3 +3074,72 @@ there is no `profile:read` scope in this build) and `GET /users/{u}/progress`
 
 *Ruled by the implementer during the 2026-08-30 feature/bug loop (F16 brief),
 no human available to consult. No migration.*
+
+## D84 — The submit box is a real editor: CodeMirror 6, a per-(problem, language) draft, and a starter that only ever fills an empty buffer
+
+The one screen this whole judge exists for handed a pupil a bare
+`<textarea>`: no line numbers, no highlighting, Tab moved focus out of it,
+and a reload threw the work away. On the shared school machines D76 was
+written for, "the page reloaded" is not a rare event.
+
+- **CodeMirror 6, composed by hand, not `basicSetup` and not a React
+  wrapper.** `@codemirror/{state,view,language,commands}` plus the three
+  grammars this judge could plausibly run (`lang-cpp`, `lang-python`,
+  `lang-java`). `basicSetup` adds autocompletion, search, folding and lint —
+  four panels nobody opens in a submit box — and an `@uiw`-style wrapper adds
+  a second lifecycle on top of the one `EditorView` already has. The six
+  extensions in `src/editor/code-editor.tsx` are the entire feature set.
+- **It is code-split.** The editor and its grammars are 505 kB (171 kB
+  gzipped) and are reached through `React.lazy` from `src/editor/lazy.tsx`,
+  the only module allowed to import `./code-editor.js`. Nobody reading a
+  statement, a scoreboard or a submission list downloads it; the entry chunk
+  grew 5.7 kB (1.6 kB gzipped) for the form logic that stayed behind.
+- **`Prec.highest` on Ctrl/Cmd+Enter is load-bearing.** `defaultKeymap`
+  already binds `Mod-Enter` to `insertBlankLine`, so the shortcut a pupil is
+  told to press would otherwise insert a line. Verified by moving the binding
+  after `defaultKeymap` and watching the test go red.
+- **Language keys map to grammars by PREFIX, not by a table.** `cpp17` is
+  still the only seeded language, but `cpp20`/`py311`/`java21` highlight on
+  the day they are added with no web deploy. `c*` is C++ (Lezer's C++ parser
+  reads C, and a C program highlighted as C++ is right about every token it
+  contains) with `cs*` explicitly carved out, and anything unrecognised is
+  plain text rather than a wrong grammar.
+- **Drafts are keyed `(problem, language)`, saved 500 ms after the last
+  keystroke, restored on return, and cleared only on an ACCEPTED submit.**
+  `SubmitForm.onSubmit` now answers `boolean` for exactly that reason: a
+  submission the API refused — a closed window, a dead network — must not
+  also cost the pupil their code. `clear()` cancels the pending debounce as
+  well as removing the key; without that, the timer resurrects the draft the
+  submit just cleared. Every `localStorage` access is wrapped, as
+  `i18n/index.tsx`'s is.
+- **A starter template is inserted only into an EMPTY buffer, and a draft
+  always outranks it.** The rule that resolves the brief's tension between
+  "templates for each language" and "a language switch keeps the content":
+  switching language keeps whatever is there; only if the editor is empty
+  does it take on that language's draft, or failing that its template. The
+  templates are the boilerplate that decides verdicts — the two fast-IO lines
+  in C++, `sys.stdin` in Python, and the class name `Main`, which the Java
+  driver requires rather than prefers.
+- **The size counter reads its ceiling off the contract**
+  (`CreateSubmissionRequest.shape.source.maxLength`), and counts UTF-16 code
+  units exactly as Zod's `.max()` does. A byte count would disagree with the
+  server the moment a pupil writes a Vietnamese comment. Past the limit the
+  submit button is disabled and an `alert` says why, instead of a 422.
+- **Colour is a third semantic scale in `app.css` (`--syn-*`), painted onto
+  `@lezer/highlight`'s `tok-*` classes.** It earns its place the way D46's
+  rank ramp did, and it deliberately shares nothing with the verdict hues: a
+  `wa` red on the word `return` would teach the reader that red means wrong
+  here too. The MATERIAL — the inset well, the hairline, the mono face —
+  comes from `tokens.css` through `EditorView.theme`, so dark mode and D67's
+  solid twins arrive for free. Height is a stylesheet decision, not a prop:
+  22rem on a desktop, 40vh at D76's 700px breakpoint, where a soft keyboard
+  is already taking half the screen; a font-size stepper sits above it.
+- **No hidden `<textarea>` fallback.** The contenteditable carries
+  `aria-label` and the old `id="source"`, the visible `<label>` stays, and
+  every test that typed into the textarea now drives the `EditorView`
+  directly (`e2e/journey.spec.ts` fills `.cm-content`). A second, silently
+  diverging copy of the buffer would be a correctness hazard, not an
+  accessibility win.
+
+*Ruled by the implementer during the 2026-08-30 feature loop (F17 brief), no
+human available to consult. No migration, no API change.*
