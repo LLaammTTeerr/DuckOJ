@@ -1100,3 +1100,101 @@ edit screen grows a confirmation step.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B2 contests
 brief), no human available to consult.*
+
+## D39 — Two-factor authentication gets a way back in: eight single-use recovery codes
+
+Enrolling in 2FA was a one-way door. A lost, wiped or stolen phone left the
+account holder with a password that no longer signs in and exactly one
+remedy — `POST /admin/users/{username}/totp/reset`, i.e. finding an
+administrator. On a province deployment the administrator is a teacher who
+reads mail twice a week, so the person who did the *responsible* thing was
+locked out for days while everyone else carried on. That is a product
+telling its users not to turn the second factor on.
+
+**The rule.** Confirming an enrolment issues eight single-use recovery
+codes, returned once and never again. Any one of them substitutes for the
+TOTP code at `POST /auth/login`. `POST /auth/totp/recovery/regenerate`
+replaces the set. `GET /auth/me` carries `recoveryCodesRemaining`.
+
+**Eight, at 50 bits each, shaped `xxxxx-xxxxx`.** Eight is the convention
+(GitHub, Google) and about a year of ordinary use. Ten characters over a
+32-symbol Crockford-ish alphabet — no `0/O`, no `1/I/L`, no `U` — is 50 bits,
+far past guessable through a route D16 meters at ten attempts per fifteen
+minutes, and short enough to copy onto the inside of a notebook cover, which
+is where these actually live. The server canonicalizes on the way in
+(uppercase, non-alphanumerics dropped), so a code typed back without its
+dash, in lowercase, or with a stray space still works: it is transcribed by
+hand, under stress, by someone already locked out.
+
+**Stored as `sha256`, not argon2.** The value is server-generated randomness
+with no dictionary behind it, so a work factor buys nothing the entropy does
+not already give; an argon2 verify at 19 MiB against up to eight rows, on a
+route any anonymous caller can reach, is a denial-of-service surface rather
+than a defence; and hashing to a *lookup key* is what lets the consume be one
+statement. `one_time_tokens` already stores `sha256(token)` for reset links
+for the same reasons — this is that precedent, not a new one.
+
+**Single use, enforced by the row.** `UPDATE … WHERE user_id = $1 AND
+code_hash = $2 AND used_at IS NULL RETURNING id`. Two simultaneous
+presentations of one code contend on that row and exactly one gets a row
+back. D34's `consumeOnce` needed an advisory lock because `rate_events` has
+no row to claim — a count of absent rows is not a claim. Here there is one,
+so a lock would only be slower. `used_at` rather than a delete, so the
+remaining count and the fact of a spend both survive.
+
+**Unknown, malformed and already-spent are one answer**: `401
+invalid_totp_code`, the same one a wrong TOTP code gets, counted by the same
+D16 window through the same `catch`. Distinguishing them would let someone
+holding an old printout learn which of the eight are still live without ever
+completing a sign-in, and an unmetered eight-code guessing surface beside a
+metered six-digit one would be the softer target. For the same reason
+`recoveryCode` is validated loosely (1–64 chars): a strict shape would answer
+422 *outside* the window for a mistyped credential.
+
+**`totpCode` wins when both are sent.** Someone holding their authenticator
+should not burn a recovery code because a stale form field came along; the
+web form sends exactly one, and the precedence is what makes a raw API caller
+safe too.
+
+**Regenerating demands a live TOTP code, and spends it.** The codes are the
+second factor in another shape, so minting a set from a session alone would
+let whoever holds a stolen session walk out with eight standing logins —
+which is exactly the hole D33 closed on `begin`. `isEnabled` is checked
+first and answers `409 totp_not_enabled`: `TotpService.verify` returns `true`
+for an account with no confirmed credential (it documents that it fails open),
+so without the gate any session could mint eight sign-in credentials by
+posting six arbitrary digits. The presented code is spent (D34) exactly as a
+sign-in would spend it — a code relayed out of a credential-issuing route is
+worth at least as much as one relayed out of a login.
+
+**Confirm returns them, and confirming again replaces the set.** `POST
+/auth/totp/confirm` goes 204 → 200. A confirm proves precisely what a
+regenerate proves, so there is no state where the two should behave
+differently; and issuing inside the same transaction as `confirmedAt` means a
+confirm can never leave an account with a second factor and no way past it.
+`422 invalid_totp_enrolment_code` is reused by both routes rather than minted
+anew: its meaning is "the code you typed at a credential-management route was
+wrong", which is what a client needs to tell apart from the login-time 401.
+
+**Disabling takes the codes with it**, including through the admin reset,
+which goes through the same `TotpService.disable`. Leaving them would mean a
+later re-enrolment silently inherited codes printed for a secret that no
+longer exists, and a stolen printout would outlive the reset made to defeat
+it.
+
+**Running out is a notification (D14), written in the transaction that spends
+the last one.** Nothing else in the product would ever mention it: the next
+lockout is when the holder finds out, and by then the notice they needed sits
+behind the sign-in they cannot complete.
+
+**What is deliberately not built.** No download button (the browser sandbox
+and the printer already cover it, and a file on the same laptop as the
+password manager is not a backup); no "codes remaining" warning below eight,
+because seven of eight is not news; no per-code labels or usage history,
+which would be an audit surface for something whose whole story is "it
+worked once". And the codes are still shown to a *session*, so a stolen
+session sees them at enrolment — closing that needs the step-up
+re-authentication D33 already names as the missing piece.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F3 recovery
+codes brief), no human available to consult. Migration 0019.*
