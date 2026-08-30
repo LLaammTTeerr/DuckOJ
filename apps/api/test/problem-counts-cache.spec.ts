@@ -46,7 +46,7 @@ import {
  * two cache specs land in one fork and wipe each other between a write and
  * the read that asserts on it.
  */
-const REDIS_DB = 4;
+const REDIS_DB = 5;
 
 async function freshRedis(): Promise<string> {
   const url = await ensureRedisUrl(REDIS_DB);
