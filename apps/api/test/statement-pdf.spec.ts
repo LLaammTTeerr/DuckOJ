@@ -115,6 +115,39 @@ describe('markdownToTypst', () => {
     expect(markdownToTypst('P', '```\nlost?')).toContain('lost?');
   });
 
+  // A fenced block's content is emitted VERBATIM into a typst raw literal, so
+  // the fence has to be longer than any backtick run inside it — exactly the
+  // rule CommonMark itself has. It was hard-coded to four, and a statement
+  // author (a problem setter, semi-trusted) could write four backticks in the
+  // middle of a fenced line: the raw literal closed there and everything after
+  // it reached `typst compile` as CODE rather than text.
+  //
+  // Proven against the real binary during the B10 security loop: the injected
+  // `#read(...)` was evaluated and typst reported it trying to open the file.
+  // Typst does sandbox reads to the project root (a `../` path is refused), so
+  // the blast radius is the API's working directory rather than the whole host
+  // — but arbitrary typst evaluation is not something a statement may do, and
+  // D48 compiles every problem of a contest into ONE document, so a single
+  // poisoned statement takes the whole booklet down on contest day.
+  it('fences a raw block longer than any backtick run inside it', () => {
+    const doc = markdownToTypst('P', '```\nx ```` #read("/etc/hostname") ```` y\n```');
+    // The content is still verbatim...
+    expect(doc).toContain('#read("/etc/hostname")');
+    // ...but the delimiter around it must out-run the four backticks it holds,
+    // or the `#read` is live typst code. Five is the minimum that does.
+    expect(doc).toContain('`````\nx ```` #read("/etc/hostname") ```` y\n`````');
+    // And nothing shorter may be doing the delimiting.
+    expect(doc).not.toMatch(/(?<!`)````(?!`)\nx /);
+  });
+
+  it('leaves the ordinary fence at four backticks', () => {
+    // A three-backtick run inside a four-backtick fence does NOT close it
+    // (verified against the real binary), so the common case must not grow a
+    // delimiter it does not need.
+    const doc = markdownToTypst('P', '```\nplain code\n```');
+    expect(doc).toContain('````\nplain code\n````');
+  });
+
   it('titles the document with the problem name, escaped', () => {
     expect(markdownToTypst('A #1 problem', 'x')).toContain('= A \\#1 problem');
   });
