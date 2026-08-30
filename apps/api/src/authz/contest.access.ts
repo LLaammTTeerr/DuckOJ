@@ -159,7 +159,19 @@ export class ContestAccessService {
    * name, ordered by slug so two reads of the same contest print the badges
    * in the same order.
    */
-  private async loadOrgs(contestIds: number[]): Promise<Map<number, ContestOrgDto[]>> {
+  /**
+   * A contest's organizations (D56), by contest id.
+   *
+   * Public because the results exports need the SAME contest's orgs they
+   * have already loaded and gated (`ContestResultsService.certificatesDocument`
+   * signs a certificate with them). The alternative there was a second
+   * `getVisible`, which re-runs the whole detail read — the contest row, its
+   * problem rows and their published revisions — to reach two strings.
+   * `contest_orgs` and `organizations` are not guarded tables, but the join
+   * shape and the `order by slug` are worth having in one place rather than
+   * two.
+   */
+  async loadOrgs(contestIds: number[]): Promise<Map<number, ContestOrgDto[]>> {
     const byContest = new Map<number, ContestOrgDto[]>();
     if (contestIds.length === 0) return byContest;
     const rows = await this.db

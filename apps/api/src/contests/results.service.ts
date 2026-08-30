@@ -96,7 +96,11 @@ export class ContestResultsService {
     scope: CertificateScope,
   ): Promise<{ contestId: number; contestKey: string; document: string }> {
     const { contestId, input } = await this.buildResults(actor, key);
-    const orgs = (await this.contests.getVisible(actor, key)).orgs;
+    // `loadOrgs`, not `getVisible`: `buildResults` has already resolved and
+    // gated this contest, and `getVisible` would resolve it a second time —
+    // the contest row, its problem rows and their published revisions — to
+    // reach the two strings on the signature line.
+    const orgs = (await this.contests.loadOrgs([contestId])).get(contestId) ?? [];
     return {
       contestId,
       contestKey: input.contestKey,

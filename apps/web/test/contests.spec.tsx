@@ -271,6 +271,76 @@ describe('ContestPage booklet link (D48)', () => {
   });
 });
 
+/**
+ * The results exports (D71). The API's gate is the PERSON — an organiser may
+ * export at any hour, because these documents are folded from the live,
+ * unfrozen board — and "after the end" lives HERE, in the web, because that
+ * is when an organiser wants them and offering them mid-contest invites
+ * printing a board that is still moving. F12 shipped both links with no test
+ * on either half of that condition; this is that test.
+ */
+describe('ContestPage results export links (D71)', () => {
+  const FINISHED = {
+    ...RUNNING,
+    startTime: new Date(Date.now() - 7_200_000).toISOString(),
+    endTime: new Date(Date.now() - 60_000).toISOString(),
+  };
+
+  function serveContest(contest: unknown) {
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}/clarifications') return Promise.resolve(NO_CLARIFICATIONS);
+      return path === '/contests/{key}'
+        ? Promise.resolve({ data: contest })
+        : Promise.resolve({ data: undefined });
+    });
+  }
+
+  it('offers both exports to an organiser once the contest is over', async () => {
+    serveContest({ ...FINISHED, canEdit: true });
+    wrap(<ContestPage contestKey="spring" />);
+
+    expect(await screen.findByRole('link', { name: /Kết quả \(CSV\)/ })).toHaveAttribute(
+      'href',
+      '/api/v1/contests/spring/results.csv',
+    );
+    // No `?lang=`, unlike the booklet: a standings sheet has no statement to
+    // translate, so results.pdf takes no language (D71).
+    expect(screen.getByRole('link', { name: /Kết quả \(PDF\)/ })).toHaveAttribute(
+      'href',
+      '/api/v1/contests/spring/results.pdf',
+    );
+  });
+
+  it('offers neither while the contest is still running, organiser or not', async () => {
+    serveContest({ ...RUNNING, canEdit: true });
+    wrap(<ContestPage contestKey="spring" />);
+
+    // The booklet IS offered mid-contest — so this asserts the results links
+    // are absent on a page that is otherwise fully rendered, not that the
+    // page failed to load.
+    expect(await screen.findByRole('link', { name: /Tải đề \(PDF\)/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Kết quả/ })).toBeNull();
+  });
+
+  it('offers neither to a competitor reading a finished contest', async () => {
+    serveContest({ ...FINISHED, canEdit: false });
+    wrap(<ContestPage contestKey="spring" />);
+
+    expect(await screen.findByRole('link', { name: /Bảng điểm/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Kết quả/ })).toBeNull();
+  });
+
+  it('offers neither when the API did not say whether this reader runs it', async () => {
+    // `canEdit` absent — an older API, or a response shape that changed.
+    // Fail closed: a link that 403s is worse than no link.
+    serveContest(FINISHED);
+    wrap(<ContestPage contestKey="spring" />);
+
+    expect(await screen.findByRole('link', { name: /Bảng điểm/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Kết quả/ })).toBeNull();
+  });
+});
+
 describe('ContestPage join transport safety', () => {
   it('disables Join while the request is in flight', async () => {
     get.mockImplementation((path: string) => {

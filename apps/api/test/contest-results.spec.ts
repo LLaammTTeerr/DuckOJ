@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import request from 'supertest';
 import { Redis } from 'ioredis';
 import { eq } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   contestOrgs,
   contestParticipations,
@@ -38,6 +38,7 @@ import {
   type StatementRenderer,
 } from '../src/statements/statement-renderer.js';
 import { buildApp } from './app.harness.js';
+import { ContestAccessService } from '../src/authz/contest.access.js';
 import { withTestDb } from './db.harness.js';
 import { ensureRedisUrl } from './redis.harness.js';
 import { insertUser, registerAndLogin, userIdOf } from './submissions.fixtures.js';
@@ -692,6 +693,58 @@ describe('GET /contests/{key}/certificates.pdf', () => {
           .get('/contests/certs/certificates.pdf?top=1000')
           .set('Cookie', cookie);
         expect(edge.status).toBe(501);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  /**
+   * The certificates path resolved the contest one MORE time than its two
+   * siblings: `buildResults` loads and gates it, and the signature line then
+   * called `getVisible` purely to read the contest's organizations — which
+   * re-runs the entire detail read (the contest row, its problem rows, their
+   * published revisions) to reach two strings. `loadOrgs` on the id
+   * `buildResults` already has costs one small join instead.
+   *
+   * Asserted RELATIVE to the CSV rather than as an absolute count: every
+   * export resolves the contest twice today (`loadVisible` for the gate,
+   * then `getScoreboardCached`'s own), and pinning "exactly two" here would
+   * fail the day that shared path is deduplicated — a change this file has
+   * no opinion about. What it does have an opinion about is the certificates
+   * doing MORE work than the sheet made of the same board.
+   *
+   * Counted on the live service instance rather than read off the source: a
+   * comment can say "resolved once" while a helper quietly resolves it again.
+   */
+  it('resolves the contest no more often than the CSV made from the same board', async () => {
+    await withTestDb(async (db) => {
+      const renderer = fakeRenderer();
+      const app = await buildApp(db, {
+        overrides: [{ provide: STATEMENT_RENDERER, useValue: renderer }],
+      });
+      const agent = request.agent(app.getHttpServer());
+      try {
+        const cookie = await registerAndLogin(agent, 'once-owner');
+        const ownerId = await userIdOf(db, 'once-owner');
+        await seedResultsContest(db, 'once', ownerId, { withOrg: true });
+
+        const contests = app.get(ContestAccessService);
+        const loadVisible = vi.spyOn(contests, 'loadVisible');
+        const getVisible = vi.spyOn(contests, 'getVisible');
+
+        const csv = await agent.get('/contests/once/results.csv').set('Cookie', cookie);
+        expect(csv.status).toBe(200);
+        const baseline = loadVisible.mock.calls.length;
+        loadVisible.mockClear();
+
+        const res = await agent.get('/contests/once/certificates.pdf?top=10').set('Cookie', cookie);
+        expect(res.status).toBe(200);
+        expect(loadVisible).toHaveBeenCalledTimes(baseline);
+        expect(getVisible).not.toHaveBeenCalled();
+        // And the saving was not made by dropping the signature (D71/D56):
+        // the contest's organization still signs the certificate.
+        expect(renderer.documents.join('')).toContain('THPT Chuyên Hạ Long');
       } finally {
         await app.close();
       }
