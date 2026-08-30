@@ -588,3 +588,82 @@ export const contestClarifications = pgTable(
     check('contest_clarifications_text_ck', sql`${t.question} IS NOT NULL OR ${t.answer} IS NOT NULL`),
   ],
 );
+
+/**
+ * A named set of problems a school assigns to its own members — "bài tập về
+ * nhà", homework (D66). One row per assignment; `problem_set_items` carries
+ * what is in it.
+ *
+ * Guarded, and not because a set is a secret: which sets a viewer may read
+ * depends on the ORGANIZATION's visibility and on whether the viewer belongs
+ * to it, and the items can name problems whose own visibility is `org` —
+ * shared with this school and with nobody else. Both questions are answered
+ * in `apps/api/src/authz/problem-set.access.ts` and never by a direct query.
+ *
+ * `slug` is unique per organization, case-insensitively (`problem_sets_org_slug_lower_idx`),
+ * for the reason `organizations_slug_lower_idx` is: two sets whose names
+ * differ only in case are two URLs a teacher cannot tell apart.
+ *
+ * `deadline` is nullable — an assignment with no due date is a reading list,
+ * which is a thing a school hands out — and it is what "best" is measured
+ * against when it is set (D66).
+ */
+export const problemSets = pgTable(
+  'problem_sets',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    orgId: bigint('org_id', { mode: 'number' })
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    /** Markdown, the same shape as a problem statement (D10). */
+    description: text('description'),
+    deadline: timestamp('deadline', { withTimezone: true }),
+    /**
+     * The teacher who assigned it. No `onDelete` — the same choice
+     * `contests.created_by` makes: a set outlives the account that created
+     * it, and cascading would delete a class's homework along with a
+     * departing teacher.
+     */
+    createdBy: bigint('created_by', { mode: 'number' })
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('problem_sets_org_slug_lower_idx').on(t.orgId, sql`lower(${t.slug})`)],
+);
+
+/**
+ * One problem in one set, in the order the teacher put it, worth `points`.
+ *
+ * `points` is the set's own value for the problem — the same reasoning
+ * `contest_problems.points` records: the same problem is worth 100 in this
+ * week's homework and 50 in next week's, and scoring against the problem's
+ * own total passes every scenario where the two happen to be equal.
+ *
+ * `problem_id` has no `onDelete` clause on purpose: deleting a problem that a
+ * school has assigned should fail loudly rather than silently shorten
+ * somebody's homework.
+ */
+export const problemSetItems = pgTable(
+  'problem_set_items',
+  {
+    setId: bigint('set_id', { mode: 'number' })
+      .notNull()
+      .references(() => problemSets.id, { onDelete: 'cascade' }),
+    problemId: bigint('problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => problems.id),
+    order: integer('order').notNull(),
+    points: integer('points').notNull().default(100),
+  },
+  (t) => [
+    // A problem appears at most once in a set — the primary key, not a
+    // separate id: there is nothing else to reference a row of this table by.
+    primaryKey({ columns: [t.setId, t.problemId] }),
+    // The read order of every screen this table has (`order, problem_id`),
+    // so rendering a set is an index scan rather than a sort.
+    index('problem_set_items_order_idx').on(t.setId, t.order),
+  ],
+);
