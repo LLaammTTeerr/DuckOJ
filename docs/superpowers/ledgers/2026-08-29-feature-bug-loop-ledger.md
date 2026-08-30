@@ -109,3 +109,4 @@
 - CI GREEN on ee2854bc with the serial test:ci command (the prior c0056614 failure was the old parallel run). CI flake fixed. Main pushed (0d48820).
 - B-20 DONE, merged (3f6dcd1..ee8d836): 7 a11y fixes (file-input labels, verdict/search/copy live regions, register error summary D110, autocomplete, similarity mark underline), axe sweep clean 8×3; web rebuilt, pushed.
 - Dispatched F-27 submission source diff (main, D111) and B-21 comments+cross-cut hunt (worktree, D112–D114). CI polling on 938edf5.
+- F-27 DONE (2efcdc2..3aba597): submission source diff (unified, both sources visibility-gated, D111); deployed via deploy.sh; pushed. Note: root test:ci script calls bare pnpm (not on PATH locally) — works in CI (action-setup); local runs need corepack shim — small fix owed.
