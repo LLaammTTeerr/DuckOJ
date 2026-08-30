@@ -267,6 +267,17 @@ describe('ProblemSetProgressPage', () => {
     expect(screen.queryByRole('button', { name: /Tải thêm/ })).toBeNull();
   });
 
+  it('offers no button when the class fits on one page', async () => {
+    // The other half of the condition the button test above exercises. A
+    // "Tải thêm" that is always there is a button that fetches the same page
+    // again and appends a duplicate of every pupil already on screen.
+    serve({ '/orgs/{slug}/sets/{setSlug}/progress': GRID });
+    wrap(<ProblemSetProgressPage slug="hanoi" setSlug="tuan-1" />);
+
+    await screen.findByText('Anna');
+    expect(screen.queryByRole('button', { name: /Tải thêm/ })).toBeNull();
+  });
+
   it('links the CSV straight at the API, with format=csv', async () => {
     serve({ '/orgs/{slug}/sets/{setSlug}/progress': GRID });
     wrap(<ProblemSetProgressPage slug="hanoi" setSlug="tuan-1" />);

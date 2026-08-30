@@ -527,6 +527,68 @@ comment in `admin-users.service.ts` for why that race is left unclosed. If a
 database is ever somehow left with zero admins, either `bootstrap:admin` on
 the existing username or the `UPDATE` above is the way back in.
 
+### Bài tập về nhà — a school's homework sets (D66)
+
+Homework belongs to an organization, not to the site: `problem_sets` +
+`problem_set_items` (migration 0026) and six routes under `/orgs/{slug}/sets`.
+There is no CLI and no operator step — this is a thing a school's **owner**
+does in the web, and this section exists so the person supporting them knows
+what the screens are doing.
+
+**Who sees what.** Three questions, in order: may you see the school
+(`OrgAccessService`'s ordinary visibility gate — a school you may not see
+404s with no mention of sets), do you belong to it, do you run it. A
+**member-less viewer of a visible school gets an EMPTY LIST**, and every
+individual set answers `problem_set_not_found`. That is deliberate and not a
+bug report: an item may name an `org`-visibility problem shared with this
+school alone, so a readable set is a readable list of problem codes. "This
+school has assigned nothing" and "you are not in this class" must look the
+same. Creating, editing and withdrawing a set is **owner or global admin**;
+an org `admin` may not.
+
+**Assigning.** "Giao bài tập" on the organization page: a slug (unique per
+org, case-folded), a name, an optional description, an optional deadline, and
+an ordered list of problems with per-item points. A problem the school's
+members could not open is refused **422** with the row named
+(`problems[<n>].code`): `problem_set_problem_private` for a private problem or
+another school's, `problem_set_problem_unknown` for a code that does not
+exist, `problem_set_problem_duplicate` for a code twice. A problem NARROWED
+after it was assigned keeps its row, marked `visible: false` — the page just
+stops offering a link that would 404.
+
+**Deadlines.** Inclusive: a submission at the stroke of the deadline is on
+time. A late solve is its own entry beside the on-time one (`onTime` and
+`late` per cell), never instead of it — an on-time `WA` and an `AC` two days
+later are both shown, which is the case homework is actually about. With no
+deadline `late` is always null. `solvedAt` is non-null only for an `AC`.
+
+**The class grid and its CSV.** The JSON grid is a keyset page with a "Tải
+thêm" button. `?format=csv` is the **whole roster** — a deliberate exception
+to the paging rule, because a file that stops after twenty-five pupils is a
+file somebody would mark a class from — walked in cursor pages of 500 and
+**capped at 20 000 rows** (`DEFAULT_PROGRESS_EXPORT_BOUNDS`). A file that hit
+the cap ends with a final `truncated,<rows>` line rather than stopping
+silently; if a school ever reaches it, raise the bound at that constant
+rather than teaching anyone to trust a short file. A dated set gets a second
+`<code> (late)` column per problem. The grid excludes submissions inside a
+still-open contest window (D49) while the pupil's own page does not (D23), so
+a pupil sees their score before their teacher's grid does.
+
+**Two operational edges.** `problem_set_items` has **no `ON DELETE` on
+`problem_id`**, so deleting a problem that is assigned to a set is now
+refused by the foreign key — deliberate (a set must not lose an item
+silently), but a new way for a delete to fail: withdraw the sets first.
+And **nothing meters set creation**; an owner minting thousands of sets is
+not rate-limited, only bounded by their being an owner.
+
+    -- what a school has assigned, and how big each set is
+    select s.slug, s.name, s.deadline, count(i.problem_id) as items
+      from problem_sets s
+      left join problem_set_items i on i.set_id = s.id
+      join organizations o on o.id = s.org_id
+     where o.slug = '<school>'
+     group by s.id order by s.created_at desc;
+
 ### Bringing the stack up under podman-compose — use `scripts/compose-up.sh`
 
 A plain `podman-compose up -d --build` **does not reliably run migrations
