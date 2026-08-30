@@ -129,7 +129,10 @@ function configureBodyParsers(app: INestApplication): void {
  * - `X-Stats-Cache` (D49) and `X-Booklet-Cache` (D48) are the same choice
  *   `X-Scoreboard-Cache` made, for the same reason, on two routes shipped
  *   after this list was written — and they were left off it, so a browser
- *   on another origin could not read either. **Anything added to this list
+ *   on another origin could not read either. `X-Results-Cache` and
+ *   `X-Certificates-Cache` (D71) are the same choice again, added here in
+ *   the same commit as the routes that set them, because the spec below
+ *   would not have let them be forgotten. **Anything added to this list
  *   must be a header some controller actually sets, and anything a
  *   controller sets must be here**: `test/cors-exposed-headers.spec.ts`
  *   derives the second half from the source rather than trusting the next
@@ -143,6 +146,8 @@ const EXPOSED_HEADERS = [
   'X-Scoreboard-Cache',
   'X-Stats-Cache',
   'X-Booklet-Cache',
+  'X-Results-Cache',
+  'X-Certificates-Cache',
   'X-Request-Id',
 ];
 
