@@ -41,8 +41,8 @@ mid-line markup and none of `= `, `+ `, `/ `, `1. `, which typst reads only at a
 line start — and `DisplayName.trim()` is ends-only, so `typst query heading`
 returned the injected text, on the certificate and in the standings sheet. Line
 breaks become spaces now; a first-position marker is escaped (only there, so
-`GMT+7` reads as itself). Not evaluation: `#` was always escaped. **8. 16364cc**
-is a lint rider on 5 (a raw U+FEFF in source).
+`GMT+7` reads as itself). Not evaluation: `#` was always escaped. **16364cc** and
+**0636eee** ride on 5 and 2 (a raw U+FEFF in source; the CLI sheet's own test).
 
 ## Rulings, and what was left over
 D73/D74 are in `DECISIONS.md` and the OpenAPI descriptions. 2, 3 and 5 extend
