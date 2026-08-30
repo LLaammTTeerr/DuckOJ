@@ -108,3 +108,4 @@
 - Consolidation done. Resumed F+B with small features (advisor): F-26 problem comments (main, D109, migration 0039), B-20 a11y+i18n hunt (worktree, D110–D111). CI polling on the serial-test HEAD d024558 (held pushes to let it complete).
 - CI GREEN on ee2854bc with the serial test:ci command (the prior c0056614 failure was the old parallel run). CI flake fixed. Main pushed (0d48820).
 - B-20 DONE, merged (3f6dcd1..ee8d836): 7 a11y fixes (file-input labels, verdict/search/copy live regions, register error summary D110, autocomplete, similarity mark underline), axe sweep clean 8×3; web rebuilt, pushed.
+- Dispatched F-27 submission source diff (main, D111) and B-21 comments+cross-cut hunt (worktree, D112–D114). CI polling on 938edf5.
