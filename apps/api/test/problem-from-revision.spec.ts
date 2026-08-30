@@ -59,6 +59,8 @@ async function nestedPackage(options: { tests: number; checker: boolean }): Prom
         : { kind: 'standard' },
       limits: { timeMs: 2500, memoryKb: 131_072 },
       tests,
+      // D94: the first case is the sample, and it carries prose.
+      samples: [{ input: 'tests/01.in', explanation: 'Cộng hai số.' }],
     }),
   );
   const { archive, files } = await packDirectory(dir);
@@ -130,11 +132,13 @@ describe('a draft pre-filled from an existing revision (D88)', () => {
           memoryKb: 131_072,
           checker: { kind: 'source', path: 'checker.cpp', language: 'cpp17' },
         });
-        // Flat names, and the sample recognised by "0 points in group 0".
+        // Flat names; the sample recognised by D94's "worth nothing in a
+        // group worth nothing", and its explanation carried back from the
+        // manifest so re-opening the tab does not lose what was written.
         expect(opened.body.prefill.cases).toEqual([
-          { input: '01.in', answer: '01.out', points: 0, group: 0, sample: true },
-          { input: '02.in', answer: '02.out', points: 10, group: 1, sample: false },
-          { input: '03.in', answer: '03.out', points: 10, group: 1, sample: false },
+          { input: '01.in', answer: '01.out', points: 0, group: 0, sample: true, explanation: 'Cộng hai số.' },
+          { input: '02.in', answer: '02.out', points: 10, group: 1, sample: false, explanation: '' },
+          { input: '03.in', answer: '03.out', points: 10, group: 1, sample: false, explanation: '' },
         ]);
         // manifest.json + three pairs + the checker.
         expect(opened.body.fileCount).toBe(8);
@@ -218,7 +222,7 @@ describe('a draft pre-filled from an existing revision (D88)', () => {
 
         // A case worth points in group 0 is NOT a sample.
         expect(opened.body.prefill.cases).toEqual([
-          { input: '01.in', answer: '01.out', points: 100, group: 0, sample: false },
+          { input: '01.in', answer: '01.out', points: 100, group: 0, sample: false, explanation: '' },
         ]);
       });
     });

@@ -3816,3 +3816,87 @@ it there. Two doors existed into a live problem and it takes exactly one.
 human available to consult. No migration.*
 
 
+
+
+## D94 — Samples are a field on the problem, read out of the package; a statement's table is hidden only when it is provably a duplicate
+
+`GET /problems/{code}` modelled no samples at all. The input and the output
+of every worked example lived inside `problems.statement`, as a Markdown
+table, and every machine client scraped them back out of the prose — F20's
+`apps/mcp` most visibly, with an extractor that knows one table shape and
+answers `none` for anything else, honestly but silently. Meanwhile the files
+the judge actually grades against were sitting in the published revision's
+package, unread. `ProblemDetail.samples` is those files.
+
+- **A sample is still DERIVED, never flagged — but the rule D87 wrote finds
+  none of them.** D87 ruled "`points: 0` in group 0", which is exactly what
+  the browser authoring tab writes and is NOT what the other authoring path
+  produces: Polygon marks its samples explicitly and puts them in a *named*
+  group (`points="0" group="samples"`, which is what every `problem.xml`
+  under `content/problems` says), so `@duckoj/polygon-import` numbers that
+  group 1 and every seeded problem's samples sit at `points: 0, group: 1`.
+  The rule that covers both, and only those, is `isSampleTest`: **worth
+  nothing, in a group that is worth nothing.** Group 0 means "ungrouped,
+  every case stands alone", so a zero-point case there is a sample
+  regardless of its neighbours; a real batch is a sample group only when the
+  WHOLE batch scores nothing — load-bearing, because `distributePoints`
+  splits ten points over twelve tests and hands two of them a 0, and
+  publishing one of those would hand out jury test data. D87's ruling that
+  the manifest gains no `sample` flag stands; this widens how the flagless
+  manifest is READ, and `POST /drafts/from-revision` now reads it this way
+  too (it was returning every imported problem's samples as graded cases).
+- **`samples[].explanation` annotates a sample by its INPUT PATH.** Not an
+  index into the derived list — inserting one test above a sample would
+  silently move every explanation down one problem — and not a field on
+  `TestCase`, so nothing about a test's scoring row changes. Optional, so
+  every package built before this parses unchanged and `schemaVersion` does
+  not move. `parseManifest` refuses an explanation on a non-sample and a
+  path explained twice: prose that renders nowhere reads, to the setter who
+  wrote it, as work silently thrown away.
+- **The reader derives its file list from `tests` and JOINS annotations onto
+  it, never the reverse.** Everything in a package that is not a sample is
+  jury data, and a stored blob predates this schema's validation: a reader
+  that opened whatever `samples[]` named would let a manifest nominate a
+  jury answer, or a checker's source, as public.
+- **12 samples, 8 KiB per file, `truncated: true` when a file was cut.** The
+  count is derived, so nothing bounds it that a setter had to think about —
+  a package that scores nothing anywhere would make every test a sample.
+- **Cached under the PACKAGE HASH, with no invalidation call anywhere.** The
+  brief asked for a key per problem+revision invalidated on publish; this is
+  the same thing with the invalidation deleted, which is `bookletCacheKey`'s
+  precedent (D48) and its reasoning: a revision has exactly one immutable
+  package, so a publish does not invalidate the entry, it stops addressing
+  it. There is no path on which a publish can forget, and a clone (D88)
+  shares the entry rather than folding the same archive twice.
+- **Every failure answers `[]`.** A lost blob, an unparseable manifest, a
+  Redis outage: the samples sit on top of a statement that still carries its
+  own table, and a problem page that 500s over them is strictly the worse
+  outcome. The throw happens inside the cache's fold, so nothing bad is
+  cached. `getStats`/`getEditorial` build on a private `loadVisible` so
+  neither pays a round trip for samples it never renders.
+- **The statement's table is hidden ONLY when it says exactly what is being
+  rendered** — same samples, same order, same explanations, compared after
+  normalising line endings and trailing whitespace, because a test file ends
+  in a newline and a table cell is trimmed prose (a literal byte comparison
+  would never match and the rule would be dead code nobody noticed). When a
+  table goes and it was the entire body of the heading above it, the heading
+  goes too. A table that differs at all stays: showing a reader the same
+  example twice costs nothing; hiding their only copy of a third costs
+  everything. A truncated or capped sample set therefore never hides
+  anything, which is the right degradation.
+- **The MCP scraper is demoted, not deleted, and lives in
+  `@duckoj/statement-samples` now.** An MCP server is routinely pointed at a
+  DuckOJ older than the SDK it was built against, and dropping the fallback
+  would turn "your API is a version behind" into "this problem has no
+  samples". It is a package because the web needs the same reading of the
+  same convention to answer the duplicate question, and a second copy of a
+  narrow parser is how two consumers quietly stop agreeing.
+- **`prepare`'s `samples` check `skip`s a package that declares none.** The
+  gate answers "does this package deliver the samples it declares"; turning
+  "publishes no worked example" into a blocking failure is a judgement about
+  the problem, not the package, and would fail every problem prepared before
+  this.
+
+*Ruled by the implementer during the 2026-08-30 feature loop (F22 brief), no
+human available to consult. No migration — the package is the record, and
+`problem_revisions.package_hash` was already there.*
