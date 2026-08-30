@@ -350,6 +350,8 @@ export const en = {
   'contest.booklet': 'Problems (PDF)',
   'contest.resultsCsv': 'Results (CSV)',
   'contest.resultsPdf': 'Results (PDF)',
+  'contest.certificates': 'Certificates (PDF)',
+  'contest.certificatesTop': 'Down to rank',
   'similarity.title': 'Duplicate-source check',
   'similarity.caution': 'A high score is a reason to look at the two programs, never a verdict. Two students taught the same technique can score high and be innocent. This report is visible to the organisers only.',
   'similarity.threshold': 'Threshold',
