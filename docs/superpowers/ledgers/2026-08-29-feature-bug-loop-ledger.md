@@ -103,3 +103,4 @@
 - Advisor: consolidate one iteration. CI polled (first time this loop): runs are mostly cancelled by rapid pushes; one real `failure` on the parallel `pnpm -r test` step (the documented flake / the red merge-base B-19 already fixed). Backups CONFIRMED: nightly dumps Aug 29/30/31 present, timer next 09-01 03:04. scripts/merge-decisions.py committed (D-block/journal resolver).
 - Dispatched C-1 (worktree): residual sweep, make CI serial + a dist boot check (D106), re-baseline k6+soak (D107), fresh-DB migrate proof, standing-limitations index (D108). C-2 (main): guides/help/readiness refresh through D105, lock postdated probe accounts.
 - Process change: deploys now gate on the full SERIAL api suite of the merged tree (kicked off at merge, deploy waits) — closes the red-merge-base hole B-19 found.
+- C-2 DONE (5c55764..8846185): guides/help/readiness refreshed through the loop's features; 23 live probe accounts locked (duckadmin/hocsinh1 safe). web rebuilt, pushed.
