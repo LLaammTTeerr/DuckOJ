@@ -33,7 +33,7 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
-const { ContestPage, ScoreboardPage } = await import('../src/routes/contests.js');
+const { ContestPage, ScoreboardPage, SimilarityPairPage } = await import('../src/routes/contests.js');
 
 function wrap(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -251,5 +251,83 @@ describe('a team row on the scoreboard', () => {
         body: { disqualified: true },
       }),
     );
+  });
+});
+
+/* --------------------------------------------------- the similarity report */
+
+/**
+ * D99: the report "labels by team" — `loadCandidates` substitutes the team's
+ * name for the captain's username, exactly so three teammates' attempts are
+ * one entry. Every consumer downstream therefore keys on a NAME that is not
+ * an account, which the scoreboard above got right and these two screens are
+ * the rest of.
+ */
+const TEAM_RUN = {
+  run: {
+    id: 3,
+    status: 'finished',
+    threshold: 0.6,
+    startedAt: '2026-08-30T02:00:00.000Z',
+    finishedAt: '2026-08-30T02:00:05.000Z',
+    requestedBy: 'boss',
+    error: null,
+    participants: 2,
+    problems: [
+      { code: 'aplusb', label: 'A', participants: 2, compared: 1, reported: 1, truncated: false },
+    ],
+    pairs: [
+      {
+        problemCode: 'aplusb',
+        problemLabel: 'A',
+        a: 'Đội 1',
+        b: 'Đội 2',
+        aSubmissionId: 11,
+        bSubmissionId: 12,
+        jaccard: 0.71,
+        containment: 0.93,
+      },
+    ],
+  },
+};
+
+describe('the similarity report of a team contest', () => {
+  it('does not link a team’s name to a profile that cannot exist', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}') return Promise.resolve({ data: contest({ canEdit: true }) });
+      if (path === '/auth/me') return Promise.resolve({ data: { username: 'boss', globalRole: 'admin' } });
+      if (path === '/contests/{key}/similarity') return Promise.resolve({ data: TEAM_RUN });
+      if (path === '/orgs/{slug}/teams') return Promise.resolve({ data: TEAMS });
+      return Promise.resolve({
+        error: { code: 'participation_not_found', detail: 'x' },
+        response: { status: 404 },
+      });
+    });
+    wrap(<ContestPage contestKey="doi" />);
+
+    const name = await screen.findByText('Đội 1');
+    expect(name.closest('a')).toBeNull();
+    expect(screen.getByText('Đội 2').closest('a')).toBeNull();
+  });
+
+  it('does not link a team’s name from the side-by-side view either', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}') return Promise.resolve({ data: contest({ canEdit: true }) });
+      return Promise.resolve({
+        data: {
+          problemCode: 'aplusb',
+          problemLabel: 'A',
+          jaccard: 0.71,
+          containment: 0.93,
+          a: { username: 'Đội 1', submissionId: 11, languageKey: 'cpp17', source: 'int main(){}', spans: [] },
+          b: { username: 'Đội 2', submissionId: 12, languageKey: 'cpp17', source: 'int main(){}', spans: [] },
+        },
+      });
+    });
+    wrap(<SimilarityPairPage contestKey="doi" a="Đội 1" b="Đội 2" />);
+
+    const name = await screen.findByText('Đội 1');
+    expect(name.closest('a')).toBeNull();
+    expect(screen.getByText('Đội 2').closest('a')).toBeNull();
   });
 });
