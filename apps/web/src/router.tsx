@@ -30,6 +30,7 @@ import { ContestNewPage } from './routes/contest-new.js';
 import { ContestEditPage } from './routes/contest-edit.js';
 import { TokensPage } from './routes/tokens.js';
 import { SecurityPage } from './routes/security.js';
+import { SettingsPage } from './routes/settings.js';
 import { UserPage } from './routes/user.js';
 import { OrgPage, OrgsPage } from './routes/orgs.js';
 import { AdminPage } from './routes/admin.js';
@@ -40,6 +41,7 @@ import { api } from './api.js';
 // verdict column, but is not itself part of the route tree — can share the
 // same `['me']` cache entry without importing this file.
 import { meQueryOptions } from './me.js';
+import { PreferenceSync } from './preferences.js';
 import { useLocale, useT } from './i18n/index.js';
 
 /**
@@ -218,6 +220,7 @@ function useAuthGate() {
 function RootComponent() {
   return (
     <>
+      <PreferenceSync />
       <ShellNav />
       <main>
         <Outlet />
@@ -260,6 +263,10 @@ export function ShellNav() {
         {/* Beside Tokens: both are `/account/*`, both are session-only, and
             a 2FA screen nobody can find is a 2FA screen nobody turns on. */}
         {me.data ? <Link to="/account/security">{t('nav.security')}</Link> : null}
+        {/* Beside Tokens and Security, for the same reason both are: all
+            three are `/account/*`, and a language a reader can only change
+            per-browser is a language they change again on every machine. */}
+        {me.data ? <Link to="/account/settings">{t('nav.settings')}</Link> : null}
         {me.data ? (
           <Link to="/notifications" aria-label={t('nav.notifications', { count: unread })}>
             {unread > 0 ? `[${String(unread)}]` : '[ ]'}
@@ -628,6 +635,11 @@ const securityRoute = createRoute({
   path: '/account/security',
   component: SecurityPage,
 });
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/account/settings',
+  component: SettingsPage,
+});
 const notificationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/notifications',
@@ -691,6 +703,7 @@ const routeTree = rootRoute.addChildren([
   orgRoute,
   tokensRoute,
   securityRoute,
+  settingsRoute,
   notificationsRoute,
   adminRoute,
   userRoute,

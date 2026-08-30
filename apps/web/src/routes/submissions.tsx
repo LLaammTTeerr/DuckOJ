@@ -47,7 +47,7 @@ export function SubmissionsPage({
   // problem page and profiles link here), after which they are ordinary
   // local state.
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   const [problem, setProblem] = useState(initialProblem);
   const [user, setUser] = useState(initialUser);
   const [contest, setContest] = useState(initialContest);
@@ -204,7 +204,7 @@ export function SubmissionsPage({
                     ? `${formatPoints(s.points)}/${formatPoints(s.maxPoints)}`
                     : '—'}
                 </td>
-                <td>{formatTimestamp(s.createdAt, locale)}</td>
+                <td>{formatTimestamp(s.createdAt, locale, timeZone)}</td>
               </tr>
             ))}
           </tbody>

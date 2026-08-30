@@ -192,7 +192,7 @@ export function ProblemPage(props: { code: string }) {
  */
 function ProblemStatsSection({ code }: { code: string }) {
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   const query = useQuery({
     queryKey: ['problem-stats', code],
     queryFn: async () => {
@@ -252,7 +252,7 @@ function ProblemStatsSection({ code }: { code: string }) {
           <Link to="/users/$username" params={{ username: stats.firstSolver.username }}>
             {stats.firstSolver.username}
           </Link>{' '}
-          <span className="muted">{formatDateTime(stats.firstSolver.createdAt, locale)}</span>
+          <span className="muted">{formatDateTime(stats.firstSolver.createdAt, locale, timeZone)}</span>
         </p>
       ) : null}
       {stats.fastest.length > 0 ? (

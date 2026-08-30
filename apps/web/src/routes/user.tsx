@@ -13,7 +13,7 @@ type RatingEvent =
 
 export function UserPage({ username }: { username: string }) {
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   const profile = useQuery({
     queryKey: ['user', username],
     queryFn: async (): Promise<Profile> => {
@@ -46,7 +46,7 @@ export function UserPage({ username }: { username: string }) {
         {user.username}
         {user.globalRole !== 'user' ? ` · ${user.globalRole}` : ''}
         {user.country ? ` · ${user.country}` : ''} ·{' '}
-        {t('user.memberSince', { date: formatDate(user.createdAt, locale) })}
+        {t('user.memberSince', { date: formatDate(user.createdAt, locale, timeZone) })}
       </p>
       {user.about ? <p>{user.about}</p> : null}
 

@@ -18,7 +18,7 @@ const SCOPE_CHOICES = SCOPES;
 
 export function TokensPage() {
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   const client = useQueryClient();
   const [name, setName] = useState('');
   const [scopes, setScopes] = useState<string[]>(['problems:read', 'submissions:write']);
@@ -152,7 +152,7 @@ export function TokensPage() {
                 <td>
                   {token.lastUsedAt === null
                     ? t('common.never')
-                    : formatDate(token.lastUsedAt, locale)}
+                    : formatDate(token.lastUsedAt, locale, timeZone)}
                 </td>
                 <td>
                   <button type="button" disabled={busy} onClick={() => void revoke(token.id)}>

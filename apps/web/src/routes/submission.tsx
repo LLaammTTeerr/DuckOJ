@@ -29,7 +29,7 @@ export function SubmissionPage({ id }: { id: number }) {
   const [rejudgeBusy, setRejudgeBusy] = useState(false);
 
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   // The router builds this prop as `Number(params.id)` off a path segment, so
   // `/submissions/abc` arrives here as `NaN` — and every id the API could
   // possibly hold is a positive integer. Without this the page asked for
@@ -98,7 +98,7 @@ export function SubmissionPage({ id }: { id: number }) {
         {/* `languageKey` is the API's own enum value, and `ms`/`KB` are unit
             symbols — neither is translated (see i18n/en.ts). The timestamp
             now follows the active locale rather than the browser's. */}· {s.languageKey} ·{' '}
-        {formatTimestamp(s.createdAt, locale)}
+        {formatTimestamp(s.createdAt, locale, timeZone)}
         {s.timeMs !== null ? ` · ${String(s.timeMs)} ms` : ''}
         {s.memoryKb !== null ? ` · ${String(s.memoryKb)} KB` : ''}
       </p>

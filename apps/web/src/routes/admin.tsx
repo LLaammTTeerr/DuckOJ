@@ -281,7 +281,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function Operations() {
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   const client = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -336,7 +336,7 @@ function Operations() {
       ) : (
         <>
           <p className="muted">
-            {t('admin.dashUpdated', { time: formatTimestamp(data.generatedAt, locale) })}
+            {t('admin.dashUpdated', { time: formatTimestamp(data.generatedAt, locale, timeZone) })}
           </p>
 
           <div className="stats">

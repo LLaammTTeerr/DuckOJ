@@ -121,6 +121,19 @@ export type TFunction = (key: MsgKey, vars?: Vars) => string;
 interface LocaleContextValue {
   locale: Locale;
   setLocale: (locale: Locale) => void;
+  /**
+   * The IANA zone every absolute timestamp is rendered in, or `null` for
+   * "whatever this browser is set to" (D57).
+   *
+   * It rides on the LOCALE context rather than on a query of its own for one
+   * reason: a component rendered bare — which is most of the unit suite, and
+   * every screen a test mounts without a `QueryClientProvider` — must not
+   * acquire a data dependency in order to print a date. `null` here is
+   * exactly the behaviour this app had before anybody could choose a zone,
+   * so the fallback is the status quo rather than a guess.
+   */
+  timeZone: string | null;
+  setTimeZone: (zone: string | null) => void;
 }
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
@@ -145,9 +158,17 @@ export function resetFallbackLocale(): void {
   fallbackLocale = null;
 }
 
-export function LocaleProvider(props: { children: ReactNode; initialLocale?: Locale }) {
+export function LocaleProvider(props: {
+  children: ReactNode;
+  initialLocale?: Locale;
+  initialTimeZone?: string | null;
+}) {
   const { initialLocale } = props;
   const [locale, setLocaleState] = useState<Locale>(() => initialLocale ?? resolveInitialLocale());
+  // NOT persisted to `localStorage`, unlike the locale: the zone has exactly
+  // one authority — the account — and a copy in this browser could only
+  // disagree with it. A signed-out reader has no zone and gets their own.
+  const [timeZone, setTimeZone] = useState<string | null>(props.initialTimeZone ?? null);
 
   // `<html lang>` follows the active locale. It is what a screen reader picks
   // its voice from and what a browser offers to translate against, so leaving
@@ -161,7 +182,10 @@ export function LocaleProvider(props: { children: ReactNode; initialLocale?: Loc
     setLocaleState(next);
   }, []);
 
-  const value = useMemo<LocaleContextValue>(() => ({ locale, setLocale }), [locale, setLocale]);
+  const value = useMemo<LocaleContextValue>(
+    () => ({ locale, setLocale, timeZone, setTimeZone }),
+    [locale, setLocale, timeZone],
+  );
   return <LocaleContext.Provider value={value}>{props.children}</LocaleContext.Provider>;
 }
 
@@ -170,7 +194,14 @@ export function useLocale(): LocaleContextValue {
   const ctx = useContext(LocaleContext);
   // A component rendered bare (every unit test that does not need the toggle)
   // still translates — it simply cannot switch.
-  return ctx ?? { locale: defaultLocale(), setLocale: () => undefined };
+  return (
+    ctx ?? {
+      locale: defaultLocale(),
+      setLocale: () => undefined,
+      timeZone: null,
+      setTimeZone: () => undefined,
+    }
+  );
 }
 
 /** `t` for the active locale. Stable across renders while the locale is. */
@@ -239,13 +270,29 @@ export function globalRoleLabel(t: TFunction, role: string): string {
 // column on purpose, and adding a locale's thousands separator to it would
 // be a regression, not a localization — see that file's doc comment.
 
+/**
+ * Every absolute formatter below takes an optional `timeZone` — the reader's
+ * own, from `useLocale()` (D57).
+ *
+ * `undefined`/`null` is passed straight through to `Intl` as an absent
+ * option, which means the browser's zone: the behaviour this app had before
+ * the setting existed, and the behaviour a reader who has chosen nothing
+ * still gets. So the parameter can never silently shift a timestamp for
+ * somebody who did not ask for it.
+ */
+function zoneOption(timeZone?: string | null): { timeZone?: string } {
+  return timeZone == null ? {} : { timeZone };
+}
+
 /** `2026-03-01T09:00:00Z` → `01/03/2026 16:00` (vi) / `3/1/2026 04:00` (en). */
-export function formatDateTime(iso: string, locale: Locale): string {
+export function formatDateTime(iso: string, locale: Locale, timeZone?: string | null): string {
   const date = new Date(iso);
-  const day = date.toLocaleDateString(INTL_LOCALES[locale]);
+  const zone = zoneOption(timeZone);
+  const day = date.toLocaleDateString(INTL_LOCALES[locale], zone);
   const time = date.toLocaleTimeString(INTL_LOCALES[locale], {
     hour: '2-digit',
     minute: '2-digit',
+    ...zone,
   });
   return `${day} ${time}`;
 }
@@ -255,21 +302,22 @@ export function formatDateTime(iso: string, locale: Locale): string {
  * freeze banner names an instant inside a contest that is running right now,
  * so the date is noise — the reader knows what day it is.
  */
-export function formatTime(iso: string, locale: Locale): string {
+export function formatTime(iso: string, locale: Locale, timeZone?: string | null): string {
   return new Date(iso).toLocaleTimeString(INTL_LOCALES[locale], {
     hour: '2-digit',
     minute: '2-digit',
+    ...zoneOption(timeZone),
   });
 }
 
 /** Date only, in the active locale's own order. */
-export function formatDate(iso: string, locale: Locale): string {
-  return new Date(iso).toLocaleDateString(INTL_LOCALES[locale]);
+export function formatDate(iso: string, locale: Locale, timeZone?: string | null): string {
+  return new Date(iso).toLocaleDateString(INTL_LOCALES[locale], zoneOption(timeZone));
 }
 
 /** Date and time, in the active locale's own order. */
-export function formatTimestamp(iso: string, locale: Locale): string {
-  return new Date(iso).toLocaleString(INTL_LOCALES[locale]);
+export function formatTimestamp(iso: string, locale: Locale, timeZone?: string | null): string {
+  return new Date(iso).toLocaleString(INTL_LOCALES[locale], zoneOption(timeZone));
 }
 
 const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [

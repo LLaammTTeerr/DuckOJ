@@ -120,7 +120,7 @@ function line(t: TFunction, item: Item): React.ReactNode {
 
 export function NotificationsPage() {
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
   const client = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -185,7 +185,7 @@ export function NotificationsPage() {
                 {/* A feed is the one place "when" means "how long ago" —
                     Intl.RelativeTimeFormat, in the active locale, with the
                     absolute instant still one hover away. */}
-                <td className="num" title={formatTimestamp(item.createdAt, locale)}>
+                <td className="num" title={formatTimestamp(item.createdAt, locale, timeZone)}>
                   {formatRelative(item.createdAt, locale)}
                 </td>
               </tr>
