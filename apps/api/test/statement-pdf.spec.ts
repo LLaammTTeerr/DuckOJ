@@ -12,10 +12,11 @@
  *     route becomes an existence oracle the JSON route is not.
  */
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { problemRevisions, problems } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
@@ -221,4 +222,102 @@ describe('GET /problems/{code}/statement.pdf', () => {
       }
     });
   }, 120_000);
+});
+
+/**
+ * The subprocess bound — B10's standing concern, closed.
+ *
+ * A statement is author-controlled input to a Turing-complete typesetter, so
+ * `typst compile` can be made to run forever (`#while true { }`) or to emit an
+ * unbounded document. B10 closed the injection that made a hang trivially
+ * reachable and recorded the missing bound as a standing concern; this is the
+ * bound.
+ *
+ * Exercised against a FAKE binary as well as the real one, because the real
+ * one is skipped wherever typst is not installed — and these are exactly the
+ * cases that must not regress unnoticed there. `spawn` does not care what it
+ * runs: the renderer's contract is "kill the process group, answer 500 with a
+ * reason", and a shell script exercises that precisely and in milliseconds.
+ */
+describe('TypstStatementRenderer subprocess bound', () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'duckoj-typst-bound-'));
+  });
+
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** A fake `typst` that ignores its arguments and runs `body` instead. */
+  async function fakeBin(name: string, body: string): Promise<string> {
+    const path = join(dir, name);
+    await writeFile(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    return path;
+  }
+
+  it('kills a render that outruns the timeout, and names the timeout', async () => {
+    const bin = await fakeBin('slow.sh', 'sleep 30');
+    const renderer = new TypstStatementRenderer(bin, { timeoutMs: 300 });
+    const started = Date.now();
+    await expect(renderer.render('P', 'x')).rejects.toMatchObject({
+      status: 500,
+      code: 'statement_pdf_failed',
+    });
+    // The point of the bound: the caller is answered in ~300 ms, not in 30 s.
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const second = new TypstStatementRenderer(bin, { timeoutMs: 300 });
+    await expect(second.render('P', 'x')).rejects.toThrow(/timed out/i);
+  }, 60_000);
+
+  it('kills the whole process GROUP, not just the child it spawned', async () => {
+    // `typst` is one shell away from being a process tree, and `child.kill()`
+    // reaps only the pid we hold — leaving a grandchild running against a
+    // request that has already been answered.
+    const marker = join(dir, 'grandchild-survived');
+    const bin = await fakeBin('tree.sh', `sh -c 'sleep 2; : > ${marker}' & sleep 30`);
+    const renderer = new TypstStatementRenderer(bin, { timeoutMs: 300 });
+    await expect(renderer.render('P', 'x')).rejects.toMatchObject({ code: 'statement_pdf_failed' });
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    expect(existsSync(marker)).toBe(false);
+  }, 60_000);
+
+  it('refuses a render whose output outgrows the cap', async () => {
+    // 8 MiB of zeroes against a 64 KiB cap: refused while it is still being
+    // written, so nothing ever buffers the whole thing.
+    const bin = await fakeBin('big.sh', 'head -c 8388608 /dev/zero; sleep 5');
+    const renderer = new TypstStatementRenderer(bin, {
+      maxOutputBytes: 64 * 1024,
+      timeoutMs: 30_000,
+    });
+    const started = Date.now();
+    await expect(renderer.render('P', 'x')).rejects.toMatchObject({
+      status: 500,
+      code: 'statement_pdf_failed',
+    });
+    expect(Date.now() - started).toBeLessThan(10_000);
+    const second = new TypstStatementRenderer(bin, { maxOutputBytes: 64 * 1024, timeoutMs: 30_000 });
+    await expect(second.render('P', 'x')).rejects.toThrow(/output/i);
+  }, 60_000);
+
+  it('still returns the document a bounded render produces', async () => {
+    const bin = await fakeBin('ok.sh', 'cat > /dev/null; printf "%%PDF-1.7 ok"');
+    const renderer = new TypstStatementRenderer(bin, { timeoutMs: 10_000, maxOutputBytes: 1024 });
+    await expect(renderer.render('P', 'x')).resolves.toEqual(Buffer.from('%PDF-1.7 ok'));
+  }, 60_000);
+
+  it.skipIf(TYPST_BIN === null)('bounds a pathological document against the real binary', async () => {
+    const renderer = new TypstStatementRenderer(TYPST_BIN!, { timeoutMs: 2_000 });
+    // Author-controlled, and typst's language is expressive enough to make a
+    // three-line statement cost minutes. Not `#while true { }`: typst refuses
+    // that one statically ("loop seems to be infinite") and refuses a
+    // long-running `while` too, so the reachable shape is content generation
+    // — this one runs for well over six seconds before it is killed, measured
+    // against the real binary.
+    const document = '#set page(width: 10cm)\n= P\n#for i in range(3000000) [#i ]\n';
+    const started = Date.now();
+    await expect(renderer.renderDocument(document)).rejects.toThrow(/timed out/i);
+    expect(Date.now() - started).toBeLessThan(30_000);
+  }, 60_000);
 });
