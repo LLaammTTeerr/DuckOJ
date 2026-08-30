@@ -22,6 +22,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { read } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { useT } from '../i18n/index.js';
 
@@ -56,15 +57,18 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
   const [editing, setEditing] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Silent on failure, exactly as `OrgSets` and `OrgContests` are: this
-  // section sits on somebody else's page, and a failed list must not take
-  // that page down or stack a second alert onto it.
+  // NOT silent on failure any more. This section sits on somebody else's
+  // page, so a failure must not take that page down — but `?? []` did not
+  // merely stay quiet, it answered the question: a 500 rendered
+  // `teams.empty`, telling a teacher their school has no teams on the
+  // morning they are looking for one. `read` throws instead, and the failure
+  // is reported in this section alone (B-4's rule, B-8's `read`).
   const teams = useQuery({
     queryKey: teamsKey(slug),
     enabled: me.data != null,
     queryFn: async () => {
-      const { data } = await api.GET('/orgs/{slug}/teams', { params: { path: { slug } } });
-      return data?.items ?? [];
+      const result = await api.GET('/orgs/{slug}/teams', { params: { path: { slug } } });
+      return read(result, t('teams.listError'))?.items ?? [];
     },
   });
 
@@ -90,7 +94,12 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
   }
 
   if (!me.data) return null;
-  if (!canManage && (teams.data === undefined || teams.data.length === 0)) return null;
+  // A reader who manages nothing and is on no team sees nothing at all — but
+  // a failed read is not "no teams", so the error still gets a heading and a
+  // sentence rather than a silently absent section.
+  if (!canManage && !teams.isError && (teams.data === undefined || teams.data.length === 0)) {
+    return null;
+  }
 
   // The warning, not a disabled button: the refusal belongs to the server
   // (409 `team_locked_during_contest`), and a client that greyed the control
@@ -108,6 +117,7 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
         </p>
       ) : null}
       {actionError ? <p role="alert">{actionError}</p> : null}
+      {teams.isError ? <p role="alert">{t('teams.listError')}</p> : null}
       {teams.data && teams.data.length === 0 ? <p className="muted">{t('teams.empty')}</p> : null}
       {teams.data && teams.data.length > 0 ? (
         <table>
@@ -185,12 +195,23 @@ function TeamMembers({ slug, teamSlug, count }: { slug: string; teamSlug: string
   const detail = useQuery({
     queryKey: ['org-team', slug, teamSlug],
     queryFn: async () => {
-      const { data } = await api.GET('/orgs/{slug}/teams/{teamSlug}', {
+      const result = await api.GET('/orgs/{slug}/teams/{teamSlug}', {
         params: { path: { slug, teamSlug } },
       });
-      return data ?? null;
+      return read(result, t('teams.membersError'));
     },
   });
+  // The COUNT is real either way — it arrived with the summary row — so it
+  // stays. What `?? null` cost was the difference between "still loading"
+  // and "asked, and never answered", which are the same picture and
+  // different facts.
+  if (detail.isError) {
+    return (
+      <span className="muted">
+        {t('teams.memberCount', { n: count })} · {t('teams.membersError')}
+      </span>
+    );
+  }
   if (!detail.data) return <span className="muted">{t('teams.memberCount', { n: count })}</span>;
   return (
     <>
@@ -224,10 +245,10 @@ function TeamForm({
     queryKey: ['org-team', slug, teamSlug ?? ''],
     enabled: teamSlug !== undefined,
     queryFn: async (): Promise<TeamDetail | null> => {
-      const { data } = await api.GET('/orgs/{slug}/teams/{teamSlug}', {
+      const result = await api.GET('/orgs/{slug}/teams/{teamSlug}', {
         params: { path: { slug, teamSlug: teamSlug! } },
       });
-      return data ?? null;
+      return read(result, t('teams.loadError'));
     },
   });
   const loaded = existing.data ?? null;
@@ -268,6 +289,24 @@ function TeamForm({
     } finally {
       setBusy(false);
     }
+  }
+
+  // An edit form over a roster that never loaded is the dangerous one:
+  // `members` REPLACES the whole roster, so the empty box the reader is
+  // shown is a saved change, and the save that looks like a no-op is the one
+  // that empties the team. So the form is not rendered at all.
+  if (teamSlug !== undefined && existing.isError) {
+    return (
+      <>
+        <h3>{t('teams.edit')}</h3>
+        <p role="alert">{t('teams.loadError')}</p>
+        <p>
+          <button type="button" onClick={onCancel}>
+            {t('common.cancel')}
+          </button>
+        </p>
+      </>
+    );
   }
 
   return (
@@ -321,15 +360,19 @@ export function TeamPage({ slug, teamSlug }: { slug: string; teamSlug: string })
     queryKey: ['org-team', slug, teamSlug],
     enabled: me.data != null,
     queryFn: async (): Promise<TeamDetail | null> => {
-      const { data } = await api.GET('/orgs/{slug}/teams/{teamSlug}', {
+      const result = await api.GET('/orgs/{slug}/teams/{teamSlug}', {
         params: { path: { slug, teamSlug } },
       });
-      return data ?? null;
+      // 404 is an ANSWER here and the sentence below is the right one for
+      // it; every other status is the question going unanswered, and saying
+      // "no such team" to a 500 tells a captain their team was disbanded.
+      return read(result, t('teams.loadError'), [404]);
     },
   });
 
   if (me.data == null) return <p role="alert">{t('teams.signInFirst')}</p>;
   if (team.isPending) return <p className="muted">{t('common.loading')}</p>;
+  if (team.isError) return <p role="alert">{t('teams.loadError')}</p>;
   if (!team.data) return <p role="alert">{t('teams.notFound')}</p>;
 
   const detail = team.data;
