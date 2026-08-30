@@ -79,3 +79,4 @@
 - deploy.sh first live run rolled back on its :8443 probe (TLS reset on this host); default probe now :8080; second run: see line above.
 - F-21 DONE, merged (0fe45e7): packages/prepare + `pnpm prepare` gate/publisher (D90), guide chuan-bi-de.md; live e2e published prep-20260830-222437. Finding → next hunt: GET /problems/{code} publishedVersion null for every problem.
 - B-16 dispatched (worktree, opus): publishedVersion null, F-18 drafts edge cases, harness realism (configureApp + loadConfig, D91), forced-password UX, browser authoring probe.
+- F-19 DONE (7a13cab..8b6529e): draft from revision + file read-back, problem clone (edit rights required), contest clone (D88); deployed via deploy.sh; pushed.
