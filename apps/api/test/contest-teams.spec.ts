@@ -293,7 +293,7 @@ describe('entering a team contest', () => {
         const rows = await db
           .select({ id: contestParticipations.id })
           .from(contestParticipations)
-          .where(eq(contestParticipations.contestId, first.body.id > 0 ? await contestIdOf(db, 'team-c') : 0));
+          .where(eq(contestParticipations.contestId, await contestIdOf(db, 'team-c')));
         expect(rows).toHaveLength(1);
       } finally {
         await app.close();
