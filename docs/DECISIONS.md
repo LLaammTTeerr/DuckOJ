@@ -1599,3 +1599,115 @@ same path from `attachRevision`, so a stored package could do it too.
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (B6 brief),
 no human available to consult. No migration.*
 
+
+## D56 — A contest's organizations decide who may JOIN it, not only who may see it
+
+`contest_orgs` existed since Phase 4c and meant exactly one thing: which
+organizations may SEE an `org`-visibility contest. So a school could run a
+private contest — but the thing a school actually wants is a *public* contest
+that only its own pupils may enter, and attaching an organization to a public
+contest meant nothing at all, because `canViewVisible` short-circuits on
+`public` before it ever looks at the shares.
+
+**The ruling: the same table now also restricts entry.** A contest with at
+least one organization may be joined only by a member of one of them. A
+contest with none is unchanged — every pre-D56 row keeps its exact behaviour,
+because "no organizations" is the whole of "no restriction". `orgSlugs` became
+editable in the same change; it was absent from `UpdateContestRequest`
+entirely, so a contest's organizations were fixed for its whole life and a
+mistyped slug could only be fixed by deleting the contest.
+
+- **403 `contest_org_required`, not 404.** This is the one refusal in
+  `ContestAccessService` that is a 403 on a read-shaped path, and it is not an
+  exception to the 404-over-403 rule: that rule protects EXISTENCE, and there
+  is none left to protect. `loadVisible` has already shown this caller the
+  contest, and every contest response now names the organizations restricting
+  it. A 404 would tell a competitor looking at the contest page that the
+  contest had vanished. The 400 that used to hold this code — "an org-visible
+  contest needs at least one organization" — is `contest_org_missing`; one
+  code meaning both "you forgot to name a school" (to a setter) and "you are
+  not in one" (to a competitor) tells a client nothing.
+- **The gate sits after the idempotent live short-circuit.** Only the
+  CREATION of a participation is refused. A school that removes a pupil in the
+  middle of a contest does not thereby delete the contest from under them, and
+  an organiser who seeded a guest does not have to enrol them in a school to
+  keep them competing.
+- **A global admin is exempt; the contest's creator is not.** The first
+  follows every other visibility decision in this codebase. The second is a
+  deliberate asymmetry: running a contest is not competing in it, and a setter
+  who wants a row on their own school's board can be a member of their own
+  school. It does mean a creator can 403 on their own contest.
+- **Attaching an organization needs OWNER or ADMIN of it, not membership.**
+  Restricting a contest to a school is a claim to speak for that school; a
+  pupil on its roster does not get to make it, and could before this. Problems
+  keep the looser rule on purpose — sharing a problem with your own school is
+  publishing to a room you are in, not conscripting it. Already-attached ids
+  are exempt (as `problem.access.ts` already does), so the edit form's
+  resubmission of the stored list still saves for a creator who is only a
+  member of an organization an admin attached.
+- **Attaching an organization PUBLISHES its slug and name** to everyone who
+  can see the contest, a private organization included. That is a real
+  disclosure and it is accepted: the refusal is unreadable otherwise, and "you
+  may not join, and I will not say why" is the worse answer. The link a badge
+  points at still 404s a stranger — naming it is the point, where it leads is
+  that page's decision.
+- `GET /contests?org=` answers an EMPTY page for a slug that names nothing or
+  an organization the caller may not see — never 404, so the filter cannot
+  become the existence oracle `GET /orgs/{slug}` is careful not to be.
+  `OrgSummary.myRole` was added so a client can offer the organizations a
+  setter may actually pick without one members request per row.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F7 brief),
+no human available to consult. Migration 0023 indexes `contest_orgs(org_id)`:
+the primary key walks `contest_id` first, so the org page's own list scanned
+the table.*
+
+## D57 — A preference the server holds beats this browser's, and `NULL` means "not chosen"
+
+`users.locale` and `users.timezone` were `NOT NULL DEFAULT 'vi' /
+'Asia/Ho_Chi_Minh'`. `PATCH /users/me` had validated and stored both since
+Phase 3 and no screen could send either, so every account looked exactly like
+one that had asked for Vietnamese and ICT — and with a default there is no
+such thing as "the reader has not chosen".
+
+That distinction is the whole ruling. A server preference that beat the
+browser's would otherwise have forced Vietnamese onto every English-browser
+visitor the moment they signed in, and ICT clocks onto everybody, undoing
+D18's `navigator.language` resolution for people who had never opened a
+settings screen. **So 0023 makes both columns nullable, `NULL` means "not
+chosen", and only a non-null value overrides anything.**
+
+- **The backfill nulls every value equal to the old default.** Nothing in the
+  product could write either column until this release, so a stored default
+  was written BY the default. A value someone set through the API that happens
+  to equal the old default is lost with them; one that differs is kept.
+- **Applied when the stored VALUE changes**, not on every render and not once
+  per identity. Both simpler rules are wrong in opposite directions: on every
+  render the nav's `VI | EN` toggle is undone a minute later when the
+  notification bell refetches `['me']`; once per identity, the save the reader
+  just made on `/account/settings` is swallowed, because their id has not
+  moved. So the marker is `(id, locale, timezone)`, and the toggle stays a
+  per-browser choice while the settings screen is the only writer of the
+  account's.
+- **A tag this build has no catalogue for is ignored, not half-applied.** The
+  API accepts any well-formed BCP-47 tag (`fr`), deliberately — narrowing it
+  to the two locales the web ships would be a product ruling that breaks the
+  moment the list grows — so the web checks before adopting.
+- **The recovery mails read it.** A password reset is the one piece of DuckOJ
+  that reaches somebody who cannot sign in to change any setting, so both
+  mails now come in vi and en, chosen by prefix (`en-GB` is English) with
+  `NULL` meaning Vietnamese: a server has no `navigator.language`, and D18
+  makes `vi` this judge's default. They live as whole paragraphs side by side
+  in `apps/api/src/mail/templates.ts` rather than as catalogue keys, because
+  for two messages that must say the same thing, reading them beside each
+  other is the only review that matters.
+- **`syntheticMe` returns `null` for both**, because a genuine registration
+  now does and D26 requires the two bodies to be indistinguishable.
+- Residual, stated rather than fixed: the scoreboard's freeze banner decides
+  "is this today?" in the BROWSER's zone and then renders the instant in the
+  chosen one, so the two can disagree by an hour either side of midnight. The
+  question it asks — "does the reader think of this as today" — is about the
+  screen in front of them, which is the honest half to leave in local time.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (F7 brief),
+no human available to consult. Migration 0023.*
