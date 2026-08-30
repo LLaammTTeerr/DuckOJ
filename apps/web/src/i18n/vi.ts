@@ -713,4 +713,19 @@ export const vi = {
   'help.tabStudent': 'Học sinh',
   'help.tabTeacher': 'Giáo viên',
   'help.tabAdmin': 'Quản trị',
+
+  // --- D76: the navigation IA ------------------------------------------
+  // The shell's two shapes. `nav.label` names the landmark; the three
+  // `group*` keys name the desktop bar's clusters; `more`/`moreTitle`/
+  // `close` belong to the phone's overflow sheet. `notificationsTab` is the
+  // bell's VISIBLE label -- `nav.notifications` is the spoken sentence with
+  // its unread count and cannot be shown as a tab caption.
+  'nav.label': 'Điều hướng DuckOJ',
+  'nav.groupMain': 'Khu vực chính',
+  'nav.groupAccount': 'Tài khoản',
+  'nav.groupResources': 'Tài nguyên',
+  'nav.more': 'Thêm',
+  'nav.moreTitle': 'Thêm lựa chọn',
+  'nav.close': 'Đóng',
+  'nav.notificationsTab': 'Thông báo',
 } satisfies Record<MsgKey, string>;

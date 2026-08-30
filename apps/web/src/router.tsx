@@ -37,7 +37,7 @@ import { OrgPage, OrgsPage } from './routes/orgs.js';
 import { ProblemSetPage, ProblemSetProgressPage } from './routes/problem-sets.js';
 import { AdminPage } from './routes/admin.js';
 import { HelpPage } from './routes/help.js';
-import { NotificationsPage, notificationsQueryOptions } from './routes/notifications.js';
+import { NotificationsPage } from './routes/notifications.js';
 import { api } from './api.js';
 // `meQueryOptions` moved to `./me.js` (see that file's doc comment) so
 // `routes/problems.tsx` — which needs the viewer's username for the `me`
@@ -45,7 +45,14 @@ import { api } from './api.js';
 // same `['me']` cache entry without importing this file.
 import { meQueryOptions } from './me.js';
 import { PreferenceSync } from './preferences.js';
-import { useLocale, useT } from './i18n/index.js';
+// D76 — the nav is two information architectures (a grouped desktop bar, a
+// five-tab phone bar with an overflow sheet) and owns real focus behaviour,
+// so it lives in its own module. Re-exported below because
+// `test/i18n.spec.tsx` and `test/logout.spec.tsx` render it from here.
+import { ShellNav } from './nav.js';
+import { useT } from './i18n/index.js';
+
+export { ShellNav };
 
 /**
  * Sign-in wiring shared by the two places that can show `LoginForm`: the
@@ -77,94 +84,6 @@ function RecoveryLink() {
           so all three grow the way in as well as the way back in. */}
       <Link to="/register">{t('auth.registerLink')}</Link>
     </p>
-  );
-}
-
-/**
- * The VI | EN switch. Two buttons rather than one that toggles: "the other
- * language" is a riddle in a language you cannot read, while both names
- * present at once is legible to either reader. The active one carries
- * `aria-pressed`, and `setLocale` persists the choice (see i18n/index.tsx).
- */
-function LocaleToggle() {
-  const t = useT();
-  const { locale, setLocale } = useLocale();
-  return (
-    // `role="group"` is load-bearing, not decoration: a bare <span>'s
-    // implicit role is `generic`, which ARIA does not allow a name on, so
-    // the `aria-label` here was simply dropped. And "VI"/"EN" as the whole
-    // of a button's accessible name is two letters in a language the reader
-    // may not have — so each button carries the language's own name, which
-    // is what `nav.languageVi`/`nav.languageEn` were written for. They had
-    // been in both catalogues, used nowhere, since the toggle shipped.
-    <span role="group" aria-label={t('nav.language')}>
-      <button
-        type="button"
-        aria-label={t('nav.languageVi')}
-        aria-pressed={locale === 'vi'}
-        onClick={() => setLocale('vi')}
-      >
-        VI
-      </button>
-      <button
-        type="button"
-        aria-label={t('nav.languageEn')}
-        aria-pressed={locale === 'en'}
-        onClick={() => setLocale('en')}
-      >
-        EN
-      </button>
-    </span>
-  );
-}
-
-/**
- * The way out. `POST /auth/logout` has existed since Phase 1 with no control
- * anywhere in the app — the only way to end a session was to clear the
- * cookie by hand, which on a shared school machine means the previous pupil
- * stays signed in. Found by Task P5.
- *
- * The cache is RESET rather than merely invalidated: `['me']` is not the
- * only entry holding the departing viewer's data (the notification feed, a
- * private problem list, a contest participation), and leaving those to
- * refetch would paint one person's data under the next person's session.
- * A failed call still signs out locally — a cookie the server has already
- * forgotten must not trap the browser in a session it cannot leave.
- */
-function SignOutButton() {
-  const t = useT();
-  const client = useQueryClient();
-  const [busy, setBusy] = useState(false);
-  async function signOut(): Promise<void> {
-    setBusy(true);
-    try {
-      await api.POST('/auth/logout');
-    } catch {
-      // openapi-fetch rethrows network-level failures rather than resolving
-      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
-    } finally {
-      setBusy(false);
-      // `['me']` first, and to exactly what a signed-out `fetchMe` returns:
-      // every `enabled` flag in the app keys off it (the bell polls only
-      // while signed in), so flipping it before touching anything else is
-      // what stops the shell from firing one more authenticated request that
-      // can only 401. `resetQueries()` — the first attempt — did fire one,
-      // because it refetches active queries before any of them has
-      // re-rendered as signed out.
-      client.setQueryData(meQueryOptions.queryKey, null);
-      // Everything else is REMOVED rather than invalidated or reset: those
-      // answers belong to the person leaving, and re-asking for them as a
-      // visitor is both pointless and, on a shared machine, the wrong
-      // instinct. `clear()` cannot do this job — it drops `['me']` too, and
-      // a mounted observer whose query vanished keeps rendering the data it
-      // last saw, so the nav went on showing the departed viewer's name.
-      client.removeQueries({ predicate: (query) => query.queryKey[0] !== 'me' });
-    }
-  }
-  return (
-    <button type="button" disabled={busy} onClick={() => void signOut()}>
-      {t('nav.signOut')}
-    </button>
   );
 }
 
@@ -235,76 +154,6 @@ function RootComponent() {
         </PasswordGate>
       </main>
     </>
-  );
-}
-
-/**
- * The nav bar itself, split out of `RootComponent` so `test/i18n.spec.tsx`
- * can render the REAL nav — every link label and the real language toggle —
- * rather than a hand-built stand-in that could drift from it. `RootComponent`
- * is untestable on its own: its `<Outlet />` needs a matched route, which
- * `RouterContextProvider` (the pattern every other spec in this suite uses)
- * deliberately does not supply.
- */
-export function ShellNav() {
-  const t = useT();
-  const me = useQuery(meQueryOptions);
-  // The bell. Polled once a minute while signed in; `enabled` keeps a
-  // signed-out shell from asking at all.
-  const feed = useQuery({
-    ...notificationsQueryOptions,
-    enabled: me.data != null,
-    refetchInterval: 60_000,
-  });
-  const unread = feed.data?.unreadCount ?? 0;
-  return (
-    <nav className="shell-nav">
-      <div>
-        {/* The product name, not a translatable string. */}
-        <strong>DuckOJ</strong>
-        <Link to="/problems">{t('nav.problems')}</Link>
-        <Link to="/contests">{t('nav.contests')}</Link>
-        <Link to="/orgs">{t('nav.orgs')}</Link>
-        <Link to="/submissions">{t('nav.submissions')}</Link>
-        <a href="/api/v1/docs">{t('nav.api')}</a>
-        {/* Ungated, beside the API reference: the student guide is most
-            needed by someone who has not signed in yet — the first thing it
-            explains is how to register. */}
-        <Link to="/help">{t('nav.help')}</Link>
-        {me.data?.globalRole === 'admin' ? <Link to="/admin">{t('nav.admin')}</Link> : null}
-        {me.data ? <Link to="/account/tokens">{t('nav.tokens')}</Link> : null}
-        {/* Beside Tokens: both are `/account/*`, both are session-only, and
-            a 2FA screen nobody can find is a 2FA screen nobody turns on. */}
-        {me.data ? <Link to="/account/security">{t('nav.security')}</Link> : null}
-        {/* Beside Tokens and Security, for the same reason both are: all
-            three are `/account/*`, and a language a reader can only change
-            per-browser is a language they change again on every machine. */}
-        {me.data ? <Link to="/account/settings">{t('nav.settings')}</Link> : null}
-        {/* Same `/account/*` shelf. Until D61 there was no way to change a
-            password while signed in at all — only the reset link, which needs
-            a mailbox an imported pupil does not have. */}
-        {me.data ? <Link to="/account/password">{t('nav.password')}</Link> : null}
-        {me.data ? (
-          <Link to="/notifications" aria-label={t('nav.notifications', { count: unread })}>
-            {unread > 0 ? `[${String(unread)}]` : '[ ]'}
-          </Link>
-        ) : null}
-        <LocaleToggle />
-        {me.data ? (
-          <>
-            <Link to="/users/$username" params={{ username: me.data.username }}>
-              {me.data.displayName}
-            </Link>
-            <SignOutButton />
-          </>
-        ) : (
-          <>
-            <Link to="/">{t('nav.signIn')}</Link>
-            <Link to="/register">{t('nav.register')}</Link>
-          </>
-        )}
-      </div>
-    </nav>
   );
 }
 

@@ -310,11 +310,15 @@ a:hover {
   backdrop-filter: blur(var(--blur-bar)) saturate(var(--glass-saturate));
 }
 
-.shell-nav > div {
+/* D76 — one row, three clusters. `.nav-bar` replaces the old bare `> div`
+   because the bar now has a phone twin (`.nav-tabs`) that shares none of
+   these rules. */
+.nav-bar {
   display: flex;
   align-items: center;
-  /* Wrap, never clip: on a phone the signed-in bar carries eight items, and
-     the first screenshot review caught "Sign in" cut off at 390px. */
+  /* Wrap, never clip: between 701px and about 1050px the three clusters do
+     not fit on one line, and a nav that hides its own items is the bug this
+     decision exists to remove. */
   flex-wrap: wrap;
   column-gap: var(--sp-1);
   row-gap: 0;
@@ -327,6 +331,28 @@ a:hover {
   letter-spacing: -0.01em;
   font-size: 15px;
   padding: 0 var(--sp-2) 0 var(--sp-1);
+}
+
+/* A cluster. `role="group"` with a name in the markup — this rule only makes
+   the grouping VISIBLE, which is the half a screen reader does not need and
+   a sighted reader cannot do without. */
+.nav-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+/* Two hairlines, not three: one between "the work" and "reference", one
+   before the account rail. `margin-left: auto` is what puts the person on the
+   right rail and the app on the left. */
+.nav-resources,
+.nav-account {
+  padding-left: var(--sp-2);
+  border-left: 1px solid var(--glass-stroke);
+}
+.nav-account {
+  margin-left: auto;
 }
 
 /* Every nav item is a 44px-tall pill, so the whole row is one band of tap
@@ -348,6 +374,18 @@ a:hover {
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
+  /* The bare `button` rule further down gives every button in the app a
+     raised glass chip — a shadow, a specular gradient and a 12px backdrop
+     blur. Inside the bar that is wrong twice over: it made the phone's
+     `Thêm` tab read as permanently ACTIVE beside four flat link tabs, and it
+     is a second blur composited inside a bar that is already one. Flattened
+     here; the `aria-current` / `aria-pressed` rules below put the shadow
+     back on exactly the item that has earned it. */
+  margin: 0;
+  box-shadow: none;
+  background-image: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   transition:
     background-color var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
@@ -372,33 +410,287 @@ a:hover {
   box-shadow: var(--shadow-1);
 }
 
+/* The viewer's own name: the profile link, and the only item in the account
+   cluster that is a proper noun. Weighted so the cluster has a subject. */
+.nav-me {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* The bell. An icon with a count on it — the count is also spoken, inside
+   `nav.notifications`, so the badge itself is aria-hidden (see nav.tsx). */
+.nav-bell,
+.nav-tab-glyph {
+  position: relative;
+}
+.nav-bell {
+  min-width: var(--tap);
+  padding: 0 var(--sp-2);
+}
+.nav-icon {
+  display: block;
+  flex: 0 0 auto;
+}
+.nav-badge {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  /* Monochrome, not the conventional red: D67 rule 1 reserves hue for
+     verdicts, and `--rte` on the bell is the runtime-error red six inches
+     from a table of verdicts painted in it. `--fg` on `--bg` is the highest
+     contrast either scheme has (16:1 light, 12:1 dark) and still reads as a
+     count, because the shape and the number are what carry the meaning. */
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
 /* The VI | EN toggle (P2). Two buttons and a group wrapper, not a <select>:
    the choice has exactly two values and both are always worth showing, and
-   the active one is marked with `aria-pressed` rather than colour (rule 1). */
-.shell-nav button {
+   the active one is marked with `aria-pressed` rather than colour (rule 1).
+   Scoped to `.nav-locale` since D76 — the bar now holds other buttons (sign
+   out, and on a phone the More tab) that must not inherit the two-letter
+   geometry. */
+.nav-locale {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 var(--sp-1);
+}
+.nav-locale button {
   min-width: var(--tap);
   padding: 0 var(--sp-2);
   letter-spacing: 0.04em;
   margin-top: 0;
   box-shadow: none;
 }
-.shell-nav button[aria-pressed='true'] {
+.shell-nav button[aria-pressed='true'],
+.nav-sheet button[aria-pressed='true'] {
   color: var(--fg);
   background: var(--glass-raised);
   border-color: var(--glass-stroke);
   box-shadow: var(--shadow-1);
 }
-.shell-nav [role='group'] {
-  display: inline-flex;
-  gap: 2px;
-  margin: 0 var(--sp-1);
+
+/* Sign out is bordered rather than bare: it is the one control here that
+   ENDS something, and on a shared school machine it is the control that has
+   to be findable at a glance. */
+.nav-signout {
+  border-color: var(--line) !important;
 }
 
-/* The trailing "Signed in as …" / "Sign in" slot (router.tsx's
-   RootComponent) is a <span> in one branch and a <Link> (an <a>) in the
-   other — targeted by position, not tag, so both get pushed right. */
-.shell-nav > div > :last-child {
-  margin-left: auto;
+/* --- the phone shell: five tabs -----------------------------------------
+ * Rendered only below 700px (nav.tsx picks the tree with a JS media query),
+ * but styled by class rather than inside the breakpoint so the two are not
+ * two places to keep in step.
+ *
+ * `flex: 1 1 0` with `min-width: 0` is what makes five equal columns that
+ * cannot overflow: journey 6 asserts `scrollWidth <= innerWidth` at 390px,
+ * and the old bar answered that only by scrolling sideways inside itself.
+ */
+.shell-nav-phone .nav-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: var(--sp-1) var(--sp-1) 0;
+  min-height: 58px;
+}
+.shell-nav-phone .nav-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  min-height: var(--tap);
+  padding: var(--sp-1) 2px calc(var(--sp-1) + 2px);
+  border-radius: var(--r-md);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.15;
+  text-align: center;
+}
+.shell-nav-phone .nav-tab > span:last-child {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The active tab is a raised pill, exactly like the desktop bar's — same
+   answer to the same question, in the shape the phone has room for. */
+.shell-nav-phone .nav-tab[aria-current='page'] {
+  color: var(--fg);
+  font-weight: 700;
+  background: var(--glass-raised);
+  border-color: var(--glass-stroke);
+  box-shadow: var(--shadow-1);
+}
+.nav-tab-glyph {
+  display: inline-flex;
+}
+
+/* --- the overflow sheet --------------------------------------------------
+ * A sibling of `.shell-nav`, never a child: the bar carries a
+ * `backdrop-filter`, which makes it the containing block for `position:
+ * fixed` descendants, and a full-screen backdrop nested inside it would be
+ * clamped to the bar's own 58px box.
+ *
+ * The slide is token-driven, so `prefers-reduced-motion` flattens it to
+ * 0.01ms in tokens.css without this file knowing — one place, every
+ * animation (D67).
+ */
+.nav-sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+}
+.nav-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--scrim);
+  cursor: pointer;
+  /* Same reset, for the same reason and one more: the bare `button` rule was
+     painting a 12px backdrop blur across the WHOLE viewport, so the page
+     behind the sheet went soft. D67 puts the material on chrome and leaves
+     content on its own layer — a scrim dims the page, it does not smear it —
+     and a full-screen blur is a real cost on the cheap phone this judge is
+     aimed at. */
+  min-height: 0;
+  box-shadow: none;
+  background-image: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  animation: nav-fade-in var(--dur-fast) var(--ease-inout);
+}
+.nav-sheet {
+  position: relative;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--sp-3) var(--sp-3) calc(var(--sp-4) + env(safe-area-inset-bottom, 0px));
+  border: 1px solid var(--glass-stroke);
+  border-bottom: 0;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  background-color: var(--glass-sheet);
+  background-image: var(--glass-specular);
+  background-repeat: no-repeat;
+  background-size: 100% 22px;
+  box-shadow: var(--shadow-3), 0 0 0 1px var(--glass-edge);
+  -webkit-backdrop-filter: blur(var(--blur-sheet)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--blur-sheet)) saturate(var(--glass-saturate));
+  animation: nav-sheet-in var(--dur) var(--ease);
+}
+.nav-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.nav-sheet-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+}
+.nav-sheet-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+/* Full-width rows, one per line: a sheet is read down, and a 44px row that
+   spans the thumb's whole arc is the easiest target a phone can offer. */
+.nav-sheet a,
+.nav-sheet button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: var(--tap);
+  padding: 0 var(--sp-3);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  margin: 0;
+  box-shadow: none;
+  background-image: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.nav-sheet a:hover,
+.nav-sheet button:hover {
+  background: var(--sel);
+  text-decoration: none;
+}
+.nav-sheet a[aria-current='page'] {
+  font-weight: 700;
+  background: var(--glass-raised);
+  border-color: var(--glass-stroke);
+  box-shadow: var(--shadow-1);
+}
+.nav-sheet .nav-sheet-close {
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  border-color: var(--line);
+  border-radius: var(--r-pill);
+  color: var(--dim);
+  font-size: 13px;
+}
+.nav-sheet .nav-locale {
+  margin: var(--sp-1) 0 0;
+  align-self: stretch;
+}
+.nav-sheet .nav-locale button {
+  flex: 1 1 0;
+  justify-content: center;
+  min-height: var(--tap);
+  border-color: var(--line);
+}
+.nav-sheet .nav-signout {
+  justify-content: center;
+  margin-top: var(--sp-2);
+  color: var(--dim);
+}
+
+@keyframes nav-sheet-in {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes nav-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 main {
@@ -1315,17 +1607,17 @@ fieldset label {
 }
 
 /* --- the phone: the bar goes to the bottom ------------------------------
- * Same <nav>, same children, different edge. A thumb reaches the bottom of a
- * 390×844 screen and does not reach the top of one, and the safe area on a
- * notched phone is at the bottom too — which is why `index.html` carries
- * `viewport-fit=cover`: without it `env(safe-area-inset-bottom)` is always
- * 0 and the bar sits under the home indicator.
+ * A thumb reaches the bottom of a 390x844 screen and does not reach the top
+ * of one, and the safe area on a notched phone is at the bottom too — which
+ * is why `index.html` carries `viewport-fit=cover`: without it
+ * `env(safe-area-inset-bottom)` is always 0 and the bar sits under the home
+ * indicator.
  *
- * The item row scrolls sideways INSIDE the bar rather than wrapping to three
- * rows: the signed-in shell carries twelve items, and a three-row bar eats a
- * third of the screen. `overflow-x` on the inner div (never on the document)
- * is what keeps journey 6's `scrollWidth <= innerWidth` true; the vertical
- * padding is there so a focus ring on a pill is not clipped by the scroller.
+ * D76 replaced the sideways scroller that used to live here. The bar is no
+ * longer the same twelve items squeezed narrower; it is five tabs and a
+ * sheet, chosen in nav.tsx by a JS media query on this same 700px. What
+ * stays in this block is only what is about the EDGE: position, the safe
+ * area, and the room `main` has to leave under itself.
  */
 @media (max-width: 700px) {
   html {
@@ -1348,24 +1640,6 @@ fieldset label {
     border-bottom: 1px solid var(--glass-stroke);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     background-size: 100% 14px;
-  }
-
-  .shell-nav > div {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-    padding: var(--sp-1) var(--sp-2);
-    min-height: 56px;
-  }
-
-  .shell-nav > div > :last-child {
-    margin-left: var(--sp-1);
-  }
-
-  .shell-nav a,
-  .shell-nav button {
-    flex: 0 0 auto;
   }
 
   main {
@@ -1408,6 +1682,7 @@ fieldset label {
 
 @media print {
   .shell-nav,
+  .nav-sheet-layer,
   .no-print {
     display: none !important;
   }
