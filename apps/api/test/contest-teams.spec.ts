@@ -513,6 +513,60 @@ describe('a member submits, and the team is what scores', () => {
     });
   }, 180_000);
 
+  it('stops a member removed mid-round from submitting for the team — the captain included', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        const school = await makeSchool(app, db, 'school', ['anh', 'binh']);
+        await school.teacher
+          .post('/api/v1/orgs/school/teams')
+          .send({ slug: 'doi-1', name: 'Đội 1', members: ['anh', 'binh'] });
+        await seedContest(db, { key: 'team-c', problemId: await problemId(db), orgSlug: 'school' });
+
+        // `anh` presses Join, so the team's ONE participation is on `anh`'s
+        // account — which is exactly the case a `user_id = ?` predicate
+        // cannot tell apart from an individual entry.
+        const joined = await school.pupils
+          .get('anh')!
+          .post('/api/v1/contests/team-c/join')
+          .send({ teamSlug: 'doi-1' });
+        expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+
+        // The pupil who did not turn up is taken off the roster mid-round —
+        // the one edit an organiser actually makes on contest day (D99).
+        const edited = await school.teacher
+          .patch('/api/v1/orgs/school/teams/doi-1')
+          .send({ members: ['binh'] });
+        expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+
+        await clearSubmissionMeter(db);
+        const removed = await school.pupils
+          .get('anh')!
+          .post('/api/v1/submissions')
+          .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}', contestKey: 'team-c' });
+        expect(removed.status, JSON.stringify(removed.body)).toBe(403);
+        expect(removed.body.code).toBe('contest_not_joined');
+
+        // …and the team goes on competing on the row they left behind.
+        await clearSubmissionMeter(db);
+        const theirs = await school.pupils
+          .get('binh')!
+          .post('/api/v1/submissions')
+          .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}', contestKey: 'team-c' });
+        expect(theirs.status, JSON.stringify(theirs.body)).toBe(201);
+
+        const [row] = await db
+          .select({ participationId: contestSubmissions.participationId })
+          .from(contestSubmissions)
+          .where(eq(contestSubmissions.submissionId, theirs.body.id));
+        expect(row!.participationId).toBe(joined.body.id);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
   it('lets any member of a team ask a clarification, not only the one who joined', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);

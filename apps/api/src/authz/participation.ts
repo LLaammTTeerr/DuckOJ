@@ -7,7 +7,7 @@
  * (route a submission) reach the same code without either depending on the
  * other.
  */
-import { and, asc, desc, eq, inArray, or, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 import { contestParticipations, contestProblems, teamMembers } from '@duckoj/db/guarded';
 import { participationEndMs, participationStartMs } from '@duckoj/contest-formats';
 import type { Db } from '@duckoj/db';
@@ -108,6 +108,19 @@ export async function teamIdsOf(db: Db, userId: number): Promise<number[]> {
  * rows at the same `virtual` — a roster edited between two teams' joins is
  * the only way — resolves to the same one on every request rather than to
  * whatever the planner returned first.
+ *
+ * **The `user_id` half is narrowed to rows that are NOT a team's** (`team_id
+ * is null`), and that narrowing is the whole of D99's "membership is read,
+ * never frozen". A team's participation is held by the account that pressed
+ * Join, so a bare `user_id = you` says yes to that account for as long as the
+ * row exists — including after the roster edit that took them off the team.
+ * The captain is the ONE member a removal would not have removed, which is
+ * both the likeliest person to be taken off (they are on the machine that
+ * entered) and the exact case D99 says must stop: "a member removed mid-round
+ * stops being able to submit for the team from that moment". Whether they may
+ * still READ the round's problems is a different question with a different
+ * answer — `problem.visibility.ts`'s own predicate keeps saying yes, because
+ * they did compete on it.
  */
 export async function actingParticipations(
   db: Db,
@@ -115,7 +128,10 @@ export async function actingParticipations(
   userId: number,
 ): Promise<ParticipationRow[]> {
   const teamIds = await teamIdsOf(db, userId);
-  const mine = eq(contestParticipations.userId, userId);
+  const mine = and(
+    eq(contestParticipations.userId, userId),
+    isNull(contestParticipations.teamId),
+  )!;
   return selectParticipations(
     db,
     and(
