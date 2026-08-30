@@ -103,9 +103,9 @@ describe('POST /contests/:key/join', () => {
           endsInMs: 60 * MINUTE,
         });
 
-        const first = await agent.post('/contests/live-1/join');
+        const first = await agent.post('/api/v1/contests/live-1/join');
         expect(first.status).toBe(201);
-        const second = await agent.post('/contests/live-1/join');
+        const second = await agent.post('/api/v1/contests/live-1/join');
         expect(second.status).toBe(201);
         // The same row, not a second one. A retrying client must not be able
         // to fork its own participation.
@@ -130,7 +130,7 @@ describe('POST /contests/:key/join', () => {
           startsInMs: 60 * MINUTE,
           endsInMs: 120 * MINUTE,
         });
-        const early = await agent.post('/contests/future/join');
+        const early = await agent.post('/api/v1/contests/future/join');
         expect(early.status).toBe(409);
         expect(early.body.code).toBe('contest_not_started');
 
@@ -142,8 +142,8 @@ describe('POST /contests/:key/join', () => {
         });
         // Each virtual join is a fresh attempt — deliberately NOT idempotent,
         // because `virtual = n` is exactly "the n-th attempt".
-        expect((await agent.post('/contests/past/join')).body.virtual).toBe(1);
-        expect((await agent.post('/contests/past/join')).body.virtual).toBe(2);
+        expect((await agent.post('/api/v1/contests/past/join')).body.virtual).toBe(1);
+        expect((await agent.post('/api/v1/contests/past/join')).body.virtual).toBe(2);
       } finally {
         await app.close();
       }
@@ -163,9 +163,9 @@ describe('POST /contests/:key/join', () => {
           startsInMs: -MINUTE,
           endsInMs: 60 * MINUTE,
         });
-        expect((await agent.get('/contests/me-c/me')).status).toBe(404);
-        await agent.post('/contests/me-c/join');
-        const mine = await agent.get('/contests/me-c/me');
+        expect((await agent.get('/api/v1/contests/me-c/me')).status).toBe(404);
+        await agent.post('/api/v1/contests/me-c/join');
+        const mine = await agent.get('/api/v1/contests/me-c/me');
         expect(mine.status).toBe(200);
         // `endTime` is derived, never stored — no time limit, so it is the
         // contest's own end.
@@ -184,7 +184,7 @@ describe('routing a submission into a contest', () => {
     contestKey?: string,
   ): Promise<request.Response> {
     return agent
-      .post('/submissions')
+      .post('/api/v1/submissions')
       .send({ problemCode, languageKey: 'cpp17', source: 'int main(){}', ...(contestKey ? { contestKey } : {}) });
   }
 
@@ -208,7 +208,7 @@ describe('routing a submission into a contest', () => {
           startsInMs: -MINUTE,
           endsInMs: 60 * MINUTE,
         });
-        await agent.post('/contests/route-c/join');
+        await agent.post('/api/v1/contests/route-c/join');
 
         const inContest = await submit(agent, 'cp-owner', 'route-c');
         expect(inContest.status).toBe(201);
@@ -248,7 +248,7 @@ describe('routing a submission into a contest', () => {
         expect(unjoined.status).toBe(403);
         expect(unjoined.body.code).toBe('contest_not_joined');
 
-        await agent.post('/contests/open-c/join');
+        await agent.post('/api/v1/contests/open-c/join');
         // Joined, but this problem is not in that contest.
         const wrongProblem = await submit(agent, 'not-in-contest', 'open-c');
         expect(wrongProblem.status).toBe(400);
@@ -264,7 +264,7 @@ describe('routing a submission into a contest', () => {
           startsInMs: -300 * MINUTE,
           endsInMs: -240 * MINUTE,
         });
-        const joined = await agent.post('/contests/shut-c/join');
+        const joined = await agent.post('/api/v1/contests/shut-c/join');
         expect(joined.status).toBe(201);
         await db.execute(
           // Backdate the participation so its virtual window (the contest's
@@ -326,7 +326,7 @@ describe('routing a submission into a contest', () => {
           startsInMs: -MINUTE,
           endsInMs: 60 * MINUTE,
         });
-        await agent.post('/contests/edge-c/join');
+        await agent.post('/api/v1/contests/edge-c/join');
 
         // Driven through `resolveContestTarget` with an explicit instant
         // rather than over HTTP: the boundary is one millisecond wide, and a
@@ -379,17 +379,17 @@ describe('a contest grants access to its own problems', () => {
           endsInMs: 60 * MINUTE,
         });
 
-        expect((await agent.get('/problems/cp-owner')).status).toBe(404);
-        const before = await agent.get('/problems');
+        expect((await agent.get('/api/v1/problems/cp-owner')).status).toBe(404);
+        const before = await agent.get('/api/v1/problems');
         expect((before.body.items as { code: string }[]).map((p) => p.code)).not.toContain('cp-owner');
 
-        expect((await agent.post('/contests/grant-c/join')).status).toBe(201);
+        expect((await agent.post('/api/v1/contests/grant-c/join')).status).toBe(201);
 
         // Both forms, because either alone passes against a predicate that
         // widened only one of them — the divergence this codebase keeps
         // finding once a phase.
-        expect((await agent.get('/problems/cp-owner')).status).toBe(200);
-        const after = await agent.get('/problems');
+        expect((await agent.get('/api/v1/problems/cp-owner')).status).toBe(200);
+        const after = await agent.get('/api/v1/problems');
         expect((after.body.items as { code: string }[]).map((p) => p.code)).toContain('cp-owner');
       } finally {
         await app.close();
@@ -417,13 +417,13 @@ describe('a contest grants access to its own problems', () => {
           startsInMs: -MINUTE,
           endsInMs: 60 * MINUTE,
         });
-        await agent.post('/contests/mine-c/join');
+        await agent.post('/api/v1/contests/mine-c/join');
 
         // Joining one contest must not open every contest's problems — the
         // subquery has to match on the contest, not merely on holding some
         // participation somewhere.
-        expect((await agent.get('/problems/other-p')).status).toBe(200);
-        expect((await agent.get('/problems/cp-owner')).status).toBe(404);
+        expect((await agent.get('/api/v1/problems/other-p')).status).toBe(200);
+        expect((await agent.get('/api/v1/problems/cp-owner')).status).toBe(404);
       } finally {
         await app.close();
       }
@@ -446,8 +446,8 @@ describe('a contest grants access to its own problems', () => {
         // Joined virtually, after the end. Access is deliberately not gated
         // on the window: you may re-read what you competed on, and anyone may
         // join virtually anyway.
-        await agent.post('/contests/ended-c/join');
-        expect((await agent.get('/problems/cp-owner')).status).toBe(200);
+        await agent.post('/api/v1/contests/ended-c/join');
+        expect((await agent.get('/api/v1/problems/cp-owner')).status).toBe(200);
       } finally {
         await app.close();
       }
@@ -469,7 +469,7 @@ describe('the contest problem is scored on the scoreboard', () => {
           startsInMs: -MINUTE,
           endsInMs: 60 * MINUTE,
         });
-        await agent.post('/contests/score-c/join');
+        await agent.post('/api/v1/contests/score-c/join');
         const created = await submit(agent, 'cp-owner', 'score-c');
         expect(created.status).toBe(201);
 
@@ -501,7 +501,7 @@ describe('the contest problem is scored on the scoreboard', () => {
           maxPoints: 100,
         });
 
-        const board = await agent.get('/contests/score-c/scoreboard');
+        const board = await agent.get('/api/v1/contests/score-c/scoreboard');
         expect(board.status).toBe(200);
         const row = (board.body.ranking as { participant: string; score: number }[]).find(
           (entry) => entry.participant === 'scorer',
@@ -520,7 +520,7 @@ describe('the contest problem is scored on the scoreboard', () => {
     contestKey?: string,
   ): Promise<request.Response> {
     return agent
-      .post('/submissions')
+      .post('/api/v1/submissions')
       .send({ problemCode, languageKey: 'cpp17', source: 'int main(){}', ...(contestKey ? { contestKey } : {}) });
   }
 });

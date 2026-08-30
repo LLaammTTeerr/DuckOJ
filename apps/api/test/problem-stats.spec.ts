@@ -378,7 +378,7 @@ describe('GET /problems/{code}/stats', () => {
       try {
         await seedProblemAndLanguage(db);
         await seedProblemWithSourceAccess(db, { code: 'stats-private', visibility: 'private' });
-        const res = await request(app.getHttpServer()).get('/problems/stats-private/stats');
+        const res = await request(app.getHttpServer()).get('/api/v1/problems/stats-private/stats');
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('problem_not_found');
       } finally {
@@ -405,7 +405,7 @@ describe('GET /problems/{code}/stats', () => {
         const user = await insertUser(db, 'stats-http-user');
         await submit(db, { userId: user.id, problemId: problem.id, verdict: 'AC', timeMs: 7 });
 
-        const first = await request(app.getHttpServer()).get('/problems/stats-http/stats');
+        const first = await request(app.getHttpServer()).get('/api/v1/problems/stats-http/stats');
         expect(first.status).toBe(200);
         expect(first.headers['x-stats-cache']).toBe('miss');
         expect(first.body.fastest).toEqual([
@@ -414,7 +414,7 @@ describe('GET /problems/{code}/stats', () => {
         // Transport metadata rides a header, never the body (D25).
         expect(first.body).not.toHaveProperty('cache');
 
-        const second = await request(app.getHttpServer()).get('/problems/stats-http/stats');
+        const second = await request(app.getHttpServer()).get('/api/v1/problems/stats-http/stats');
         expect(second.headers['x-stats-cache']).toBe('hit');
         expect(second.body).toEqual(first.body);
       } finally {

@@ -36,22 +36,22 @@ describe('a preference nobody has set', () => {
         // NOT 'vi', and not the server's zone: a fresh account has chosen
         // nothing, and the web must be free to keep resolving the locale
         // from `navigator.language` (D18).
-        const fresh = MeResponse.parse((await agent.get('/auth/me')).body);
+        const fresh = MeResponse.parse((await agent.get('/api/v1/auth/me')).body);
         expect([fresh.locale, fresh.timezone]).toEqual([null, null]);
 
-        expect((await agent.patch('/users/me').send({ locale: 'en', timezone: 'Europe/Paris' })).status).toBe(200);
-        const set = MeResponse.parse((await agent.get('/auth/me')).body);
+        expect((await agent.patch('/api/v1/users/me').send({ locale: 'en', timezone: 'Europe/Paris' })).status).toBe(200);
+        const set = MeResponse.parse((await agent.get('/api/v1/auth/me')).body);
         expect([set.locale, set.timezone]).toEqual(['en', 'Europe/Paris']);
 
         // `null` is a real value and a different one from absent: it CLEARS.
-        expect((await agent.patch('/users/me').send({ locale: null })).status).toBe(200);
-        const cleared = MeResponse.parse((await agent.get('/auth/me')).body);
+        expect((await agent.patch('/api/v1/users/me').send({ locale: null })).status).toBe(200);
+        const cleared = MeResponse.parse((await agent.get('/api/v1/auth/me')).body);
         expect([cleared.locale, cleared.timezone]).toEqual([null, 'Europe/Paris']);
 
         // …and absent still means keep, which is the property the whole
         // PATCH shape rests on.
-        expect((await agent.patch('/users/me').send({ displayName: 'Renamed' })).status).toBe(200);
-        expect(MeResponse.parse((await agent.get('/auth/me')).body).timezone).toBe('Europe/Paris');
+        expect((await agent.patch('/api/v1/users/me').send({ displayName: 'Renamed' })).status).toBe(200);
+        expect(MeResponse.parse((await agent.get('/api/v1/auth/me')).body).timezone).toBe('Europe/Paris');
       } finally {
         await app.close();
       }
@@ -64,8 +64,8 @@ describe('a preference nobody has set', () => {
       try {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'settings-bad');
-        expect((await agent.patch('/users/me').send({ timezone: 'Mars/Olympus' })).status).toBe(422);
-        expect((await agent.patch('/users/me').send({ locale: '!!' })).status).toBe(422);
+        expect((await agent.patch('/api/v1/users/me').send({ timezone: 'Mars/Olympus' })).status).toBe(422);
+        expect((await agent.patch('/api/v1/users/me').send({ locale: '!!' })).status).toBe(422);
       } finally {
         await app.close();
       }
@@ -116,12 +116,12 @@ describe('the language a mail is written in', () => {
           .where(eq(schema.users.username, 'mail-en'));
 
         await request(app.getHttpServer())
-          .post('/auth/password/forgot')
+          .post('/api/v1/auth/password/forgot')
           .send({ email: 'mail-vi@example.com' });
         expect(mailerOf(app).sent.at(-1)!.subject).toBe('Đặt lại mật khẩu DuckOJ của bạn');
 
         await request(app.getHttpServer())
-          .post('/auth/password/forgot')
+          .post('/api/v1/auth/password/forgot')
           .send({ email: 'mail-en@example.com' });
         expect(mailerOf(app).sent.at(-1)!.subject).toBe('Reset your DuckOJ password');
       } finally {

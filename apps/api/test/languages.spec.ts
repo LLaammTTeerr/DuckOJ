@@ -9,7 +9,7 @@ describe('GET /languages', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
-        const res = await request(app.getHttpServer()).get('/languages');
+        const res = await request(app.getHttpServer()).get('/api/v1/languages');
         expect(res.status).toBe(200);
         expect(res.body).toEqual({ items: [] });
       } finally {
@@ -31,7 +31,7 @@ describe('GET /languages', () => {
       ]);
       const app = await buildApp(db);
       try {
-        const res = await request(app.getHttpServer()).get('/languages');
+        const res = await request(app.getHttpServer()).get('/api/v1/languages');
         expect(res.status).toBe(200);
         expect(res.body.items).toEqual([
           { key: 'cpp17', name: 'C++17', extension: 'cpp', isActive: true },

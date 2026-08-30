@@ -169,11 +169,11 @@ describe('the feed itself', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
-        await request(app.getHttpServer()).get('/notifications').expect(401);
+        await request(app.getHttpServer()).get('/api/v1/notifications').expect(401);
 
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'f-http');
-        const { body } = await agent.get('/notifications').expect(200);
+        const { body } = await agent.get('/api/v1/notifications').expect(200);
         expect(body).toEqual({ items: [], unreadCount: 0 });
         // Seed one directly, then mark-all-read over the wire.
         const [me] = await db
@@ -181,7 +181,7 @@ describe('the feed itself', () => {
           .from(schema.users)
           .where(eq(schema.users.username, 'f-http'));
         await new NotificationsService(db).notify(db, me!.id, 'role_granted', { globalRole: 'setter' });
-        const read = await agent.post('/notifications/read').expect(200);
+        const read = await agent.post('/api/v1/notifications/read').expect(200);
         expect(read.body.unreadCount).toBe(0);
         expect(read.body.items).toHaveLength(1);
       } finally {

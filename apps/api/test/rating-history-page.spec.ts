@@ -73,7 +73,7 @@ describe('GET /users/{username}/rating is keyset-paged', () => {
           const query: Record<string, string> = { limit: '2' };
           if (cursor !== null) query.cursor = cursor;
           const response = await request(app.getHttpServer())
-            .get('/users/pager/rating')
+            .get('/api/v1/users/pager/rating')
             .query(query);
           expect(response.status).toBe(200);
           seen.push(...response.body.items.map((event: { contestKey: string }) => event.contestKey));
@@ -101,10 +101,10 @@ describe('GET /users/{username}/rating is keyset-paged', () => {
       const app = await buildApp(db);
       try {
         const first = await request(app.getHttpServer())
-          .get('/users/tied/rating')
+          .get('/api/v1/users/tied/rating')
           .query({ limit: '1' });
         const second = await request(app.getHttpServer())
-          .get('/users/tied/rating')
+          .get('/api/v1/users/tied/rating')
           .query({ limit: '1', cursor: first.body.nextCursor });
         expect(second.body.items).toHaveLength(1);
         expect(second.body.items[0].contestKey).not.toBe(first.body.items[0].contestKey);
@@ -123,12 +123,12 @@ describe('GET /users/{username}/rating is keyset-paged', () => {
       await seedHistory(db, 'century', endTimes);
       const app = await buildApp(db);
       try {
-        const page = await request(app.getHttpServer()).get('/users/century/rating');
+        const page = await request(app.getHttpServer()).get('/api/v1/users/century/rating');
         expect(page.body.items).toHaveLength(100);
         expect(page.body.nextCursor).not.toBeNull();
 
         const bad = await request(app.getHttpServer())
-          .get('/users/century/rating')
+          .get('/api/v1/users/century/rating')
           .query({ cursor: 'abc' });
         expect(bad.status).toBe(422);
         expect(bad.body.code).toBe('invalid_cursor');

@@ -32,14 +32,14 @@ describe('password reset finds mixed-case emails', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
-        await request(app.getHttpServer()).post('/auth/register').send({
+        await request(app.getHttpServer()).post('/api/v1/auth/register').send({
           username: 'mixed',
           email: 'MixedCase@Example.com',
           password: 'a-long-enough-password',
           displayName: 'Mixed',
         });
         await request(app.getHttpServer())
-          .post('/auth/password/forgot')
+          .post('/api/v1/auth/password/forgot')
           .send({ email: 'mixedcase@example.com' })
           .expect(202);
         expect(resetMailsOf(app)).toHaveLength(1);
@@ -57,11 +57,11 @@ describe('user list input handling', () => {
       const app = await buildApp(db);
       try {
         for (const cursor of ['12abc', '-5', 'abc']) {
-          const res = await request(app.getHttpServer()).get(`/users?cursor=${cursor}`);
+          const res = await request(app.getHttpServer()).get(`/api/v1/users?cursor=${cursor}`);
           expect(res.status, `cursor=${cursor}`).toBe(422);
           expect(res.body.code, `cursor=${cursor}`).toBe('invalid_cursor');
         }
-        await request(app.getHttpServer()).get('/users?cursor=0').expect(200);
+        await request(app.getHttpServer()).get('/api/v1/users?cursor=0').expect(200);
       } finally {
         await app.close();
       }
@@ -74,11 +74,11 @@ describe('user list input handling', () => {
       try {
         await insertUser(db, 'abc');
         await insertUser(db, 'axc');
-        const all = await request(app.getHttpServer()).get('/users?q=%25').expect(200);
+        const all = await request(app.getHttpServer()).get('/api/v1/users?q=%25').expect(200);
         expect(all.body.items).toEqual([]);
-        const underscore = await request(app.getHttpServer()).get('/users?q=a_c').expect(200);
+        const underscore = await request(app.getHttpServer()).get('/api/v1/users?q=a_c').expect(200);
         expect(underscore.body.items).toEqual([]);
-        const literal = await request(app.getHttpServer()).get('/users?q=ab').expect(200);
+        const literal = await request(app.getHttpServer()).get('/api/v1/users?q=ab').expect(200);
         expect(literal.body.items.map((u: { username: string }) => u.username)).toEqual(['abc']);
       } finally {
         await app.close();

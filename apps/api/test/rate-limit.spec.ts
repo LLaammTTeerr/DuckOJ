@@ -24,7 +24,7 @@ function mailerOf(app: INestApplication): LogMailer {
 }
 
 async function forgot(app: INestApplication, email: string) {
-  return request(app.getHttpServer()).post('/auth/password/forgot').send({ email });
+  return request(app.getHttpServer()).post('/api/v1/auth/password/forgot').send({ email });
 }
 
 /** Pushes every rate_events row past the one-hour window. */
@@ -181,7 +181,7 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'lam');
         for (let i = 0; i < 7; i++) {
-          await agent.post('/auth/email/verify/send').expect(202);
+          await agent.post('/api/v1/auth/email/verify/send').expect(202);
         }
         // Five verification mails total per user per hour — and registration's
         // own automatic send consumed the first of those slots, so the seven

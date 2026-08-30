@@ -537,7 +537,7 @@ describe('GET /contests/{key}/booklet.pdf', () => {
       const app = await buildApp(db);
       try {
         await seedContest(db, { key: 'hidden', visibility: 'private', startsInMs: -MINUTE });
-        const res = await request(app.getHttpServer()).get('/contests/hidden/booklet.pdf');
+        const res = await request(app.getHttpServer()).get('/api/v1/contests/hidden/booklet.pdf');
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('contest_not_found');
       } finally {
@@ -561,10 +561,10 @@ describe('GET /contests/{key}/booklet.pdf', () => {
         // Concealed pre-start, exactly as the contest's problem LIST is —
         // and 404, not the scoreboard's 409: "starts later" is itself the
         // fact being withheld.
-        const anon = await request(app.getHttpServer()).get('/contests/later/booklet.pdf');
+        const anon = await request(app.getHttpServer()).get('/api/v1/contests/later/booklet.pdf');
         expect(anon.status).toBe(404);
         // Its creator gets as far as the renderer, which this server has none of.
-        const owner = await agent.get('/contests/later/booklet.pdf').set('Cookie', cookie);
+        const owner = await agent.get('/api/v1/contests/later/booklet.pdf').set('Cookie', cookie);
         expect(owner.status).toBe(501);
       } finally {
         await app.close();
@@ -577,7 +577,7 @@ describe('GET /contests/{key}/booklet.pdf', () => {
       const app = await buildApp(db);
       try {
         await seedContest(db, { key: 'open', visibility: 'public', startsInMs: -MINUTE });
-        const res = await request(app.getHttpServer()).get('/contests/open/booklet.pdf');
+        const res = await request(app.getHttpServer()).get('/api/v1/contests/open/booklet.pdf');
         expect(res.status).toBe(501);
         expect(res.body.code).toBe('statement_pdf_unavailable');
       } finally {
@@ -591,7 +591,7 @@ describe('GET /contests/{key}/booklet.pdf', () => {
       const app = await buildApp(db);
       try {
         await seedContest(db, { key: 'langs', visibility: 'public', startsInMs: -MINUTE });
-        const res = await request(app.getHttpServer()).get('/contests/langs/booklet.pdf?lang=fr');
+        const res = await request(app.getHttpServer()).get('/api/v1/contests/langs/booklet.pdf?lang=fr');
         expect(res.status).toBe(422);
       } finally {
         await app.close();
@@ -632,14 +632,14 @@ describe('GET /contests/{key}/booklet.pdf', () => {
 
         // Anonymous: the contest is public and started, so the route answers
         // — with a booklet that carries no statement it may not show.
-        const anon = await request(app.getHttpServer()).get('/contests/secret/booklet.pdf');
+        const anon = await request(app.getHttpServer()).get('/api/v1/contests/secret/booklet.pdf');
         expect(anon.status).toBe(200);
         expect(renderer.documents.at(-1)).not.toContain('Cho hai số nguyên');
 
         // A signed-in non-participant is no different: seeing a contest is
         // not joining it.
         const outsider = await agent
-          .get('/contests/secret/booklet.pdf')
+          .get('/api/v1/contests/secret/booklet.pdf')
           .set('Cookie', outsiderCookie);
         expect(outsider.status).toBe(200);
         expect(renderer.documents.at(-1)).not.toContain('Cho hai số nguyên');
@@ -653,7 +653,7 @@ describe('GET /contests/{key}/booklet.pdf', () => {
           startTime: new Date(Date.now() - MINUTE),
         });
         const entrant = await agent
-          .get('/contests/secret/booklet.pdf')
+          .get('/api/v1/contests/secret/booklet.pdf')
           .set('Cookie', entrantCookie);
         expect(entrant.status).toBe(200);
         expect(renderer.documents.at(-1)).toContain('Cho hai số nguyên');
@@ -676,7 +676,7 @@ describe('GET /contests/{key}/booklet.pdf', () => {
         // Anonymous first: nobody's account to read, so ICT (D57's "not
         // chosen"). This is also the row that proves the route did not
         // simply start 500ing on the new read.
-        const anon = await request(app.getHttpServer()).get('/contests/zoned/booklet.pdf');
+        const anon = await request(app.getHttpServer()).get('/api/v1/contests/zoned/booklet.pdf');
         expect(anon.status).toBe(200);
         expect(renderer.documents.at(-1)).toContain('GMT+7');
 
@@ -687,7 +687,7 @@ describe('GET /contests/{key}/booklet.pdf', () => {
           .set({ timezone: 'Asia/Tokyo' })
           .where(eq(schema.users.username, 'tokyo-reader'));
 
-        const zoned = await agent.get('/contests/zoned/booklet.pdf');
+        const zoned = await agent.get('/api/v1/contests/zoned/booklet.pdf');
         expect(zoned.status).toBe(200);
         // A different zone is a different document, so it is also a
         // different cache key — the anonymous booklet cached a moment ago
@@ -719,21 +719,21 @@ describe('GET /contests/{key}/booklet.pdf', () => {
         // the designed behaviour and not what this test is about. A real
         // render takes long enough that the connection is up by the time the
         // entry is written; a stub that resolves in the same tick is not.
-        await request(app.getHttpServer()).get('/contests/cached/booklet.pdf');
+        await request(app.getHttpServer()).get('/api/v1/contests/cached/booklet.pdf');
 
-        const first = await request(app.getHttpServer()).get('/contests/cached/booklet.pdf');
+        const first = await request(app.getHttpServer()).get('/api/v1/contests/cached/booklet.pdf');
         expect(first.status).toBe(200);
         expect(first.headers['content-type']).toContain('application/pdf');
         expect(first.headers['x-booklet-cache']).toBe('miss');
         expect(renderer.documents[0]).toContain('Cho hai số nguyên');
         expect(renderer.documents[0]).not.toContain('Given two integers');
 
-        const second = await request(app.getHttpServer()).get('/contests/cached/booklet.pdf');
+        const second = await request(app.getHttpServer()).get('/api/v1/contests/cached/booklet.pdf');
         expect(second.headers['x-booklet-cache']).toBe('hit');
         expect(spy).toHaveBeenCalledTimes(2);
 
         // A different language is a different key, never the cached booklet.
-        const english = await request(app.getHttpServer()).get('/contests/cached/booklet.pdf?lang=en');
+        const english = await request(app.getHttpServer()).get('/api/v1/contests/cached/booklet.pdf?lang=en');
         expect(english.headers['x-booklet-cache']).toBe('miss');
         expect(renderer.documents.at(-1)).toContain('Given two integers');
         expect(renderer.documents.at(-1)).not.toContain('Cho hai số nguyên');
@@ -745,7 +745,7 @@ describe('GET /contests/{key}/booklet.pdf', () => {
           .update(problems)
           .set({ statement: 'Đề bài đã sửa.' })
           .where(eq(problems.code, 'p-cached'));
-        const edited = await request(app.getHttpServer()).get('/contests/cached/booklet.pdf');
+        const edited = await request(app.getHttpServer()).get('/api/v1/contests/cached/booklet.pdf');
         expect(edited.headers['x-booklet-cache']).toBe('miss');
         expect(renderer.documents.at(-1)).toContain('Đề bài đã sửa');
       } finally {

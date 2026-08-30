@@ -24,7 +24,7 @@ import { clearSubmissionMeter, registerAndLogin, seedProblemAndLanguage } from '
  */
 
 async function mintToken(agent: ReturnType<typeof request.agent>, scopes: string[]): Promise<string> {
-  const res = await agent.post('/auth/tokens').send({ name: 'probe', scopes });
+  const res = await agent.post('/api/v1/auth/tokens').send({ name: 'probe', scopes });
   expect(res.status).toBe(201);
   return (res.body as { token: string }).token;
 }
@@ -61,7 +61,7 @@ describe('R49 stays closed: a narrowly-scoped token cannot escalate', () => {
           // (a) SessionOnlyGuard: /admin/users/:username is unreachable by
           // any token regardless of scope.
           const grant = await request(app.getHttpServer())
-            .patch('/admin/users/r49-victim')
+            .patch('/api/v1/admin/users/r49-victim')
             .set('Authorization', `Bearer ${token}`)
             .send({ globalRole: 'admin' });
           expect(grant.status).toBe(403);
@@ -74,7 +74,7 @@ describe('R49 stays closed: a narrowly-scoped token cannot escalate', () => {
           // could use (POST /problems, once granted setter) is closed to
           // this token by scope alone — not by role, since the admin would
           // pass any role check.
-          const create = await asToken.post('/problems').send({
+          const create = await asToken.post('/api/v1/problems').send({
             code: 'r49-escalation',
             name: 'R49 escalation attempt',
             statement: 'should never exist',
@@ -103,17 +103,17 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           const agent = request.agent(app.getHttpServer());
           const cookie = await registerAndLogin(agent, 'sm-problems-read');
 
-          const session = await request(app.getHttpServer()).get('/problems').set('Cookie', cookie);
+          const session = await request(app.getHttpServer()).get('/api/v1/problems').set('Cookie', cookie);
           expect(session.status).toBe(200);
 
-          const withScope = await bearer(app, await mintToken(agent, ['problems:read'])).get('/problems');
+          const withScope = await bearer(app, await mintToken(agent, ['problems:read'])).get('/api/v1/problems');
           expect(withScope.status).toBe(200);
 
-          const withoutScope = await bearer(app, await mintToken(agent, ['orgs:read'])).get('/problems');
+          const withoutScope = await bearer(app, await mintToken(agent, ['orgs:read'])).get('/api/v1/problems');
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
-          const empty = await bearer(app, await mintToken(agent, [])).get('/problems');
+          const empty = await bearer(app, await mintToken(agent, [])).get('/api/v1/problems');
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
         } finally {
@@ -136,17 +136,17 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
 
           const create = (code: string) => ({ code, name: 'Scope matrix', statement: 'x' });
 
-          const session = await agent.post('/problems').send(create('sm-pw-session'));
+          const session = await agent.post('/api/v1/problems').send(create('sm-pw-session'));
           expect(session.status).toBe(201);
 
-          const withScope = await bearer(app, await mintToken(agent, ['problems:write'])).post('/problems').send(create('sm-pw-token'));
+          const withScope = await bearer(app, await mintToken(agent, ['problems:write'])).post('/api/v1/problems').send(create('sm-pw-token'));
           expect(withScope.status).toBe(201);
 
-          const withoutScope = await bearer(app, await mintToken(agent, ['submissions:write'])).post('/problems').send(create('sm-pw-no'));
+          const withoutScope = await bearer(app, await mintToken(agent, ['submissions:write'])).post('/api/v1/problems').send(create('sm-pw-no'));
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
-          const empty = await bearer(app, await mintToken(agent, [])).post('/problems').send(create('sm-pw-empty'));
+          const empty = await bearer(app, await mintToken(agent, [])).post('/api/v1/problems').send(create('sm-pw-empty'));
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
         } finally {
@@ -167,25 +167,23 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           await registerAndLogin(agent, 'sm-problems-publish');
           await db.update(schema.users).set({ globalRole: 'setter' }).where(eq(schema.users.username, 'sm-problems-publish'));
           const created = await agent
-            .post('/problems')
+            .post('/api/v1/problems')
             .send({ code: 'sm-publish-target', name: 'Scope matrix publish', statement: 'x' });
           expect(created.status).toBe(201);
 
-          const session = await agent.get('/problems/sm-publish-target/revisions');
+          const session = await agent.get('/api/v1/problems/sm-publish-target/revisions');
           expect(session.status).toBe(200);
 
-          const withScope = await bearer(app, await mintToken(agent, ['problems:publish'])).get(
-            '/problems/sm-publish-target/revisions',
+          const withScope = await bearer(app, await mintToken(agent, ['problems:publish'])).get('/api/v1/problems/sm-publish-target/revisions',
           );
           expect(withScope.status).toBe(200);
 
-          const withoutScope = await bearer(app, await mintToken(agent, ['problems:write'])).get(
-            '/problems/sm-publish-target/revisions',
+          const withoutScope = await bearer(app, await mintToken(agent, ['problems:write'])).get('/api/v1/problems/sm-publish-target/revisions',
           );
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
-          const empty = await bearer(app, await mintToken(agent, [])).get('/problems/sm-publish-target/revisions');
+          const empty = await bearer(app, await mintToken(agent, [])).get('/api/v1/problems/sm-publish-target/revisions');
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
         } finally {
@@ -207,7 +205,7 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           await registerAndLogin(agent, 'sm-submissions-write');
           const body = { problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}' };
 
-          const session = await agent.post('/submissions').send(body);
+          const session = await agent.post('/api/v1/submissions').send(body);
           expect(session.status).toBe(201);
 
           // This row of the matrix is about SCOPES, and D80's meter is keyed
@@ -215,17 +213,17 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           // every token it mints, so the second 201 would be a 429 without
           // this. The meter has its own file.
           await clearSubmissionMeter(db);
-          const withScope = await bearer(app, await mintToken(agent, ['submissions:write'])).post('/submissions').send(body);
+          const withScope = await bearer(app, await mintToken(agent, ['submissions:write'])).post('/api/v1/submissions').send(body);
           expect(withScope.status).toBe(201);
 
           // A 403 for a missing scope must be decided by the scope, not by
           // the meter the 201 above just spent.
           await clearSubmissionMeter(db);
-          const withoutScope = await bearer(app, await mintToken(agent, ['submissions:read'])).post('/submissions').send(body);
+          const withoutScope = await bearer(app, await mintToken(agent, ['submissions:read'])).post('/api/v1/submissions').send(body);
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
-          const empty = await bearer(app, await mintToken(agent, [])).post('/submissions').send(body);
+          const empty = await bearer(app, await mintToken(agent, [])).post('/api/v1/submissions').send(body);
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
         } finally {
@@ -246,22 +244,22 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           const agent = request.agent(app.getHttpServer());
           await registerAndLogin(agent, 'sm-submissions-read');
           const created = await agent
-            .post('/submissions')
+            .post('/api/v1/submissions')
             .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}' });
           expect(created.status).toBe(201);
           const id = (created.body as { id: number }).id;
 
-          const session = await agent.get(`/submissions/${id}`);
+          const session = await agent.get(`/api/v1/submissions/${id}`);
           expect(session.status).toBe(200);
 
-          const withScope = await bearer(app, await mintToken(agent, ['submissions:read'])).get(`/submissions/${id}`);
+          const withScope = await bearer(app, await mintToken(agent, ['submissions:read'])).get(`/api/v1/submissions/${id}`);
           expect(withScope.status).toBe(200);
 
-          const withoutScope = await bearer(app, await mintToken(agent, ['submissions:write'])).get(`/submissions/${id}`);
+          const withoutScope = await bearer(app, await mintToken(agent, ['submissions:write'])).get(`/api/v1/submissions/${id}`);
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
-          const empty = await bearer(app, await mintToken(agent, [])).get(`/submissions/${id}`);
+          const empty = await bearer(app, await mintToken(agent, [])).get(`/api/v1/submissions/${id}`);
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
         } finally {
@@ -286,20 +284,20 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           // anonymous caller reaches it with no actor at all, so ScopeGuard
           // never even runs its scope check (see scope.guard.ts's `if
           // (!actor) return true`).
-          const anonymous = await request(app.getHttpServer()).get('/languages');
+          const anonymous = await request(app.getHttpServer()).get('/api/v1/languages');
           expect(anonymous.status).toBe(200);
 
-          const session = await agent.get('/languages');
+          const session = await agent.get('/api/v1/languages');
           expect(session.status).toBe(200);
 
-          const withScope = await bearer(app, await mintToken(agent, ['languages:read'])).get('/languages');
+          const withScope = await bearer(app, await mintToken(agent, ['languages:read'])).get('/api/v1/languages');
           expect(withScope.status).toBe(200);
 
-          const withoutScope = await bearer(app, await mintToken(agent, ['submissions:read'])).get('/languages');
+          const withoutScope = await bearer(app, await mintToken(agent, ['submissions:read'])).get('/api/v1/languages');
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
-          const empty = await bearer(app, await mintToken(agent, [])).get('/languages');
+          const empty = await bearer(app, await mintToken(agent, [])).get('/api/v1/languages');
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
         } finally {
@@ -322,17 +320,17 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
 
           const create = (slug: string) => ({ slug, name: 'Scope matrix org' });
 
-          const session = await agent.post('/orgs').send(create('sm-ow-session'));
+          const session = await agent.post('/api/v1/orgs').send(create('sm-ow-session'));
           expect(session.status).toBe(201);
 
-          const withScope = await bearer(app, await mintToken(agent, ['orgs:write'])).post('/orgs').send(create('sm-ow-token'));
+          const withScope = await bearer(app, await mintToken(agent, ['orgs:write'])).post('/api/v1/orgs').send(create('sm-ow-token'));
           expect(withScope.status).toBe(201);
 
-          const withoutScope = await bearer(app, await mintToken(agent, ['orgs:read'])).post('/orgs').send(create('sm-ow-no'));
+          const withoutScope = await bearer(app, await mintToken(agent, ['orgs:read'])).post('/api/v1/orgs').send(create('sm-ow-no'));
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
-          const empty = await bearer(app, await mintToken(agent, [])).post('/orgs').send(create('sm-ow-empty'));
+          const empty = await bearer(app, await mintToken(agent, [])).post('/api/v1/orgs').send(create('sm-ow-empty'));
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
         } finally {
@@ -352,17 +350,17 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           const agent = request.agent(app.getHttpServer());
           const cookie = await registerAndLogin(agent, 'sm-contests-read');
 
-          const session = await request(app.getHttpServer()).get('/contests').set('Cookie', cookie);
+          const session = await request(app.getHttpServer()).get('/api/v1/contests').set('Cookie', cookie);
           expect(session.status).toBe(200);
 
-          const withScope = await bearer(app, await mintToken(agent, ['contests:read'])).get('/contests');
+          const withScope = await bearer(app, await mintToken(agent, ['contests:read'])).get('/api/v1/contests');
           expect(withScope.status).toBe(200);
 
-          const withoutScope = await bearer(app, await mintToken(agent, ['orgs:read'])).get('/contests');
+          const withoutScope = await bearer(app, await mintToken(agent, ['orgs:read'])).get('/api/v1/contests');
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
-          const empty = await bearer(app, await mintToken(agent, [])).get('/contests');
+          const empty = await bearer(app, await mintToken(agent, [])).get('/api/v1/contests');
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
         } finally {
@@ -394,22 +392,22 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
             format: 'icpc',
           });
 
-          const session = await agent.post('/contests').send(create('sm-cw-session'));
+          const session = await agent.post('/api/v1/contests').send(create('sm-cw-session'));
           expect(session.status).toBe(201);
 
           const withScope = await bearer(app, await mintToken(agent, ['contests:write']))
-            .post('/contests')
+            .post('/api/v1/contests')
             .send(create('sm-cw-token'));
           expect(withScope.status).toBe(201);
 
           const withoutScope = await bearer(app, await mintToken(agent, ['contests:read']))
-            .post('/contests')
+            .post('/api/v1/contests')
             .send(create('sm-cw-no'));
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
           const empty = await bearer(app, await mintToken(agent, []))
-            .post('/contests')
+            .post('/api/v1/contests')
             .send(create('sm-cw-empty'));
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
@@ -430,17 +428,17 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           const agent = request.agent(app.getHttpServer());
           const cookie = await registerAndLogin(agent, 'sm-orgs-read');
 
-          const session = await request(app.getHttpServer()).get('/orgs').set('Cookie', cookie);
+          const session = await request(app.getHttpServer()).get('/api/v1/orgs').set('Cookie', cookie);
           expect(session.status).toBe(200);
 
-          const withScope = await bearer(app, await mintToken(agent, ['orgs:read'])).get('/orgs');
+          const withScope = await bearer(app, await mintToken(agent, ['orgs:read'])).get('/api/v1/orgs');
           expect(withScope.status).toBe(200);
 
-          const withoutScope = await bearer(app, await mintToken(agent, ['problems:read'])).get('/orgs');
+          const withoutScope = await bearer(app, await mintToken(agent, ['problems:read'])).get('/api/v1/orgs');
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
-          const empty = await bearer(app, await mintToken(agent, [])).get('/orgs');
+          const empty = await bearer(app, await mintToken(agent, [])).get('/api/v1/orgs');
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
         } finally {
@@ -496,7 +494,7 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           // — so a syntactically valid but made-up hash is enough there.
           const { archive: a1, hash: h1 } = await fixturePackage('session');
           const session = await agent
-            .post('/packages')
+            .post('/api/v1/packages')
             .query({ hash: h1 })
             .set('Content-Type', 'application/octet-stream')
             .send(a1);
@@ -505,7 +503,7 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           const { archive: a2, hash: h2 } = await fixturePackage('token-with');
           const tokenWith = await mintToken(agent, ['packages:write']);
           const withScope = await request(app.getHttpServer())
-            .post('/packages')
+            .post('/api/v1/packages')
             .query({ hash: h2 })
             .set('Content-Type', 'application/octet-stream')
             .set('Authorization', `Bearer ${tokenWith}`)
@@ -514,7 +512,7 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
 
           const tokenWithout = await mintToken(agent, ['packages:read']);
           const withoutScope = await request(app.getHttpServer())
-            .post('/packages')
+            .post('/api/v1/packages')
             .query({ hash: 'c'.repeat(64) })
             .set('Content-Type', 'application/octet-stream')
             .set('Authorization', `Bearer ${tokenWithout}`)
@@ -524,7 +522,7 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
 
           const tokenEmpty = await mintToken(agent, []);
           const empty = await request(app.getHttpServer())
-            .post('/packages')
+            .post('/api/v1/packages')
             .query({ hash: 'd'.repeat(64) })
             .set('Content-Type', 'application/octet-stream')
             .set('Authorization', `Bearer ${tokenEmpty}`)
@@ -549,23 +547,23 @@ describe('scope matrix: every scope × {session, token-with, token-without, toke
           await registerAndLogin(agent, 'sm-packages-read');
           const { archive, hash } = await fixturePackage('readable');
           const uploaded = await agent
-            .post('/packages')
+            .post('/api/v1/packages')
             .query({ hash })
             .set('Content-Type', 'application/octet-stream')
             .send(archive);
           expect(uploaded.status).toBe(201);
 
-          const session = await agent.get(`/packages/${hash}`);
+          const session = await agent.get(`/api/v1/packages/${hash}`);
           expect(session.status).toBe(200);
 
-          const withScope = await bearer(app, await mintToken(agent, ['packages:read'])).get(`/packages/${hash}`);
+          const withScope = await bearer(app, await mintToken(agent, ['packages:read'])).get(`/api/v1/packages/${hash}`);
           expect(withScope.status).toBe(200);
 
-          const withoutScope = await bearer(app, await mintToken(agent, ['packages:write'])).get(`/packages/${hash}`);
+          const withoutScope = await bearer(app, await mintToken(agent, ['packages:write'])).get(`/api/v1/packages/${hash}`);
           expect(withoutScope.status).toBe(403);
           expect(withoutScope.body.code).toBe('scope_required');
 
-          const empty = await bearer(app, await mintToken(agent, [])).get(`/packages/${hash}`);
+          const empty = await bearer(app, await mintToken(agent, [])).get(`/api/v1/packages/${hash}`);
           expect(empty.status).toBe(403);
           expect(empty.body.code).toBe('scope_required');
         } finally {

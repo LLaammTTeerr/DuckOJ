@@ -74,7 +74,7 @@ async function listedIds(agent: SupertestAgent, limit: number): Promise<Set<numb
   // `nextCursor: null` — a hang here would be a worse failure than a wrong
   // answer.
   for (let guard = 0; guard < 50; guard += 1) {
-    const res = await agent.get('/submissions').query(cursor ? { limit, cursor } : { limit });
+    const res = await agent.get('/api/v1/submissions').query(cursor ? { limit, cursor } : { limit });
     expect(res.status).toBe(200);
     for (const item of res.body.items as { id: number }[]) ids.add(item.id);
     const nextCursor = res.body.nextCursor as string | null;
@@ -88,7 +88,7 @@ async function listedIds(agent: SupertestAgent, limit: number): Promise<Set<numb
 async function readableIds(agent: SupertestAgent, corpus: number[]): Promise<Set<number>> {
   const ids = new Set<number>();
   for (const id of corpus) {
-    const res = await agent.get(`/submissions/${id}`);
+    const res = await agent.get(`/api/v1/submissions/${id}`);
     if (res.status === 200) {
       ids.add(id);
     } else {
@@ -138,7 +138,7 @@ describe('GET /submissions: the list/read agreement (spec §4.1)', () => {
           // needs three from one person and is about visibility, not rate.
           await clearSubmissionMeter(db);
           const res = await quinn
-            .post('/submissions')
+            .post('/api/v1/submissions')
             .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: `quinn-${i}` });
           expect(res.status).toBe(201);
           corpus.push((res.body as { id: number }).id);
@@ -146,7 +146,7 @@ describe('GET /submissions: the list/read agreement (spec §4.1)', () => {
         for (let i = 0; i < 2; i += 1) {
           await clearSubmissionMeter(db);
           const res = await rita
-            .post('/submissions')
+            .post('/api/v1/submissions')
             .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: `rita-${i}` });
           expect(res.status).toBe(201);
           corpus.push((res.body as { id: number }).id);
@@ -196,7 +196,7 @@ describe('GET /submissions: descending keyset pagination', () => {
           // Five pages' worth from one person; D80's meter would admit one.
           await clearSubmissionMeter(db);
           const res = await agent
-            .post('/submissions')
+            .post('/api/v1/submissions')
             .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: `p-${i}` });
           expect(res.status).toBe(201);
           ids.push((res.body as { id: number }).id);
@@ -205,16 +205,16 @@ describe('GET /submissions: descending keyset pagination', () => {
         // reverse — newest (highest id) first.
         const newestFirst = [...ids].reverse();
 
-        const first = await agent.get('/submissions').query({ limit: 2 });
+        const first = await agent.get('/api/v1/submissions').query({ limit: 2 });
         expect(first.status).toBe(200);
         expect((first.body.items as { id: number }[]).map((i) => i.id)).toEqual(newestFirst.slice(0, 2));
         expect(first.body.nextCursor).not.toBeNull();
 
-        const second = await agent.get('/submissions').query({ limit: 2, cursor: first.body.nextCursor });
+        const second = await agent.get('/api/v1/submissions').query({ limit: 2, cursor: first.body.nextCursor });
         expect((second.body.items as { id: number }[]).map((i) => i.id)).toEqual(newestFirst.slice(2, 4));
         expect(second.body.nextCursor).not.toBeNull();
 
-        const third = await agent.get('/submissions').query({ limit: 2, cursor: second.body.nextCursor });
+        const third = await agent.get('/api/v1/submissions').query({ limit: 2, cursor: second.body.nextCursor });
         expect((third.body.items as { id: number }[]).map((i) => i.id)).toEqual(newestFirst.slice(4, 5));
         // Exhausted: no fourth page.
         expect(third.body.nextCursor).toBeNull();
@@ -237,12 +237,12 @@ describe('GET /submissions: filters', () => {
         const userId = await userIdOf(db, 'sub-filter-problem');
 
         const onAplusb = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' });
         expect(onAplusb.status).toBe(201);
         const onHidden = await insertRawSubmission(db, { userId, problemCode: 'hidden', languageKey: 'cpp17' });
 
-        const res = await agent.get('/submissions').query({ problem: 'aplusb', limit: 25 });
+        const res = await agent.get('/api/v1/submissions').query({ problem: 'aplusb', limit: 25 });
         expect(res.status).toBe(200);
         const ids = (res.body.items as { id: number }[]).map((i) => i.id);
         expect(ids).toContain((onAplusb.body as { id: number }).id);
@@ -263,20 +263,20 @@ describe('GET /submissions: filters', () => {
         const bob = request.agent(app.getHttpServer());
         await registerAndLogin(bob, 'sub-filter-bob');
         const created = await bob
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' });
         expect(created.status).toBe(201);
 
         // A 403 here would itself confirm that a user named "sub-filter-bob"
         // exists — the same existence-oracle reasoning `getVisible` already
         // applies by answering 404 rather than 403.
-        const res = await alice.get('/submissions').query({ user: 'sub-filter-bob', limit: 25 });
+        const res = await alice.get('/api/v1/submissions').query({ user: 'sub-filter-bob', limit: 25 });
         expect(res.status).toBe(200);
         expect(res.body.items).toEqual([]);
         expect(res.body.nextCursor).toBeNull();
 
         // Same shape for a user who doesn't exist at all.
-        const unknown = await alice.get('/submissions').query({ user: 'no-such-user-at-all', limit: 25 });
+        const unknown = await alice.get('/api/v1/submissions').query({ user: 'no-such-user-at-all', limit: 25 });
         expect(unknown.status).toBe(200);
         expect(unknown.body.items).toEqual([]);
       } finally {
@@ -300,7 +300,7 @@ describe('GET /submissions: filters', () => {
         const dana = request.agent(app.getHttpServer());
         await registerAndLogin(dana, 'sub-filter-dana');
         const created = await dana
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' });
         expect(created.status).toBe(201);
 
@@ -310,10 +310,10 @@ describe('GET /submissions: filters', () => {
         // page and the assertion below would pass for the wrong reason.
         const eve = request.agent(app.getHttpServer());
         await registerAndLogin(eve, 'sub-filter-eve');
-        const other = await eve.post('/submissions').send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'y' });
+        const other = await eve.post('/api/v1/submissions').send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'y' });
         expect(other.status).toBe(201);
 
-        const res = await adminAgent.get('/submissions').query({ user: 'sub-filter-dana', limit: 25 });
+        const res = await adminAgent.get('/api/v1/submissions').query({ user: 'sub-filter-dana', limit: 25 });
         expect(res.status).toBe(200);
         expect((res.body.items as { id: number }[]).map((i) => i.id)).toEqual([(created.body as { id: number }).id]);
       } finally {
@@ -330,11 +330,11 @@ describe('GET /submissions: filters', () => {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'sub-filter-verdict');
 
-        const ac = await agent.post('/submissions').send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'ac' });
+        const ac = await agent.post('/api/v1/submissions').send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'ac' });
         // Two verdicts need two submissions from one person; D80's meter
         // admits one every ten seconds and this test is about `verdict=`.
         await clearSubmissionMeter(db);
-        const wa = await agent.post('/submissions').send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'wa' });
+        const wa = await agent.post('/api/v1/submissions').send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'wa' });
         expect(ac.status).toBe(201);
         expect(wa.status).toBe(201);
         await db
@@ -346,7 +346,7 @@ describe('GET /submissions: filters', () => {
           .set({ verdict: 'WA', state: 'done' })
           .where(eq(submissions.id, (wa.body as { id: number }).id));
 
-        const res = await agent.get('/submissions').query({ verdict: 'AC', limit: 25 });
+        const res = await agent.get('/api/v1/submissions').query({ verdict: 'AC', limit: 25 });
         expect(res.status).toBe(200);
         expect((res.body.items as { id: number }[]).map((i) => i.id)).toEqual([(ac.body as { id: number }).id]);
       } finally {
@@ -364,7 +364,7 @@ describe('GET /submissions: rejects an invalid cursor with 422, not 500', () => 
       try {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'sub-list-bad-cursor');
-        const res = await agent.get('/submissions').query({ cursor: 'not-a-number' });
+        const res = await agent.get('/api/v1/submissions').query({ cursor: 'not-a-number' });
         expect(res.status).toBe(422);
         expect(res.body.code).toBe('invalid_cursor');
       } finally {
@@ -383,7 +383,7 @@ describe('GET /submissions: rejects an invalid cursor with 422, not 500', () => 
 async function readableIdsWithSource(agent: SupertestAgent, corpus: number[]): Promise<Set<number>> {
   const ids = new Set<number>();
   for (const id of corpus) {
-    const res = await agent.get(`/submissions/${id}`);
+    const res = await agent.get(`/api/v1/submissions/${id}`);
     if (res.status === 200) {
       ids.add(id);
       expect(typeof res.body.source, `GET /submissions/${id} returned 200 without a source string`).toBe('string');

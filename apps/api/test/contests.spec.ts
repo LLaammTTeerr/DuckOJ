@@ -65,7 +65,7 @@ describe('POST /contests refuses what it cannot honour', () => {
       const app = await buildApp(db);
       try {
         const agent = await setterAgent(app, db, 'format-setter');
-        const res = await agent.post('/contests').send({ ...VALID, format: 'atcoder' });
+        const res = await agent.post('/api/v1/contests').send({ ...VALID, format: 'atcoder' });
 
         expect(res.status).toBe(400);
         expect(res.body.code).toBe('unknown_contest_format');
@@ -83,7 +83,7 @@ describe('POST /contests refuses what it cannot honour', () => {
       try {
         const agent = await setterAgent(app, db, 'all-formats-setter');
         for (const format of ['default', 'icpc', 'ioi', 'ioi16']) {
-          const res = await agent.post('/contests').send({ ...VALID, key: `k-${format}`, format });
+          const res = await agent.post('/api/v1/contests').send({ ...VALID, key: `k-${format}`, format });
           expect([format, res.status]).toEqual([format, 201]);
           expect(ContestDetail.parse(res.body).format).toBe(format);
         }
@@ -99,11 +99,11 @@ describe('POST /contests refuses what it cannot honour', () => {
       try {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'plain-user');
-        const asUser = await agent.post('/contests').send(VALID);
+        const asUser = await agent.post('/api/v1/contests').send(VALID);
         expect(asUser.status).toBe(403);
         expect(asUser.body.code).toBe('contest_forbidden');
 
-        const anon = await request(app.getHttpServer()).post('/contests').send(VALID);
+        const anon = await request(app.getHttpServer()).post('/api/v1/contests').send(VALID);
         expect(anon.status).toBe(401);
       } finally {
         await app.close();
@@ -116,8 +116,8 @@ describe('POST /contests refuses what it cannot honour', () => {
       const app = await buildApp(db);
       try {
         const agent = await setterAgent(app, db, 'dupe-setter');
-        expect((await agent.post('/contests').send(VALID)).status).toBe(201);
-        const again = await agent.post('/contests').send({ ...VALID, key: 'SPRING-OPEN'.toLowerCase() });
+        expect((await agent.post('/api/v1/contests').send(VALID)).status).toBe(201);
+        const again = await agent.post('/api/v1/contests').send({ ...VALID, key: 'SPRING-OPEN'.toLowerCase() });
         expect(again.status).toBe(409);
         expect(again.body.code).toBe('contest_key_taken');
       } finally {
@@ -136,17 +136,17 @@ describe('contest visibility mirrors problems: 404, never 403', () => {
         await seedContest(db, { key: 'pub', visibility: 'public', createdBy: owner.id });
         await seedContest(db, { key: 'priv', visibility: 'private', createdBy: owner.id });
 
-        const list = await request(app.getHttpServer()).get('/contests');
+        const list = await request(app.getHttpServer()).get('/api/v1/contests');
         expect(list.status).toBe(200);
         expect(ContestPage.parse(list.body).items.map((c) => c.key)).toEqual(['pub']);
 
-        const hidden = await request(app.getHttpServer()).get('/contests/priv');
+        const hidden = await request(app.getHttpServer()).get('/api/v1/contests/priv');
         // 404 and not 403: a distinct status is an existence oracle for a
         // contest the caller may not see.
         expect(hidden.status).toBe(404);
         expect(hidden.body.code).toBe('contest_not_found');
 
-        const board = await request(app.getHttpServer()).get('/contests/priv/scoreboard');
+        const board = await request(app.getHttpServer()).get('/api/v1/contests/priv/scoreboard');
         expect(board.status).toBe(404);
         expect(board.body.code).toBe('contest_not_found');
       } finally {
@@ -160,17 +160,17 @@ describe('contest visibility mirrors problems: 404, never 403', () => {
       const app = await buildApp(db);
       try {
         const creatorAgent = await setterAgent(app, db, 'creator');
-        const created = await creatorAgent.post('/contests').send({ ...VALID, visibility: 'private' });
+        const created = await creatorAgent.post('/api/v1/contests').send({ ...VALID, visibility: 'private' });
         expect(created.status).toBe(201);
 
-        const mine = await creatorAgent.get('/contests/spring-open');
+        const mine = await creatorAgent.get('/api/v1/contests/spring-open');
         expect(mine.status).toBe(200);
-        expect(ContestPage.parse((await creatorAgent.get('/contests')).body).items).toHaveLength(1);
+        expect(ContestPage.parse((await creatorAgent.get('/api/v1/contests')).body).items).toHaveLength(1);
 
         const otherAgent = request.agent(app.getHttpServer());
         await registerAndLogin(otherAgent, 'someone-else');
-        expect((await otherAgent.get('/contests/spring-open')).status).toBe(404);
-        expect(ContestPage.parse((await otherAgent.get('/contests')).body).items).toHaveLength(0);
+        expect((await otherAgent.get('/api/v1/contests/spring-open')).status).toBe(404);
+        expect(ContestPage.parse((await otherAgent.get('/api/v1/contests')).body).items).toHaveLength(0);
       } finally {
         await app.close();
       }
@@ -199,11 +199,11 @@ describe('contest visibility mirrors problems: 404, never 403', () => {
         const outsiderAgent = request.agent(app.getHttpServer());
         await registerAndLogin(outsiderAgent, 'org-outsider');
 
-        expect((await memberAgent.get('/contests/org-only')).status).toBe(200);
-        expect(ContestPage.parse((await memberAgent.get('/contests')).body).items).toHaveLength(1);
-        expect((await outsiderAgent.get('/contests/org-only')).status).toBe(404);
-        expect(ContestPage.parse((await outsiderAgent.get('/contests')).body).items).toHaveLength(0);
-        expect((await request(app.getHttpServer()).get('/contests/org-only')).status).toBe(404);
+        expect((await memberAgent.get('/api/v1/contests/org-only')).status).toBe(200);
+        expect(ContestPage.parse((await memberAgent.get('/api/v1/contests')).body).items).toHaveLength(1);
+        expect((await outsiderAgent.get('/api/v1/contests/org-only')).status).toBe(404);
+        expect(ContestPage.parse((await outsiderAgent.get('/api/v1/contests')).body).items).toHaveLength(0);
+        expect((await request(app.getHttpServer()).get('/api/v1/contests/org-only')).status).toBe(404);
       } finally {
         await app.close();
       }
@@ -223,8 +223,8 @@ describe('contest visibility mirrors problems: 404, never 403', () => {
           .set({ globalRole: 'admin' })
           .where(eq(schema.users.username, 'contest-admin'));
 
-        expect((await adminAgent.get('/contests/secret')).status).toBe(200);
-        expect(ContestPage.parse((await adminAgent.get('/contests')).body).items).toHaveLength(1);
+        expect((await adminAgent.get('/api/v1/contests/secret')).status).toBe(200);
+        expect(ContestPage.parse((await adminAgent.get('/api/v1/contests')).body).items).toHaveLength(1);
       } finally {
         await app.close();
       }
@@ -247,7 +247,7 @@ describe('GET /contests/:key/scoreboard over HTTP', () => {
         const fixture = discoverFixtures().find((f) => f.id === 'ioi16/10-points-scaling-factor')!;
         const { key } = await seedGoldenContest(db, readContest(fixture));
 
-        const res = await request(app.getHttpServer()).get(`/contests/${key}/scoreboard`);
+        const res = await request(app.getHttpServer()).get(`/api/v1/contests/${key}/scoreboard`);
         expect(res.status).toBe(200);
 
         // The contract's hand-written zod is a second, independent statement
@@ -323,7 +323,7 @@ describe('a contest conceals its problems until it starts', () => {
         const problemId = await seedProbeProblem(db, owner.id);
         await seedTimedContest(db, { key: 'future-pub', startsInMs: HOUR, createdBy: owner.id, problemId });
 
-        const res = await request(app.getHttpServer()).get('/contests/future-pub');
+        const res = await request(app.getHttpServer()).get('/api/v1/contests/future-pub');
         expect(res.status).toBe(200);
         expect(ContestDetail.parse(res.body).problems).toEqual([]);
         // The private problem's existence must appear NOWHERE in the body —
@@ -353,7 +353,7 @@ describe('a contest conceals its problems until it starts', () => {
           .set({ globalRole: 'admin' })
           .where(eq(schema.users.username, 'prestart-admin'));
 
-        const res = await adminAgent.get('/contests/future-adm');
+        const res = await adminAgent.get('/api/v1/contests/future-adm');
         expect(res.status).toBe(200);
         expect(ContestDetail.parse(res.body).problems.map((p) => p.code)).toEqual(['zz-leak-probe']);
       } finally {
@@ -371,14 +371,14 @@ describe('a contest conceals its problems until it starts', () => {
         await seedTimedContest(db, { key: 'future-board', startsInMs: HOUR, createdBy: owner.id, problemId });
         await seedTimedContest(db, { key: 'past-board', startsInMs: -HOUR, createdBy: owner.id, problemId });
 
-        const before = await request(app.getHttpServer()).get('/contests/future-board/scoreboard');
+        const before = await request(app.getHttpServer()).get('/api/v1/contests/future-board/scoreboard');
         expect(before.status).toBe(409);
         expect(before.body.code).toBe('contest_not_started');
         const raw = JSON.stringify(before.body);
         expect(raw).not.toContain('zz-leak-probe');
         expect(raw).not.toContain('Secret Leak Probe');
 
-        const after = await request(app.getHttpServer()).get('/contests/past-board/scoreboard');
+        const after = await request(app.getHttpServer()).get('/api/v1/contests/past-board/scoreboard');
         expect(after.status).toBe(200);
         expect(Scoreboard.parse(after.body).problems.map((p) => p.code)).toEqual(['zz-leak-probe']);
       } finally {
@@ -395,7 +395,7 @@ describe('a contest conceals its problems until it starts', () => {
         const problemId = await seedProbeProblem(db, owner.id);
         await seedTimedContest(db, { key: 'started-pub', startsInMs: -HOUR, createdBy: owner.id, problemId });
 
-        const res = await request(app.getHttpServer()).get('/contests/started-pub');
+        const res = await request(app.getHttpServer()).get('/api/v1/contests/started-pub');
         expect(res.status).toBe(200);
         expect(ContestDetail.parse(res.body).problems.map((p) => p.code)).toEqual(['zz-leak-probe']);
       } finally {

@@ -74,7 +74,7 @@ async function setterWithProblem(
   const agent = request.agent(app.getHttpServer());
   await registerAndLogin(agent, username);
   await db.update(schema.users).set({ globalRole: 'setter' }).where(eq(schema.users.username, username));
-  const created = await agent.post('/problems').send({ code, name: code, statement: 's' });
+  const created = await agent.post('/api/v1/problems').send({ code, name: code, statement: 's' });
   if (created.status !== 201) {
     throw new Error(`could not create ${code}: ${String(created.status)} ${JSON.stringify(created.body)}`);
   }
@@ -88,18 +88,18 @@ async function publishRevision(
   fixture: Fixture,
 ): Promise<void> {
   const uploaded = await agent
-    .post('/packages')
+    .post('/api/v1/packages')
     .query({ hash: fixture.hash })
     .set('Content-Type', 'application/octet-stream')
     .send(fixture.archive);
   if (uploaded.status !== 201) {
     throw new Error(`upload failed: ${String(uploaded.status)} ${JSON.stringify(uploaded.body)}`);
   }
-  const attached = await agent.post(`/problems/${code}/revisions`).send({ packageHash: fixture.hash });
+  const attached = await agent.post(`/api/v1/problems/${code}/revisions`).send({ packageHash: fixture.hash });
   if (attached.status !== 201) {
     throw new Error(`attach failed: ${String(attached.status)} ${JSON.stringify(attached.body)}`);
   }
-  const published = await agent.post(`/problems/${code}/revisions/${String(attached.body.version)}/publish`).send();
+  const published = await agent.post(`/api/v1/problems/${code}/revisions/${String(attached.body.version)}/publish`).send();
   if (published.status !== 200 && published.status !== 201) {
     throw new Error(`publish failed: ${String(published.status)}`);
   }
@@ -121,7 +121,7 @@ describe('a draft pre-filled from an existing revision (D88)', () => {
         const agent = await setterWithProblem(db, app, 'rev-author', 'from-rev');
         await publishRevision(agent, 'from-rev', await nestedPackage({ tests: 3, checker: true }));
 
-        const opened = await agent.post('/problems/from-rev/drafts/from-revision/1').send();
+        const opened = await agent.post('/api/v1/problems/from-rev/drafts/from-revision/1').send();
         expect(opened.status).toBe(201);
         expect(opened.body.fromVersion).toBe(1);
         expect(opened.body.prefill).toMatchObject({
@@ -142,19 +142,19 @@ describe('a draft pre-filled from an existing revision (D88)', () => {
         const draftId = opened.body.draftId as string;
         // `application/octet-stream`, so supertest hands back a Buffer — the
         // point of the route: a test file is bytes, not JSON.
-        const input = await agent.get(`/problems/from-rev/drafts/${draftId}/files/02.in`);
+        const input = await agent.get(`/api/v1/problems/from-rev/drafts/${draftId}/files/02.in`);
         expect(input.status).toBe(200);
         expect(Buffer.from(input.body as Buffer).toString('utf8')).toBe('2 2\n');
-        const answer = await agent.get(`/problems/from-rev/drafts/${draftId}/files/03.out`);
+        const answer = await agent.get(`/api/v1/problems/from-rev/drafts/${draftId}/files/03.out`);
         expect(Buffer.from(answer.body as Buffer).toString('utf8')).toBe('6\n');
-        const checker = await agent.get(`/problems/from-rev/drafts/${draftId}/files/checker.cpp`);
+        const checker = await agent.get(`/api/v1/problems/from-rev/drafts/${draftId}/files/checker.cpp`);
         expect(Buffer.from(checker.body as Buffer).toString('utf8')).toBe('// testlib checker\n');
-        const missing = await agent.get(`/problems/from-rev/drafts/${draftId}/files/99.in`);
+        const missing = await agent.get(`/api/v1/problems/from-rev/drafts/${draftId}/files/99.in`);
         expect(missing.status).toBe(404);
 
         // The draft is an ORDINARY draft: building it as it stands produces a
         // second revision with the same limits and the flat paths.
-        const built = await agent.post(`/problems/from-rev/drafts/${draftId}/build`).send({});
+        const built = await agent.post(`/api/v1/problems/from-rev/drafts/${draftId}/build`).send({});
         expect(built.status).toBe(201);
         expect(built.body.version).toBe(2);
         const files = await db
@@ -210,11 +210,11 @@ describe('a draft pre-filled from an existing revision (D88)', () => {
         const { archive, files } = await packDirectory(dir);
         await publishRevision(agent, 'from-rev-gen', { archive, hash: packageHash(files) });
 
-        const opened = await agent.post('/problems/from-rev-gen/drafts/from-revision/1').send();
+        const opened = await agent.post('/api/v1/problems/from-rev-gen/drafts/from-revision/1').send();
         expect(opened.status).toBe(201);
         expect(opened.body.fileCount).toBe(3);
         const draftId = opened.body.draftId as string;
-        expect((await agent.get(`/problems/from-rev-gen/drafts/${draftId}/files/gen.py`)).status).toBe(404);
+        expect((await agent.get(`/api/v1/problems/from-rev-gen/drafts/${draftId}/files/gen.py`)).status).toBe(404);
 
         // A case worth points in group 0 is NOT a sample.
         expect(opened.body.prefill.cases).toEqual([
@@ -232,7 +232,7 @@ describe('a draft pre-filled from an existing revision (D88)', () => {
         const tests = Math.ceil(DRAFT_MAX_FILES / 2);
         await publishRevision(agent, 'from-rev-big', await nestedPackage({ tests, checker: false }));
 
-        const opened = await agent.post('/problems/from-rev-big/drafts/from-revision/1').send();
+        const opened = await agent.post('/api/v1/problems/from-rev-big/drafts/from-revision/1').send();
         expect(opened.status).toBe(422);
         expect(opened.body.code).toBe('draft_too_many_files');
       });
@@ -245,29 +245,29 @@ describe('a draft pre-filled from an existing revision (D88)', () => {
         const owner = await setterWithProblem(db, app, 'rev-owner', 'from-rev-authz');
         await publishRevision(owner, 'from-rev-authz', await nestedPackage({ tests: 1, checker: false }));
 
-        const unknown = await owner.post('/problems/from-rev-authz/drafts/from-revision/9').send();
+        const unknown = await owner.post('/api/v1/problems/from-rev-authz/drafts/from-revision/9').send();
         expect(unknown.status).toBe(404);
         expect(unknown.body.code).toBe('revision_not_found');
 
         // A stranger cannot even learn the private problem exists.
         const stranger = request.agent(app.getHttpServer());
         await registerAndLogin(stranger, 'rev-stranger');
-        const hidden = await stranger.post('/problems/from-rev-authz/drafts/from-revision/1').send();
+        const hidden = await stranger.post('/api/v1/problems/from-rev-authz/drafts/from-revision/1').send();
         expect(hidden.status).toBe(404);
         expect(hidden.body.code).toBe('problem_not_found');
         // A REAL draft, holding a real test file — a draft id is not a way
         // around the problem's own visibility.
-        const opened = await owner.post('/problems/from-rev-authz/drafts/from-revision/1').send();
+        const opened = await owner.post('/api/v1/problems/from-rev-authz/drafts/from-revision/1').send();
         const draftId = opened.body.draftId as string;
-        expect((await stranger.get(`/problems/from-rev-authz/drafts/${draftId}/files/01.in`)).status).toBe(404);
+        expect((await stranger.get(`/api/v1/problems/from-rev-authz/drafts/${draftId}/files/01.in`)).status).toBe(404);
 
         // Made public, the same stranger may see it and still may not author
         // it — nor read the tests it grades against.
-        await owner.patch('/problems/from-rev-authz').send({ visibility: 'public' });
-        const seen = await stranger.post('/problems/from-rev-authz/drafts/from-revision/1').send();
+        await owner.patch('/api/v1/problems/from-rev-authz').send({ visibility: 'public' });
+        const seen = await stranger.post('/api/v1/problems/from-rev-authz/drafts/from-revision/1').send();
         expect(seen.status).toBe(403);
         expect(seen.body.code).toBe('problem_forbidden');
-        const read = await stranger.get(`/problems/from-rev-authz/drafts/${draftId}/files/01.in`);
+        const read = await stranger.get(`/api/v1/problems/from-rev-authz/drafts/${draftId}/files/01.in`);
         expect(read.status).toBe(403);
         expect(read.body.code).toBe('problem_forbidden');
       });

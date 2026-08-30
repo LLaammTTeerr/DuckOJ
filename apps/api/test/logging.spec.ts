@@ -38,7 +38,7 @@ describe('request logging redacts credentials', () => {
       });
       try {
         const agent = request.agent(app.getHttpServer());
-        await agent.post('/auth/register').send({
+        await agent.post('/api/v1/auth/register').send({
           username: 'ilsa',
           email: 'ilsa@example.com',
           password: 'a-long-enough-password',
@@ -47,7 +47,7 @@ describe('request logging redacts credentials', () => {
 
         // (a) Set-Cookie on the response: login issues the raw session token.
         const login = await agent
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'ilsa', password: 'a-long-enough-password' });
         expect(login.status).toBe(200);
 
@@ -56,12 +56,12 @@ describe('request logging redacts credentials', () => {
         expect(sessionToken.length).toBeGreaterThan(16);
 
         // (b) Cookie on the request: the agent replays the session token.
-        const me = await agent.get('/auth/me');
+        const me = await agent.get('/api/v1/auth/me');
         expect(me.status).toBe(200);
 
         // (c) Authorization on the request: a bearer token.
         const created = await agent
-          .post('/auth/tokens')
+          .post('/api/v1/auth/tokens')
           .send({ name: 'cli', scopes: ['submissions:write'] });
         expect(created.status).toBe(201);
         const accessToken = (created.body as { token: string }).token;
@@ -70,7 +70,7 @@ describe('request logging redacts credentials', () => {
         // gets back its own identity — `AuthGuard` has resolved and logged
         // the request either way, which is all this test cares about.
         const viaToken = await request(app.getHttpServer())
-          .get('/auth/me')
+          .get('/api/v1/auth/me')
           .set('Authorization', `Bearer ${accessToken}`);
         expect(viaToken.status).toBe(200);
 
@@ -81,7 +81,7 @@ describe('request logging redacts credentials', () => {
         expect(output).toContain('"req"');
         expect(output).toContain('"res"');
         expect(output).toContain('[redacted]');
-        expect(output).toContain('"url":"/auth/me"');
+        expect(output).toContain('"url":"/api/v1/auth/me"');
 
         // Then the actual guarantee: no plaintext credential anywhere in it.
         expect(output).not.toContain(sessionToken);

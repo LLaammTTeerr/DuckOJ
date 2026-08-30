@@ -43,7 +43,7 @@ async function setterWithProblem(
   const agent = request.agent(app.getHttpServer());
   await registerAndLogin(agent, username);
   await db.update(schema.users).set({ globalRole: 'setter' }).where(eq(schema.users.username, username));
-  const created = await agent.post('/problems').send({ code, name: code, statement: 's' });
+  const created = await agent.post('/api/v1/problems').send({ code, name: code, statement: 's' });
   if (created.status !== 201) throw new Error(`could not create ${code}: ${created.status} ${JSON.stringify(created.body)}`);
   return agent;
 }
@@ -56,7 +56,7 @@ function putFile(
   body: string | Buffer,
 ) {
   return agent
-    .put(`/problems/${code}/drafts/${draftId}/files/${name}`)
+    .put(`/api/v1/problems/${code}/drafts/${draftId}/files/${name}`)
     .set('Content-Type', 'application/octet-stream')
     .send(body);
 }
@@ -89,7 +89,7 @@ describe('problem package drafts (D87)', () => {
       await withApp(db, async (app) => {
         const agent = await setterWithProblem(db, app, 'draft-author', 'draft-ok');
 
-        const opened = await agent.post('/problems/draft-ok/drafts').send();
+        const opened = await agent.post('/api/v1/problems/draft-ok/drafts').send();
         expect(opened.status).toBe(201);
         const draftId = opened.body.draftId as string;
         expect(draftId).toMatch(/^[0-9a-f-]{36}$/);
@@ -114,7 +114,7 @@ describe('problem package drafts (D87)', () => {
         await writeFile(join(store.filesDir(draftId), '..', '.tmp-orphan'), 'half a test');
 
         const built = await agent
-          .post(`/problems/draft-ok/drafts/${draftId}/build`)
+          .post(`/api/v1/problems/draft-ok/drafts/${draftId}/build`)
           .send({ notes: 'from the browser', publish: true });
         expect(built.status).toBe(201);
         expect(built.body).toMatchObject({ version: 1, published: true });
@@ -143,7 +143,7 @@ describe('problem package drafts (D87)', () => {
         expect(files.map((f) => f.path).sort()).toEqual(['01.in', '01.out', '02.in', '02.out', 'manifest.json']);
 
         // And the draft is gone — a second build against it is a 404.
-        const again = await agent.post(`/problems/draft-ok/drafts/${draftId}/build`).send({});
+        const again = await agent.post(`/api/v1/problems/draft-ok/drafts/${draftId}/build`).send({});
         expect(again.status).toBe(404);
         expect(again.body.code).toBe('draft_not_found');
       });
@@ -154,12 +154,12 @@ describe('problem package drafts (D87)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const agent = await setterWithProblem(db, app, 'draft-incomplete', 'draft-bad');
-        const draftId = (await agent.post('/problems/draft-bad/drafts').send()).body.draftId as string;
+        const draftId = (await agent.post('/api/v1/problems/draft-bad/drafts').send()).body.draftId as string;
 
         await putFile(agent, 'draft-bad', draftId, 'manifest.json', JSON.stringify(MANIFEST));
         await putFile(agent, 'draft-bad', draftId, '01.in', '1 2\n');
 
-        const refused = await agent.post(`/problems/draft-bad/drafts/${draftId}/build`).send({});
+        const refused = await agent.post(`/api/v1/problems/draft-bad/drafts/${draftId}/build`).send({});
         expect(refused.status).toBe(422);
         expect(refused.body.code).toBe('draft_build_failed');
         // `buildPackage`'s own message, verbatim: the setter has to be told
@@ -171,7 +171,7 @@ describe('problem package drafts (D87)', () => {
         await putFile(agent, 'draft-bad', draftId, '01.out', '3\n');
         await putFile(agent, 'draft-bad', draftId, '02.in', '4 5\n');
         await putFile(agent, 'draft-bad', draftId, '02.out', '9\n');
-        const ok = await agent.post(`/problems/draft-bad/drafts/${draftId}/build`).send({});
+        const ok = await agent.post(`/api/v1/problems/draft-bad/drafts/${draftId}/build`).send({});
         expect(ok.status).toBe(201);
         expect(ok.body.published).toBe(false);
       });
@@ -182,10 +182,10 @@ describe('problem package drafts (D87)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const agent = await setterWithProblem(db, app, 'draft-nomanifest', 'draft-nom');
-        const draftId = (await agent.post('/problems/draft-nom/drafts').send()).body.draftId as string;
+        const draftId = (await agent.post('/api/v1/problems/draft-nom/drafts').send()).body.draftId as string;
         await putFile(agent, 'draft-nom', draftId, '01.in', '1 2\n');
 
-        const refused = await agent.post(`/problems/draft-nom/drafts/${draftId}/build`).send({});
+        const refused = await agent.post(`/api/v1/problems/draft-nom/drafts/${draftId}/build`).send({});
         expect(refused.status).toBe(422);
         expect(refused.body.code).toBe('draft_build_failed');
         expect(refused.body.detail).toContain('manifest.json');
@@ -197,7 +197,7 @@ describe('problem package drafts (D87)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const agent = await setterWithProblem(db, app, 'draft-paths', 'draft-path');
-        const draftId = (await agent.post('/problems/draft-path/drafts').send()).body.draftId as string;
+        const draftId = (await agent.post('/api/v1/problems/draft-path/drafts').send()).body.draftId as string;
 
         // A percent-encoded separator: Express decodes `%2F` into the param
         // rather than treating it as a path boundary, so the guard has to be
@@ -239,9 +239,9 @@ describe('problem package drafts (D87)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const agent = await setterWithProblem(db, app, 'draft-two', 'draft-a');
-        await agent.post('/problems').send({ code: 'draft-b', name: 'b', statement: 's' });
+        await agent.post('/api/v1/problems').send({ code: 'draft-b', name: 'b', statement: 's' });
 
-        const draftId = (await agent.post('/problems/draft-a/drafts').send()).body.draftId as string;
+        const draftId = (await agent.post('/api/v1/problems/draft-a/drafts').send()).body.draftId as string;
 
         // The SAME editor, the same live draft — but named under the other
         // problem. Without the problemId check this would write into A's
@@ -264,25 +264,25 @@ describe('problem package drafts (D87)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const owner = await setterWithProblem(db, app, 'draft-owner', 'draft-authz');
-        const draftId = (await owner.post('/problems/draft-authz/drafts').send()).body.draftId as string;
+        const draftId = (await owner.post('/api/v1/problems/draft-authz/drafts').send()).body.draftId as string;
 
         // A private problem is invisible to a stranger: 404, never 403 —
         // a refusal that admitted the problem exists would be the leak.
         const stranger = request.agent(app.getHttpServer());
         await registerAndLogin(stranger, 'draft-stranger');
-        expect((await stranger.post('/problems/draft-authz/drafts').send()).status).toBe(404);
+        expect((await stranger.post('/api/v1/problems/draft-authz/drafts').send()).status).toBe(404);
         expect((await putFile(stranger, 'draft-authz', draftId, '01.in', 'x')).status).toBe(404);
-        expect((await stranger.post(`/problems/draft-authz/drafts/${draftId}/build`).send({})).status).toBe(404);
+        expect((await stranger.post(`/api/v1/problems/draft-authz/drafts/${draftId}/build`).send({})).status).toBe(404);
 
         // Visible but not editable: a public problem, a signed-in
         // non-member. Now the answer is 403.
         await db.update(problems).set({ visibility: 'public' }).where(eq(problems.code, 'draft-authz'));
-        expect((await stranger.post('/problems/draft-authz/drafts').send()).status).toBe(403);
+        expect((await stranger.post('/api/v1/problems/draft-authz/drafts').send()).status).toBe(403);
         expect((await putFile(stranger, 'draft-authz', draftId, '01.in', 'x')).status).toBe(403);
 
         // And an anonymous caller never gets past the guard.
         const anon = request.agent(app.getHttpServer());
-        expect((await anon.post('/problems/draft-authz/drafts').send()).status).toBe(401);
+        expect((await anon.post('/api/v1/problems/draft-authz/drafts').send()).status).toBe(401);
       });
     });
   }, 180_000);
@@ -293,7 +293,7 @@ describe('problem package drafts (D87)', () => {
         db,
         async (app) => {
           const agent = await setterWithProblem(db, app, 'draft-caps', 'draft-cap');
-          const draftId = (await agent.post('/problems/draft-cap/drafts').send()).body.draftId as string;
+          const draftId = (await agent.post('/api/v1/problems/draft-cap/drafts').send()).body.draftId as string;
 
           // One request over the wire cap is a 413 from `readRawBody`,
           // before the draft's own accounting is consulted at all.
@@ -325,7 +325,7 @@ describe('problem package drafts (D87)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const agent = await setterWithProblem(db, app, 'draft-replace', 'draft-rep');
-        const draftId = (await agent.post('/problems/draft-rep/drafts').send()).body.draftId as string;
+        const draftId = (await agent.post('/api/v1/problems/draft-rep/drafts').send()).body.draftId as string;
 
         const first = await putFile(agent, 'draft-rep', draftId, '01.out', 'wrong answer\n');
         expect(first.body).toMatchObject({ fileCount: 1, totalBytes: 13 });
@@ -342,7 +342,7 @@ describe('problem package drafts (D87)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const agent = await setterWithProblem(db, app, 'draft-expiry', 'draft-exp');
-        const draftId = (await agent.post('/problems/draft-exp/drafts').send()).body.draftId as string;
+        const draftId = (await agent.post('/api/v1/problems/draft-exp/drafts').send()).body.draftId as string;
         await fillDraft(agent, 'draft-exp', draftId);
 
         const store = app.get<DraftStore>(DRAFT_STORE);
@@ -356,7 +356,7 @@ describe('problem package drafts (D87)', () => {
         // Enforced at ACCESS time, not merely swept: an expired draft is
         // unreachable the instant it expires, not an hour later.
         expect((await putFile(agent, 'draft-exp', draftId, '03.in', 'x')).status).toBe(404);
-        expect((await agent.post(`/problems/draft-exp/drafts/${draftId}/build`).send({})).status).toBe(404);
+        expect((await agent.post(`/api/v1/problems/draft-exp/drafts/${draftId}/build`).send({})).status).toBe(404);
 
         // The sweeper is what reclaims the disk.
         const sweeper = app.get(DraftSweeper);
@@ -364,7 +364,7 @@ describe('problem package drafts (D87)', () => {
         expect(await store.read(draftId)).toBeNull();
 
         // A live draft is left alone by the same sweep.
-        const fresh = (await agent.post('/problems/draft-exp/drafts').send()).body.draftId as string;
+        const fresh = (await agent.post('/api/v1/problems/draft-exp/drafts').send()).body.draftId as string;
         expect(await sweeper.sweep()).toBe(0);
         expect(await store.read(fresh)).not.toBeNull();
       });
@@ -375,13 +375,13 @@ describe('problem package drafts (D87)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const agent = await setterWithProblem(db, app, 'draft-discard', 'draft-dis');
-        const draftId = (await agent.post('/problems/draft-dis/drafts').send()).body.draftId as string;
+        const draftId = (await agent.post('/api/v1/problems/draft-dis/drafts').send()).body.draftId as string;
         await fillDraft(agent, 'draft-dis', draftId);
 
-        expect((await agent.delete(`/problems/draft-dis/drafts/${draftId}`).send()).status).toBe(204);
+        expect((await agent.delete(`/api/v1/problems/draft-dis/drafts/${draftId}`).send()).status).toBe(204);
         const store = app.get<DraftStore>(DRAFT_STORE);
         expect(await store.read(draftId)).toBeNull();
-        expect((await agent.delete(`/problems/draft-dis/drafts/${draftId}`).send()).status).toBe(404);
+        expect((await agent.delete(`/api/v1/problems/draft-dis/drafts/${draftId}`).send()).status).toBe(404);
       });
     });
   }, 180_000);
@@ -390,7 +390,7 @@ describe('problem package drafts (D87)', () => {
     await withTestDb(async (db) => {
       await withApp(db, async (app) => {
         const agent = await setterWithProblem(db, app, 'draft-count', 'draft-cnt');
-        const draftId = (await agent.post('/problems/draft-cnt/drafts').send()).body.draftId as string;
+        const draftId = (await agent.post('/api/v1/problems/draft-cnt/drafts').send()).body.draftId as string;
 
         // Fill the store directly — 500 HTTP round trips would make this
         // test minutes long to prove one comparison.

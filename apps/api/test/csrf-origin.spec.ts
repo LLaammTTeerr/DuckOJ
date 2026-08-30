@@ -33,12 +33,12 @@ const EXTRA_ORIGIN = 'http://localhost:8080';
  */
 async function register(app: INestApplication, username: string): Promise<string> {
   const created = await request(app.getHttpServer())
-    .post('/auth/register')
+    .post('/api/v1/auth/register')
     .set('Origin', ORIGIN)
     .send({ username, email: `${username}@example.com`, password: PASSWORD, displayName: username });
   expect(created.status).toBe(201);
   const res = await request(app.getHttpServer())
-    .post('/auth/login')
+    .post('/api/v1/auth/login')
     .set('Origin', ORIGIN)
     .send({ usernameOrEmail: username, password: PASSWORD });
   expect(res.status).toBe(200);
@@ -65,7 +65,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
         // This is the shape the guard exists for once it is stated plainly:
         // ambient credentials, an unsafe method, and nothing at all saying
         // which page produced it.
-        const res = await request(app.getHttpServer()).post('/auth/logout').set('Cookie', cookie);
+        const res = await request(app.getHttpServer()).post('/api/v1/auth/logout').set('Cookie', cookie);
 
         expect(res.status).toBe(403);
         expect(res.body.code).toBe('csrf_origin');
@@ -86,7 +86,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
         const cookie = await register(app, 'csrf-evil');
 
         const byOrigin = await request(app.getHttpServer())
-          .patch('/users/me')
+          .patch('/api/v1/users/me')
           .set('Cookie', cookie)
           .set('Origin', 'https://evil.example')
           .send({ displayName: 'defaced' });
@@ -97,7 +97,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
         // check that string-matched the whole header, or matched a prefix,
         // would admit `https://evil.example/?http://localhost:5173`.
         const byReferer = await request(app.getHttpServer())
-          .patch('/users/me')
+          .patch('/api/v1/users/me')
           .set('Cookie', cookie)
           .set('Referer', `https://evil.example/${ORIGIN}`)
           .send({ displayName: 'defaced' });
@@ -121,7 +121,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
       try {
         const cookie = await register(app, 'csrf-opaque');
         const res = await request(app.getHttpServer())
-          .patch('/users/me')
+          .patch('/api/v1/users/me')
           .set('Cookie', cookie)
           .set('Origin', 'null')
           .send({ displayName: 'x' });
@@ -140,7 +140,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
         const cookie = await register(app, 'csrf-ok');
 
         const byOrigin = await request(app.getHttpServer())
-          .patch('/users/me')
+          .patch('/api/v1/users/me')
           .set('Cookie', cookie)
           .set('Origin', ORIGIN)
           .send({ displayName: 'Đổi tên' });
@@ -150,7 +150,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
         // `WS_EXTRA_ORIGINS` in `.env` — the allow-list is D70's, unchanged,
         // and it has to admit an HTTP write as well as a socket.
         const byExtra = await request(app.getHttpServer())
-          .patch('/users/me')
+          .patch('/api/v1/users/me')
           .set('Cookie', cookie)
           .set('Origin', EXTRA_ORIGIN)
           .send({ displayName: 'Từ e2e' });
@@ -158,7 +158,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
 
         // Referer only: reduced to its origin before it is compared.
         const byReferer = await request(app.getHttpServer())
-          .patch('/users/me')
+          .patch('/api/v1/users/me')
           .set('Cookie', cookie)
           .set('Referer', `${ORIGIN}/problems/aplusb?x=1`)
           .send({ displayName: 'Từ referer' });
@@ -175,7 +175,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
       try {
         const cookie = await register(app, 'csrf-bearer');
         const minted = await request(app.getHttpServer())
-          .post('/auth/tokens')
+          .post('/api/v1/auth/tokens')
           .set('Cookie', cookie)
           .set('Origin', ORIGIN)
           .send({ name: 'probe', scopes: ['problems:read'] });
@@ -188,7 +188,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
         // client — `oj`, the judge agent, CI — has no origin to send, and
         // must not be refused for it.
         const res = await request(app.getHttpServer())
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .set('Cookie', cookie)
           .set('Authorization', `Bearer ${token}`)
           .set('Origin', 'https://evil.example')
@@ -210,7 +210,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
       try {
         const cookie = await register(app, 'csrf-get');
         const res = await request(app.getHttpServer())
-          .get('/auth/me')
+          .get('/api/v1/auth/me')
           .set('Cookie', cookie)
           .set('Origin', 'https://evil.example');
         // A read changes nothing, and CORS already stops a hostile page from
@@ -233,7 +233,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
         // ambient credentials; there are none here, so there is nothing to
         // check and nothing to refuse.
         const registered = await request(app.getHttpServer())
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .send({
             username: 'csrf-fresh',
             email: 'csrf-fresh@example.com',
@@ -243,7 +243,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
         expect(registered.status).toBe(201);
 
         const loggedIn = await request(app.getHttpServer())
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'csrf-fresh', password: PASSWORD });
         expect(loggedIn.status).toBe(200);
 
@@ -252,7 +252,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
         const cookies = loggedIn.headers['set-cookie'] as unknown as string[];
         const session = cookies.find((c) => c.startsWith(`${TEST_CONFIG.sessionCookieName}=`))!.split(';')[0]!;
         const out = await request(app.getHttpServer())
-          .post('/auth/logout')
+          .post('/api/v1/auth/logout')
           .set('Cookie', session)
           .set('Origin', ORIGIN);
         expect(out.status).toBe(204);
@@ -272,7 +272,7 @@ describe('CsrfOriginGuard: a cookie-authenticated state change must say where it
         // request was fine and only the credential was stale — and would let
         // a VALID cookie carry the same request all the way to a handler.
         const res = await request(app.getHttpServer())
-          .patch('/users/me')
+          .patch('/api/v1/users/me')
           .set('Cookie', `${TEST_CONFIG.sessionCookieName}=not-a-real-session`)
           .send({ displayName: 'x' });
         expect(res.status).toBe(403);

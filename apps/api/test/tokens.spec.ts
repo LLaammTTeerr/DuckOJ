@@ -74,18 +74,18 @@ describe('personal access tokens (HTTP)', () => {
       const app = await buildApp(db);
       try {
         const agent = request.agent(app.getHttpServer());
-        await agent.post('/auth/register').send({
+        await agent.post('/api/v1/auth/register').send({
           username: 'wren',
           email: 'wren@example.com',
           password: 'a-long-enough-password',
           displayName: 'Wren',
         });
         await agent
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'wren', password: 'a-long-enough-password' });
 
         const create = await agent
-          .post('/auth/tokens')
+          .post('/api/v1/auth/tokens')
           .send({ name: 'cli', scopes: ['submissions:write'] });
         expect(create.status).toBe(201);
         const { id, token } = create.body as { id: number; token: string };
@@ -97,20 +97,20 @@ describe('personal access tokens (HTTP)', () => {
         // 200 carrying the right username is itself proof the token
         // authenticated, stronger than a bare status code would be.
         const me = await request(app.getHttpServer())
-          .get('/auth/me')
+          .get('/api/v1/auth/me')
           .set('Authorization', `Bearer ${token}`);
         expect(me.status).toBe(200);
         expect(me.body.username).toBe('wren');
 
         // RFC 6750: the scheme token is case-insensitive — same outcome.
         const meLowerScheme = await request(app.getHttpServer())
-          .get('/auth/me')
+          .get('/api/v1/auth/me')
           .set('Authorization', `bearer ${token}`);
         expect(meLowerScheme.status).toBe(200);
         expect(meLowerScheme.body.username).toBe('wren');
 
         // list() returns metadata only — never the raw token or its hash.
-        const list = await agent.get('/auth/tokens');
+        const list = await agent.get('/api/v1/auth/tokens');
         expect(list.status).toBe(200);
         expect(list.body).toHaveLength(1);
         expect(list.body[0].id).toBe(id);
@@ -119,12 +119,12 @@ describe('personal access tokens (HTTP)', () => {
         expect(list.body[0]).not.toHaveProperty('tokenHash');
         expect(JSON.stringify(list.body)).not.toContain(token);
 
-        const revoke = await agent.delete(`/auth/tokens/${id}`);
+        const revoke = await agent.delete(`/api/v1/auth/tokens/${id}`);
         expect(revoke.status).toBe(204);
 
         // A revoked bearer token no longer authenticates anything.
         const afterRevoke = await request(app.getHttpServer())
-          .get('/auth/me')
+          .get('/api/v1/auth/me')
           .set('Authorization', `Bearer ${token}`);
         expect(afterRevoke.status).toBe(401);
       } finally {

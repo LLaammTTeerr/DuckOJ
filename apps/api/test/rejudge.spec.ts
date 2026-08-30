@@ -356,30 +356,30 @@ describe('the rejudge routes', () => {
           problemId: problem!.id,
         });
 
-        const ok = await adminAgent.post(`/admin/submissions/${String(submissionId)}/rejudge`).send({});
+        const ok = await adminAgent.post(`/api/v1/admin/submissions/${String(submissionId)}/rejudge`).send({});
         expect(ok.status).toBe(202);
         expect(ok.body).toEqual({ submissionId, jobId: expect.any(Number), ratedContestKeys: [] });
         expect(publisher.published).toEqual([submissionId]);
 
         const denied = await plainAgent
-          .post(`/admin/submissions/${String(submissionId)}/rejudge`)
+          .post(`/api/v1/admin/submissions/${String(submissionId)}/rejudge`)
           .send({});
         expect([denied.status, denied.body.code]).toEqual([403, 'admin_forbidden']);
 
-        const missing = await adminAgent.post('/admin/submissions/999999/rejudge').send({});
+        const missing = await adminAgent.post('/api/v1/admin/submissions/999999/rejudge').send({});
         expect([missing.status, missing.body.code]).toEqual([404, 'submission_not_found']);
 
-        const problemWide = await adminAgent.post('/admin/problems/aplusb/rejudge').send({});
+        const problemWide = await adminAgent.post('/api/v1/admin/problems/aplusb/rejudge').send({});
         expect(problemWide.status).toBe(202);
         expect(problemWide.body).toEqual({ submissionsQueued: 1, ratedContestKeys: [] });
 
         // Session-only: an access token minted by the admin gets nowhere.
         const minted = await adminAgent
-          .post('/auth/tokens')
+          .post('/api/v1/auth/tokens')
           .send({ name: 'probe', scopes: ['submissions:write'] });
         const token = (minted.body as { token: string }).token;
         const viaToken = await request(app.getHttpServer())
-          .post(`/admin/submissions/${String(submissionId)}/rejudge`)
+          .post(`/api/v1/admin/submissions/${String(submissionId)}/rejudge`)
           .set('Authorization', `Bearer ${token}`)
           .send({});
         expect([viaToken.status, viaToken.body.code]).toEqual([403, 'session_required']);

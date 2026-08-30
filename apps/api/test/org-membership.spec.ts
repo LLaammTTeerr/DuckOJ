@@ -34,7 +34,7 @@ async function makeOrg(
   joinPolicy: 'open' | 'request' | 'invite',
 ): Promise<void> {
   const res = await owner
-    .post('/orgs')
+    .post('/api/v1/orgs')
     .send({ slug, name: slug, visibility: 'public', joinPolicy });
   expect(res.status, JSON.stringify(res.body)).toBe(201);
 }
@@ -62,18 +62,18 @@ describe('an organization always has an owner', () => {
 
         // All three routes, because all three could strand the organization
         // and the rule lives in one place precisely so they cannot disagree.
-        const left = await owner.delete('/orgs/solo/members/lastowner');
+        const left = await owner.delete('/api/v1/orgs/solo/members/lastowner');
         expect(left.status).toBe(409);
         expect(left.body.code).toBe('org_last_owner');
 
-        const demoted = await owner.patch('/orgs/solo/members/lastowner').send({ role: 'admin' });
+        const demoted = await owner.patch('/api/v1/orgs/solo/members/lastowner').send({ role: 'admin' });
         expect(demoted.status).toBe(409);
         expect(demoted.body.code).toBe('org_last_owner');
 
         // A *different* global admin is refused too: the invariant is about
         // the organization, not about who is asking.
         const superuser = await signIn(app, db, 'superuser', true);
-        const removed = await superuser.delete('/orgs/solo/members/lastowner');
+        const removed = await superuser.delete('/api/v1/orgs/solo/members/lastowner');
         expect(removed.status).toBe(409);
 
         expect(await roleOf(db, 'solo', 'lastowner')).toBe('owner');
@@ -91,13 +91,13 @@ describe('an organization always has an owner', () => {
         await signIn(app, db, 'secondowner');
         await makeOrg(owner, 'duo', 'open');
         expect(
-          (await owner.post('/orgs/duo/members').send({ username: 'secondowner', role: 'owner' }))
+          (await owner.post('/api/v1/orgs/duo/members').send({ username: 'secondowner', role: 'owner' }))
             .status,
         ).toBe(201);
 
         // The rule is "the last one", not "owners are immovable" — without
         // this, refusing every owner removal would pass the test above.
-        expect((await owner.patch('/orgs/duo/members/firstowner').send({ role: 'admin' })).status).toBe(200);
+        expect((await owner.patch('/api/v1/orgs/duo/members/firstowner').send({ role: 'admin' })).status).toBe(200);
         expect(await roleOf(db, 'duo', 'firstowner')).toBe('admin');
       } finally {
         await app.close();
@@ -117,18 +117,18 @@ describe('joining', () => {
         }
         const joiner = await signIn(app, db, 'joiner');
 
-        const open = await joiner.post('/orgs/p-open/join');
+        const open = await joiner.post('/api/v1/orgs/p-open/join');
         expect(open.status).toBe(201);
         expect(open.body.outcome).toBe('joined');
 
         // 202, not 201: nothing was created that the caller can read back as a
         // membership, and a client checking for 201 must not think it joined.
-        const asked = await joiner.post('/orgs/p-request/join');
+        const asked = await joiner.post('/api/v1/orgs/p-request/join');
         expect(asked.status).toBe(202);
         expect(asked.body.outcome).toBe('requested');
         expect(asked.body.role).toBeNull();
 
-        const invite = await joiner.post('/orgs/p-invite/join');
+        const invite = await joiner.post('/api/v1/orgs/p-invite/join');
         expect(invite.status).toBe(403);
         expect(invite.body.code).toBe('org_invite_only');
 
@@ -152,13 +152,13 @@ describe('joining', () => {
         // sequential version and races to two rows here. The partial unique
         // index is what actually prevents the second.
         const results = await Promise.all([
-          joiner.post('/orgs/reqorg/join'),
-          joiner.post('/orgs/reqorg/join'),
-          joiner.post('/orgs/reqorg/join'),
+          joiner.post('/api/v1/orgs/reqorg/join'),
+          joiner.post('/api/v1/orgs/reqorg/join'),
+          joiner.post('/api/v1/orgs/reqorg/join'),
         ]);
         expect(results.every((res) => res.status === 202)).toBe(true);
 
-        const pending = await owner.get('/orgs/reqorg/requests');
+        const pending = await owner.get('/api/v1/orgs/reqorg/requests');
         expect(pending.status).toBe(200);
         expect(pending.body).toHaveLength(1);
       } finally {
@@ -175,14 +175,14 @@ describe('joining', () => {
         await makeOrg(owner, 'rejorg', 'request');
         const joiner = await signIn(app, db, 'rejjoiner');
 
-        await joiner.post('/orgs/rejorg/join');
-        const [first] = (await owner.get('/orgs/rejorg/requests')).body as { id: number }[];
-        expect((await owner.post(`/orgs/rejorg/requests/${String(first!.id)}/reject`)).status).toBe(200);
+        await joiner.post('/api/v1/orgs/rejorg/join');
+        const [first] = (await owner.get('/api/v1/orgs/rejorg/requests')).body as { id: number }[];
+        expect((await owner.post(`/api/v1/orgs/rejorg/requests/${String(first!.id)}/reject`)).status).toBe(200);
 
         // A rejection is a decision about a moment, not a ban — which is why
         // the uniqueness index is partial on `state = 'pending'`.
-        expect((await joiner.post('/orgs/rejorg/join')).status).toBe(202);
-        expect((await owner.get('/orgs/rejorg/requests')).body).toHaveLength(1);
+        expect((await joiner.post('/api/v1/orgs/rejorg/join')).status).toBe(202);
+        expect((await owner.get('/api/v1/orgs/rejorg/requests')).body).toHaveLength(1);
       } finally {
         await app.close();
       }
@@ -196,8 +196,8 @@ describe('joining', () => {
         const owner = await signIn(app, db, 'dupowner', true);
         await makeOrg(owner, 'duporg', 'open');
         const joiner = await signIn(app, db, 'dupjoiner');
-        expect((await joiner.post('/orgs/duporg/join')).status).toBe(201);
-        expect((await joiner.post('/orgs/duporg/join')).status).toBe(409);
+        expect((await joiner.post('/api/v1/orgs/duporg/join')).status).toBe(201);
+        expect((await joiner.post('/api/v1/orgs/duporg/join')).status).toBe(409);
       } finally {
         await app.close();
       }
@@ -213,10 +213,10 @@ describe('deciding a request', () => {
         const owner = await signIn(app, db, 'decowner', true);
         await makeOrg(owner, 'decorg', 'request');
         const joiner = await signIn(app, db, 'decjoiner');
-        await joiner.post('/orgs/decorg/join');
-        const [pending] = (await owner.get('/orgs/decorg/requests')).body as { id: number }[];
+        await joiner.post('/api/v1/orgs/decorg/join');
+        const [pending] = (await owner.get('/api/v1/orgs/decorg/requests')).body as { id: number }[];
 
-        const approved = await owner.post(`/orgs/decorg/requests/${String(pending!.id)}/approve`);
+        const approved = await owner.post(`/api/v1/orgs/decorg/requests/${String(pending!.id)}/approve`);
         expect(approved.status).toBe(200);
         expect((approved.body as { items: { username: string }[] }).items.map((m) => m.username)).toContain('decjoiner');
         expect(await roleOf(db, 'decorg', 'decjoiner')).toBe('member');
@@ -232,7 +232,7 @@ describe('deciding a request', () => {
 
         // 409, not a silent no-op: the second decider believes they are acting
         // on a live request.
-        const again = await owner.post(`/orgs/decorg/requests/${String(pending!.id)}/reject`);
+        const again = await owner.post(`/api/v1/orgs/decorg/requests/${String(pending!.id)}/reject`);
         expect(again.status).toBe(409);
         expect(again.body.code).toBe('join_request_decided');
       } finally {
@@ -248,12 +248,12 @@ describe('deciding a request', () => {
         const owner = await signIn(app, db, 'qowner', true);
         await makeOrg(owner, 'qorg', 'open');
         const plain = await signIn(app, db, 'qmember');
-        await plain.post('/orgs/qorg/join');
+        await plain.post('/api/v1/orgs/qorg/join');
         const outsider = await signIn(app, db, 'qoutsider');
 
-        expect((await plain.get('/orgs/qorg/requests')).status).toBe(403);
-        expect((await outsider.get('/orgs/qorg/requests')).status).toBe(403);
-        expect((await owner.get('/orgs/qorg/requests')).status).toBe(200);
+        expect((await plain.get('/api/v1/orgs/qorg/requests')).status).toBe(403);
+        expect((await outsider.get('/api/v1/orgs/qorg/requests')).status).toBe(403);
+        expect((await owner.get('/api/v1/orgs/qorg/requests')).status).toBe(200);
       } finally {
         await app.close();
       }
@@ -269,22 +269,22 @@ describe('who may act on whom', () => {
         const owner = await signIn(app, db, 'rankowner', true);
         await makeOrg(owner, 'rankorg', 'open');
         for (const name of ['adminone', 'admintwo', 'plainmember']) await signIn(app, db, name);
-        await owner.post('/orgs/rankorg/members').send({ username: 'adminone', role: 'admin' });
-        await owner.post('/orgs/rankorg/members').send({ username: 'admintwo', role: 'admin' });
-        await owner.post('/orgs/rankorg/members').send({ username: 'plainmember' });
+        await owner.post('/api/v1/orgs/rankorg/members').send({ username: 'adminone', role: 'admin' });
+        await owner.post('/api/v1/orgs/rankorg/members').send({ username: 'admintwo', role: 'admin' });
+        await owner.post('/api/v1/orgs/rankorg/members').send({ username: 'plainmember' });
 
         // A fresh agent signed in as the org admin, to act with their rights.
         const orgAdmin = request.agent(app.getHttpServer());
-        await orgAdmin.post('/auth/login').send({ usernameOrEmail: 'adminone', password: 'a-long-enough-password' });
+        await orgAdmin.post('/api/v1/auth/login').send({ usernameOrEmail: 'adminone', password: 'a-long-enough-password' });
 
         // Strictly below, not below-or-equal: an admin removing another admin
         // reads identically in code and is the off-by-one this pins.
-        expect((await orgAdmin.delete('/orgs/rankorg/members/admintwo')).status).toBe(403);
-        expect((await orgAdmin.delete('/orgs/rankorg/members/rankowner')).status).toBe(403);
-        expect((await orgAdmin.delete('/orgs/rankorg/members/plainmember')).status).toBe(200);
+        expect((await orgAdmin.delete('/api/v1/orgs/rankorg/members/admintwo')).status).toBe(403);
+        expect((await orgAdmin.delete('/api/v1/orgs/rankorg/members/rankowner')).status).toBe(403);
+        expect((await orgAdmin.delete('/api/v1/orgs/rankorg/members/plainmember')).status).toBe(200);
 
         // The owner outranks everyone.
-        expect((await owner.delete('/orgs/rankorg/members/admintwo')).status).toBe(200);
+        expect((await owner.delete('/api/v1/orgs/rankorg/members/admintwo')).status).toBe(200);
       } finally {
         await app.close();
       }
@@ -298,11 +298,11 @@ describe('who may act on whom', () => {
         const owner = await signIn(app, db, 'grantowner', true);
         await makeOrg(owner, 'grantorg', 'open');
         for (const name of ['grantadmin', 'newbie']) await signIn(app, db, name);
-        await owner.post('/orgs/grantorg/members').send({ username: 'grantadmin', role: 'admin' });
+        await owner.post('/api/v1/orgs/grantorg/members').send({ username: 'grantadmin', role: 'admin' });
 
         const orgAdmin = request.agent(app.getHttpServer());
         await orgAdmin
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .send({ usernameOrEmail: 'grantadmin', password: 'a-long-enough-password' });
 
         // An org admin passes the edit check, so this rule is the only thing
@@ -310,16 +310,16 @@ describe('who may act on whom', () => {
         // and therefore never reaches it — which is why that test does not
         // cover this one.
         expect(
-          (await orgAdmin.post('/orgs/grantorg/members').send({ username: 'newbie', role: 'owner' }))
+          (await orgAdmin.post('/api/v1/orgs/grantorg/members').send({ username: 'newbie', role: 'owner' }))
             .status,
         ).toBe(403);
         expect(
-          (await orgAdmin.post('/orgs/grantorg/members').send({ username: 'newbie', role: 'admin' }))
+          (await orgAdmin.post('/api/v1/orgs/grantorg/members').send({ username: 'newbie', role: 'admin' }))
             .status,
         ).toBe(403);
         // …but adding a plain member is squarely theirs to do.
         expect(
-          (await orgAdmin.post('/orgs/grantorg/members').send({ username: 'newbie' })).status,
+          (await orgAdmin.post('/api/v1/orgs/grantorg/members').send({ username: 'newbie' })).status,
         ).toBe(201);
         expect(await roleOf(db, 'grantorg', 'newbie')).toBe('member');
       } finally {
@@ -335,10 +335,10 @@ describe('who may act on whom', () => {
         const owner = await signIn(app, db, 'leaveowner', true);
         await makeOrg(owner, 'leaveorg', 'open');
         const member = await signIn(app, db, 'leaver');
-        await member.post('/orgs/leaveorg/join');
+        await member.post('/api/v1/orgs/leaveorg/join');
         expect(await roleOf(db, 'leaveorg', 'leaver')).toBe('member');
 
-        expect((await member.delete('/orgs/leaveorg/members/leaver')).status).toBe(200);
+        expect((await member.delete('/api/v1/orgs/leaveorg/members/leaver')).status).toBe(200);
         expect(await roleOf(db, 'leaveorg', 'leaver')).toBeNull();
       } finally {
         await app.close();
@@ -353,10 +353,10 @@ describe('who may act on whom', () => {
         const owner = await signIn(app, db, 'escowner', true);
         await makeOrg(owner, 'escorg', 'open');
         const member = await signIn(app, db, 'escalator');
-        await member.post('/orgs/escorg/join');
+        await member.post('/api/v1/orgs/escorg/join');
 
-        expect((await member.patch('/orgs/escorg/members/escalator').send({ role: 'owner' })).status).toBe(403);
-        expect((await member.post('/orgs/escorg/members').send({ username: 'escalator' })).status).toBe(403);
+        expect((await member.patch('/api/v1/orgs/escorg/members/escalator').send({ role: 'owner' })).status).toBe(403);
+        expect((await member.post('/api/v1/orgs/escorg/members').send({ username: 'escalator' })).status).toBe(403);
         expect(await roleOf(db, 'escorg', 'escalator')).toBe('member');
       } finally {
         await app.close();

@@ -29,9 +29,9 @@ describe('GET /orgs over HTTP', () => {
       try {
         const agent = request.agent(app.getHttpServer());
         await agent
-          .post('/auth/register')
+          .post('/api/v1/auth/register')
           .send({ username: 'nora', email: 'nora@e.com', password: PASSWORD, displayName: 'Nora' });
-        await agent.post('/auth/login').send({ usernameOrEmail: 'nora', password: PASSWORD });
+        await agent.post('/api/v1/auth/login').send({ usernameOrEmail: 'nora', password: PASSWORD });
 
         const [user] = await db
           .select()
@@ -40,7 +40,7 @@ describe('GET /orgs over HTTP', () => {
         await seedOrgs(db, user!.id);
 
         // Anonymous: the response must also satisfy the published contract.
-        const anon = await request(app.getHttpServer()).get('/orgs');
+        const anon = await request(app.getHttpServer()).get('/api/v1/orgs');
         expect(anon.status).toBe(200);
         const page = OrgPage.parse(anon.body);
         expect(page.items.map((o) => o.slug)).toEqual(['open-club']);
@@ -48,7 +48,7 @@ describe('GET /orgs over HTTP', () => {
 
         // The very bug a "skip auth on public routes" guard would introduce:
         // a signed-in member must not be treated as anonymous here.
-        const asMember = await agent.get('/orgs');
+        const asMember = await agent.get('/api/v1/orgs');
         expect(asMember.status).toBe(200);
         expect(
           OrgPage.parse(asMember.body)
@@ -56,13 +56,13 @@ describe('GET /orgs over HTTP', () => {
             .sort(),
         ).toEqual(['open-club', 'secret-club']);
 
-        const hidden = await request(app.getHttpServer()).get('/orgs/secret-club');
+        const hidden = await request(app.getHttpServer()).get('/api/v1/orgs/secret-club');
         expect(hidden.status).toBe(404);
         expect(hidden.headers['content-type']).toContain('application/problem+json');
         expect(hidden.body.code).toBe('organization_not_found');
 
-        expect((await agent.get('/orgs/secret-club')).status).toBe(200);
-        expect((await request(app.getHttpServer()).get('/orgs/open-club')).body.slug).toBe(
+        expect((await agent.get('/api/v1/orgs/secret-club')).status).toBe(200);
+        expect((await request(app.getHttpServer()).get('/api/v1/orgs/open-club')).body.slug).toBe(
           'open-club',
         );
       } finally {
@@ -76,7 +76,7 @@ describe('GET /orgs over HTTP', () => {
       const app = await buildApp(db);
       try {
         const res = await request(app.getHttpServer())
-          .get('/orgs')
+          .get('/api/v1/orgs')
           .set('Authorization', 'Bearer this-token-does-not-exist');
 
         // Not 200-with-a-shorter-list: an SDK whose token expired must be told,
@@ -95,11 +95,11 @@ describe('GET /orgs over HTTP', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
-        const tooLarge = await request(app.getHttpServer()).get('/orgs?limit=500');
+        const tooLarge = await request(app.getHttpServer()).get('/api/v1/orgs?limit=500');
         expect(tooLarge.status).toBe(422);
         expect(tooLarge.body.code).toBe('validation_failed');
 
-        const badCursor = await request(app.getHttpServer()).get('/orgs?cursor=not-a-number');
+        const badCursor = await request(app.getHttpServer()).get('/api/v1/orgs?cursor=not-a-number');
         expect(badCursor.status).toBe(422);
         expect(badCursor.body.code).toBe('invalid_cursor');
       } finally {

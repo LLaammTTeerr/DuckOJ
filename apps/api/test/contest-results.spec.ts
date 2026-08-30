@@ -582,7 +582,7 @@ describe('GET /contests/{key}/results.csv', () => {
         // `@Public()` to this route therefore does not make it anonymous;
         // it would have to change the decorator too, and that does not
         // typecheck.
-        const res = await request(app.getHttpServer()).get('/contests/anon/results.csv');
+        const res = await request(app.getHttpServer()).get('/api/v1/contests/anon/results.csv');
         expect(res.status).toBe(401);
       } finally {
         await app.close();
@@ -601,13 +601,13 @@ describe('GET /contests/{key}/results.csv', () => {
         await seedResultsContest(db, 'shown', owner.id);
 
         // Existence is the thing being protected, so 404.
-        const hidden = await agent.get('/contests/hidden/results.csv').set('Cookie', cookie);
+        const hidden = await agent.get('/api/v1/contests/hidden/results.csv').set('Cookie', cookie);
         expect(hidden.status).toBe(404);
         expect(hidden.body.code).toBe('contest_not_found');
 
         // Here there is no existence left to protect — the caller is looking
         // at the contest — so the honest answer is 403.
-        const shown = await agent.get('/contests/shown/results.csv').set('Cookie', cookie);
+        const shown = await agent.get('/api/v1/contests/shown/results.csv').set('Cookie', cookie);
         expect(shown.status).toBe(403);
         expect(shown.body.code).toBe('contest_forbidden');
       } finally {
@@ -625,7 +625,7 @@ describe('GET /contests/{key}/results.csv', () => {
         const ownerId = await userIdOf(db, 'organiser');
         await seedResultsContest(db, 'final', ownerId, { withOrg: true });
 
-        const res = await agent.get('/contests/final/results.csv').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/final/results.csv').set('Cookie', cookie);
         expect(res.status).toBe(200);
         expect(res.headers['content-type']).toContain('text/csv');
         expect(res.headers['content-disposition']).toBe('attachment; filename="final-results.csv"');
@@ -658,7 +658,7 @@ describe('GET /contests/{key}/results.csv', () => {
           .where(eq(schema.users.username, 'root'));
         const owner = await insertUser(db, 'someone-else');
         await seedResultsContest(db, 'admin-sees', owner.id);
-        const res = await agent.get('/contests/admin-sees/results.csv').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/admin-sees/results.csv').set('Cookie', cookie);
         expect(res.status).toBe(200);
       } finally {
         await app.close();
@@ -679,9 +679,9 @@ describe('GET /contests/{key}/results.csv', () => {
         const cookie = await registerAndLogin(agent, 'no-typst');
         const ownerId = await userIdOf(db, 'no-typst');
         await seedResultsContest(db, 'binless', ownerId);
-        const csv = await agent.get('/contests/binless/results.csv').set('Cookie', cookie);
+        const csv = await agent.get('/api/v1/contests/binless/results.csv').set('Cookie', cookie);
         expect(csv.status).toBe(200);
-        const pdf = await agent.get('/contests/binless/results.pdf').set('Cookie', cookie);
+        const pdf = await agent.get('/api/v1/contests/binless/results.pdf').set('Cookie', cookie);
         expect(pdf.status).toBe(501);
         expect(pdf.body.code).toBe('statement_pdf_unavailable');
       } finally {
@@ -703,7 +703,7 @@ describe('GET /contests/{key}/results.pdf', () => {
         const cookie = await registerAndLogin(agent, 'bystander');
         const owner = await insertUser(db, 'pdf-owner');
         await seedResultsContest(db, 'standings', owner.id);
-        const res = await agent.get('/contests/standings/results.pdf').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/standings/results.pdf').set('Cookie', cookie);
         expect(res.status).toBe(403);
         // Authorization BEFORE capability: the renderer was never reached.
         expect(renderer.documents).toHaveLength(0);
@@ -734,7 +734,7 @@ describe('GET /contests/{key}/results.pdf', () => {
         // first request managed to WRITE its entry is a race, so the
         // database is emptied again afterwards: the assertions below are
         // about the cache, not about how fast a socket opened.
-        await agent.get('/contests/printed/results.pdf').set('Cookie', cookie);
+        await agent.get('/api/v1/contests/printed/results.pdf').set('Cookie', cookie);
         const redis = new Redis(redisUrl);
         try {
           await redis.flushdb();
@@ -742,7 +742,7 @@ describe('GET /contests/{key}/results.pdf', () => {
           redis.disconnect();
         }
 
-        const first = await agent.get('/contests/printed/results.pdf').set('Cookie', cookie);
+        const first = await agent.get('/api/v1/contests/printed/results.pdf').set('Cookie', cookie);
         expect(first.status).toBe(200);
         expect(first.headers['content-type']).toContain('application/pdf');
         expect(first.headers['x-results-cache']).toBe('miss');
@@ -751,7 +751,7 @@ describe('GET /contests/{key}/results.pdf', () => {
         // A statement never reaches a standings sheet (D62 by construction).
         expect(renderer.documents.at(-1)).not.toContain('Cho $a+b$');
 
-        const second = await agent.get('/contests/printed/results.pdf').set('Cookie', cookie);
+        const second = await agent.get('/api/v1/contests/printed/results.pdf').set('Cookie', cookie);
         expect(second.headers['x-results-cache']).toBe('hit');
       } finally {
         await app.close();
@@ -769,10 +769,10 @@ describe('GET /contests/{key}/certificates.pdf', () => {
         const cookie = await registerAndLogin(agent, 'certs-owner');
         const ownerId = await userIdOf(db, 'certs-owner');
         await seedResultsContest(db, 'certs', ownerId);
-        const none = await agent.get('/contests/certs/certificates.pdf').set('Cookie', cookie);
+        const none = await agent.get('/api/v1/contests/certs/certificates.pdf').set('Cookie', cookie);
         expect(none.status).toBe(422);
         const both = await agent
-          .get('/contests/certs/certificates.pdf?top=1&username=certs-an')
+          .get('/api/v1/contests/certs/certificates.pdf?top=1&username=certs-an')
           .set('Cookie', cookie);
         expect(both.status).toBe(422);
         // The bounds, on the path an organiser's typo actually takes: a
@@ -781,14 +781,14 @@ describe('GET /contests/{key}/certificates.pdf', () => {
         // (which turns `abc` into `NaN` and hands it to `.int()`).
         for (const bad of ['top=0', 'top=1001', 'top=abc', 'top=1.5', 'top=-3']) {
           const res = await agent
-            .get(`/contests/certs/certificates.pdf?${bad}`)
+            .get(`/api/v1/contests/certs/certificates.pdf?${bad}`)
             .set('Cookie', cookie);
           expect(res.status, bad).toBe(422);
         }
         // And the edges of the range are accepted — a cap that refused its
         // own boundary would be a cap of 999.
         const edge = await agent
-          .get('/contests/certs/certificates.pdf?top=1000')
+          .get('/api/v1/contests/certs/certificates.pdf?top=1000')
           .set('Cookie', cookie);
         expect(edge.status).toBe(501);
       } finally {
@@ -831,12 +831,12 @@ describe('GET /contests/{key}/certificates.pdf', () => {
         const loadVisible = vi.spyOn(contests, 'loadVisible');
         const getVisible = vi.spyOn(contests, 'getVisible');
 
-        const csv = await agent.get('/contests/once/results.csv').set('Cookie', cookie);
+        const csv = await agent.get('/api/v1/contests/once/results.csv').set('Cookie', cookie);
         expect(csv.status).toBe(200);
         const baseline = loadVisible.mock.calls.length;
         loadVisible.mockClear();
 
-        const res = await agent.get('/contests/once/certificates.pdf?top=10').set('Cookie', cookie);
+        const res = await agent.get('/api/v1/contests/once/certificates.pdf?top=10').set('Cookie', cookie);
         expect(res.status).toBe(200);
         expect(loadVisible).toHaveBeenCalledTimes(baseline);
         expect(getVisible).not.toHaveBeenCalled();
@@ -862,7 +862,7 @@ describe('GET /contests/{key}/certificates.pdf', () => {
         await seedResultsContest(db, 'awards', ownerId, { withOrg: true });
 
         const res = await agent
-          .get('/contests/awards/certificates.pdf?top=10')
+          .get('/api/v1/contests/awards/certificates.pdf?top=10')
           .set('Cookie', cookie);
         expect(res.status).toBe(200);
         // Read through the escaping: `escapeText` escapes `-`, so a
@@ -897,7 +897,7 @@ describe('GET /contests/{key}/certificates.pdf', () => {
         const ownerId = await userIdOf(db, 'unaffiliated');
         await seedResultsContest(db, 'nobrand', ownerId);
         const res = await agent
-          .get('/contests/nobrand/certificates.pdf?top=1')
+          .get('/api/v1/contests/nobrand/certificates.pdf?top=1')
           .set('Cookie', cookie);
         expect(res.status).toBe(200);
         expect(renderer.documents.at(-1)).toContain('DuckOJ');
@@ -920,7 +920,7 @@ describe('GET /contests/{key}/certificates.pdf', () => {
         await seedResultsContest(db, 'byname', ownerId);
 
         const one = await agent
-          .get('/contests/byname/certificates.pdf?username=BYNAME-AN')
+          .get('/api/v1/contests/byname/certificates.pdf?username=BYNAME-AN')
           .set('Cookie', cookie);
         expect(one.status).toBe(200);
         // Case-insensitive, as every username lookup in this codebase is.
@@ -930,13 +930,13 @@ describe('GET /contests/{key}/certificates.pdf', () => {
         // Disqualified: not certifiable, and the refusal does not say which
         // of the three reasons applied.
         const dq = await agent
-          .get('/contests/byname/certificates.pdf?username=byname-binh')
+          .get('/api/v1/contests/byname/certificates.pdf?username=byname-binh')
           .set('Cookie', cookie);
         expect(dq.status).toBe(404);
         expect(dq.body.code).toBe('contest_participant_not_found');
 
         const missing = await agent
-          .get('/contests/byname/certificates.pdf?username=nobody')
+          .get('/api/v1/contests/byname/certificates.pdf?username=nobody')
           .set('Cookie', cookie);
         expect(missing.status).toBe(404);
       } finally {

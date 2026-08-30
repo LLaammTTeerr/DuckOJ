@@ -262,7 +262,7 @@ describe('the HTTP surface', () => {
       try {
         const plain = request.agent(app.getHttpServer());
         await registerAndLogin(plain, 'plainuser');
-        expect((await plain.post('/admin/contests/rh/rate')).status).toBe(403);
+        expect((await plain.post('/api/v1/admin/contests/rh/rate')).status).toBe(403);
 
         const admin = request.agent(app.getHttpServer());
         await registerAndLogin(admin, 'ratingadmin');
@@ -271,11 +271,11 @@ describe('the HTTP surface', () => {
           .set({ globalRole: 'admin' })
           .where(eq(schema.users.username, 'ratingadmin'));
 
-        const rated = await admin.post('/admin/contests/rh/rate');
+        const rated = await admin.post('/api/v1/admin/contests/rh/rate');
         expect(rated.status).toBe(200);
         expect(rated.body.contestsRated).toBe(1);
 
-        const history = await request(app.getHttpServer()).get('/users/rh-p0/rating');
+        const history = await request(app.getHttpServer()).get('/api/v1/users/rh-p0/rating');
         expect(history.status).toBe(200);
         expect(history.body.items).toHaveLength(1);
         expect(history.body.nextCursor).toBeNull();
@@ -293,8 +293,8 @@ describe('the HTTP surface', () => {
         expect(cached!.maxRating).toBe(cached!.rating);
 
         // An unrated contest leaves no history behind.
-        expect((await admin.post('/admin/contests/rh/unrate')).status).toBe(200);
-        expect((await request(app.getHttpServer()).get('/users/rh-p0/rating')).body.items).toHaveLength(0);
+        expect((await admin.post('/api/v1/admin/contests/rh/unrate')).status).toBe(200);
+        expect((await request(app.getHttpServer()).get('/api/v1/users/rh-p0/rating')).body.items).toHaveLength(0);
 
         // …and the cache goes back to "never rated", rather than keeping a
         // number from a contest that no longer counts. This is the case the
@@ -317,7 +317,7 @@ describe('the HTTP surface', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
-        expect((await request(app.getHttpServer()).get('/users/nobody/rating')).status).toBe(404);
+        expect((await request(app.getHttpServer()).get('/api/v1/users/nobody/rating')).status).toBe(404);
       } finally {
         await app.close();
       }

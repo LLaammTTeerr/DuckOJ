@@ -64,17 +64,17 @@ async function makeOrg(
   members: string[] = [],
 ): Promise<{ admin: Agent; teacher: Agent; members: Map<string, Agent> }> {
   const admin = await signIn(app, db, `${slug}-root`, true);
-  const created = await admin.post('/orgs').send({ slug, name: slug, visibility, joinPolicy: 'invite' });
+  const created = await admin.post('/api/v1/orgs').send({ slug, name: slug, visibility, joinPolicy: 'invite' });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
 
   const teacher = await signIn(app, db, `${slug}-teacher`);
-  const added = await admin.post(`/orgs/${slug}/members`).send({ username: `${slug}-teacher`, role: 'owner' });
+  const added = await admin.post(`/api/v1/orgs/${slug}/members`).send({ username: `${slug}-teacher`, role: 'owner' });
   expect(added.status, JSON.stringify(added.body)).toBe(201);
 
   const agents = new Map<string, Agent>();
   for (const name of members) {
     agents.set(name, await signIn(app, db, name));
-    const res = await admin.post(`/orgs/${slug}/members`).send({ username: name, role: 'member' });
+    const res = await admin.post(`/api/v1/orgs/${slug}/members`).send({ username: name, role: 'member' });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
   }
   return { admin, teacher, members: agents };
@@ -173,7 +173,7 @@ describe('assigning a set', () => {
         await seedProblemWithSourceAccess(db, { code: 'second' });
         const org = await makeOrg(app, db, 'school', 'public', ['pupil']);
 
-        const created = await org.teacher.post('/orgs/school/sets').send({
+        const created = await org.teacher.post('/api/v1/orgs/school/sets').send({
           slug: 'week-1',
           name: 'Tuần 1',
           description: 'Ôn tập',
@@ -189,13 +189,13 @@ describe('assigning a set', () => {
         expect(created.body.items[1].points).toBe(100);
         expect(created.body.itemCount).toBe(2);
 
-        const seen = await org.members.get('pupil')!.get('/orgs/school/sets/week-1');
+        const seen = await org.members.get('pupil')!.get('/api/v1/orgs/school/sets/week-1');
         expect(seen.status).toBe(200);
         expect(seen.body.name).toBe('Tuần 1');
         expect(seen.body.items[0].me).toBeNull();
         expect(seen.body.solvedCount).toBe(0);
 
-        const listed = await org.members.get('pupil')!.get('/orgs/school/sets');
+        const listed = await org.members.get('pupil')!.get('/api/v1/orgs/school/sets');
         expect(listed.body.items).toHaveLength(1);
         expect(listed.body.items[0].itemCount).toBe(2);
       } finally {
@@ -210,12 +210,12 @@ describe('assigning a set', () => {
       try {
         await seedProblemAndLanguage(db);
         const org = await makeOrg(app, db, 'dup', 'public');
-        await org.teacher.post('/orgs/dup/sets').send({ slug: 'week-1', name: 'One' });
-        const again = await org.teacher.post('/orgs/dup/sets').send({ slug: 'week-1', name: 'Two' });
+        await org.teacher.post('/api/v1/orgs/dup/sets').send({ slug: 'week-1', name: 'One' });
+        const again = await org.teacher.post('/api/v1/orgs/dup/sets').send({ slug: 'week-1', name: 'Two' });
         expect(again.status).toBe(409);
         expect(again.body.code).toBe('problem_set_slug_taken');
 
-        const listed = await org.teacher.get('/orgs/dup/sets');
+        const listed = await org.teacher.get('/api/v1/orgs/dup/sets');
         expect(listed.body.items).toHaveLength(1);
       } finally {
         await app.close();
@@ -231,7 +231,7 @@ describe('assigning a set', () => {
         await seedProblemWithSourceAccess(db, { code: 'secret', visibility: 'private' });
         const org = await makeOrg(app, db, 'refuse', 'public');
 
-        const refused = await org.teacher.post('/orgs/refuse/sets').send({
+        const refused = await org.teacher.post('/api/v1/orgs/refuse/sets').send({
           slug: 'week-1',
           name: 'One',
           problems: [{ code: 'aplusb' }, { code: 'secret' }],
@@ -240,9 +240,9 @@ describe('assigning a set', () => {
         expect(refused.body.code).toBe('problem_set_problem_private');
         expect(refused.body.fields['problems[1].code']).toHaveLength(1);
         // Nothing created: the set is refused whole, never half-assigned.
-        expect((await org.teacher.get('/orgs/refuse/sets')).body.items).toEqual([]);
+        expect((await org.teacher.get('/api/v1/orgs/refuse/sets')).body.items).toEqual([]);
 
-        const unknown = await org.teacher.post('/orgs/refuse/sets').send({
+        const unknown = await org.teacher.post('/api/v1/orgs/refuse/sets').send({
           slug: 'week-2',
           name: 'Two',
           problems: [{ code: 'nope' }],
@@ -250,7 +250,7 @@ describe('assigning a set', () => {
         expect(unknown.status).toBe(422);
         expect(unknown.body.code).toBe('problem_set_problem_unknown');
 
-        const twice = await org.teacher.post('/orgs/refuse/sets').send({
+        const twice = await org.teacher.post('/api/v1/orgs/refuse/sets').send({
           slug: 'week-3',
           name: 'Three',
           problems: [{ code: 'aplusb' }, { code: 'APLUSB' }],
@@ -274,12 +274,12 @@ describe('assigning a set', () => {
         await db.insert(problemOrgs).values({ problemId: shared.id, orgId: await orgIdOf(db, 'mine') });
 
         const ok = await mine.teacher
-          .post('/orgs/mine/sets')
+          .post('/api/v1/orgs/mine/sets')
           .send({ slug: 'wk', name: 'W', problems: [{ code: 'shared' }] });
         expect(ok.status, JSON.stringify(ok.body)).toBe(201);
 
         const no = await other.teacher
-          .post('/orgs/other/sets')
+          .post('/api/v1/orgs/other/sets')
           .send({ slug: 'wk', name: 'W', problems: [{ code: 'shared' }] });
         expect(no.status).toBe(422);
         expect(no.body.code).toBe('problem_set_problem_private');
@@ -297,29 +297,29 @@ describe('who may read a set', () => {
       try {
         await seedProblemAndLanguage(db);
         const secret = await makeOrg(app, db, 'secret-school', 'private');
-        await secret.teacher.post('/orgs/secret-school/sets').send({ slug: 'wk', name: 'W' });
+        await secret.teacher.post('/api/v1/orgs/secret-school/sets').send({ slug: 'wk', name: 'W' });
         const open = await makeOrg(app, db, 'open-school', 'public');
-        await open.teacher.post('/orgs/open-school/sets').send({ slug: 'wk', name: 'W' });
+        await open.teacher.post('/api/v1/orgs/open-school/sets').send({ slug: 'wk', name: 'W' });
 
         const outsider = await signIn(app, db, 'outsider');
 
         // A school the caller may not see: the organization's own 404,
         // unchanged, with no mention of sets.
-        expect((await outsider.get('/orgs/secret-school/sets')).status).toBe(404);
-        expect((await outsider.get('/orgs/secret-school/sets/wk')).status).toBe(404);
+        expect((await outsider.get('/api/v1/orgs/secret-school/sets')).status).toBe(404);
+        expect((await outsider.get('/api/v1/orgs/secret-school/sets/wk')).status).toBe(404);
 
         // A school they CAN see but do not belong to: the list is empty —
         // exactly what a school that has assigned nothing returns — and the
         // set itself is a 404, indistinguishable from one that never existed.
-        const listed = await outsider.get('/orgs/open-school/sets');
+        const listed = await outsider.get('/api/v1/orgs/open-school/sets');
         expect(listed.status).toBe(200);
         expect(listed.body.items).toEqual([]);
-        const detail = await outsider.get('/orgs/open-school/sets/wk');
+        const detail = await outsider.get('/api/v1/orgs/open-school/sets/wk');
         expect(detail.status).toBe(404);
         expect(detail.body.code).toBe('problem_set_not_found');
 
         // And an anonymous reader never even reaches the service.
-        expect((await request(app.getHttpServer()).get('/orgs/open-school/sets')).status).toBe(401);
+        expect((await request(app.getHttpServer()).get('/api/v1/orgs/open-school/sets')).status).toBe(401);
       } finally {
         await app.close();
       }
@@ -333,7 +333,7 @@ describe('who may read a set', () => {
         await seedProblemAndLanguage(db);
         const org = await makeOrg(app, db, 'audited', 'private');
         await org.teacher
-          .post('/orgs/audited/sets')
+          .post('/api/v1/orgs/audited/sets')
           .send({ slug: 'wk', name: 'W', problems: [{ code: 'aplusb' }] });
 
         // A global admin holds no membership anywhere — `myRole` is a
@@ -341,9 +341,9 @@ describe('who may read a set', () => {
         // to be spelled with the admin half or the province's own
         // administrator is an outsider to every school on the judge.
         const superuser = await signIn(app, db, 'auditor', true);
-        expect((await superuser.get('/orgs/audited/sets')).body.items).toHaveLength(1);
-        expect((await superuser.get('/orgs/audited/sets/wk')).status).toBe(200);
-        expect((await superuser.get('/orgs/audited/sets/wk/progress')).status).toBe(200);
+        expect((await superuser.get('/api/v1/orgs/audited/sets')).body.items).toHaveLength(1);
+        expect((await superuser.get('/api/v1/orgs/audited/sets/wk')).status).toBe(200);
+        expect((await superuser.get('/api/v1/orgs/audited/sets/wk/progress')).status).toBe(200);
       } finally {
         await app.close();
       }
@@ -356,15 +356,15 @@ describe('who may read a set', () => {
       try {
         await seedProblemAndLanguage(db);
         const org = await makeOrg(app, db, 'roles', 'public', ['pupil']);
-        await org.teacher.post('/orgs/roles/sets').send({ slug: 'wk', name: 'W' });
+        await org.teacher.post('/api/v1/orgs/roles/sets').send({ slug: 'wk', name: 'W' });
         const pupil = org.members.get('pupil')!;
 
-        expect((await pupil.get('/orgs/roles/sets/wk')).status).toBe(200);
-        expect((await pupil.post('/orgs/roles/sets').send({ slug: 'wx', name: 'X' })).status).toBe(403);
-        expect((await pupil.patch('/orgs/roles/sets/wk').send({ name: 'X' })).status).toBe(403);
-        expect((await pupil.delete('/orgs/roles/sets/wk')).status).toBe(403);
+        expect((await pupil.get('/api/v1/orgs/roles/sets/wk')).status).toBe(200);
+        expect((await pupil.post('/api/v1/orgs/roles/sets').send({ slug: 'wx', name: 'X' })).status).toBe(403);
+        expect((await pupil.patch('/api/v1/orgs/roles/sets/wk').send({ name: 'X' })).status).toBe(403);
+        expect((await pupil.delete('/api/v1/orgs/roles/sets/wk')).status).toBe(403);
         // The grid is about other people, so it is the owners' screen.
-        expect((await pupil.get('/orgs/roles/sets/wk/progress')).status).toBe(403);
+        expect((await pupil.get('/api/v1/orgs/roles/sets/wk/progress')).status).toBe(403);
       } finally {
         await app.close();
       }
@@ -380,7 +380,7 @@ describe('the deadline', () => {
         await seedProblemAndLanguage(db);
         const org = await makeOrg(app, db, 'late', 'public', ['pupil']);
         const deadline = new Date(Date.now() - 2 * HOUR);
-        const created = await org.teacher.post('/orgs/late/sets').send({
+        const created = await org.teacher.post('/api/v1/orgs/late/sets').send({
           slug: 'wk',
           name: 'W',
           deadline: deadline.toISOString(),
@@ -403,7 +403,7 @@ describe('the deadline', () => {
         const solvedAt = new Date(deadline.getTime() + HOUR);
         await submit(db, { userId: pupilId, problemId, verdict: 'AC', createdAt: solvedAt });
 
-        const seen = await org.members.get('pupil')!.get('/orgs/late/sets/wk');
+        const seen = await org.members.get('pupil')!.get('/api/v1/orgs/late/sets/wk');
         const cell = seen.body.items[0].me;
         expect(cell.onTime.points).toBe(60);
         expect(cell.onTime.verdict).toBe('WA');
@@ -425,7 +425,7 @@ describe('the deadline', () => {
         await seedProblemAndLanguage(db);
         const org = await makeOrg(app, db, 'undated', 'public', ['pupil']);
         await org.teacher
-          .post('/orgs/undated/sets')
+          .post('/api/v1/orgs/undated/sets')
           .send({ slug: 'wk', name: 'W', problems: [{ code: 'aplusb' }] });
 
         const problemId = (await db.select({ id: problems.id }).from(problems).where(eq(problems.code, 'aplusb')))[0]!
@@ -437,7 +437,7 @@ describe('the deadline', () => {
           createdAt: new Date(),
         });
 
-        const cell = (await org.members.get('pupil')!.get('/orgs/undated/sets/wk')).body.items[0].me;
+        const cell = (await org.members.get('pupil')!.get('/api/v1/orgs/undated/sets/wk')).body.items[0].me;
         expect(cell.late).toBeNull();
         expect(cell.onTime.verdict).toBe('AC');
       } finally {
@@ -455,7 +455,7 @@ describe('the progress grid', () => {
         await seedProblemAndLanguage(db);
         await seedProblemWithSourceAccess(db, { code: 'second' });
         const org = await makeOrg(app, db, 'grid', 'public', ['anna', 'bao']);
-        await org.teacher.post('/orgs/grid/sets').send({
+        await org.teacher.post('/api/v1/orgs/grid/sets').send({
           slug: 'wk',
           name: 'W',
           problems: [{ code: 'aplusb' }, { code: 'second' }],
@@ -480,7 +480,7 @@ describe('the progress grid', () => {
           submissionId: inContest,
         });
 
-        const grid = await org.teacher.get('/orgs/grid/sets/wk/progress');
+        const grid = await org.teacher.get('/api/v1/orgs/grid/sets/wk/progress');
         expect(grid.status, JSON.stringify(grid.body)).toBe(200);
         expect(grid.body.columns.map((c: { code: string }) => c.code)).toEqual(['aplusb', 'second']);
         const anna = grid.body.rows.find((r: { username: string }) => r.username === 'anna');
@@ -491,7 +491,7 @@ describe('the progress grid', () => {
 
         // Anna herself still sees her own result: D23 exempts a submission's
         // own author from every mask in this codebase.
-        const hers = await org.members.get('anna')!.get('/orgs/grid/sets/wk');
+        const hers = await org.members.get('anna')!.get('/api/v1/orgs/grid/sets/wk');
         expect(hers.body.items[1].me.onTime.verdict).toBe('AC');
       } finally {
         await app.close();
@@ -505,17 +505,16 @@ describe('the progress grid', () => {
       try {
         await seedProblemAndLanguage(db);
         const org = await makeOrg(app, db, 'paged', 'public', ['anna', 'bao']);
-        await org.teacher.post('/orgs/paged/sets').send({ slug: 'wk', name: 'W' });
+        await org.teacher.post('/api/v1/orgs/paged/sets').send({ slug: 'wk', name: 'W' });
 
-        const first = await org.teacher.get('/orgs/paged/sets/wk/progress?limit=1');
+        const first = await org.teacher.get('/api/v1/orgs/paged/sets/wk/progress?limit=1');
         expect(first.body.rows).toHaveLength(1);
         expect(first.body.nextCursor).toBe(first.body.rows[0].username);
-        const next = await org.teacher.get(
-          `/orgs/paged/sets/wk/progress?limit=1&cursor=${String(first.body.nextCursor)}`,
+        const next = await org.teacher.get(`/api/v1/orgs/paged/sets/wk/progress?limit=1&cursor=${String(first.body.nextCursor)}`,
         );
         expect(next.body.rows[0].username > first.body.rows[0].username).toBe(true);
 
-        const bad = await org.teacher.get(`/orgs/paged/sets/wk/progress?cursor=${'x'.repeat(200)}`);
+        const bad = await org.teacher.get(`/api/v1/orgs/paged/sets/wk/progress?cursor=${'x'.repeat(200)}`);
         expect(bad.status).toBe(422);
         expect(bad.body.code).toBe('invalid_cursor');
       } finally {
@@ -531,7 +530,7 @@ describe('the progress grid', () => {
         await seedProblemAndLanguage(db);
         const org = await makeOrg(app, db, 'sheet', 'public', ['anna', 'bao']);
         const deadline = new Date(Date.now() - HOUR);
-        await org.teacher.post('/orgs/sheet/sets').send({
+        await org.teacher.post('/api/v1/orgs/sheet/sets').send({
           slug: 'wk',
           name: 'W',
           deadline: deadline.toISOString(),
@@ -548,7 +547,7 @@ describe('the progress grid', () => {
         // `limit=1` is honoured by the JSON grid and IGNORED by the export:
         // a file that stops after one pupil is a file somebody would mark a
         // class from.
-        const csv = await org.teacher.get('/orgs/sheet/sets/wk/progress?format=csv&limit=1');
+        const csv = await org.teacher.get('/api/v1/orgs/sheet/sets/wk/progress?format=csv&limit=1');
         expect(csv.status).toBe(200);
         expect(csv.headers['content-type']).toContain('text/csv');
         expect(csv.headers['content-disposition']).toContain('sheet-wk.csv');
@@ -576,10 +575,10 @@ describe('editing and withdrawing a set', () => {
         await seedProblemWithSourceAccess(db, { code: 'second' });
         const org = await makeOrg(app, db, 'edit', 'public');
         await org.teacher
-          .post('/orgs/edit/sets')
+          .post('/api/v1/orgs/edit/sets')
           .send({ slug: 'wk', name: 'W', problems: [{ code: 'aplusb' }] });
 
-        const patched = await org.teacher.patch('/orgs/edit/sets/wk').send({
+        const patched = await org.teacher.patch('/api/v1/orgs/edit/sets/wk').send({
           name: 'W2',
           deadline: new Date(Date.now() + HOUR).toISOString(),
           problems: [{ code: 'second', points: 5 }],
@@ -591,11 +590,11 @@ describe('editing and withdrawing a set', () => {
         expect(patched.body.items.map((i: { code: string }) => i.code)).toEqual(['second']);
 
         // A deadline can be taken off again — `null` is a value, not "absent".
-        const cleared = await org.teacher.patch('/orgs/edit/sets/wk').send({ deadline: null });
+        const cleared = await org.teacher.patch('/api/v1/orgs/edit/sets/wk').send({ deadline: null });
         expect(cleared.body.deadline).toBeNull();
 
-        expect((await org.teacher.delete('/orgs/edit/sets/wk')).status).toBe(204);
-        expect((await org.teacher.get('/orgs/edit/sets/wk')).status).toBe(404);
+        expect((await org.teacher.delete('/api/v1/orgs/edit/sets/wk')).status).toBe(204);
+        expect((await org.teacher.get('/api/v1/orgs/edit/sets/wk')).status).toBe(404);
       } finally {
         await app.close();
       }
@@ -611,17 +610,17 @@ describe('editing and withdrawing a set', () => {
         const org = await makeOrg(app, db, 'narrowed', 'public', ['pupil']);
         await db.insert(problemOrgs).values({ problemId: shared.id, orgId: await orgIdOf(db, 'narrowed') });
         await org.teacher
-          .post('/orgs/narrowed/sets')
+          .post('/api/v1/orgs/narrowed/sets')
           .send({ slug: 'wk', name: 'W', problems: [{ code: 'shared' }] });
 
-        const before = await org.members.get('pupil')!.get('/orgs/narrowed/sets/wk');
+        const before = await org.members.get('pupil')!.get('/api/v1/orgs/narrowed/sets/wk');
         expect(before.body.items[0].visible).toBe(true);
 
         // The setter narrows the problem after it was assigned. The item
         // stays — the teacher assigned it — but the page must not offer a
         // link that 404s.
         await db.update(problems).set({ visibility: 'private' }).where(eq(problems.id, shared.id));
-        const after = await org.members.get('pupil')!.get('/orgs/narrowed/sets/wk');
+        const after = await org.members.get('pupil')!.get('/api/v1/orgs/narrowed/sets/wk');
         expect(after.body.items).toHaveLength(1);
         expect(after.body.items[0].visible).toBe(false);
       } finally {
@@ -652,8 +651,8 @@ describe('two teachers assigning the same slug at once', () => {
       await seedProblemAndLanguage(db);
       const org = await makeOrg(app, db, 'race-school', 'public');
       const [a, b] = await Promise.all([
-        org.teacher.post('/orgs/race-school/sets').send({ slug: 'wk', name: 'A' }),
-        org.teacher.post('/orgs/race-school/sets').send({ slug: 'wk', name: 'B' }),
+        org.teacher.post('/api/v1/orgs/race-school/sets').send({ slug: 'wk', name: 'A' }),
+        org.teacher.post('/api/v1/orgs/race-school/sets').send({ slug: 'wk', name: 'B' }),
       ]);
       const statuses = [a.status, b.status].sort((x, y) => x - y);
       expect(statuses).toEqual([201, 409]);

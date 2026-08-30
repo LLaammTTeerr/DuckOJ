@@ -17,19 +17,19 @@ describe('POST /orgs over HTTP', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
-        const anon = await request(app.getHttpServer()).post('/orgs').send({ slug: 'anon-club', name: 'Anon Club' });
+        const anon = await request(app.getHttpServer()).post('/api/v1/orgs').send({ slug: 'anon-club', name: 'Anon Club' });
         expect(anon.status).toBe(401);
 
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'orgs-http-plain');
-        const plain = await agent.post('/orgs').send({ slug: 'plain-club', name: 'Plain Club' });
+        const plain = await agent.post('/api/v1/orgs').send({ slug: 'plain-club', name: 'Plain Club' });
         expect(plain.status).toBe(403);
         expect(plain.body.code).toBe('organization_forbidden');
 
         const adminAgent = request.agent(app.getHttpServer());
         await registerAndLogin(adminAgent, 'orgs-http-admin');
         await makeAdmin(db, 'orgs-http-admin');
-        const created = await adminAgent.post('/orgs').send({ slug: 'admin-club', name: 'Admin Club' });
+        const created = await adminAgent.post('/api/v1/orgs').send({ slug: 'admin-club', name: 'Admin Club' });
         expect(created.status).toBe(201);
         const parsed = OrgSummary.parse(created.body);
         expect(parsed.slug).toBe('admin-club');
@@ -52,14 +52,14 @@ describe('POST /orgs over HTTP', () => {
         await registerAndLogin(adminAgent, 'orgs-http-admin-2');
         await makeAdmin(db, 'orgs-http-admin-2');
 
-        const first = await adminAgent.post('/orgs').send({ slug: 'dup-http', name: 'Dup' });
+        const first = await adminAgent.post('/api/v1/orgs').send({ slug: 'dup-http', name: 'Dup' });
         expect(first.status).toBe(201);
 
-        const dup = await adminAgent.post('/orgs').send({ slug: 'dup-http', name: 'Dup Again' });
+        const dup = await adminAgent.post('/api/v1/orgs').send({ slug: 'dup-http', name: 'Dup Again' });
         expect(dup.status).toBe(409);
         expect(dup.body.code).toBe('organization_slug_taken');
 
-        const bad = await adminAgent.post('/orgs').send({ slug: 'Not A Valid Slug!', name: 'Bad' });
+        const bad = await adminAgent.post('/api/v1/orgs').send({ slug: 'Not A Valid Slug!', name: 'Bad' });
         expect(bad.status).toBe(422);
         expect(bad.body.code).toBe('validation_failed');
       } finally {
@@ -80,7 +80,7 @@ describe('PATCH /orgs/:slug over HTTP', () => {
         const strangerAgent = request.agent(app.getHttpServer());
         await registerAndLogin(strangerAgent, 'orgs-http-stranger');
 
-        const res = await strangerAgent.patch('/orgs/secret-http').send({ slug: 'taken-http' });
+        const res = await strangerAgent.patch('/api/v1/orgs/secret-http').send({ slug: 'taken-http' });
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('organization_not_found');
       } finally {
@@ -111,11 +111,11 @@ describe('PATCH /orgs/:slug over HTTP', () => {
           { orgId: org!.id, userId: member!.id, role: 'member' },
         ]);
 
-        const forbidden = await memberAgent.patch('/orgs/http-member-org').send({ name: 'Nope' });
+        const forbidden = await memberAgent.patch('/api/v1/orgs/http-member-org').send({ name: 'Nope' });
         expect(forbidden.status).toBe(403);
         expect(forbidden.body.code).toBe('organization_forbidden');
 
-        const ok = await ownerAgent.patch('/orgs/http-member-org').send({ name: 'Renamed' });
+        const ok = await ownerAgent.patch('/api/v1/orgs/http-member-org').send({ name: 'Renamed' });
         expect(ok.status).toBe(200);
         expect(OrgSummary.parse(ok.body).name).toBe('Renamed');
       } finally {
@@ -147,17 +147,17 @@ describe('GET /orgs/:slug/members over HTTP', () => {
           { orgId: priv!.id, userId: user!.id, role: 'member' },
         ]);
 
-        const anonPub = await request(app.getHttpServer()).get('/orgs/http-pub-members/members');
+        const anonPub = await request(app.getHttpServer()).get('/api/v1/orgs/http-pub-members/members');
         expect(anonPub.status).toBe(200);
         const page = OrgMemberPage.parse(anonPub.body);
         expect(page.items.map((m) => m.username)).toEqual(['orgs-http-member-viewer']);
         expect(page.nextCursor).toBeNull();
 
-        const anonPriv = await request(app.getHttpServer()).get('/orgs/http-priv-members/members');
+        const anonPriv = await request(app.getHttpServer()).get('/api/v1/orgs/http-priv-members/members');
         expect(anonPriv.status).toBe(404);
         expect(anonPriv.body.code).toBe('organization_not_found');
 
-        const memberPriv = await agent.get('/orgs/http-priv-members/members');
+        const memberPriv = await agent.get('/api/v1/orgs/http-priv-members/members');
         expect(memberPriv.status).toBe(200);
         expect(OrgMemberPage.parse(memberPriv.body).items.map((m) => m.username)).toEqual(['orgs-http-member-viewer']);
       } finally {

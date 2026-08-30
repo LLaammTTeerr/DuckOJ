@@ -55,7 +55,7 @@ describe('GET /users/:username', () => {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'profiled');
 
-        const res = await request(app.getHttpServer()).get('/users/profiled');
+        const res = await request(app.getHttpServer()).get('/api/v1/users/profiled');
         expect(res.status).toBe(200);
         // Asserted over the whole serialised body, not field by field, so a
         // column added to the query later is caught without editing this test.
@@ -63,7 +63,7 @@ describe('GET /users/:username', () => {
         expect(UserProfile.safeParse(res.body).success).toBe(true);
         // Even when the caller IS the user — `GET /auth/me` is where your own
         // private fields live, not here.
-        assertNothingLeaked((await agent.get('/users/profiled')).body, 'your own profile');
+        assertNothingLeaked((await agent.get('/api/v1/users/profiled')).body, 'your own profile');
       } finally {
         await app.close();
       }
@@ -100,9 +100,9 @@ describe('GET /users/:username', () => {
           maxPoints: 100,
         });
 
-        const anon = await request(app.getHttpServer()).get('/users/solver');
-        const mine = await owner.get('/users/solver');
-        const asAdmin = await admin.get('/users/solver');
+        const anon = await request(app.getHttpServer()).get('/api/v1/users/solver');
+        const mine = await owner.get('/api/v1/users/solver');
+        const asAdmin = await admin.get('/api/v1/users/solver');
 
         // One, not two: the private solve does not count for anyone — not even
         // for the solver, and not even for an admin who may see the problem.
@@ -148,7 +148,7 @@ describe('GET /users/:username', () => {
           maxPoints: 100,
         });
 
-        const res = await request(app.getHttpServer()).get('/users/improver');
+        const res = await request(app.getHttpServer()).get('/api/v1/users/improver');
         expect(res.body.stats.points).toBe(180);
         expect(res.body.stats.submissionCount).toBe(4);
         // Only the AC counts as solved — scoring 80 is not solving.
@@ -173,7 +173,7 @@ describe('GET /users/:username', () => {
 
         // A 404 here would turn this route into an oracle for who has been
         // suspended — exactly what keeping `status` private is meant to stop.
-        const res = await request(app.getHttpServer()).get('/users/banned');
+        const res = await request(app.getHttpServer()).get('/api/v1/users/banned');
         expect(res.status).toBe(200);
         assertNothingLeaked(res.body, 'a suspended profile');
       } finally {
@@ -189,8 +189,8 @@ describe('GET /users/:username', () => {
       try {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'mixedcase');
-        expect((await request(app.getHttpServer()).get('/users/MiXeDcAsE')).status).toBe(200);
-        expect((await request(app.getHttpServer()).get('/users/nobody')).status).toBe(404);
+        expect((await request(app.getHttpServer()).get('/api/v1/users/MiXeDcAsE')).status).toBe(200);
+        expect((await request(app.getHttpServer()).get('/api/v1/users/nobody')).status).toBe(404);
       } finally {
         await app.close();
       }
@@ -208,7 +208,7 @@ describe('GET /users', () => {
           await registerAndLogin(request.agent(app.getHttpServer()), name);
         }
 
-        const hit = await request(app.getHttpServer()).get('/users').query({ q: 'alpha' });
+        const hit = await request(app.getHttpServer()).get('/api/v1/users').query({ q: 'alpha' });
         expect(hit.status).toBe(200);
         expect(UserPage.safeParse(hit.body).success).toBe(true);
         expect((hit.body.items as { username: string }[]).map((u) => u.username).sort()).toEqual([
@@ -220,14 +220,14 @@ describe('GET /users', () => {
 
         // `lpha` is a substring of every alpha* name and must match none of
         // them: a substring search cannot use the username index.
-        const substring = await request(app.getHttpServer()).get('/users').query({ q: 'lpha' });
+        const substring = await request(app.getHttpServer()).get('/api/v1/users').query({ q: 'lpha' });
         expect(substring.body.items).toHaveLength(0);
 
-        const paged = await request(app.getHttpServer()).get('/users').query({ q: 'alpha', limit: 2 });
+        const paged = await request(app.getHttpServer()).get('/api/v1/users').query({ q: 'alpha', limit: 2 });
         expect(paged.body.items).toHaveLength(2);
         expect(paged.body.nextCursor).not.toBeNull();
         const next = await request(app.getHttpServer())
-          .get('/users')
+          .get('/api/v1/users')
           .query({ q: 'alpha', limit: 2, cursor: paged.body.nextCursor });
         expect(next.body.items).toHaveLength(1);
       } finally {
@@ -246,7 +246,7 @@ describe('PATCH /users/me', () => {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'editor');
 
-        const ok = await agent.patch('/users/me').send({ displayName: 'Renamed', about: 'hi' });
+        const ok = await agent.patch('/api/v1/users/me').send({ displayName: 'Renamed', about: 'hi' });
         expect(ok.status).toBe(200);
         expect(ok.body.displayName).toBe('Renamed');
         expect(ok.body.about).toBe('hi');
@@ -259,11 +259,11 @@ describe('PATCH /users/me', () => {
           { globalRole: 'admin' },
           { rating: 3000 },
         ]) {
-          const res = await agent.patch('/users/me').send(forbidden);
+          const res = await agent.patch('/api/v1/users/me').send(forbidden);
           expect(res.status, JSON.stringify(forbidden)).toBe(422);
         }
         // …and nothing changed as a side effect of those attempts.
-        const after = await request(app.getHttpServer()).get('/users/editor');
+        const after = await request(app.getHttpServer()).get('/api/v1/users/editor');
         expect(after.body.username).toBe('editor');
         expect(after.body.globalRole).toBe('user');
         expect(after.body.rating).toBeNull();
@@ -292,15 +292,15 @@ describe('PATCH /users/me', () => {
           { locale: 'not a locale' },
           { locale: 'e n' },
         ]) {
-          const res = await agent.patch('/users/me').send(junk);
+          const res = await agent.patch('/api/v1/users/me').send(junk);
           expect(res.status, JSON.stringify(junk)).toBe(422);
           expect(res.body.code).toBe('validation_failed');
         }
 
         // Real values still work, so this is not passing by refusing
         // everything — including a zone that is not the Vietnamese default.
-        expect((await agent.patch('/users/me').send({ timezone: 'Europe/Paris' })).status).toBe(200);
-        expect((await agent.patch('/users/me').send({ locale: 'en' })).status).toBe(200);
+        expect((await agent.patch('/api/v1/users/me').send({ timezone: 'Europe/Paris' })).status).toBe(200);
+        expect((await agent.patch('/api/v1/users/me').send({ locale: 'en' })).status).toBe(200);
         const [row] = await db
           .select({ tz: schema.users.timezone, locale: schema.users.locale })
           .from(schema.users)
@@ -318,7 +318,7 @@ describe('PATCH /users/me', () => {
       const app = await buildApp(db);
       try {
         const res = await request(app.getHttpServer())
-          .patch('/users/me')
+          .patch('/api/v1/users/me')
           .send({ displayName: 'anon' });
         expect(res.status).toBe(401);
       } finally {
@@ -344,12 +344,12 @@ describe('PATCH /users/me — a display name is a name', () => {
         await registerAndLogin(agent, 'namer');
 
         for (const blank of ['   ', '\t', '\n\n']) {
-          const res = await agent.patch('/users/me').send({ displayName: blank });
+          const res = await agent.patch('/api/v1/users/me').send({ displayName: blank });
           expect(res.status, JSON.stringify(blank)).toBe(422);
           expect(res.body.code).toBe('validation_failed');
         }
 
-        const ok = await agent.patch('/users/me').send({ displayName: '  Đặng Thị Ánh  ' });
+        const ok = await agent.patch('/api/v1/users/me').send({ displayName: '  Đặng Thị Ánh  ' });
         expect(ok.status).toBe(200);
         // Trimmed, not merely accepted: the padding is invisible where the
         // name is shown, and it is what lets two accounts wear one name.
@@ -370,7 +370,7 @@ describe('PATCH /users/me — a display name is a name', () => {
       await seedCorpus(db);
       const app = await buildApp(db);
       try {
-        const res = await request(app.getHttpServer()).post('/auth/register').send({
+        const res = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
           username: 'blankname',
           email: 'blankname@example.com',
           password: 'Str0ngPassw0rd!x',

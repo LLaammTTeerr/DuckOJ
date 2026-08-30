@@ -14,7 +14,16 @@ const EnvSchema = z.object({
   // publishes under a tailnet name. CORS is unaffected: same-origin HTTP
   // needs none, and the WebSocket Origin check (D70) is the only consumer.
   WS_EXTRA_ORIGINS: z.string().default(''),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  /**
+   * A pino level. `silent` is one of pino's own and was the one level this
+   * enum did not admit — so `LOG_LEVEL=silent` in a `.env` crashed the API at
+   * boot with "Invalid environment configuration", and the test harness's
+   * hand-written config (which sets exactly that, to keep ~900 specs quiet)
+   * was a config `loadConfig` would have refused. Admitted here so the
+   * harness can go through this parser at all (D91), and so an operator who
+   * wants a silent container gets one instead of a boot loop.
+   */
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   PACKAGE_STORE_DIR: z.string().min(1).default('/var/lib/duckoj/packages'),
   // 256 MiB. Injectable per-environment (and per-test) rather than a
   // hardcoded controller constant, so a test can set it to a few bytes and

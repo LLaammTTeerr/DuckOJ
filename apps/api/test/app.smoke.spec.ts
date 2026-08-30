@@ -99,8 +99,7 @@ describe('AppModule composition root', () => {
   // path) ever diverges from what apps/judge-agent's materializer.ts
   // requests.
   it('requires judge credentials on the internal archive route, at the real /api/v1 prefix', async () => {
-    const res = await request(app.getHttpServer()).get(
-      `/api/v1/internal/packages/${'a'.repeat(64)}/archive`,
+    const res = await request(app.getHttpServer()).get(`/api/v1/internal/packages/${'a'.repeat(64)}/archive`,
     );
     expect(res.status).toBe(401);
   });

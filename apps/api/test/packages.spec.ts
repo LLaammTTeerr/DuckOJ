@@ -37,7 +37,7 @@ async function buildPackage(dir: string): Promise<{ archive: Buffer; files: Pack
 }
 
 function uploadTo(agent: ReturnType<typeof request.agent>, hash: string, archive: Buffer) {
-  return agent.post('/packages').query({ hash }).set('Content-Type', 'application/octet-stream').send(archive);
+  return agent.post('/api/v1/packages').query({ hash }).set('Content-Type', 'application/octet-stream').send(archive);
 }
 
 /**
@@ -141,7 +141,7 @@ describe('packages', () => {
         const { archive, hash } = await buildPackage(await fixtureDir());
 
         const res = await request(app.getHttpServer())
-          .post('/packages')
+          .post('/api/v1/packages')
           .query({ hash })
           .set('Content-Type', 'application/octet-stream')
           .send(archive);
@@ -169,7 +169,7 @@ describe('packages', () => {
         expect(uploaded.status).toBe(201);
 
         const res = await request(app.getHttpServer())
-          .get(`/internal/packages/${hash}/archive`)
+          .get(`/api/v1/internal/packages/${hash}/archive`)
           .set('Authorization', `Judge judge-a:${token}`)
           .buffer(true)
           .parse((response, callback) => {
@@ -201,7 +201,7 @@ describe('packages', () => {
 
         // A signed-in admin session, no judge header at all: this route is
         // not part of the user surface, and admin is not a judge.
-        const res = await agent.get(`/internal/packages/${hash}/archive`);
+        const res = await agent.get(`/api/v1/internal/packages/${hash}/archive`);
         expect(res.status).toBe(401);
         expect(res.headers['content-type']).toContain('application/problem+json');
         expect(res.body.code).toBe('judge_unauthorized');

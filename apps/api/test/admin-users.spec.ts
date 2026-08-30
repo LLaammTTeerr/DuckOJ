@@ -35,13 +35,13 @@ describe('PATCH /admin/users/:username over HTTP', () => {
           await registerAndLogin(adminAgent, 'promote-admin');
           await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'promote-admin'));
 
-          const grant = await adminAgent.patch('/admin/users/promote-target').send({ globalRole: 'setter' });
+          const grant = await adminAgent.patch('/api/v1/admin/users/promote-target').send({ globalRole: 'setter' });
           expect(grant.status).toBe(200);
           expect(grant.body).toMatchObject({ username: 'promote-target', globalRole: 'setter' });
 
           // The same, already-established session — no re-login.
           const created = await targetAgent
-            .post('/problems')
+            .post('/api/v1/problems')
             .send({ code: 'promoted-create', name: 'Promoted Create', statement: 'A statement.' });
           expect(created.status).toBe(201);
           expect(created.body.code).toBe('promoted-create');
@@ -62,7 +62,7 @@ describe('PATCH /admin/users/:username over HTTP', () => {
         const plainAgent = request.agent(app.getHttpServer());
         await registerAndLogin(plainAgent, 'admin-403-plain');
 
-        const res = await plainAgent.patch('/admin/users/admin-403-target').send({ globalRole: 'setter' });
+        const res = await plainAgent.patch('/api/v1/admin/users/admin-403-target').send({ globalRole: 'setter' });
         expect(res.status).toBe(403);
         expect(res.body.code).toBe('admin_forbidden');
       } finally {
@@ -79,7 +79,7 @@ describe('PATCH /admin/users/:username over HTTP', () => {
         await registerAndLogin(setterAgent, 'self-promote-setter');
         await db.update(schema.users).set({ globalRole: 'setter' }).where(eq(schema.users.username, 'self-promote-setter'));
 
-        const res = await setterAgent.patch('/admin/users/self-promote-setter').send({ globalRole: 'admin' });
+        const res = await setterAgent.patch('/api/v1/admin/users/self-promote-setter').send({ globalRole: 'admin' });
         expect(res.status).toBe(403);
         expect(res.body.code).toBe('admin_forbidden');
 
@@ -99,7 +99,7 @@ describe('PATCH /admin/users/:username over HTTP', () => {
         await registerAndLogin(adminAgent, 'notfound-admin');
         await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'notfound-admin'));
 
-        const res = await adminAgent.patch('/admin/users/no-such-user-at-all').send({ globalRole: 'setter' });
+        const res = await adminAgent.patch('/api/v1/admin/users/no-such-user-at-all').send({ globalRole: 'setter' });
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('user_not_found');
       } finally {
@@ -118,7 +118,7 @@ describe('PATCH /admin/users/:username over HTTP', () => {
         await registerAndLogin(adminAgent, 'badrole-admin');
         await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'badrole-admin'));
 
-        const res = await adminAgent.patch('/admin/users/badrole-target').send({ globalRole: 'superuser' });
+        const res = await adminAgent.patch('/api/v1/admin/users/badrole-target').send({ globalRole: 'superuser' });
         expect(res.status).toBe(400);
         expect(res.body.code).toBe('admin_role_invalid');
 
@@ -141,7 +141,7 @@ describe('PATCH /admin/users/:username over HTTP', () => {
         await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'case-admin'));
 
         // Deliberately different case than the stored username.
-        const res = await adminAgent.patch('/admin/users/mixedcasetarget').send({ globalRole: 'setter' });
+        const res = await adminAgent.patch('/api/v1/admin/users/mixedcasetarget').send({ globalRole: 'setter' });
         expect(res.status).toBe(200);
         expect(res.body).toMatchObject({ username: 'MixedCaseTarget', globalRole: 'setter' });
 
@@ -172,12 +172,12 @@ describe('PATCH /admin/users/:username over HTTP', () => {
           // its declared scopes. `AdminUsersController` is `@SessionOnly()`,
           // which also tells `ScopeGuard` to defer rather than shadow it
           // with its own deny-by-default `scope_required`.
-          const minted = await adminAgent.post('/auth/tokens').send({ name: 'probe', scopes: ['submissions:read'] });
+          const minted = await adminAgent.post('/api/v1/auth/tokens').send({ name: 'probe', scopes: ['submissions:read'] });
           expect(minted.status).toBe(201);
           const { token } = minted.body as { token: string };
 
           const byToken = await request(app.getHttpServer())
-            .patch('/admin/users/token-guard-victim')
+            .patch('/api/v1/admin/users/token-guard-victim')
             .set('Authorization', `Bearer ${token}`)
             .send({ globalRole: 'admin' });
           expect(byToken.status).toBe(403);
@@ -188,7 +188,7 @@ describe('PATCH /admin/users/:username over HTTP', () => {
 
           // The same admin's session succeeds — the guard rejects the
           // credential kind, not the actor.
-          const bySession = await adminAgent.patch('/admin/users/token-guard-victim').send({ globalRole: 'admin' });
+          const bySession = await adminAgent.patch('/api/v1/admin/users/token-guard-victim').send({ globalRole: 'admin' });
           expect(bySession.status).toBe(200);
         } finally {
           await app.close();
@@ -209,7 +209,7 @@ describe('PATCH /admin/users/:username over HTTP', () => {
         // Deliberately different case than the stored username: the
         // self-demotion check must still recognise this as "self" by
         // resolving to the same user id, not by comparing strings.
-        const res = await adminAgent.patch('/admin/users/selfdemoteadmin').send({ globalRole: 'setter' });
+        const res = await adminAgent.patch('/api/v1/admin/users/selfdemoteadmin').send({ globalRole: 'setter' });
         expect(res.status).toBe(400);
         expect(res.body.code).toBe('admin_self_demotion');
 
@@ -221,7 +221,7 @@ describe('PATCH /admin/users/:username over HTTP', () => {
         await registerAndLogin(otherAgent, 'other-admin-target');
         await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'other-admin-target'));
 
-        const demoteOther = await adminAgent.patch('/admin/users/other-admin-target').send({ globalRole: 'setter' });
+        const demoteOther = await adminAgent.patch('/api/v1/admin/users/other-admin-target').send({ globalRole: 'setter' });
         expect(demoteOther.status).toBe(200);
       } finally {
         await app.close();
@@ -269,7 +269,7 @@ describe('DELETE /admin/users/:username/totp over HTTP', () => {
           .set({ globalRole: 'admin' })
           .where(eq(schema.users.username, 'totp-admin'));
 
-        const res = await adminAgent.delete('/admin/users/totp-lost/totp');
+        const res = await adminAgent.delete('/api/v1/admin/users/totp-lost/totp');
         expect(res.status).toBe(204);
         expect(await app.get(TotpService).isEnabled(userId)).toBe(false);
 
@@ -284,7 +284,7 @@ describe('DELETE /admin/users/:username/totp over HTTP', () => {
         // Idempotent: an admin who clicks twice, or who resets an account
         // that never had TOTP, gets the same 204 — "disabled, or was already
         // off", the same shape `DELETE /auth/totp` documents.
-        expect((await adminAgent.delete('/admin/users/totp-lost/totp')).status).toBe(204);
+        expect((await adminAgent.delete('/api/v1/admin/users/totp-lost/totp')).status).toBe(204);
       } finally {
         await app.close();
       }
@@ -299,7 +299,7 @@ describe('DELETE /admin/users/:username/totp over HTTP', () => {
 
         const plainAgent = request.agent(app.getHttpServer());
         await registerAndLogin(plainAgent, 'totp-plain');
-        const forbidden = await plainAgent.delete('/admin/users/totp-victim/totp');
+        const forbidden = await plainAgent.delete('/api/v1/admin/users/totp-victim/totp');
         expect(forbidden.status).toBe(403);
         expect(forbidden.body.code).toBe('admin_forbidden');
 
@@ -309,7 +309,7 @@ describe('DELETE /admin/users/:username/totp over HTTP', () => {
           .update(schema.users)
           .set({ globalRole: 'admin' })
           .where(eq(schema.users.username, 'totp-admin2'));
-        const missing = await adminAgent.delete('/admin/users/nobody-here/totp');
+        const missing = await adminAgent.delete('/api/v1/admin/users/nobody-here/totp');
         expect(missing.status).toBe(404);
         expect(missing.body.code).toBe('user_not_found');
       } finally {
@@ -331,12 +331,12 @@ describe('DELETE /admin/users/:username/totp over HTTP', () => {
           .where(eq(schema.users.username, 'totp-admin3'));
 
         const minted = await adminAgent
-          .post('/auth/tokens')
+          .post('/api/v1/auth/tokens')
           .send({ name: 'ci', scopes: ['users:read'] });
         expect(minted.status).toBe(201);
 
         const res = await request(app.getHttpServer())
-          .delete('/admin/users/totp-target3/totp')
+          .delete('/api/v1/admin/users/totp-target3/totp')
           .set('Authorization', `Bearer ${String(minted.body.token)}`);
         expect(res.status).toBe(403);
       } finally {

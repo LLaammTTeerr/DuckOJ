@@ -121,8 +121,8 @@ describe('GET /contests/:key/scoreboard, cached', () => {
         await registerAndLogin(rival, 'sbc1-rival');
         await join(db, contestId, await userIdOf(db, 'sbc1-rival'));
 
-        const first = await request(app.getHttpServer()).get('/contests/sbc1/scoreboard');
-        const second = await request(app.getHttpServer()).get('/contests/sbc1/scoreboard');
+        const first = await request(app.getHttpServer()).get('/api/v1/contests/sbc1/scoreboard');
+        const second = await request(app.getHttpServer()).get('/api/v1/contests/sbc1/scoreboard');
 
         expect(first.status).toBe(200);
         expect(second.status).toBe(200);
@@ -152,21 +152,21 @@ describe('GET /contests/:key/scoreboard, cached', () => {
         await registerAndLogin(rival, 'sbc2-rival');
         await join(db, contestId, await userIdOf(db, 'sbc2-rival'));
 
-        const anonymous = await request(app.getHttpServer()).get('/contests/sbc2/scoreboard');
+        const anonymous = await request(app.getHttpServer()).get('/api/v1/contests/sbc2/scoreboard');
         expect(anonymous.headers['x-scoreboard-cache']).toBe('miss');
         expect(anonymous.body.frozen).toBe(true);
 
         // A shared key would serve the owner the frozen board a public read
         // just cached — the one mistake a scoreboard cache must not make.
-        const privileged = await owner.get('/contests/sbc2/scoreboard');
+        const privileged = await owner.get('/api/v1/contests/sbc2/scoreboard');
         expect(privileged.headers['x-scoreboard-cache']).toBe('miss');
         expect(privileged.body.frozen).toBe(false);
 
-        expect((await owner.get('/contests/sbc2/scoreboard')).headers['x-scoreboard-cache']).toBe(
+        expect((await owner.get('/api/v1/contests/sbc2/scoreboard')).headers['x-scoreboard-cache']).toBe(
           'hit',
         );
         expect(
-          (await request(app.getHttpServer()).get('/contests/sbc2/scoreboard')).headers[
+          (await request(app.getHttpServer()).get('/api/v1/contests/sbc2/scoreboard')).headers[
             'x-scoreboard-cache'
           ],
         ).toBe('hit');
@@ -191,9 +191,9 @@ describe('GET /contests/:key/scoreboard, cached', () => {
         await registerAndLogin(rival, 'sbc4-rival');
         await join(db, contestId, await userIdOf(db, 'sbc4-rival'));
 
-        await request(app.getHttpServer()).get('/contests/sbc4/scoreboard');
+        await request(app.getHttpServer()).get('/api/v1/contests/sbc4/scoreboard');
         expect(
-          (await request(app.getHttpServer()).get('/contests/sbc4/scoreboard')).headers[
+          (await request(app.getHttpServer()).get('/api/v1/contests/sbc4/scoreboard')).headers[
             'x-scoreboard-cache'
           ],
         ).toBe('hit');
@@ -201,11 +201,11 @@ describe('GET /contests/:key/scoreboard, cached', () => {
         // A rename moves no boundary, so this read lands on the SAME key the
         // hit above came from — which is the only reason it proves the edit
         // dropped the entry rather than merely re-keying it.
-        const renamed = await owner.patch('/contests/sbc4').send({ name: 'Renamed' });
+        const renamed = await owner.patch('/api/v1/contests/sbc4').send({ name: 'Renamed' });
         expect(renamed.status).toBe(200);
 
         expect(
-          (await request(app.getHttpServer()).get('/contests/sbc4/scoreboard')).headers[
+          (await request(app.getHttpServer()).get('/api/v1/contests/sbc4/scoreboard')).headers[
             'x-scoreboard-cache'
           ],
         ).toBe('miss');
@@ -231,23 +231,23 @@ describe('GET /contests/:key/scoreboard, cached', () => {
         await join(db, contestId, await userIdOf(db, 'sbc3-rival'));
 
         expect(
-          (await request(app.getHttpServer()).get('/contests/sbc3/scoreboard')).headers[
+          (await request(app.getHttpServer()).get('/api/v1/contests/sbc3/scoreboard')).headers[
             'x-scoreboard-cache'
           ],
         ).toBe('miss');
-        const cached = await request(app.getHttpServer()).get('/contests/sbc3/scoreboard');
+        const cached = await request(app.getHttpServer()).get('/api/v1/contests/sbc3/scoreboard');
         expect(cached.headers['x-scoreboard-cache']).toBe('hit');
         expect(cached.body.ranking[0].is_disqualified).toBe(false);
 
         const patched = await owner
-          .patch('/contests/sbc3/participants/sbc3-rival')
+          .patch('/api/v1/contests/sbc3/participants/sbc3-rival')
           .send({ disqualified: true });
         expect(patched.status).toBe(200);
 
         // Without the invalidation this is a `hit` on the pre-write board for
         // up to two more seconds — which is what the TTL alone would buy, and
         // is not what a disqualification during a contest should look like.
-        const after = await request(app.getHttpServer()).get('/contests/sbc3/scoreboard');
+        const after = await request(app.getHttpServer()).get('/api/v1/contests/sbc3/scoreboard');
         expect(after.headers['x-scoreboard-cache']).toBe('miss');
         expect(after.body.ranking[0].is_disqualified).toBe(true);
       });

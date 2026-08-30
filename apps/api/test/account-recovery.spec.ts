@@ -48,10 +48,10 @@ describe('POST /auth/password/forgot', () => {
         // so the assertion below stays about the forgot endpoint alone.
         const before = mailerOf(app).sent.length;
         const known = await request(app.getHttpServer())
-          .post('/auth/password/forgot')
+          .post('/api/v1/auth/password/forgot')
           .send({ email: 'knownuser@example.com' });
         const unknown = await request(app.getHttpServer())
-          .post('/auth/password/forgot')
+          .post('/api/v1/auth/password/forgot')
           .send({ email: 'nobody@example.com' });
 
         // Byte-identical, not merely both-2xx: any difference makes this a
@@ -76,34 +76,34 @@ describe('redeeming a reset', () => {
         const signedIn = await seedUser(app, 'resetter');
         // Proof the session is live before the reset, so its death afterwards
         // is attributable to the reset and not to the fixture.
-        expect((await signedIn.get('/auth/me')).status).toBe(200);
+        expect((await signedIn.get('/api/v1/auth/me')).status).toBe(200);
 
         await request(app.getHttpServer())
-          .post('/auth/password/forgot')
+          .post('/api/v1/auth/password/forgot')
           .send({ email: 'resetter@example.com' });
         const token = tokenFromLastMail(app);
 
         const reset = await request(app.getHttpServer())
-          .post('/auth/password/reset')
+          .post('/api/v1/auth/password/reset')
           .send({ token, password: NEW_PASSWORD });
         expect(reset.status).toBe(200);
 
         // The point of a reset: the plausible reason someone is resetting is
         // that somebody else is signed in as them.
-        expect((await signedIn.get('/auth/me')).status).toBe(401);
+        expect((await signedIn.get('/api/v1/auth/me')).status).toBe(401);
 
         const fresh = request.agent(app.getHttpServer());
         expect(
           (
             await fresh
-              .post('/auth/login')
+              .post('/api/v1/auth/login')
               .send({ usernameOrEmail: 'resetter', password: NEW_PASSWORD })
           ).status,
         ).toBe(200);
         expect(
           (
             await request(app.getHttpServer())
-              .post('/auth/login')
+              .post('/api/v1/auth/login')
               .send({ usernameOrEmail: 'resetter', password: PASSWORD })
           ).status,
         ).toBe(401);
@@ -111,7 +111,7 @@ describe('redeeming a reset', () => {
         // A link that works twice is a link that works after the account is
         // back in its owner's hands.
         const again = await request(app.getHttpServer())
-          .post('/auth/password/reset')
+          .post('/api/v1/auth/password/reset')
           .send({ token, password: 'yet-another-long-password' });
         expect(again.status).toBe(400);
         expect(again.body.code).toBe('invalid_token');
@@ -130,20 +130,20 @@ describe('redeeming a reset', () => {
         // attacker who got hold of the session mints to outlive it, and what
         // the account owner's reset is supposed to end.
         const minted = await signedIn
-          .post('/auth/tokens')
+          .post('/api/v1/auth/tokens')
           .send({ name: 'stolen', scopes: ['users:read'] });
         expect(minted.status).toBe(201);
         const token = minted.body.token as string;
         expect(
-          (await request(app.getHttpServer()).get('/auth/me').set('authorization', `Bearer ${token}`))
+          (await request(app.getHttpServer()).get('/api/v1/auth/me').set('authorization', `Bearer ${token}`))
             .status,
         ).toBe(200);
 
         await request(app.getHttpServer())
-          .post('/auth/password/forgot')
+          .post('/api/v1/auth/password/forgot')
           .send({ email: 'tokenholder@example.com' });
         const reset = await request(app.getHttpServer())
-          .post('/auth/password/reset')
+          .post('/api/v1/auth/password/reset')
           .send({ token: tokenFromLastMail(app), password: NEW_PASSWORD });
         expect(reset.status).toBe(200);
 
@@ -152,7 +152,7 @@ describe('redeeming a reset', () => {
         // with the session an attacker already has, so a surviving token is
         // a takeover that outlives the password it was minted under.
         const after = await request(app.getHttpServer())
-          .get('/auth/me')
+          .get('/api/v1/auth/me')
           .set('authorization', `Bearer ${token}`);
         expect(after.status).toBe(401);
         expect(after.body.code).toBe('invalid_token');
@@ -174,7 +174,7 @@ describe('redeeming a reset', () => {
       try {
         await seedUser(app, 'expiree');
         await request(app.getHttpServer())
-          .post('/auth/password/forgot')
+          .post('/api/v1/auth/password/forgot')
           .send({ email: 'expiree@example.com' });
         const token = tokenFromLastMail(app);
 
@@ -185,7 +185,7 @@ describe('redeeming a reset', () => {
           .where(eq(schema.oneTimeTokens.userId, await userIdOf(db, 'expiree')));
 
         const res = await request(app.getHttpServer())
-          .post('/auth/password/reset')
+          .post('/api/v1/auth/password/reset')
           .send({ token, password: NEW_PASSWORD });
         expect(res.status).toBe(400);
       } finally {
@@ -199,30 +199,30 @@ describe('redeeming a reset', () => {
       const app = await buildApp(db);
       try {
         const agent = await seedUser(app, 'crosser');
-        await agent.post('/auth/email/verify/send');
+        await agent.post('/api/v1/auth/email/verify/send');
         const verifyToken = tokenFromLastMail(app);
 
         // Both purposes share one table, and the only thing keeping them apart
         // is a `WHERE` clause. A redemption filtering on the hash alone passes
         // every happy path and lets this succeed.
         const misused = await request(app.getHttpServer())
-          .post('/auth/password/reset')
+          .post('/api/v1/auth/password/reset')
           .send({ token: verifyToken, password: NEW_PASSWORD });
         expect(misused.status).toBe(400);
 
         await request(app.getHttpServer())
-          .post('/auth/password/forgot')
+          .post('/api/v1/auth/password/forgot')
           .send({ email: 'crosser@example.com' });
         const resetToken = tokenFromLastMail(app);
         expect(
-          (await request(app.getHttpServer()).post('/auth/email/verify').send({ token: resetToken }))
+          (await request(app.getHttpServer()).post('/api/v1/auth/email/verify').send({ token: resetToken }))
             .status,
         ).toBe(400);
 
         // The right token still works, so this is not passing because
         // everything is broken.
         expect(
-          (await request(app.getHttpServer()).post('/auth/email/verify').send({ token: verifyToken }))
+          (await request(app.getHttpServer()).post('/api/v1/auth/email/verify').send({ token: verifyToken }))
             .status,
         ).toBe(200);
       } finally {
@@ -237,7 +237,7 @@ describe('redeeming a reset', () => {
       try {
         await seedUser(app, 'hashed');
         await request(app.getHttpServer())
-          .post('/auth/password/forgot')
+          .post('/api/v1/auth/password/forgot')
           .send({ email: 'hashed@example.com' });
         const token = tokenFromLastMail(app);
 
@@ -264,15 +264,15 @@ describe('email verification', () => {
       const app = await buildApp(db);
       try {
         const agent = await seedUser(app, 'verifier');
-        expect((await agent.get('/auth/me')).body.emailVerified).toBe(false);
+        expect((await agent.get('/api/v1/auth/me')).body.emailVerified).toBe(false);
 
-        expect((await agent.post('/auth/email/verify/send')).status).toBe(202);
+        expect((await agent.post('/api/v1/auth/email/verify/send')).status).toBe(202);
         const token = tokenFromLastMail(app);
         expect(
-          (await request(app.getHttpServer()).post('/auth/email/verify').send({ token })).status,
+          (await request(app.getHttpServer()).post('/api/v1/auth/email/verify').send({ token })).status,
         ).toBe(200);
 
-        expect((await agent.get('/auth/me')).body.emailVerified).toBe(true);
+        expect((await agent.get('/api/v1/auth/me')).body.emailVerified).toBe(true);
         const [user] = await db
           .select({ at: schema.users.emailVerifiedAt })
           .from(schema.users)
@@ -290,7 +290,7 @@ describe('email verification', () => {
       try {
         // The address comes from the session, never from a request body, so
         // nobody can aim a verification mail at someone else.
-        expect((await request(app.getHttpServer()).post('/auth/email/verify/send')).status).toBe(401);
+        expect((await request(app.getHttpServer()).post('/api/v1/auth/email/verify/send')).status).toBe(401);
       } finally {
         await app.close();
       }

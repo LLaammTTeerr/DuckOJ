@@ -44,11 +44,11 @@ describe('submissions', () => {
         await registerAndLogin(agent, 'alice');
 
         const created = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}' });
 
         expect(created.status).toBe(201);
-        const detail = await agent.get(`/submissions/${created.body.id}`);
+        const detail = await agent.get(`/api/v1/submissions/${created.body.id}`);
         expect(detail.status).toBe(200);
         expect(detail.body.state).toBe('queued');
         expect(detail.body.problemCode).toBe('aplusb');
@@ -64,7 +64,7 @@ describe('submissions', () => {
       const app = await buildApp(db);
       try {
         const res = await request(app.getHttpServer())
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' });
         expect(res.status).toBe(401);
       } finally {
@@ -81,12 +81,12 @@ describe('submissions', () => {
         const alice = request.agent(app.getHttpServer());
         await registerAndLogin(alice, 'alice');
         const created = await alice
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}' });
 
         const bob = request.agent(app.getHttpServer());
         await registerAndLogin(bob, 'bob');
-        const seen = await bob.get(`/submissions/${created.body.id}`);
+        const seen = await bob.get(`/api/v1/submissions/${created.body.id}`);
 
         // 404, not 403: the existence of another user's submission is itself
         // information we do not disclose.
@@ -106,7 +106,7 @@ describe('submissions', () => {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'carol');
         const res = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'nope', languageKey: 'cpp17', source: 'x' });
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('problem_not_found');
@@ -124,7 +124,7 @@ describe('submissions', () => {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'dave');
         const res = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'x'.repeat(64 * 1024 + 1) });
         expect(res.status).toBe(422);
       } finally {
@@ -144,11 +144,11 @@ describe('submissions', () => {
         // Bigger than any bigint id this schema can hold, and bigger than
         // Number.MAX_SAFE_INTEGER: `ParseIntPipe` used to accept this, parse
         // it to an imprecise float, and let it reach the driver as a 500.
-        const tooBig = await agent.get('/submissions/99999999999999999999');
+        const tooBig = await agent.get('/api/v1/submissions/99999999999999999999');
         expect(tooBig.status).toBe(422);
         expect(tooBig.body.code).toBe('validation_failed');
 
-        const notANumber = await agent.get('/submissions/abc');
+        const notANumber = await agent.get('/api/v1/submissions/abc');
         expect(notANumber.status).toBe(422);
         expect(notANumber.body.code).toBe('validation_failed');
       } finally {
@@ -386,13 +386,13 @@ describe('create(): a visible problem with nothing gradeable is not "not found"'
         await registerAndLogin(agent, 'norev-caller');
 
         // Path 1: the read side sees it — visibility is already established.
-        const detail = await agent.get('/problems/norev');
+        const detail = await agent.get('/api/v1/problems/norev');
         expect(detail.status).toBe(200);
         expect(detail.body.code).toBe('norev');
 
         // Path 2: the same session submits and is told the real reason.
         const res = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'norev', languageKey: 'cpp17', source: 'int main(){}' });
         expect(res.status).toBe(409);
         expect(res.body.code).toBe('problem_not_submittable');
@@ -424,7 +424,7 @@ describe('create(): a visible problem with nothing gradeable is not "not found"'
         await registerAndLogin(agent, 'norev-stranger');
 
         const res = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'norevpriv', languageKey: 'cpp17', source: 'int main(){}' });
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('problem_not_found');

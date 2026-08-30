@@ -95,7 +95,7 @@ describe('submission realtime', () => {
       try {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'bob');
-        const minted = await agent.post('/auth/tokens').send({ name: 'cli', scopes: [] });
+        const minted = await agent.post('/api/v1/auth/tokens').send({ name: 'cli', scopes: [] });
         const socket = await open(`${url}/ws`, { authorization: `Bearer ${minted.body.token}` });
         expect(socket.readyState).toBe(WebSocket.OPEN);
         socket.close();
@@ -150,7 +150,7 @@ describe('submission realtime', () => {
       try {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'carol');
-        const minted = await agent.post('/auth/tokens').send({ name: 'cli', scopes: [] });
+        const minted = await agent.post('/api/v1/auth/tokens').send({ name: 'cli', scopes: [] });
 
         // A query-string credential lands in access logs, proxy logs and
         // browser history. Phase 0 closed exactly this leak; it must not
@@ -170,7 +170,7 @@ describe('submission realtime', () => {
         const alice = request.agent(app.getHttpServer());
         await registerAndLogin(alice, 'alice');
         const created = await alice
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}' });
 
         const bob = request.agent(app.getHttpServer());
@@ -232,7 +232,7 @@ describe('submission realtime', () => {
         const agent = request.agent(app.getHttpServer());
         const cookie = await registerAndLogin(agent, 'acker');
         const created = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' });
 
         const socket = await open(`${url}/ws`, { cookie });
@@ -257,7 +257,7 @@ describe('submission realtime', () => {
         const agent = request.agent(app.getHttpServer());
         const cookie = await registerAndLogin(agent, 'alice');
         const created = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'secret-source-marker' });
 
         const socket = await open(`${url}/ws`, { cookie });
@@ -330,7 +330,7 @@ describe('submission realtime', () => {
       try {
         const agent = request.agent(setupApp.getHttpServer());
         await registerAndLogin(agent, 'frank');
-        const minted = await agent.post('/auth/tokens').send({ name: 'cli', scopes: [] });
+        const minted = await agent.post('/api/v1/auth/tokens').send({ name: 'cli', scopes: [] });
         token = minted.body.token as string;
       } finally {
         await setupApp.close();
@@ -418,7 +418,7 @@ describe('submission realtime', () => {
         const agent = request.agent(app.getHttpServer());
         const cookie = await registerAndLogin(agent, 'erin');
         const created = await agent
-          .post('/submissions')
+          .post('/api/v1/submissions')
           .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'x' });
 
         const socket = await open(`${url}/ws`, { cookie });
@@ -470,7 +470,7 @@ describe('submission realtime — the subscription set is bounded and releasable
       // to release. Nothing here is about the meter — it has its own file.
       await clearSubmissionMeter(db);
       const created = await agent
-        .post('/submissions')
+        .post('/api/v1/submissions')
         .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: `int main(){}//${String(i)}` });
       ids.push(created.body.id as number);
     }

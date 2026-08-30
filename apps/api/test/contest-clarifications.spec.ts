@@ -89,7 +89,7 @@ describe('asking a clarification', () => {
         await join(db, contestId, await userIdOf(db, 'clar-rival'));
 
         const asked = await asker
-          .post('/contests/clar-a/clarifications')
+          .post('/api/v1/contests/clar-a/clarifications')
           .send({ question: 'Is the array 1-indexed?' });
         expect(asked.status).toBe(201);
         expect(Clarification.parse(asked.body)).toMatchObject({
@@ -101,12 +101,12 @@ describe('asking a clarification', () => {
           problemCode: null,
         });
 
-        const mine = await asker.get('/contests/clar-a/clarifications');
+        const mine = await asker.get('/api/v1/contests/clar-a/clarifications');
         expect(ClarificationList.parse(mine.body).items).toHaveLength(1);
 
         // The rival sees nothing: a private question belongs to its asker
         // and the organisers, and to nobody else in the room.
-        const theirs = await rival.get('/contests/clar-a/clarifications');
+        const theirs = await rival.get('/api/v1/contests/clar-a/clarifications');
         expect(ClarificationList.parse(theirs.body).items).toEqual([]);
       } finally {
         await app.close();
@@ -124,7 +124,7 @@ describe('asking a clarification', () => {
         const outsider = await agentFor(app, 'clar-outsider');
 
         const notJoined = await outsider
-          .post('/contests/clar-open/clarifications')
+          .post('/api/v1/contests/clar-open/clarifications')
           .send({ question: 'Anyone home?' });
         expect(notJoined.status).toBe(403);
         expect(notJoined.body.code).toBe('contest_not_joined');
@@ -132,7 +132,7 @@ describe('asking a clarification', () => {
         // Not 403: a contest this caller may not see must not confirm it
         // exists, which is the whole of the 404-over-403 rule.
         const hidden = await outsider
-          .post('/contests/clar-secret/clarifications')
+          .post('/api/v1/contests/clar-secret/clarifications')
           .send({ question: 'Anyone home?' });
         expect(hidden.status).toBe(404);
         expect(hidden.body.code).toBe('contest_not_found');
@@ -154,7 +154,7 @@ describe('asking a clarification', () => {
 
         const [problem] = await db.select({ code: problems.code }).from(problems).limit(1);
         const res = await asker
-          .post('/contests/clar-p/clarifications')
+          .post('/api/v1/contests/clar-p/clarifications')
           .send({ problemCode: problem!.code, question: 'About this one?' });
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('problem_not_found');
@@ -178,12 +178,12 @@ describe('asking a clarification', () => {
 
         for (let i = 0; i < 20; i++) {
           const ok = await asker
-            .post('/contests/clar-rl/clarifications')
+            .post('/api/v1/contests/clar-rl/clarifications')
             .send({ question: `question ${String(i)}` });
           expect(ok.status).toBe(201);
         }
         const refused = await asker
-          .post('/contests/clar-rl/clarifications')
+          .post('/api/v1/contests/clar-rl/clarifications')
           .send({ question: 'one too many' });
         expect(refused.status).toBe(429);
         expect(refused.body.code).toBe('clarification_rate_limited');
@@ -191,7 +191,7 @@ describe('asking a clarification', () => {
         // Per CONTEST, not per user: the same person asking in a different
         // room starts with a fresh window.
         const elsewhere = await asker
-          .post('/contests/clar-rl2/clarifications')
+          .post('/api/v1/contests/clar-rl2/clarifications')
           .send({ question: 'different contest' });
         expect(elsewhere.status).toBe(201);
       } finally {
@@ -219,19 +219,19 @@ describe('answering and publishing', () => {
         await join(db, contestId, bystander.id, 2);
 
         const asked = await asker
-          .post('/contests/clar-ans/clarifications')
+          .post('/api/v1/contests/clar-ans/clarifications')
           .send({ question: 'Is N up to 1e9?' });
         const id = (asked.body as { id: number }).id;
 
         // A participant cannot answer their own question into existence.
         const usurped = await asker
-          .patch(`/contests/clar-ans/clarifications/${String(id)}`)
+          .patch(`/api/v1/contests/clar-ans/clarifications/${String(id)}`)
           .send({ answer: 'Yes, obviously.' });
         expect(usurped.status).toBe(403);
         expect(usurped.body.code).toBe('contest_forbidden');
 
         const answered = await organiserAgent
-          .patch(`/contests/clar-ans/clarifications/${String(id)}`)
+          .patch(`/api/v1/contests/clar-ans/clarifications/${String(id)}`)
           .send({ answer: 'Yes, N is at most 1e9.' });
         expect(answered.status).toBe(200);
         expect(Clarification.parse(answered.body)).toMatchObject({
@@ -247,7 +247,7 @@ describe('answering and publishing', () => {
         expect((await feedOf(db, bystander.id)).items).toEqual([]);
 
         const published = await organiserAgent
-          .patch(`/contests/clar-ans/clarifications/${String(id)}`)
+          .patch(`/api/v1/contests/clar-ans/clarifications/${String(id)}`)
           .send({ visibility: 'public' });
         expect(published.status).toBe(200);
 
@@ -263,7 +263,7 @@ describe('answering and publishing', () => {
 
         // A typo fix on an already-public answer is not news.
         await organiserAgent
-          .patch(`/contests/clar-ans/clarifications/${String(id)}`)
+          .patch(`/api/v1/contests/clar-ans/clarifications/${String(id)}`)
           .send({ answer: 'Yes, N is at most 10^9.' });
         expect((await feedOf(db, bystander.id)).items).toHaveLength(1);
         expect((await feedOf(db, askerId)).items).toHaveLength(1);
@@ -271,7 +271,7 @@ describe('answering and publishing', () => {
         // Public now, so the bystander can read it.
         const theirs = await request
           .agent(app.getHttpServer())
-          .get('/contests/clar-ans/clarifications');
+          .get('/api/v1/contests/clar-ans/clarifications');
         expect(ClarificationList.parse(theirs.body).items).toHaveLength(1);
       } finally {
         await app.close();
@@ -289,11 +289,11 @@ describe('answering and publishing', () => {
         await seedContest(db, { key: 'clar-there', createdBy: organiserId });
         const asker = await agentFor(app, 'clar-x-asker');
         await join(db, here, await userIdOf(db, 'clar-x-asker'));
-        const asked = await asker.post('/contests/clar-here/clarifications').send({ question: 'Q?' });
+        const asked = await asker.post('/api/v1/contests/clar-here/clarifications').send({ question: 'Q?' });
         const id = (asked.body as { id: number }).id;
 
         const res = await organiser
-          .patch(`/contests/clar-there/clarifications/${String(id)}`)
+          .patch(`/api/v1/contests/clar-there/clarifications/${String(id)}`)
           .send({ answer: 'A.' });
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('clarification_not_found');
@@ -317,7 +317,7 @@ describe('announcements', () => {
         await join(db, contestId, student.id, 1);
 
         const posted = await organiser
-          .post('/contests/ann-cup/announcements')
+          .post('/api/v1/contests/ann-cup/announcements')
           .send({ text: 'Problem B has been rejudged.' });
         expect(posted.status).toBe(201);
         expect(Clarification.parse(posted.body)).toMatchObject({
@@ -336,7 +336,7 @@ describe('announcements', () => {
         });
 
         // Anonymous, on a public contest: an announcement is for spectators too.
-        const anon = await request.agent(app.getHttpServer()).get('/contests/ann-cup/clarifications');
+        const anon = await request.agent(app.getHttpServer()).get('/api/v1/contests/ann-cup/clarifications');
         expect(anon.status).toBe(200);
         expect(ClarificationList.parse(anon.body).items).toHaveLength(1);
       } finally {
@@ -354,7 +354,7 @@ describe('announcements', () => {
         const student = await agentFor(app, 'ann-student2');
         await join(db, contestId, await userIdOf(db, 'ann-student2'));
 
-        const res = await student.post('/contests/ann-cup2/announcements').send({ text: 'I am in charge now.' });
+        const res = await student.post('/api/v1/contests/ann-cup2/announcements').send({ text: 'I am in charge now.' });
         expect(res.status).toBe(403);
         expect(res.body.code).toBe('contest_forbidden');
       } finally {
@@ -376,14 +376,14 @@ describe('announcements', () => {
           .where(eq(schema.users.username, 'ann-admin-user'));
         const asker = await agentFor(app, 'ann-admin-asker');
         await join(db, contestId, await userIdOf(db, 'ann-admin-asker'));
-        const asked = await asker.post('/contests/ann-admin/clarifications').send({ question: 'Q?' });
+        const asked = await asker.post('/api/v1/contests/ann-admin/clarifications').send({ question: 'Q?' });
 
         const answered = await adminAgent
-          .patch(`/contests/ann-admin/clarifications/${String((asked.body as { id: number }).id)}`)
+          .patch(`/api/v1/contests/ann-admin/clarifications/${String((asked.body as { id: number }).id)}`)
           .send({ answer: 'A.', visibility: 'public' });
         expect(answered.status).toBe(200);
         const announced = await adminAgent
-          .post('/contests/ann-admin/announcements')
+          .post('/api/v1/contests/ann-admin/announcements')
           .send({ text: 'Ten minutes remaining.' });
         expect(announced.status).toBe(201);
       } finally {
@@ -406,7 +406,7 @@ describe('announcements', () => {
           .values({ contestId, problemId: problem!.id, label: 'A', points: 100, order: 0 });
 
         const posted = await organiser
-          .post('/contests/ann-p/announcements')
+          .post('/api/v1/contests/ann-p/announcements')
           .send({ problemCode: problem!.code, text: 'Sample 2 was wrong; fixed.' });
         expect(posted.status).toBe(201);
         expect(Clarification.parse(posted.body).problemCode).toBe(problem!.code);
@@ -450,15 +450,15 @@ describe('the pre-start problem-list concealment', () => {
           .values({ contestId: contest!.id, problemId: problem!.id, label: 'A', points: 100, order: 0 });
 
         const posted = await organiser
-          .post('/contests/pre-c/announcements')
+          .post('/api/v1/contests/pre-c/announcements')
           .send({ problemCode: problem!.code, text: 'The English statement lands at 08:00.' });
         expect(posted.status).toBe(201);
 
         // The detail route already conceals the list; the feed must agree.
-        const concealed = await request(app.getHttpServer()).get('/contests/pre-c');
+        const concealed = await request(app.getHttpServer()).get('/api/v1/contests/pre-c');
         expect(concealed.body.problems).toEqual([]);
 
-        const anon = await request(app.getHttpServer()).get('/contests/pre-c/clarifications');
+        const anon = await request(app.getHttpServer()).get('/api/v1/contests/pre-c/clarifications');
         expect(anon.status).toBe(200);
         const items = ClarificationList.parse(anon.body).items;
         expect(items).toHaveLength(1);
@@ -467,7 +467,7 @@ describe('the pre-start problem-list concealment', () => {
         expect(items[0]!.problemCode).toBeNull();
 
         // The organiser, who chose the problems, still sees it.
-        const mine = await organiser.get('/contests/pre-c/clarifications');
+        const mine = await organiser.get('/api/v1/contests/pre-c/clarifications');
         expect(ClarificationList.parse(mine.body).items[0]!.problemCode).toBe(problem!.code);
       } finally {
         await app.close();
@@ -491,10 +491,10 @@ describe('the pre-start problem-list concealment', () => {
           .insert(contestProblems)
           .values({ contestId, problemId: problem!.id, label: 'A', points: 100, order: 0 });
         await organiser
-          .post('/contests/post-c/announcements')
+          .post('/api/v1/contests/post-c/announcements')
           .send({ problemCode: problem!.code, text: 'Sample 2 was wrong; fixed.' });
 
-        const anon = await request(app.getHttpServer()).get('/contests/post-c/clarifications');
+        const anon = await request(app.getHttpServer()).get('/api/v1/contests/post-c/clarifications');
         expect(ClarificationList.parse(anon.body).items[0]!.problemCode).toBe(problem!.code);
       } finally {
         await app.close();
@@ -512,7 +512,7 @@ describe('a malformed clarification id', () => {
         await seedContest(db, { key: 'clar-nan', createdBy: await userIdOf(db, 'clar-nan-boss') });
 
         const res = await organiser
-          .patch('/contests/clar-nan/clarifications/abc')
+          .patch('/api/v1/contests/clar-nan/clarifications/abc')
           .send({ answer: 'A.' });
         expect(res.status).toBe(404);
         expect(res.body.code).toBe('clarification_not_found');
@@ -610,7 +610,7 @@ describe('the feed is bounded (D63)', () => {
 
         // Anonymous — the `@Public()` shape every spectator's browser polls
         // every 30 seconds while the contest runs.
-        const res = await request(app.getHttpServer()).get('/contests/busy/clarifications');
+        const res = await request(app.getHttpServer()).get('/api/v1/contests/busy/clarifications');
         expect(res.status).toBe(200);
         const body = ClarificationList.parse(res.body);
         expect(body.items).toHaveLength(FEED_CAP);
@@ -640,7 +640,7 @@ describe('the feed is bounded (D63)', () => {
           answeredAt: new Date(),
           visibility: 'public',
         });
-        const res = await request(app.getHttpServer()).get('/contests/quiet/clarifications');
+        const res = await request(app.getHttpServer()).get('/api/v1/contests/quiet/clarifications');
         const body = ClarificationList.parse(res.body);
         expect(body.items).toHaveLength(1);
         expect(body.truncated).toBe(false);

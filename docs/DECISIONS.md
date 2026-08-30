@@ -3732,3 +3732,46 @@ it there. Two doors existed into a live problem and it takes exactly one.
 *Ruled by the implementer during the 2026-08-30 feature loop (F21 brief), no
 human available to consult. No migration.*
 
+
+## D91 — The test harness serves the application the container serves
+
+B-15's audit recorded it and did not fix it: `apps/api/test/app.harness.ts`'s
+`buildApp` applied `cookieParser` and a `ProblemFilter` **by hand** and nothing
+else, and `TEST_CONFIG` was a hand-written `AppConfig` object literal. So the
+~900 API specs ran against an app that shared two lines with the one `main.ts`
+boots — **no `/api/v1` prefix, no CORS, no body limits, no keep-alive tuning**
+— and `loadConfig` had exactly one caller in the whole suite.
+
+- **`buildApp` (and `buildAppWithRealtime`) now call `configureApp`**, the same
+  function `main.ts` calls, with no subset and no copy. The `browserOrigin`
+  stamp stays, installed first: it is a *browser simulation* supertest lacks,
+  not application wiring.
+- **Every spec path gained the prefix, mechanically** (867 call sites, 68
+  files). The exceptions are deliberate and small: `/healthz` and `/readyz`
+  (`configureApp` excludes them — they are infrastructure contracts, not API
+  surface), `app.smoke.spec.ts`'s two *off*-the-prefix negative tests, and the
+  seven specs that build a bare `Test.createTestingModule` app of their own to
+  exercise one guard or one filter, which never had a prefix to begin with.
+- **`TEST_CONFIG = loadConfig(TEST_ENV)`**, where `TEST_ENV` names the same
+  variables `docker-compose.yml` sets. The old literal was demonstrably *not* a
+  config `loadConfig` would produce — `port: 0` (`PORT` is `min(1)`) and
+  `logLevel: 'silent'` (absent from the `LOG_LEVEL` enum) — and nothing could
+  notice, because the two were never run against each other.
+- **`LOG_LEVEL` now admits `silent`.** It is one of pino's own levels and the
+  only one the enum omitted, so `LOG_LEVEL=silent` in a `.env` crashed the API
+  at boot with `Invalid environment configuration`. Admitted so the harness can
+  go through the parser at all, and so an operator who wants a quiet container
+  gets one instead of a boot loop.
+- **`test/harness-realism.spec.ts` is the guard**, asserting the prefix, the
+  CORS exposed-header list, the 100 KB body limit's 413, `x-powered-by` off and
+  the keep-alive pair — against an app from `buildApp`, deliberately not one
+  the file wires itself, because what is under test is what the other 900
+  specs are handed.
+
+The cost is that a harness app now carries CORS and body limits that most
+specs do not care about; that is the point. The benefit is that a route which
+works in every spec and 404s behind Caddy is no longer a shape the suite
+cannot see — the same class of gap the 2026-08-30 boot outage came out of.
+
+*Ruled by the implementer during the 2026-08-30 bug-hunt loop (B-16 brief), no
+human available to consult. No migration.*

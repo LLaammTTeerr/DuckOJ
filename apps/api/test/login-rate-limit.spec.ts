@@ -23,7 +23,7 @@ import { withTestDb } from './db.harness.js';
 const PASSWORD = 'a-long-enough-password';
 
 async function registerUser(app: INestApplication, username: string): Promise<void> {
-  const res = await request(app.getHttpServer()).post('/auth/register').send({
+  const res = await request(app.getHttpServer()).post('/api/v1/auth/register').send({
     username,
     email: `${username}@example.com`,
     password: PASSWORD,
@@ -38,7 +38,7 @@ function attempt(
   usernameOrEmail: string,
   opts: { password?: string; ip?: string } = {},
 ) {
-  const req = request(app.getHttpServer()).post('/auth/login');
+  const req = request(app.getHttpServer()).post('/api/v1/auth/login');
   if (opts.ip) req.set('X-Forwarded-For', `${opts.ip}, 10.0.0.1`);
   return req.send({ usernameOrEmail, password: opts.password ?? 'wrong-password-entirely' });
 }
@@ -150,11 +150,11 @@ describe('a two-factor refusal', () => {
       try {
         const agent = request.agent(app.getHttpServer());
         await registerUser(app, 'twofactor');
-        await agent.post('/auth/login').send({ usernameOrEmail: 'twofactor', password: PASSWORD });
-        const begin = await agent.post('/auth/totp/begin');
+        await agent.post('/api/v1/auth/login').send({ usernameOrEmail: 'twofactor', password: PASSWORD });
+        const begin = await agent.post('/api/v1/auth/totp/begin');
         const secret = (begin.body as { secret: string }).secret;
         const confirm = await agent
-          .post('/auth/totp/confirm')
+          .post('/api/v1/auth/totp/confirm')
           .send({ code: authenticator.generate(secret) });
         expect(confirm.status).toBe(200);
         // The enrolment above signed in successfully, which consumes nothing.
@@ -162,7 +162,7 @@ describe('a two-factor refusal', () => {
 
         // Right password, no code: a 401, and it counts.
         const noCode = await request(app.getHttpServer())
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .set('X-Forwarded-For', '203.0.113.10')
           .send({ usernameOrEmail: 'twofactor', password: PASSWORD });
         expect([noCode.status, noCode.body.code]).toEqual([401, 'totp_required']);
@@ -170,7 +170,7 @@ describe('a two-factor refusal', () => {
         // Right password, wrong code: the guessing attack two-factor exists
         // to stop, and the one that most needs a window.
         const wrongCode = await request(app.getHttpServer())
-          .post('/auth/login')
+          .post('/api/v1/auth/login')
           .set('X-Forwarded-For', '203.0.113.10')
           .send({ usernameOrEmail: 'twofactor', password: PASSWORD, totpCode: '000000' });
         expect([wrongCode.status, wrongCode.body.code]).toEqual([401, 'invalid_totp_code']);
@@ -217,7 +217,7 @@ describe('per-IP throttling', () => {
         // different key.
         for (let i = 0; i < 3; i++) {
           await request(app.getHttpServer())
-            .post('/auth/login')
+            .post('/api/v1/auth/login')
             .set('X-Forwarded-For', `203.0.113.77, 10.0.0.${String(i)}`)
             .send({ usernameOrEmail: `spray-${String(i)}`, password: 'nope-not-this-one' });
         }

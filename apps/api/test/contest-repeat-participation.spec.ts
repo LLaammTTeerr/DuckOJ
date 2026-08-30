@@ -83,12 +83,12 @@ describe('a competitor holding more than one participation', () => {
 
         // Two virtual attempts — exactly what `join`'s own doc comment says a
         // second virtual join is for.
-        const first = await agent.post('/contests/repeat-c/join');
-        const second = await agent.post('/contests/repeat-c/join');
+        const first = await agent.post('/api/v1/contests/repeat-c/join');
+        const second = await agent.post('/api/v1/contests/repeat-c/join');
         expect(first.body.virtual).toBe(1);
         expect(second.body.virtual).toBe(2);
 
-        const board = await agent.get('/contests/repeat-c/scoreboard');
+        const board = await agent.get('/api/v1/contests/repeat-c/scoreboard');
         expect(board.status).toBe(200);
         const rows = board.body.ranking as { participant: string; virtual: number }[];
         expect(rows).toHaveLength(2);
@@ -117,9 +117,9 @@ describe('a competitor holding more than one participation', () => {
         });
 
         // Live: joined and submitted while the contest ran.
-        const live = await agent.post('/contests/both-c/join');
+        const live = await agent.post('/api/v1/contests/both-c/join');
         expect(live.body.virtual).toBe(0);
-        const submitted = await agent.post('/submissions').send({
+        const submitted = await agent.post('/api/v1/submissions').send({
           problemCode: 'repeat-b',
           languageKey: 'cpp17',
           source: 'int main(){}',
@@ -140,7 +140,7 @@ describe('a competitor holding more than one participation', () => {
           startTime: new Date(Date.now() - MINUTE),
         });
 
-        const board = await agent.get('/contests/both-c/scoreboard');
+        const board = await agent.get('/api/v1/contests/both-c/scoreboard');
         expect(board.status).toBe(200);
         const rows = board.body.ranking as { virtual: number; submission_count: number }[];
         expect(rows).toHaveLength(2);
