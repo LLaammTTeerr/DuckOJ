@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { packDirectory, readArchiveEntry, unpackArchive } from '../src/archive.js';
+import { MAX_UNPACKED_BYTES, packDirectory, readArchiveEntry, unpackArchive } from '../src/archive.js';
 
 async function fixture(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'pkg-'));
@@ -87,4 +87,40 @@ describe('readArchiveEntry', () => {
     const bytes = await readArchiveEntry(archive, 'manifest.json');
     expect(bytes?.toString('utf8')).toBe('{"schemaVersion":1,"target":true}');
   }, 30_000);
+});
+
+/**
+ * A zstd archive is an amplifier: 200 MB of zeroes compress to ~6 KB, so the
+ * upload endpoint's byte cap (`PACKAGE_UPLOAD_MAX_BYTES`, 256 MiB) bounds
+ * only what arrives on the wire, not what `zstdDecompressSync` allocates
+ * from it. Both readers must refuse past `MAX_UNPACKED_BYTES` rather than
+ * trying and dying — a Buffer allocation that big takes the whole API
+ * process down, which no HTTP-level limit can mitigate.
+ */
+describe('a decompression bomb', () => {
+  async function bomb(): Promise<Buffer> {
+    const dir = await mkdtemp(join(tmpdir(), 'bomb-'));
+    await writeFile(join(dir, 'manifest.json'), Buffer.alloc(4 * 1024 * 1024, 0));
+    const { archive } = await packDirectory(dir);
+    return archive;
+  }
+
+  it('unpackArchive refuses to inflate past the cap instead of allocating it', async () => {
+    const archive = await bomb();
+    expect(archive.length).toBeLessThan(64 * 1024);
+    const dest = await mkdtemp(join(tmpdir(), 'bomb-out-'));
+    await expect(unpackArchive(archive, dest, 64 * 1024)).rejects.toThrow(/too large|larger than/i);
+  });
+
+  it('readArchiveEntry refuses the same archive', async () => {
+    const archive = await bomb();
+    await expect(readArchiveEntry(archive, 'manifest.json', 64 * 1024)).rejects.toThrow(
+      /too large|larger than/i,
+    );
+  });
+
+  it('carries a default cap, so a caller that passes nothing is still bounded', () => {
+    expect(MAX_UNPACKED_BYTES).toBeGreaterThan(0);
+    expect(Number.isFinite(MAX_UNPACKED_BYTES)).toBe(true);
+  });
 });

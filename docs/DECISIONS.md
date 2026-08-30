@@ -1427,3 +1427,30 @@ staleness question to a screen whose entire job is to be current.
 
 *Ruled by the implementer during the 2026-08-29 feature/bug loop (F5 brief),
 no human available to consult. No migration.*
+
+## D53 — A package inflates to at most 1 GiB, and refuses rather than tries
+
+`PACKAGE_UPLOAD_MAX_BYTES` (256 MiB) bounds the bytes that arrive at
+`POST /packages`. It does not bound what those bytes *become*: zstd is an
+amplifier, and 200 MB of zeroes compress to about 6 KB. Both readers in
+`@duckoj/package-format` decompressed a caller-supplied archive into one
+`Buffer` with no limit, so a 6 KB upload — waved through by every HTTP-level
+check — allocated whatever the archive said, and an allocation that large
+does not fail a request, it ends the process. `readArchiveEntry` runs on the
+same path from `attachRevision`, so a stored package could do it too.
+
+- **1 GiB (`MAX_UNPACKED_BYTES`)**, four times the compressed cap. Real
+  provincial test data is megabytes (D20); nothing legitimate is near this.
+  Larger, and a rejection stops being a rejection and becomes an OOM again;
+  much smaller, and the ceiling would be a product rule about package size,
+  which is not what this is.
+- **Refused before allocating.** `maxOutputLength` makes zlib raise
+  `ERR_BUFFER_TOO_LARGE` instead of asking the allocator, which is the only
+  moment at which refusing is still possible. `PackagesService.upload`
+  already turns a non-`AppError` from unpacking into `422
+  package_archive_invalid`, so the bomb answers as the bad archive it is.
+- **The cap is a parameter with that default**, not a hard-coded constant, so
+  a test can prove the bound with a 64 KB archive instead of a real gigabyte.
+
+*Ruled by the implementer during the 2026-08-29 feature/bug loop (B6 brief),
+no human available to consult. No migration.*
