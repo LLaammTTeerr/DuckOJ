@@ -586,8 +586,13 @@ test('journey 8 — a live freeze masks a rival’s verdict, and never the organ
   await submitAndAwait(rival, AC_SOURCE, 'AC');
 
   await signIn(page, admin.username, admin.password);
+  // Same reason as the afterAll restore above: `page.request` is an HTTP
+  // client sharing the cookie jar, not a navigated browser, so it does not
+  // send `Origin` on its own and D82's `CsrfOriginGuard` 403s a
+  // cookie-authenticated write that names none (B-14 named this exact PATCH).
   const opened = await page.request.patch(`/api/v1/problems/${PROBLEM}`, {
     data: { sourceAccess: 'solved' },
+    headers: { origin: REQUEST_ORIGIN },
   });
   expect(opened.ok(), `opening ${PROBLEM} to solvers: ${opened.status()}`).toBe(true);
   sourceAccessFlipped = true;
