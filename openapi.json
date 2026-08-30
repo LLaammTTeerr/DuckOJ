@@ -13985,6 +13985,13 @@
                     },
                     "editorialAvailable": {
                       "type": "boolean"
+                    },
+                    "publishedVersion": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
                     }
                   },
                   "required": [
@@ -14009,7 +14016,8 @@
                     "members",
                     "orgSlugs",
                     "editorial",
-                    "editorialAvailable"
+                    "editorialAvailable",
+                    "publishedVersion"
                   ]
                 }
               }
@@ -14399,6 +14407,13 @@
                     },
                     "editorialAvailable": {
                       "type": "boolean"
+                    },
+                    "publishedVersion": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
                     }
                   },
                   "required": [
@@ -14423,7 +14438,8 @@
                     "members",
                     "orgSlugs",
                     "editorial",
-                    "editorialAvailable"
+                    "editorialAvailable",
+                    "publishedVersion"
                   ]
                 }
               }
@@ -14767,6 +14783,13 @@
                     },
                     "editorialAvailable": {
                       "type": "boolean"
+                    },
+                    "publishedVersion": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
                     }
                   },
                   "required": [
@@ -14791,7 +14814,8 @@
                     "members",
                     "orgSlugs",
                     "editorial",
-                    "editorialAvailable"
+                    "editorialAvailable",
+                    "publishedVersion"
                   ]
                 }
               }
@@ -15371,6 +15395,13 @@
                     },
                     "editorialAvailable": {
                       "type": "boolean"
+                    },
+                    "publishedVersion": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "exclusiveMinimum": 0
                     }
                   },
                   "required": [
@@ -15395,7 +15426,8 @@
                     "members",
                     "orgSlugs",
                     "editorial",
-                    "editorialAvailable"
+                    "editorialAvailable",
+                    "publishedVersion"
                   ]
                 }
               }

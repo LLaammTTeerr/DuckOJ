@@ -3775,3 +3775,45 @@ cannot see — the same class of gap the 2026-08-30 boot outage came out of.
 
 *Ruled by the implementer during the 2026-08-30 bug-hunt loop (B-16 brief), no
 human available to consult. No migration.*
+
+## D92 — `GET /problems/{code}` says WHICH revision is live, not merely that one is
+
+F-21's live probe reported `publishedVersion: null` for every problem on the
+deployment and the loop ledger carried it forward as a bug. It was not a
+mapping fault, a stale column or a cache: **the field did not exist**. `jq`
+prints `null` for a key that is not in the object, so a missing field and a
+null field are one string on the wire, and the projection that "found" the bug
+was asking for something no contract had ever declared.
+
+The gap it pointed at is real, though. `ProblemDetail` carried
+`hasPublishedRevision: boolean` and nothing else about the live revision; the
+number lived only behind `GET /problems/{code}/revisions`, which
+`canViewRevisions` restricts to members and admins. A setter's own tooling —
+`packages/prepare`'s idempotency check, the authoring tab's "open a draft from
+revision N" (D88) — has to ask "which one is live" and had to be a problem
+member to get an answer.
+
+- **`publishedVersion: number | null` on the DETAIL, not the summary.** No list
+  row renders it, so putting it on `ProblemSummary` would be payload on every
+  page of every search to answer a question only the problem's own page asks.
+- **`hasPublishedRevision` stays**, and is not re-derived from it: it is the
+  boolean a list row does render, and collapsing the two would make every
+  caller write `publishedVersion !== null` instead.
+- **It nulls with the other four revision-derived fields.** `timeMs`,
+  `memoryKb`, `testCount`, `totalPoints`, `checkerKind` and now
+  `publishedVersion` all come from the same left join, whose `state =
+  'published'` term is what makes them honest — a problem whose
+  `currentRevisionId` were parked on an archived revision reads as one that has
+  never shipped rather than reporting a stale version number as live. That
+  state is unreachable through `publishRevision` today and is written by hand in
+  `problem-reads.spec.ts`, which is the test the file's own `testCount` comment
+  said no fixture could build.
+- **Both detail builders**: `getVisible` and `loadDetailById` (which backs
+  `POST /problems` and `PATCH /problems/{code}`) each carry it, so a create or
+  a patch answers what the next `GET` will say.
+
+Not a leak: a version number says how many times a setter re-published, which
+is not a hint about the problem's content, so it is not on D35's mask.
+
+*Ruled by the implementer during the 2026-08-30 bug-hunt loop (B-16 brief), no
+human available to consult. No migration.*

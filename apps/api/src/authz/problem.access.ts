@@ -376,6 +376,7 @@ export class ProblemAccessService {
           editorialPublishedAt: Date | null;
           createdAt: Date;
           revisionId: number | null;
+          publishedVersion: number | null;
           timeMs: number | null;
           memoryKb: number | null;
           testCount: number | null;
@@ -402,6 +403,7 @@ export class ProblemAccessService {
             editorialPublishedAt: problems.editorialPublishedAt,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
+            publishedVersion: problemRevisions.version,
             timeMs: problemRevisions.timeMs,
             memoryKb: problemRevisions.memoryKb,
             testCount: problemRevisions.testCount,
@@ -432,6 +434,7 @@ export class ProblemAccessService {
             editorialPublishedAt: problems.editorialPublishedAt,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
+            publishedVersion: problemRevisions.version,
             timeMs: problemRevisions.timeMs,
             memoryKb: problemRevisions.memoryKb,
             testCount: problemRevisions.testCount,
@@ -483,6 +486,13 @@ export class ProblemAccessService {
       testCount: row.revisionId === null ? null : row.testCount,
       totalPoints: row.revisionId === null ? null : row.totalPoints,
       checkerKind: row.revisionId === null ? null : row.checkerKind,
+      // Same guard as the three above, for the same reason: the join already
+      // carries `state = 'published'`, so a pointer parked on an archived
+      // revision matches nothing and every one of these reads SQL NULL.
+      // Stated rather than assumed — this is the field a client uses to
+      // decide WHICH revision it is looking at, and a stale number here is
+      // worse than no number at all.
+      publishedVersion: row.revisionId === null ? null : row.publishedVersion,
       createdAt: row.createdAt.toISOString(),
       members,
       orgSlugs,
@@ -1427,6 +1437,7 @@ export class ProblemAccessService {
       editorialPublishedAt: Date | null;
       createdAt: Date;
       revisionId: number | null;
+      publishedVersion: number | null;
       timeMs: number | null;
       memoryKb: number | null;
       testCount: number | null;
@@ -1452,6 +1463,7 @@ export class ProblemAccessService {
             editorialPublishedAt: problems.editorialPublishedAt,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
+            publishedVersion: problemRevisions.version,
             timeMs: problemRevisions.timeMs,
             memoryKb: problemRevisions.memoryKb,
             testCount: problemRevisions.testCount,
@@ -1482,6 +1494,7 @@ export class ProblemAccessService {
             editorialPublishedAt: problems.editorialPublishedAt,
             createdAt: problems.createdAt,
             revisionId: problemRevisions.id,
+            publishedVersion: problemRevisions.version,
             timeMs: problemRevisions.timeMs,
             memoryKb: problemRevisions.memoryKb,
             testCount: problemRevisions.testCount,
@@ -1524,6 +1537,13 @@ export class ProblemAccessService {
       testCount: row.revisionId === null ? null : row.testCount,
       totalPoints: row.revisionId === null ? null : row.totalPoints,
       checkerKind: row.revisionId === null ? null : row.checkerKind,
+      // Same guard as the three above, for the same reason: the join already
+      // carries `state = 'published'`, so a pointer parked on an archived
+      // revision matches nothing and every one of these reads SQL NULL.
+      // Stated rather than assumed — this is the field a client uses to
+      // decide WHICH revision it is looking at, and a stale number here is
+      // worse than no number at all.
+      publishedVersion: row.revisionId === null ? null : row.publishedVersion,
       createdAt: row.createdAt.toISOString(),
       members,
       orgSlugs,

@@ -6772,6 +6772,7 @@ export interface paths {
                             orgSlugs: string[];
                             editorial: string | null;
                             editorialAvailable: boolean;
+                            publishedVersion: number | null;
                         };
                     };
                 };
@@ -6927,6 +6928,7 @@ export interface paths {
                             orgSlugs: string[];
                             editorial: string | null;
                             editorialAvailable: boolean;
+                            publishedVersion: number | null;
                         };
                     };
                 };
@@ -7035,6 +7037,7 @@ export interface paths {
                             orgSlugs: string[];
                             editorial: string | null;
                             editorialAvailable: boolean;
+                            publishedVersion: number | null;
                         };
                     };
                 };
@@ -7296,6 +7299,7 @@ export interface paths {
                             orgSlugs: string[];
                             editorial: string | null;
                             editorialAvailable: boolean;
+                            publishedVersion: number | null;
                         };
                     };
                 };
