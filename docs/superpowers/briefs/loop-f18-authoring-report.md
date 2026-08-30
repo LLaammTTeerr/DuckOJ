@@ -19,27 +19,16 @@ with `POST /packages`.
 source in the same lazy CodeMirror as the submit box), case table, bulk add by stem, per-file
 progress, inline refusals, link into the revisions screen. vi/en both.
 
-## Files
-
-New: `packages/package-format/src/build.ts`, `packages/contracts/src/problem-drafts.ts`,
-`apps/api/src/common/raw-body.ts`, `apps/api/src/packages/draft.store.ts`,
-`apps/api/src/problems/{problem-drafts.controller,problem-drafts.service,draft.sweeper}.ts`,
-`apps/api/test/problem-drafts.spec.ts`, `apps/web/src/testdata/pairing.ts`,
-`apps/web/src/routes/problem-testdata.tsx`, and two web specs. Touched:
-`scripts/lib/build-package.ts`, both index/module/i18n files, `problem.access.ts`,
-`problem-edit.tsx`, `i18n.spec.tsx`, `openapi.json`, `sdk/src/generated.ts`.
-
 ## Tests — red→green evidence
 
-11 API integration tests on `testDbUrl()`, 14 web tests. Each behaviour was shown failing against
-broken code, then restored: dropping `DraftFileName`'s regex reds the path test; dropping the
-`problemId`/expiry checks reds the cross-problem and expiry tests; `loadEditableProblem` →
-`findProblemRow` reds the authz test (201 where 404 expected); disabling either cap reds both cap
-tests; flattening `buildPackage`'s message reds the refusal test; deleting the draft before the
-attach reds the build-success test; dropping `missing-answer` reds the pairing and bulk-add tests;
-ranking `.a`/`.out` by arrival order reds the preference test; `points: c.points` for a sample reds
-the sample test; `manifest.json` last reds the PUT-order test; `error.code` for `error.detail` reds
-the verbatim test.
+11 API integration tests on `testDbUrl()` (`apps/api/test/problem-drafts.spec.ts`), 14 web tests
+(`apps/web/test/{problem-testdata,testdata-pairing}.spec.*`). Twelve mutations were each run and
+each redded exactly its own test, then restored — the two most load-bearing:
+`loadEditableProblem` → `findProblemRow` (no authz) turns the stranger's 404 into a 201, and
+`putFile`'s temp file moved back inside `files/` packs a `.tmp-` orphan left by a killed worker into
+the problem's package, changing its hash. The rest: the name regex, the `problemId` and expiry
+checks, both caps, the verbatim build message, deleting the draft before the attach, `missing-answer`
+pairing, `.out`-over-`.a` preference, a sample's zero points, and `manifest.json` first.
 
 Ritual: `-r typecheck`, `typecheck:scripts`, `-r lint`, `lint:scripts`, `-r test` (api 943, web 482,
 every package green), regen with no diff, `vite build`.
@@ -50,7 +39,8 @@ No zips — 7a stands, a bulk add is many individual files paired client-side. N
 files must live on the shared volume anyway, so a row would be a second source of truth. Expiry at
 access time, sweeper for disk only. Flat names, `.`/`..` refused by name as well as by pattern (the
 class admits both). A sample is `points: 0, group: 0` — the manifest has no sample flag and did not
-gain one. `problems:publish`, not `packages:write`.
+gain one. `problems:publish`, not `packages:write`. Unrecorded elsewhere: the publish control says "Công bố",
+the revisions screen's existing word, not the brief's "Xuất bản" — the link lands on that screen.
 
 ## Deviations / concerns
 
@@ -63,3 +53,4 @@ gain one. `problems:publish`, not `packages:write`.
 - The build re-unpacks the archive it just made (inside `upload`) — deliberate, one validation path,
   a few hundred ms on a large test set.
 - Not built: reading an existing revision's test data back into the tab.
+- Files, per commit: `03ae314` (API + contracts + regen), `7f3cf3e` (web), then the docs commits.

@@ -105,6 +105,14 @@ describe('problem package drafts (D87)', () => {
         const last = await putFile(agent, 'draft-ok', draftId, '02.out', '9\n');
         expect(last.body.fileCount).toBe(5);
 
+        // A `.tmp-…` orphan left in the draft ROOT by a worker killed
+        // mid-PUT must not reach the package: `buildPackage` tars everything
+        // in the directory it is given, so the temp file `putFile` renames
+        // from lives one level up, outside `files/`. The exact path list
+        // below is what proves it.
+        const store = app.get<DraftStore>(DRAFT_STORE);
+        await writeFile(join(store.filesDir(draftId), '..', '.tmp-orphan'), 'half a test');
+
         const built = await agent
           .post(`/problems/draft-ok/drafts/${draftId}/build`)
           .send({ notes: 'from the browser', publish: true });

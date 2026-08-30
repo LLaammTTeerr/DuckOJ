@@ -136,12 +136,17 @@ export class FilesystemDraftStore implements DraftStore {
   /**
    * Atomic, for `FilesystemPackageStore.put`'s reason: a process death
    * mid-write must not leave a truncated file that `stats` counts and
-   * `buildPackage` hashes. Written into the same directory so the rename
-   * cannot cross a filesystem boundary; the temp name is prefixed with a dot
-   * and carries a random suffix, so two concurrent writes of the same name
-   * never share one temp file and neither temp file is ever itself a
-   * candidate `name` (the dot-prefix is unreachable from `FILE_NAME_PATTERN`
-   * only by convention, so the sweep of leftovers below is by `readdir`).
+   * `buildPackage` hashes.
+   *
+   * The temp file lives one level UP, beside `meta.json`, and deliberately
+   * not inside `files/`: `buildPackage` tars everything in the directory it
+   * is given, so a `.tmp-…` left behind by a killed worker would be packed
+   * into the problem's package — changing its content-addressed hash, and
+   * shipping a stray blob to every judge that materialises it. Outside
+   * `files/` it is invisible to the build, to `stats`, and to everything but
+   * the `rm -r` that eventually reclaims the draft. Same directory tree, so
+   * the rename still cannot cross a filesystem boundary; a random suffix, so
+   * two concurrent writes of one name never share a temp file.
    */
   async putFile(draftId: string, name: string, bytes: Buffer): Promise<void> {
     if (!FILE_NAME_PATTERN.test(name) || name === '.' || name === '..') {
@@ -149,7 +154,7 @@ export class FilesystemDraftStore implements DraftStore {
     }
     const dir = this.filesDir(draftId);
     await mkdir(dir, { recursive: true });
-    const tempPath = join(dir, `.tmp-${randomUUID()}`);
+    const tempPath = join(this.dirFor(draftId), `.tmp-${randomUUID()}`);
     try {
       await writeFile(tempPath, bytes);
       await rename(tempPath, join(dir, name));
