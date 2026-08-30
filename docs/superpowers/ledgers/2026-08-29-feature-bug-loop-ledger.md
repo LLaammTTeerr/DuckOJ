@@ -35,3 +35,4 @@
 - F-8 dispatched (main, opus): bulk student accounts (D61). B-8 dispatched (worktree, opus): whole-loop-diff review hunt, D62–D64 reserved.
 - B-8 DONE, merged: BLOCKER booklet served statements without participation (D62), feed cap (D63), backtick-in-math typst, CORS headers, sweeper returning, org-picker errors, redis test isolation. api+web redeployed; pushed. Recorded-not-fixed: dashboard workers() join growth (D47 amendment owed), 9  swallows, BOOKLET_TZ.
 - B-8 DONE, merged: BLOCKER booklet served statements without participation (D62), feed cap (D63), backtick-in-math typst, CORS headers, sweeper returning, org-picker errors, redis test isolation. api+web redeployed; pushed. Recorded-not-fixed → B-9: dashboard workers() join growth (D47 amendment), nine `{data}` swallows, BOOKLET_TZ vs D57.
+- B-9 dispatched (worktree, opus): perf + B-8 leftovers (dashboard bounds/migration 0025, data-swallows, BOOKLET_TZ D64, k6 new routes, refetch backoff), D65 reserved.
