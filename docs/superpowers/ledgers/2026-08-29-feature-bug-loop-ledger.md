@@ -76,3 +76,4 @@
 - GitGuardian flagged f921aa3: a fixed e2e fixture password (not a credential). Replaced with a per-run random; 57 throwaway test accounts on live locked (password_hash '!'). Admin/student creds were never in git.
 - B-14 DONE_WITH_CONCERNS, merged: features.spec.ts (11 journeys green on live), certificates link + rank box, guide nav lists; web rebuilt, pushed. Its Origin concern is covered by playwright.config's extraHTTPHeaders.
 - B-15 DONE, merged: app.boot.spec against dist (esbuild drops decorator metadata — the outage class is now caught), crash-loop breaker (D85), worker-aware healthcheck (D86), scripts/deploy.sh with rollback (first live run: see line above). Pushed.
+- deploy.sh first live run rolled back on its :8443 probe (TLS reset on this host); default probe now :8080; second run: see line above.
