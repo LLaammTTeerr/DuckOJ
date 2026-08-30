@@ -6302,6 +6302,352 @@
         }
       }
     },
+    "/contests/{key}/monitor": {
+      "get": {
+        "tags": [
+          "Contests"
+        ],
+        "summary": "The live contest-day monitor — the organisers only",
+        "description": "Everything an organiser watches while a contest runs, in one snapshot: per-problem submitted / accepted / distinct solvers / still queued, the grading queue scoped to this contest, judge liveness, the last fifty submissions with their real verdicts (D22 gives the people who run a contest the unfrozen view), unanswered clarifications, how many competitors have a live socket open, and how many submissions the rate limiter turned away in the last ten minutes (D80, deployment-wide). Cached five seconds; the page polls at that interval and is woken sooner by the `contest-activity` WebSocket frame.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "key",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "problems": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "submitted": {
+                            "type": "integer"
+                          },
+                          "accepted": {
+                            "type": "integer"
+                          },
+                          "solvers": {
+                            "type": "integer"
+                          },
+                          "pending": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "label",
+                          "submitted",
+                          "accepted",
+                          "solvers",
+                          "pending"
+                        ]
+                      }
+                    },
+                    "queue": {
+                      "type": "object",
+                      "properties": {
+                        "depth": {
+                          "type": "integer"
+                        },
+                        "oldestPendingSeconds": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "depth",
+                        "oldestPendingSeconds"
+                      ]
+                    },
+                    "judges": {
+                      "type": "object",
+                      "properties": {
+                        "online": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "online",
+                        "total"
+                      ]
+                    },
+                    "feed": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "submissionId": {
+                            "type": "integer"
+                          },
+                          "username": {
+                            "type": "string"
+                          },
+                          "problemCode": {
+                            "type": "string"
+                          },
+                          "problemLabel": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string"
+                          },
+                          "verdict": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "submissionId",
+                          "username",
+                          "problemCode",
+                          "problemLabel",
+                          "state",
+                          "verdict",
+                          "createdAt"
+                        ]
+                      }
+                    },
+                    "clarifications": {
+                      "type": "object",
+                      "properties": {
+                        "unanswered": {
+                          "type": "integer"
+                        },
+                        "latest": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "problemCode": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "askedBy": {
+                                "type": "string"
+                              },
+                              "question": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "problemCode",
+                              "askedBy",
+                              "question",
+                              "createdAt"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "unanswered",
+                        "latest"
+                      ]
+                    },
+                    "participantsOnline": {
+                      "type": "integer"
+                    },
+                    "submitRefusalsLast10Min": {
+                      "type": "integer"
+                    },
+                    "generatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "problems",
+                    "queue",
+                    "judges",
+                    "feed",
+                    "clarifications",
+                    "participantsOnline",
+                    "submitRefusalsLast10Min",
+                    "generatedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller can see this contest but does not run it (`contest_forbidden`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such contest, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/users/{username}": {
       "patch": {
         "tags": [

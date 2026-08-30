@@ -1259,3 +1259,136 @@ registry.registerPath({
     422: VALIDATION_FAILED,
   },
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * The organiser live monitor — D95.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * One row of the per-problem panel.
+ *
+ * `submitted` counts contest submissions, not people: a competitor who tried
+ * six times is six. `solvers` is the number of distinct participants with at
+ * least one accepted attempt, which is the number an organiser compares
+ * against the room. `pending` is what the judge still owes — a grading job
+ * for this problem that is not `done`.
+ */
+export const ContestMonitorProblem = z.object({
+  code: z.string(),
+  label: z.string(),
+  submitted: z.number().int(),
+  accepted: z.number().int(),
+  solvers: z.number().int(),
+  pending: z.number().int(),
+});
+export type ContestMonitorProblemDto = z.infer<typeof ContestMonitorProblem>;
+
+/**
+ * One line of the live feed.
+ *
+ * `verdict` and `state` are spelled as plain strings rather than as
+ * `Verdict` / `SubmissionState`: `submissions.ts` already imports
+ * `CONTEST_KEY` from this module, so importing the enums back would close a
+ * module cycle that fails at zod-evaluation time rather than at type-check.
+ * The values are those enums, whose authority `verdict-enum-drift.spec.ts`
+ * guards.
+ *
+ * **Never frozen.** D22 gives the people who run a contest the live board,
+ * and this route is gated on exactly that set (`canRunContest`), so the feed
+ * shows real verdicts inside a freeze window.
+ */
+export const ContestMonitorEntry = z.object({
+  submissionId: z.number().int(),
+  username: z.string(),
+  problemCode: z.string(),
+  problemLabel: z.string(),
+  state: z.string(),
+  verdict: z.string().nullable(),
+  createdAt: Timestamp,
+});
+export type ContestMonitorEntryDto = z.infer<typeof ContestMonitorEntry>;
+
+/**
+ * One question still waiting for an answer — enough of it to decide whether
+ * to go and answer it. Every row here is unanswered by construction, so there
+ * is no `answered` flag: the panel is a work queue, not a transcript.
+ */
+export const ContestMonitorClarification = z.object({
+  id: z.number().int(),
+  problemCode: z.string().nullable(),
+  askedBy: z.string(),
+  question: z.string().nullable(),
+  createdAt: Timestamp,
+});
+export type ContestMonitorClarificationDto = z.infer<typeof ContestMonitorClarification>;
+
+/**
+ * Contest day in one response (D95): what the room is doing, what the judge
+ * owes it, and what the organisers still have to answer.
+ *
+ * One response rather than six, for D47's reason — the panels only mean
+ * anything together. Unlike D47's dashboard this one IS cached, for five
+ * seconds: it is opened during the busiest hours the deployment ever has,
+ * and five seconds is the interval its own page polls at.
+ */
+export const ContestMonitor = z.object({
+  problems: z.array(ContestMonitorProblem),
+  queue: z.object({
+    /** Grading jobs for THIS contest that are not `done`. */
+    depth: z.number().int(),
+    /** Age of the oldest of them. `null` for an empty queue, never `0`. */
+    oldestPendingSeconds: z.number().int().nullable(),
+  }),
+  judges: z.object({
+    /** Judge nodes heard from recently. Fleet-wide: a judge serves every contest. */
+    online: z.number().int(),
+    total: z.number().int(),
+  }),
+  /** The last fifty submissions into this contest, newest first. */
+  feed: z.array(ContestMonitorEntry),
+  clarifications: z.object({
+    unanswered: z.number().int(),
+    /** The newest five of the unanswered ones. */
+    latest: z.array(ContestMonitorClarification),
+  }),
+  /**
+   * Distinct people holding a participation in this contest who also have a
+   * live WebSocket open right now. A floor on "who is in the room", never a
+   * roster: a competitor reading a statement with no socket open is not
+   * counted, and nobody is counted twice for two tabs.
+   */
+  participantsOnline: z.number().int(),
+  /**
+   * `POST /submissions` refusals in the last ten minutes (D80).
+   * **Deployment-wide**, because that meter is keyed on the user rather than
+   * on a contest — there is no contest-scoped number to report.
+   */
+  submitRefusalsLast10Min: z.number().int(),
+  generatedAt: Timestamp,
+});
+export type ContestMonitorDto = z.infer<typeof ContestMonitor>;
+
+registry.registerPath({
+  method: 'get',
+  path: '/contests/{key}/monitor',
+  tags: ['Contests'],
+  summary: 'The live contest-day monitor — the organisers only',
+  description:
+    'Everything an organiser watches while a contest runs, in one snapshot: per-problem ' +
+    'submitted / accepted / distinct solvers / still queued, the grading queue scoped to this ' +
+    'contest, judge liveness, the last fifty submissions with their real verdicts (D22 gives ' +
+    'the people who run a contest the unfrozen view), unanswered clarifications, how many ' +
+    'competitors have a live socket open, and how many submissions the rate limiter turned ' +
+    'away in the last ten minutes (D80, deployment-wide). Cached five seconds; the page polls ' +
+    'at that interval and is woken sooner by the `contest-activity` WebSocket frame.',
+  request: { params: ContestKeyParam },
+  responses: {
+    200: {
+      description: 'The snapshot',
+      content: { 'application/json': { schema: ContestMonitor } },
+    },
+    401: NOT_SIGNED_IN,
+    403: SIMILARITY_FORBIDDEN,
+    404: CONTEST_NOT_FOUND,
+  },
+});

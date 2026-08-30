@@ -2920,6 +2920,149 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/contests/{key}/monitor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The live contest-day monitor — the organisers only
+         * @description Everything an organiser watches while a contest runs, in one snapshot: per-problem submitted / accepted / distinct solvers / still queued, the grading queue scoped to this contest, judge liveness, the last fifty submissions with their real verdicts (D22 gives the people who run a contest the unfrozen view), unanswered clarifications, how many competitors have a live socket open, and how many submissions the rate limiter turned away in the last ten minutes (D80, deployment-wide). Cached five seconds; the page polls at that interval and is woken sooner by the `contest-activity` WebSocket frame.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The snapshot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            problems: {
+                                code: string;
+                                label: string;
+                                submitted: number;
+                                accepted: number;
+                                solvers: number;
+                                pending: number;
+                            }[];
+                            queue: {
+                                depth: number;
+                                oldestPendingSeconds: number | null;
+                            };
+                            judges: {
+                                online: number;
+                                total: number;
+                            };
+                            feed: {
+                                submissionId: number;
+                                username: string;
+                                problemCode: string;
+                                problemLabel: string;
+                                state: string;
+                                verdict: string | null;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            clarifications: {
+                                unanswered: number;
+                                latest: {
+                                    id: number;
+                                    problemCode: string | null;
+                                    askedBy: string;
+                                    question: string | null;
+                                    /** Format: date-time */
+                                    createdAt: string;
+                                }[];
+                            };
+                            participantsOnline: number;
+                            submitRefusalsLast10Min: number;
+                            /** Format: date-time */
+                            generatedAt: string;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The caller can see this contest but does not run it (`contest_forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users/{username}": {
         parameters: {
             query?: never;

@@ -26,6 +26,7 @@ import {
   VerifyEmailPage,
 } from './routes/account-recovery.js';
 import { ContestPage, ContestsPage, ScoreboardPage, SimilarityPairPage } from './routes/contests.js';
+import { ContestMonitorPage } from './routes/contest-monitor.js';
 import { ContestNewPage } from './routes/contest-new.js';
 import { ContestEditPage } from './routes/contest-edit.js';
 import { TokensPage } from './routes/tokens.js';
@@ -460,6 +461,15 @@ function SimilarityPairRouteComponent() {
   const { a, b, problem } = useSearch({ from: '/contests/$key/similarity' });
   return <SimilarityPairPage contestKey={key} a={a} b={b} problem={problem} />;
 }
+/**
+ * The organiser live monitor (D95). A route of its own, not a panel: it is
+ * the screen an invigilator leaves open for three hours, and its five-second
+ * poll must not ride along on the contest page every competitor has open.
+ */
+function ContestMonitorRouteComponent() {
+  const { key } = useParams({ from: '/contests/$key/monitor' });
+  return <ContestMonitorPage contestKey={key} />;
+}
 function OrgRouteComponent() {
   const { slug } = useParams({ from: '/orgs/$slug' });
   return <OrgPage slug={slug} />;
@@ -529,6 +539,11 @@ const contestSimilarityRoute = createRoute({
     ...(typeof search.problem === 'string' ? { problem: search.problem } : {}),
   }),
   component: SimilarityPairRouteComponent,
+});
+const contestMonitorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/contests/$key/monitor',
+  component: ContestMonitorRouteComponent,
 });
 const orgsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -640,6 +655,7 @@ const routeTree = rootRoute.addChildren([
   contestEditRoute,
   scoreboardRoute,
   contestSimilarityRoute,
+  contestMonitorRoute,
   orgsRoute,
   orgRoute,
   problemSetRoute,

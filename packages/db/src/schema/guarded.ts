@@ -525,7 +525,26 @@ export const contestSubmissions = pgTable(
       .notNull()
       .references(() => submissions.id, { onDelete: 'cascade' }),
   },
-  (t) => [uniqueIndex('contest_submissions_submission_idx').on(t.submissionId)],
+  (t) => [
+    uniqueIndex('contest_submissions_submission_idx').on(t.submissionId),
+    /**
+     * D95's organiser monitor, migration 0035. Every question the monitor
+     * asks is "what has happened in THIS contest", and the only way in from a
+     * contest is `contest_problems.id` — which had no index here at all, so
+     * each of the four panels scanned every contest submission the deployment
+     * has ever taken (D11 keeps them forever). `id` rides along so the live
+     * feed's `order by id desc limit 50` is served per problem by a `LATERAL`
+     * index scan rather than by sorting the whole contest.
+     */
+    index('contest_submissions_contest_problem_idx').on(t.contestProblemId, t.id),
+    /**
+     * A missing foreign-key index under `ON DELETE CASCADE` — the same bug
+     * D47's amendment found on `grading_jobs (submission_id)`. Until 0035
+     * every cascaded delete of a participation (a contest removed, a user
+     * removed) sequentially scanned this table.
+     */
+    index('contest_submissions_participation_idx').on(t.participationId),
+  ],
 );
 
 /**
