@@ -104,6 +104,36 @@ async function seedPackage(db: Db, store: PackageStore, dir: string): Promise<st
   return hash;
 }
 
+/**
+ * A package whose manifest promises more than the archive carries: a second
+ * test whose answer file was never written, and a source checker with no
+ * source. Every path in it parses — `PackageManifest` validates the SHAPE of
+ * a path, never its existence — so nothing before `attachRevision` has any
+ * reason to refuse it.
+ */
+async function incompletePackageDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'pkg-incomplete-'));
+  await mkdir(join(dir, 'tests'), { recursive: true });
+  await writeFile(
+    join(dir, 'manifest.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      name: 'Incomplete',
+      checker: { kind: 'source', path: 'checker/check.cpp', language: 'cpp17' },
+      limits: { timeMs: 1000, memoryKb: 65536 },
+      tests: [
+        { input: 'tests/01.in', answer: 'tests/01.out', points: 50, group: 0 },
+        { input: 'tests/02.in', answer: 'tests/02.out', points: 50, group: 0 },
+      ],
+    }),
+  );
+  await writeFile(join(dir, 'tests', '01.in'), '1 2\n');
+  await writeFile(join(dir, 'tests', '01.out'), '3\n');
+  await writeFile(join(dir, 'tests', '02.in'), '4 5\n');
+  // tests/02.out and checker/check.cpp deliberately absent.
+  return dir;
+}
+
 async function seedProblem(db: Db, opts: { code: string; createdBy: number }): Promise<{ id: number }> {
   const [problem] = await db
     .insert(problems)
@@ -278,4 +308,40 @@ describe('ProblemAccessService.attachRevision', () => {
       expect(rows.map((r) => r.version).sort()).toEqual([1, 2]);
     });
   }, 120_000);
+});
+
+/**
+ * A revision is the object the judge grades against, and its manifest is the
+ * instruction sheet. `attachRevision` already had both the manifest and the
+ * package's real file list in hand — it uses them together for the collision
+ * check — and never asked whether one described the other. A manifest naming
+ * a test answer or a checker source the package does not carry attached,
+ * published and served like any other; the first thing that noticed was a
+ * judge, mid-grade, reporting an internal error against a submission that was
+ * perfectly fine. `buildPackage` half-caught this for tests and not at all
+ * for the checker, and nothing on the server caught it at any point.
+ */
+describe('a manifest that names files the package does not contain', () => {
+  it('is refused at attach time, naming every missing path', async () => {
+    await withTestDb(async (db) => {
+      const store = await newStore();
+      const owner = await insertUser(db, 'attach-incomplete');
+      const { id } = await seedProblem(db, { code: 'incomplete1', createdBy: owner.id });
+      await db.insert(problemMembers).values({ problemId: id, userId: owner.id, role: 'author' });
+      const hash = await seedPackage(db, store, await incompletePackageDir());
+      const service = new ProblemAccessService(db, store);
+
+      await expect(
+        service.attachRevision(actorFor(owner.id), 'incomplete1', { packageHash: hash }),
+      ).rejects.toMatchObject({ status: 400, code: 'package_invalid' });
+
+      await expect(
+        service.attachRevision(actorFor(owner.id), 'incomplete1', { packageHash: hash }),
+      ).rejects.toThrow(/checker\/check\.cpp.*tests\/02\.out|tests\/02\.out.*checker\/check\.cpp/s);
+
+      // Nothing half-applied: no revision row for a package that cannot grade.
+      const rows = await db.select().from(problemRevisions).where(eq(problemRevisions.problemId, id));
+      expect(rows).toHaveLength(0);
+    });
+  });
 });

@@ -167,6 +167,53 @@ describe('watch', () => {
     expect(io.lines.at(-1)).toBe('solution.cpp:3:7: warning: unused variable');
   });
 
+  /**
+   * One dropped packet used to end a watch. Every failed poll — a network
+   * blip, the API restarting behind the reverse proxy, a 502 from Caddy —
+   * went straight to `io.fail`, so `oj submit --watch` on contest day
+   * abandoned a submission that was grading perfectly well, and printed
+   * "could not read submission" as if the submission were the problem.
+   */
+  it('rides out a transient failure instead of abandoning the submission', async () => {
+    const io = fakeIo();
+    const get = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce({ error: { detail: 'upstream' }, response: { status: 502 } })
+      .mockResolvedValueOnce(detail('done', 'AC', 100));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    await watch(clientWith({ GET: get }), io, 7, sleep);
+    expect(io.lines).toEqual(['done', 'AC 100/100']);
+    expect(get).toHaveBeenCalledTimes(3);
+  });
+
+  it('still gives up once the failures stop being transient', async () => {
+    const get = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+    await expect(watch(clientWith({ GET: get }), fakeIo(), 7, vi.fn())).rejects.toThrow(
+      /consecutive/,
+    );
+    // Bounded by the tolerance, not by the 150-poll budget: five minutes of
+    // sleeping on a host that is plainly not there is not "waiting".
+    expect(get.mock.calls.length).toBeLessThan(10);
+  });
+
+  /**
+   * A refused credential is not transient, and retrying it five times before
+   * saying "could not read submission #7" tells the operator the wrong thing
+   * about the wrong subject. The token is what needs renewing.
+   */
+  it('names an expired token rather than blaming the submission', async () => {
+    const get = vi.fn().mockResolvedValue({ error: { detail: 'nope' }, response: { status: 401 } });
+    await expect(watch(clientWith({ GET: get }), fakeIo(), 7, vi.fn())).rejects.toThrow(/token/i);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up at once on a submission that does not exist', async () => {
+    const get = vi.fn().mockResolvedValue({ error: { detail: 'nope' }, response: { status: 404 } });
+    await expect(watch(clientWith({ GET: get }), fakeIo(), 7, vi.fn())).rejects.toThrow(/#7/);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
   it('gives up after the attempt budget instead of polling forever', async () => {
     const get = vi.fn().mockResolvedValue(detail('queued'));
     await expect(

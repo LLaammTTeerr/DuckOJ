@@ -6,6 +6,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@duckoj/sdk';
+import { parseArgs } from './args.js';
 import { CliError, inferLanguage, listLanguages, listProblems, submit, watch, whoami, type Io } from './commands.js';
 import { configPath, loadConfig, saveConfig } from './config.js';
 
@@ -24,14 +25,6 @@ const io: Io = {
   },
 };
 
-function flag(args: string[], name: string): string | undefined {
-  const at = args.indexOf(`--${name}`);
-  if (at === -1) return undefined;
-  const value = args[at + 1];
-  if (value === undefined) throw new CliError(`--${name} needs a value`);
-  return value;
-}
-
 async function requireClient() {
   const config = await loadConfig();
   if (!config) {
@@ -44,10 +37,14 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 async function run(argv: string[]): Promise<void> {
   const [command, ...rest] = argv;
+  if (command === undefined) throw new CliError(USAGE);
+  // Parsed once, by a splitter that knows which options take a value — see
+  // `args.ts` for the bug that motivated it.
+  const args = parseArgs(rest);
   switch (command) {
     case 'login': {
-      const baseUrl = flag(rest, 'url');
-      const token = flag(rest, 'token');
+      const baseUrl = args.flags['url'];
+      const token = args.flags['token'];
       if (!baseUrl || !token) throw new CliError(USAGE);
       await saveConfig({ baseUrl, token });
       console.log(`saved ${configPath()}`);
@@ -60,24 +57,26 @@ async function run(argv: string[]): Promise<void> {
     case 'languages':
       return listLanguages(await requireClient(), io);
     case 'submit': {
-      const [problemCode, file] = rest.filter((a) => !a.startsWith('--'));
+      const [problemCode, file] = args.positionals;
       if (!problemCode || !file) throw new CliError(USAGE);
       const source = await readFile(file, 'utf8');
-      const languageKey = inferLanguage(file, flag(rest, 'language'), io);
+      const languageKey = inferLanguage(file, args.flags['language'], io);
       const client = await requireClient();
-      const contestKey = flag(rest, 'contest');
+      const contestKey = args.flags['contest'];
       const id = await submit(client, io, {
         problemCode,
         source,
         languageKey,
         ...(contestKey !== undefined ? { contestKey } : {}),
       });
-      if (rest.includes('--watch')) await watch(client, io, id, sleep);
+      if (args.switches.has('watch')) await watch(client, io, id, sleep);
       return;
     }
     case 'watch': {
-      const id = Number(rest[0]);
-      if (!Number.isInteger(id)) throw new CliError(USAGE);
+      const id = Number(args.positionals[0]);
+      // `> 0`, not merely an integer: `Number('')` is 0, so `oj watch ''`
+      // otherwise asked the API for submission #0.
+      if (!Number.isInteger(id) || id <= 0) throw new CliError(USAGE);
       return watch(await requireClient(), io, id, sleep);
     }
     default:

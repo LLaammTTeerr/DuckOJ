@@ -23,7 +23,7 @@ import { visibleOrgsWhere } from './org.visibility.js';
 
 /** Postgres SQLSTATE for a unique-constraint violation. */
 /** Advisory-lock namespace for the per-org owner invariant (two-int form). */
-const ORG_OWNER_LOCK = 0x0e6f7267; // 'org'
+export const ORG_OWNER_LOCK = 0x0e6f7267; // 'org'
 
 const UNIQUE_VIOLATION = '23505';
 const ORG_SLUG_CONSTRAINT = 'organizations_slug_lower_idx';
@@ -82,12 +82,7 @@ export class OrgAccessService {
 
   async roleIn(actor: Actor | null, orgId: number): Promise<'owner' | 'admin' | 'member' | null> {
     if (!actor) return null;
-    const rows = await this.db
-      .select({ role: orgMembers.role })
-      .from(orgMembers)
-      .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, actor.userId)))
-      .limit(1);
-    return rows[0]?.role ?? null;
+    return roleOf(this.db, orgId, actor.userId);
   }
 
   /**
@@ -426,7 +421,20 @@ export class OrgAccessService {
     // writers that contend on this invariant and nobody else.
     await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(${ORG_OWNER_LOCK}, ${row.id})`);
-      await this.assertNotLastOwner(tx, row.id, targetRole, null);
+      // Re-read INSIDE the lock. `targetRole` above was fetched on another
+      // connection before any of this was serialised, and it is the value
+      // `assertNotLastOwner` branches on: a target read as `member` skips
+      // the check entirely. Promote that member to owner and remove the
+      // previous one while this call waits at the lock — two ordinary
+      // requests can do it — and the delete below lands on the only owner
+      // with the guard never having run. The stale read stays useful for
+      // the 404 and the rank check, which are about the caller's intent at
+      // the time they asked; only the invariant needs the current truth.
+      const current = await roleOf(tx, row.id, target);
+      if (current === null) {
+        throw new AppError(404, 'organization_member_not_found', 'They are not a member.');
+      }
+      await this.assertNotLastOwner(tx, row.id, current, null);
       await tx
         .delete(orgMembers)
         .where(and(eq(orgMembers.orgId, row.id), eq(orgMembers.userId, target)));
@@ -450,11 +458,17 @@ export class OrgAccessService {
     if (targetRole === null) {
       throw new AppError(404, 'organization_member_not_found', 'They are not a member.');
     }
-    // Same advisory-locked transaction as removeMember: a demotion races a
-    // removal on the same invariant.
+    // Same advisory-locked transaction as removeMember, and the same
+    // re-read for the same reason: the role this demotion is judged against
+    // must be the one the organization currently holds, not the one it held
+    // before the lock was taken.
     await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(${ORG_OWNER_LOCK}, ${row.id})`);
-      await this.assertNotLastOwner(tx, row.id, targetRole, role);
+      const current = await roleOf(tx, row.id, target);
+      if (current === null) {
+        throw new AppError(404, 'organization_member_not_found', 'They are not a member.');
+      }
+      await this.assertNotLastOwner(tx, row.id, current, role);
       await tx
         .update(orgMembers)
         .set({ role })
@@ -556,6 +570,22 @@ export class OrgAccessService {
   private async findRowById(id: number): Promise<typeof organizations.$inferSelect | undefined> {
     return (await this.db.select().from(organizations).where(eq(organizations.id, id)).limit(1))[0];
   }
+}
+
+/**
+ * One member's role in one organization, on whatever connection is passed —
+ * `this.db` for the ordinary checks, the *transaction* for the ones taken
+ * under `ORG_OWNER_LOCK`. A free function rather than a method so a caller
+ * cannot accidentally ask `this.db` a question it needs the locked
+ * transaction to answer, which is precisely the bug this shape fixes.
+ */
+async function roleOf(db: Db, orgId: number, userId: number): Promise<OrgRoleDto | null> {
+  const rows = await db
+    .select({ role: orgMembers.role })
+    .from(orgMembers)
+    .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)))
+    .limit(1);
+  return rows[0]?.role ?? null;
 }
 
 /**

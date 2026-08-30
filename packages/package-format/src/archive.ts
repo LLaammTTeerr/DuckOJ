@@ -4,6 +4,32 @@ import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import { create, extract, Parser } from 'tar';
 import { hashFile, type PackageFile } from './hash.js';
 
+/**
+ * The largest tree a package is allowed to inflate to, in bytes.
+ *
+ * zstd is an amplifier, and every reader below decompresses a caller-supplied
+ * archive into a single `Buffer` before it can see one byte of tar. 200 MB of
+ * zeroes compress to about 6 KB, so `PACKAGE_UPLOAD_MAX_BYTES` (256 MiB on the
+ * wire) bounds only what arrives, not what gets allocated from it: without a
+ * cap here, an archive small enough to be waved through by every HTTP-level
+ * limit takes the API process down with an allocation no filter can catch.
+ * `maxOutputLength` makes zlib refuse *before* allocating, which is the only
+ * point at which refusing is still possible.
+ *
+ * 1 GiB — four times the compressed cap, far above any real test set, and
+ * small enough that a rejection is a rejection rather than an OOM. See D53.
+ */
+export const MAX_UNPACKED_BYTES = 1_073_741_824;
+
+/**
+ * `zstdDecompressSync` with the cap applied. Every reader in this file goes
+ * through it so the bound cannot be forgotten at one call site — the same
+ * reason `assertSafePath` is shared in the Polygon importer.
+ */
+function inflate(archive: Buffer, maxUnpackedBytes: number): Buffer {
+  return Buffer.from(zstdDecompressSync(archive, { maxOutputLength: maxUnpackedBytes }));
+}
+
 async function walk(root: string, dir = root): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   const out: string[] = [];
@@ -41,9 +67,13 @@ export async function packDirectory(dir: string): Promise<{ archive: Buffer; fil
   return { archive: Buffer.from(zstdCompressSync(Buffer.concat(chunks))), files };
 }
 
-export async function unpackArchive(archive: Buffer, destDir: string): Promise<void> {
+export async function unpackArchive(
+  archive: Buffer,
+  destDir: string,
+  maxUnpackedBytes: number = MAX_UNPACKED_BYTES,
+): Promise<void> {
   await mkdir(destDir, { recursive: true });
-  const tarBytes = Buffer.from(zstdDecompressSync(archive));
+  const tarBytes = inflate(archive, maxUnpackedBytes);
 
   const stream = extract({
     cwd: destDir,
@@ -90,8 +120,12 @@ export async function unpackArchive(archive: Buffer, destDir: string): Promise<v
  * shortcut can never quietly return the wrong bytes for an archive where the
  * sought entry isn't first.
  */
-export async function readArchiveEntry(archive: Buffer, path: string): Promise<Buffer | null> {
-  const tarBytes = Buffer.from(zstdDecompressSync(archive));
+export async function readArchiveEntry(
+  archive: Buffer,
+  path: string,
+  maxUnpackedBytes: number = MAX_UNPACKED_BYTES,
+): Promise<Buffer | null> {
+  const tarBytes = inflate(archive, maxUnpackedBytes);
   let found: Buffer | null = null;
 
   const parser = new Parser({

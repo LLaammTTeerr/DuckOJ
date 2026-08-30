@@ -81,6 +81,20 @@ export async function submit(
   return data.id;
 }
 
+/**
+ * How many polls in a row may fail before `watch` stops believing the
+ * submission is still out there.
+ *
+ * Every failed poll used to be fatal, so a single dropped packet — a network
+ * blip, the API rolling behind the reverse proxy, one 502 from Caddy —
+ * abandoned a submission that was grading perfectly well, and blamed the
+ * submission while doing it. A watch is a long-lived contest-day loop; the
+ * one thing it must survive is the network being briefly worse than perfect.
+ * Six consecutive failures at two seconds apart is twelve seconds of nothing
+ * at all, which is a real outage rather than a blip.
+ */
+const TRANSIENT_TOLERANCE = 5;
+
 /** Polls until the submission leaves the judging pipeline, then reports. */
 export async function watch(
   client: Client,
@@ -90,27 +104,62 @@ export async function watch(
   attempts = 150,
 ): Promise<void> {
   let lastState = '';
+  let consecutiveFailures = 0;
   for (let i = 0; i < attempts; i++) {
-    const { data, error } = await client.GET('/submissions/{id}', {
-      params: { path: { id } },
-    });
-    if (error || !data) io.fail(`could not read submission #${String(id)}`);
-    if (data.state !== lastState) {
-      lastState = data.state;
-      io.print(data.state);
+    // openapi-fetch RESOLVES an HTTP error into `{ error, response }` but
+    // RETHROWS a transport failure, so both shapes have to be collected
+    // before either can be judged transient.
+    let data: Awaited<ReturnType<Client['GET']>>['data'];
+    let status: number | undefined;
+    let ok = false;
+    try {
+      const result = await client.GET('/submissions/{id}', { params: { path: { id } } });
+      data = result.data;
+      status = result.response?.status;
+      ok = !result.error && result.data !== undefined;
+    } catch {
+      ok = false;
     }
-    if (data.state === 'done' || data.state === 'errored') {
+
+    if (!ok) {
+      // A refused credential and a submission that does not exist are both
+      // final answers. Retrying either five times only delays the message,
+      // and "could not read submission #7" describes neither of them.
+      if (status === 401 || status === 403) {
+        io.fail(
+          `your token was refused (HTTP ${String(status)}) — it may have expired; ` +
+            'run: oj login --url <baseUrl> --token <token>',
+        );
+      }
+      if (status === 404) io.fail(`could not read submission #${String(id)} — no such submission`);
+      consecutiveFailures++;
+      if (consecutiveFailures > TRANSIENT_TOLERANCE) {
+        io.fail(
+          `could not read submission #${String(id)} — ` +
+            `${String(consecutiveFailures)} consecutive failed polls`,
+        );
+      }
+      await sleep(2000);
+      continue;
+    }
+    consecutiveFailures = 0;
+    const detail = data!;
+    if (detail.state !== lastState) {
+      lastState = detail.state;
+      io.print(detail.state);
+    }
+    if (detail.state === 'done' || detail.state === 'errored') {
       const points =
-        data.points === null || data.maxPoints === null
+        detail.points === null || detail.maxPoints === null
           ? ''
-          : ` ${String(data.points)}/${String(data.maxPoints)}`;
-      io.print(`${data.verdict ?? data.state}${points}`);
+          : ` ${String(detail.points)}/${String(detail.maxPoints)}`;
+      io.print(`${detail.verdict ?? detail.state}${points}`);
       // The compiler's own words, whenever the judge had any. On a `CE` this
       // is the entire content of the verdict — without it the CLI said `CE`
       // and stopped, leaving a caller to re-fetch the submission by hand to
       // learn what was wrong — and on any other verdict it is the compile
       // WARNING, which lands in the same field on a submission that graded.
-      if (data.compileOutput) io.print(data.compileOutput);
+      if (detail.compileOutput) io.print(detail.compileOutput);
       return;
     }
     await sleep(2000);

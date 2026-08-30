@@ -198,20 +198,36 @@ export class ContestClarificationsService {
     // exactly true of an id that cannot name one.
     if (!Number.isInteger(id) || id <= 0) throw NOT_FOUND;
 
-    const [row] = await this.db
-      .select()
-      .from(contestClarifications)
-      .where(and(eq(contestClarifications.id, id), eq(contestClarifications.contestId, contest.id)))
-      .limit(1);
-    if (!row) throw NOT_FOUND;
-
-    const nextAnswer = body.answer ?? row.answer;
-    const nextVisibility = body.visibility ?? row.visibility;
-    const firstAnswer = row.answer === null && nextAnswer !== null;
-    const wasPublished = row.visibility === 'public' && row.answer !== null;
-    const nowPublished = nextVisibility === 'public' && nextAnswer !== null;
-
     return this.db.transaction(async (tx) => {
+      // Read INSIDE the transaction, and locked.
+      //
+      // Both transition flags are differences between the row's committed
+      // state and what this call is about to write, so a read taken outside
+      // the transaction is a read of a state that may no longer hold by the
+      // time the write lands. Two organisers publishing the same question at
+      // once — or one form submitted twice — each saw an unanswered, private
+      // row, each concluded this was the transition, and each broadcast: two
+      // thousand students notified twice about one answer, which D31 calls
+      // out as the unrecoverable failure this rule exists to prevent.
+      // `for('update')` serialises the second caller behind the first, so it
+      // reads the row the first one left and correctly broadcasts nothing.
+      // Same shape, same fix as `OrgAccessService.decideRequest`.
+      const [row] = await tx
+        .select()
+        .from(contestClarifications)
+        .where(
+          and(eq(contestClarifications.id, id), eq(contestClarifications.contestId, contest.id)),
+        )
+        .limit(1)
+        .for('update');
+      if (!row) throw NOT_FOUND;
+
+      const nextAnswer = body.answer ?? row.answer;
+      const nextVisibility = body.visibility ?? row.visibility;
+      const firstAnswer = row.answer === null && nextAnswer !== null;
+      const wasPublished = row.visibility === 'public' && row.answer !== null;
+      const nowPublished = nextVisibility === 'public' && nextAnswer !== null;
+
       await tx
         .update(contestClarifications)
         .set({

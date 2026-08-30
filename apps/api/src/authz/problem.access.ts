@@ -14,7 +14,13 @@ import {
   submissions,
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
-import { findPathCollision, parseManifest, readArchiveEntry, type PackageManifestDto } from '@duckoj/package-format';
+import {
+  findMissingPackageFiles,
+  findPathCollision,
+  parseManifest,
+  readArchiveEntry,
+  type PackageManifestDto,
+} from '@duckoj/package-format';
 import {
   CreateProblemRequest,
   type AttachRevisionRequestDto,
@@ -941,6 +947,23 @@ export class ProblemAccessService {
       manifest = parseManifest(JSON.parse(entry.toString('utf8')));
     } catch (error) {
       throw new AppError(400, 'package_invalid', error instanceof Error ? error.message : 'Invalid package manifest.');
+    }
+
+    // Does the manifest describe THIS package? `parseManifest` validates the
+    // shape of a path and can say nothing about whether it names anything;
+    // `paths` above is the authoritative list of what the package actually
+    // holds, and the two were never compared. A revision whose manifest
+    // points at a test answer or a checker source that was never shipped is
+    // not a revision that grades badly — it is one that cannot grade, and it
+    // discovers this on a judge, mid-grade, against a submission that did
+    // nothing wrong. Refused here, it is a message the setter can act on.
+    const missing = findMissingPackageFiles(manifest, paths);
+    if (missing.length > 0) {
+      throw new AppError(
+        400,
+        'package_invalid',
+        `The manifest names files this package does not contain: ${missing.join(', ')}.`,
+      );
     }
 
     // Two concurrent attaches can both read the same `max(version)` and both
