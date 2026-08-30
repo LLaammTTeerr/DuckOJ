@@ -232,6 +232,13 @@
       "when": 1788120805360,
       "tag": "0038_contest_seats",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1788127485600,
+      "tag": "0039_problem_comments",
+      "breakpoints": true
     }
   ]
 }

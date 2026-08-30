@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
   bigint,
   bigserial,
@@ -355,6 +356,55 @@ export const problemTags = pgTable(
     // The primary key already serves "this problem's tags"; this one serves
     // the other direction — `?tag=do-thi` over every problem carrying it.
     index('problem_tags_tag_idx').on(t.tagId, t.problemId),
+  ],
+);
+
+/**
+ * Discussion under a problem (D109) — a flat thread with exactly one level of
+ * replies. Guarded, like `problem_tags`: while a viewer is sitting a running
+ * contest that uses the problem, its comments are hidden from them entirely
+ * (a discussion can leak the solution), which makes "which comments does this
+ * problem have" an actor-dependent question — exactly what `authz/` exists to
+ * be the only answerer of.
+ *
+ * `parent_id` is a self-reference, nullable — a top-level comment has none, a
+ * reply names the top-level comment it answers. That a reply's parent must
+ * itself be top-level (no reply-to-a-reply) is not expressible as a CHECK —
+ * it needs the parent row — so it is enforced in the service and pinned by a
+ * test. `ON DELETE cascade` from the parent so a hard delete of a comment
+ * takes its replies with it; ordinary removal is a soft delete (`deleted_at`)
+ * that leaves the row in place as a tombstone.
+ *
+ * `body` is raw Markdown, rendered client-side through the same
+ * DOMPurify path as statements (`apps/web/src/markdown.ts`) — never stored as
+ * HTML. The 4000-char cap is a CHECK as well as a zod bound: a psql session
+ * or an importer reaches this table without passing the contract.
+ */
+export const problemComments = pgTable(
+  'problem_comments',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    problemId: bigint('problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => problems.id, { onDelete: 'cascade' }),
+    authorId: bigint('author_id', { mode: 'number' })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    parentId: bigint('parent_id', { mode: 'number' }).references((): AnyPgColumn => problemComments.id, {
+      onDelete: 'cascade',
+    }),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    editedAt: timestamp('edited_at', { withTimezone: true }),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => [
+    // The keyset walk: a problem's comments in id order (D58 style).
+    index('problem_comments_problem_idx').on(t.problemId, t.id),
+    // The other direction — a top-level comment's replies, in one query for a
+    // whole page of parents.
+    index('problem_comments_parent_idx').on(t.parentId),
+    check('problem_comments_body_len_ck', sql`char_length(${t.body}) <= 4000`),
   ],
 );
 
