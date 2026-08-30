@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '@duckoj/db';
 import { schema } from '@duckoj/db';
-import { contestParticipations, contestProblems, contests, problems } from '@duckoj/db/guarded';
+import {
+  contestOrgs,
+  contestParticipations,
+  contestProblems,
+  contests,
+  organizations,
+  problems,
+  teamMembers,
+  teams,
+} from '@duckoj/db/guarded';
 import type { Actor } from '../src/authz/actor.js';
 import { ProblemCommentsService } from '../src/authz/problem.comments.js';
 import { NotificationsService } from '../src/notifications/notifications.service.js';
@@ -303,6 +312,71 @@ describe('problem comments (D109)', () => {
       const owner = await insertUser(db, 'c-cur-owner');
       await seedProblem(db, { code: 'c-cur', createdBy: owner.id });
       await expect(svc(db).list(null, 'c-cur', { cursor: 'not-a-number' })).rejects.toBeInstanceOf(AppError);
+    });
+  });
+
+  // D109 × D99. The spoiler rule keys on "who is sitting this running
+  // contest", and a team is ONE participation held by whichever member
+  // pressed Join. Every OTHER member competes on that same row (D101) — they
+  // read the problem and submit for the team — so the discussion must be
+  // withheld from them too. Keyed on `contest_participations.user_id` alone,
+  // it was hidden only from the captain, and two of three teammates could
+  // read the whole solution thread mid-round and post into it.
+  it('hides the thread from a NON-CAPTAIN team member sitting a running contest (D109 × D99)', async () => {
+    await withTestDb(async (db) => {
+      const organiser = await insertUser(db, 'c-team-org');
+      const author = await insertUser(db, 'c-team-author');
+      const captain = await insertUser(db, 'c-team-cap');
+      const member = await insertUser(db, 'c-team-mem');
+      const { id } = await seedProblem(db, { code: 'c-team', createdBy: organiser.id });
+      const service = svc(db);
+      await service.create(actorFor(author.id), 'c-team', { body: 'the whole solution' });
+
+      const [org] = await db
+        .insert(organizations)
+        .values({ slug: 'c-team-school', name: 'Trường' })
+        .returning({ id: organizations.id });
+      const now = Date.now();
+      const [contest] = await db
+        .insert(contests)
+        .values({
+          key: 'c-team-ct',
+          name: 'c-team-ct',
+          startTime: new Date(now - 3_600_000),
+          endTime: new Date(now + 3_600_000),
+          format: 'icpc',
+          visibility: 'public',
+          participationMode: 'team',
+          maxTeamSize: 3,
+          createdBy: organiser.id,
+        })
+        .returning({ id: contests.id });
+      await db.insert(contestOrgs).values({ contestId: contest!.id, orgId: org!.id });
+      await db
+        .insert(contestProblems)
+        .values({ contestId: contest!.id, problemId: id, label: 'A', points: 100, order: 0 });
+      const [team] = await db
+        .insert(teams)
+        .values({ orgId: org!.id, slug: 'doi-1', name: 'Đội 1', createdBy: organiser.id })
+        .returning({ id: teams.id });
+      await db.insert(teamMembers).values([captain, member].map((u) => ({ teamId: team!.id, userId: u.id })));
+      // ONE participation, on the captain's account (D99).
+      await db
+        .insert(contestParticipations)
+        .values({ contestId: contest!.id, userId: captain.id, teamId: team!.id, startTime: new Date(now - 3_600_000) });
+
+      // The captain has always been hidden — the row is on their account.
+      const capPage = await service.list(actorFor(captain.id), 'c-team', {});
+      expect(capPage.hiddenDuringContest).toBe(true);
+
+      // The non-captain member must be too: they compete on the same row.
+      const memPage = await service.list(actorFor(member.id), 'c-team', {});
+      expect(memPage.hiddenDuringContest).toBe(true);
+      expect(memPage.items).toHaveLength(0);
+      await expect(service.create(actorFor(member.id), 'c-team', { body: 'leak' })).rejects.toMatchObject({
+        status: 403,
+        code: 'comment_hidden_contest',
+      });
     });
   });
 });
