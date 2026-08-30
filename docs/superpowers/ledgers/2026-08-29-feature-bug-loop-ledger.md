@@ -32,3 +32,4 @@
 - B-7 dispatched (worktree, opus): rating/users/realtime + B-6 leftovers, D58–D60 reserved.
 - B-7 DONE, merged: 7 fixes (org roster pagination D58 + myRole, ordered announcement cap D59, POST /packages completeness D60, WS subscription cap/unsubscribe, reconnect backoff, DisplayName trim, rating error state). Conflicted with F-7's committed myRole work — kept F-7's rolesIn. Full ritual green; api + web redeployed; pushed.
 - F-7 DONE_WITH_CONCERNS (ad96073..744905c): org-restricted contests (D56), account settings + localised mails (D57), migration 0023 — applied live after the api recreate (ordering slip caught within minutes).
+- F-8 dispatched (main, opus): bulk student accounts (D61). B-8 dispatched (worktree, opus): whole-loop-diff review hunt, D62–D64 reserved.
