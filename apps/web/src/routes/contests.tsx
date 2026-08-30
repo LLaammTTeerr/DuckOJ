@@ -21,6 +21,17 @@ function bookletUrl(contestKey: string, locale: Locale): string {
   return `${import.meta.env.VITE_API_ORIGIN ?? ''}/${API_PREFIX}/contests/${contestKey}/booklet.pdf?lang=${locale}`;
 }
 
+/**
+ * The organiser's results export (D71). Plain `<a>`s for the same reason the
+ * booklet's is one: these are the API's own responses, outside the router's
+ * tree, and the `.csv` is a download rather than a page.
+ *
+ * No `lang` — the sheet is names and numbers, and its headings are fixed.
+ */
+function resultsUrl(contestKey: string, extension: 'csv' | 'pdf'): string {
+  return `${import.meta.env.VITE_API_ORIGIN ?? ''}/${API_PREFIX}/contests/${contestKey}/results.${extension}`;
+}
+
 type Contest = paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
 type Scoreboard = paths['/contests/{key}/scoreboard']['get']['responses'][200]['content']['application/json'];
@@ -327,6 +338,18 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         {contest.data.problems.length > 0 ? (
           <>
             <a href={bookletUrl(contestKey, locale)}>{t('contest.booklet')}</a>{' '}
+          </>
+        ) : null}
+        {/* The API lets the people who run a contest export at any hour —
+            the export is the live, unfrozen board, so the gate there is the
+            person and not the clock (D71). The LINKS appear only once the
+            contest is over, because that is when an organiser wants them and
+            offering them mid-contest invites printing a board that is still
+            moving. */}
+        {contest.data.canEdit && phase === 'finished' ? (
+          <>
+            <a href={resultsUrl(contestKey, 'csv')}>{t('contest.resultsCsv')}</a>{' '}
+            <a href={resultsUrl(contestKey, 'pdf')}>{t('contest.resultsPdf')}</a>{' '}
           </>
         ) : null}
         {/* Submissions made INTO this contest (`?contest=`), not practice
