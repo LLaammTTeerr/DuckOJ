@@ -105,6 +105,44 @@ describe('submission realtime', () => {
     });
   }, 120_000);
 
+  // Cross-Site WebSocket Hijacking: a `new WebSocket()` from an attacker's
+  // page is not subject to CORS, and this gateway authenticates a browser by
+  // its session cookie. SameSite=Lax is the first control (it withholds the
+  // cookie from a cross-site handshake); the Origin check is the standard
+  // second one. TEST_CONFIG.publicOrigin is http://localhost:5173.
+  it('rejects a cross-origin browser handshake even with a valid cookie', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { app, url } = await buildAppWithRealtime(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        const cookie = await registerAndLogin(agent, 'mallory');
+        // A present-but-wrong Origin is a cross-site attempt: 403, not open.
+        await expect(
+          open(`${url}/ws`, { cookie, origin: 'https://evil.example' }),
+        ).rejects.toThrow(/403/);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('accepts a handshake whose Origin matches the configured public origin', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { app, url } = await buildAppWithRealtime(db);
+      try {
+        const agent = request.agent(app.getHttpServer());
+        const cookie = await registerAndLogin(agent, 'trent');
+        const socket = await open(`${url}/ws`, { cookie, origin: 'http://localhost:5173' });
+        expect(socket.readyState).toBe(WebSocket.OPEN);
+        socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('rejects a credential supplied in the query string', async () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);

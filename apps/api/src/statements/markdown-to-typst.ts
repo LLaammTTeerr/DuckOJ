@@ -23,11 +23,34 @@ function escapeText(text: string): string {
   return text.replace(/[\\#$*_`@<>[\]{}~^'"-]/g, (ch) => `\\${ch}`);
 }
 
-/** Inside a raw block: only the fence itself needs care; content is verbatim. */
+/**
+ * Inside a raw block: only the fence itself needs care; content is verbatim.
+ *
+ * The fence must be strictly LONGER than the longest backtick run the content
+ * holds — the same rule CommonMark states, and for the same reason. It used to
+ * be hard-coded to four, on the reasoning that "four backticks cover every
+ * fence the Markdown itself could open". That is true of what can *open* a
+ * Markdown fence (a line starting with ```) and false of what can sit *inside*
+ * one: nothing stops a statement author writing four backticks mid-line, and
+ * when they did, the typst raw literal closed right there and the rest of the
+ * line reached `typst compile` as CODE. A statement carrying
+ * `#read(...)` past that point was evaluated — confirmed against the real
+ * binary during the B10 security loop.
+ *
+ * Typst does confine reads to the project root (a `../` path is refused
+ * outright), so the reach is the API's working directory rather than the host;
+ * the package store lives elsewhere (`/var/lib/duckoj/packages`) and is not in
+ * it. That bounds the damage, it does not make arbitrary typst evaluation
+ * acceptable — and D48 compiles a contest's every problem into ONE document,
+ * so one poisoned statement is the whole booklet's PDF on contest day.
+ *
+ * Four stays the floor, so the ordinary fenced block is unchanged.
+ */
 function rawBlock(code: string): string {
-  // A statement containing ``` inside a fence would need a longer fence;
-  // four backticks cover every fence the Markdown itself could open.
-  return '````\n' + code + '\n````';
+  const runs = code.match(/`+/g) ?? [];
+  const longest = runs.reduce((max, run) => Math.max(max, run.length), 0);
+  const fence = '`'.repeat(Math.max(4, longest + 1));
+  return fence + '\n' + code + '\n' + fence;
 }
 
 const MITEX_IMPORT = '#import "@preview/mitex:0.2.7": mi\n';
