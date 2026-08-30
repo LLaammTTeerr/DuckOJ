@@ -50,6 +50,7 @@ import {
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
+import { reseatTeam, toSeatConflict } from './contest.seats.js';
 import { isAdmin, type Actor } from './actor.js';
 import { OrgAccessService } from './org.access.js';
 import { ContestAccessService, canRunContest } from './contest.access.js';
@@ -298,10 +299,15 @@ export class TeamAccessService {
           if (memberIds.length > 0) {
             await tx.insert(teamMembers).values(memberIds.map((userId) => ({ teamId: team.id, userId })));
           }
+          // D104, inside the same transaction as the roster it describes.
+          // `assertAddedMembersFree` above has already refused the case it
+          // can see; this is what the concurrent `join` it cannot see runs
+          // into.
+          await reseatTeam(tx as Db, team.id, memberIds);
         }
       });
     } catch (error) {
-      throw toTeamConflict(error);
+      throw toSeatConflict(toTeamConflict(error));
     }
     return toDetail(
       await this.findTeamById(team.id),

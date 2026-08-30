@@ -4725,3 +4725,66 @@ exit, rolled back a healthy build.
 
 *Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
 no human available to consult. No migration, no API change; amends D85.*
+
+## D104 — A seat is a row: one pupil, one entry per contest, decided by the database
+
+D99's rule is "a person holds at most one participation per contest", and the
+board depends on it completely: `actingParticipations` has to choose between
+two rows for every submission, `setDisqualified` (keyed by username, D37)
+moves both, and one pupil's work is counted twice under two names. It was
+enforced by two checks — `assertMembersFree` at `join`, and, after B-18 found
+the back door, `assertAddedMembersFree` at the roster PATCH. B-18's own report
+recorded what neither check could reach: the two run in separate transactions
+that do not serialise, so a PATCH and a `join` each read a world in which the
+other has not happened, each says yes, and both write.
+
+- **There is nothing to put a unique index on, so the fact is materialised.**
+  For a team row `contest_participations.user_id` is only the captain and the
+  people it seats live in `team_members`; the uniqueness spans two tables, and
+  no index, `EXCLUDE` constraint or `CHECK` can state it. `contest_seats
+  (contest_id, user_id) PRIMARY KEY`, with `participation_id` naming the row
+  the person competes on, is that statement — the same move D100 makes with
+  `contest_problem_solvers` for a distinct count a counter cannot maintain.
+- **Live rows only (`virtual = 0`).** A virtual attempt is a replay and the
+  identity index deliberately admits several per person; seating them would
+  break a working feature to fix a rule that is only ever about the live
+  board.
+- **The checks stay, and are still the primary gate.** They are what produce a
+  refusal naming the PUPIL — "anh is already competing in a contest this team
+  has entered" — which a unique violation cannot, because at that point the
+  loser of a race knows a seat was taken and nothing about by whom. The index
+  is the backstop, and its violation maps to the same `409
+  contest_already_joined` so a client has one code to branch on either way.
+  Never a 500.
+- **Three writers, one module.** `contest.seats.ts` is the only thing that
+  writes the table: `join` (individual, now inside a transaction so the row
+  and its seat are one write or neither), `enterTeam` (**every member**, which
+  is what makes a team one participant), and `TeamAccessService.update`, which
+  reseats the roster inside the same transaction that replaces it.
+- **A roster change DELETES seats as well as adding them.** D99 rules that a
+  member taken off stops competing for the team from that moment; a seat left
+  behind would bar that pupil from the rest of the contest on a row they have
+  no part in. Keyed on the participation as well as the person, so a roster
+  edit can only ever release the seats its own row holds.
+- **`onConflictDoNothing` is deliberately absent from the seat insert.** A
+  conflict here IS the race this table exists to catch; swallowing it would
+  restore the bug with extra steps.
+- **The backfill uses `ON CONFLICT DO NOTHING`, and that is a ruling.** The
+  defect has been reachable since D99 shipped, so a live judge may already
+  hold a double seat — and `runMigrations` runs at boot, so a unique violation
+  in the backfill is an API that will not start rather than a data problem
+  reported. The backfill therefore seats the first row it finds and leaves the
+  second unseated; the app-level checks go on refusing that pupil everywhere
+  else in the contest, and repairing the duplicate gets the seat for free on
+  the next write. The table is a guarantee about the future, not a proof about
+  history, and it says so here rather than in a comment nobody reads.
+- **The race is pinned by a test, on two connections against a committed
+  database.** It cannot be driven through the two HTTP routes — each service
+  opens and commits its own transaction before returning, so nothing outside
+  can hold one open across the other's read — so the test issues the two write
+  sets in the order that defeats both checks. Remove the primary key from
+  migration 0038 and both transactions commit and the pupil is seated twice;
+  with it, exactly one is refused.
+
+*Ruled by the implementer during the 2026-08-31 leftovers loop (B-19 brief),
+no human available to consult. Migration 0038.*
