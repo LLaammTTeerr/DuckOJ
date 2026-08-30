@@ -135,13 +135,69 @@ describe('JobStore', () => {
     });
   }, 120_000);
 
-  it('lists jobs whose lease expired, so their drivers can be told to stop', async () => {
+  /**
+   * D47 — this used to be a bare SELECT called by nothing outside this test.
+   * It requeues now, and the API's `POST /admin/grading/reclaim` is the
+   * caller that made it worth having: an operator watching a job sit leased
+   * behind a dead judge should not have to wait for the next claim to sweep
+   * it up, or reach for psql.
+   */
+  it('requeues a job whose lease expired and hands back its id', async () => {
     await withTestDb(async (db) => {
       const store = await seedJob(db);
       const claimed = await store.claim('worker-a');
       await db.execute(sql`update grading_jobs set lease_until = now() - interval '1 second'`);
 
       expect(await store.reclaimExpired()).toEqual([claimed!.id]);
+
+      const [row] = await db.select().from(schema.gradingJobs);
+      expect(row?.state).toBe('queued');
+      expect(row?.workerId).toBeNull();
+      expect(row?.leaseUntil).toBeNull();
+    });
+  }, 120_000);
+
+  /**
+   * The reason the reclaim bumps `attempt` rather than merely requeueing:
+   * a judge that kept working after its lease lapsed is fenced off the
+   * INSTANT an operator reclaims, not at whatever later moment somebody
+   * claims the row.
+   */
+  it('fences the lapsed attempt immediately by bumping the attempt', async () => {
+    await withTestDb(async (db) => {
+      const store = await seedJob(db);
+      const claimed = await store.claim('worker-a');
+      await db.execute(sql`update grading_jobs set lease_until = now() - interval '1 second'`);
+
+      await store.reclaimExpired();
+
+      expect(await store.isCurrentAttempt(claimed!.id, claimed!.attempt)).toBe(false);
+      expect(await store.complete(claimed!.id, claimed!.attempt)).toBe(false);
+    });
+  }, 120_000);
+
+  it('leaves a live lease alone — reclaiming is not cancelling', async () => {
+    await withTestDb(async (db) => {
+      const store = await seedJob(db);
+      const claimed = await store.claim('worker-a');
+
+      expect(await store.reclaimExpired()).toEqual([]);
+      expect(await store.isCurrentAttempt(claimed!.id, claimed!.attempt)).toBe(true);
+      const [row] = await db.select().from(schema.gradingJobs);
+      expect(row?.state).toBe('leased');
+    });
+  }, 120_000);
+
+  it('leaves a finished job alone however old it is', async () => {
+    await withTestDb(async (db) => {
+      const store = await seedJob(db);
+      const claimed = await store.claim('worker-a');
+      await store.complete(claimed!.id, claimed!.attempt);
+      await db.execute(sql`update grading_jobs set lease_until = now() - interval '1 hour'`);
+
+      expect(await store.reclaimExpired()).toEqual([]);
+      const [row] = await db.select().from(schema.gradingJobs);
+      expect(row?.state).toBe('done');
     });
   }, 120_000);
 });

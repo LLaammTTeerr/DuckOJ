@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { schema, type Db } from '@duckoj/db';
+import { reclaimExpiredLeases, schema, type Db } from '@duckoj/db';
 
 /**
  * How long a claim is valid without a heartbeat.
@@ -153,12 +153,16 @@ export class JobStore {
     return rows.length > 0;
   }
 
-  /** Jobs whose lease lapsed while still leased — their drivers should be told to stop. */
+  /**
+   * Requeues jobs whose lease lapsed while still leased, and returns their
+   * ids — their drivers should be told to stop.
+   *
+   * Delegates to `@duckoj/db`'s `reclaimExpiredLeases` rather than owning
+   * the statement, because the API's `POST /admin/grading/reclaim` runs the
+   * same sweep from the other process (D47). See that function for why the
+   * requeue also bumps `attempt`.
+   */
   async reclaimExpired(): Promise<number[]> {
-    const rows = await this.db.execute<{ id: number }>(sql`
-      select id from grading_jobs
-       where state = 'leased' and lease_until < now()
-    `);
-    return rows.map((r) => Number(r.id));
+    return reclaimExpiredLeases(this.db);
   }
 }
