@@ -6027,3 +6027,44 @@ failure D101, D105 and B-21 each closed on another surface.
 human available to consult; found by reading D119's own justification against
 the code it justified. No migration: one new notification kind, one predicate
 widened from a scalar to a list.*
+
+## D140 — A mailed password reset clears `must_change_password`
+
+`AuthService.changePassword` sets `mustChangePassword: false`;
+`AccountRecoveryService.resetPassword` set only the hash. So an account that
+took the *other* route to a password of its own kept D61's flag forever.
+
+The flag records one fact: **this account still holds the password this server
+generated and printed on a sheet handed round a classroom.** Redeeming a
+mailed reset makes that false as completely as a change does — the pupil
+chose the new password, this server did not, and nothing was printed. Two
+features had simply never been run against each other.
+
+Leaving it set was wrong in both directions at once:
+
+- **D102 refuses every access token the account will ever hold.** `oj login`
+  and the MCP server answer `409 password_change_required` for a pupil who
+  did the responsible thing, and the remedy D102 names ("change your password
+  in the web interface") is one they have already performed. The mailed reset
+  is also the route taken by exactly the population that cannot perform it —
+  someone who has forgotten the printed password.
+- **The bootstrap exemption stays open for good.** The flag is what makes
+  `currentPassword` OPTIONAL on `POST /auth/password/change` (D61: the printed
+  sheet must not be the credential that authorises replacing the printed
+  sheet). That exemption is meant to be spent once. Kept permanently, it means
+  whoever next sits down at that shared school computer — the failure mode
+  this whole area is designed around — can rewrite the account's password from
+  the session alone, without knowing it, and D73's meter never even runs
+  because that path checks no password to meter.
+
+**Cleared in the same transaction** as the hash, the session purge and D32's
+token purge, so no observer sees a self-chosen password beside a flag saying
+otherwise. **Only `resetPassword`** — `verifyEmail` redeems from the same
+table and proves nothing about a password, so it does not touch the flag.
+
+Nothing sets the flag except `runImport` (D61), so this cannot un-flag an
+account some other feature wanted flagged; if an "expire this password"
+admin action is ever added, this ruling is what says a reset discharges it.
+
+*Ruled by the implementer during the 2026-08-31 B-34 auth re-hunt, no human
+available to consult. No migration, no contract change.*

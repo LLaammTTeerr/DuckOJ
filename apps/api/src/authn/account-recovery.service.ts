@@ -103,6 +103,17 @@ export class AccountRecoveryService {
    * kinds die in the same transaction as the password change, so there is no
    * instant at which the new password is live and an old credential still
    * is.
+   *
+   * **`must_change_password` is cleared too (D140).** The flag means "this
+   * account still holds the password this server generated and printed on a
+   * sheet handed round a classroom" (D61), and redeeming a reset is the pupil
+   * choosing one of their own — the same fact `changePassword` records by
+   * clearing it. Leaving it set was wrong in both directions at once: D102
+   * refuses every access token the account will ever hold, so `oj login`
+   * never works again; and the flag is also what makes `currentPassword`
+   * OPTIONAL on `POST /auth/password/change`, so the one-time bootstrap
+   * exemption stayed open for good and whoever next sat down at that shared
+   * school computer could rewrite the password without knowing it.
    */
   async resetPassword(token: string, newPassword: string): Promise<void> {
     const passwordHash = await this.passwords.hash(newPassword);
@@ -110,7 +121,7 @@ export class AccountRecoveryService {
       const row = await this.redeem(tx, token, 'password_reset');
       await tx
         .update(schema.users)
-        .set({ passwordHash, updatedAt: new Date() })
+        .set({ passwordHash, mustChangePassword: false, updatedAt: new Date() })
         .where(eq(schema.users.id, row.userId));
       await tx.delete(schema.sessions).where(eq(schema.sessions.userId, row.userId));
       await tx.delete(schema.accessTokens).where(eq(schema.accessTokens.userId, row.userId));
