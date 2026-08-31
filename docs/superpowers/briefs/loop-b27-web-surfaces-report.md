@@ -23,9 +23,10 @@ files), and `vite build` all green. Live e2e (added spec) green — see below.
 
 3. `c997517` — **new e2e `a11y-surfaces.spec.ts`, 3 passed live.** axe sweep of
    the surfaces B-20 never covered — contest header+countdown, scoreboard,
-   organiser monitor, problem+discussion, submissions — in light, phone, and
-   dark BOTH ways (OS media query AND the `data-theme` toggle, separate CSS
-   triggers). **Zero serious/critical.** Plus two guards: OS-dark == toggled-dark
+   organiser monitor, problem+discussion, submissions, the org team panel and a
+   TeamPage (D99) — in light, phone, and dark BOTH ways (OS media query AND the
+   `data-theme` toggle, separate CSS triggers). **Zero serious/critical**
+   (9a21894 added the two team screens). Plus two guards: OS-dark == toggled-dark
    `--bg` (D116 — the triggers must not drift), and print forces `--bg:#fff`/
    `--fg:#000` + nav hidden even under `data-theme="dark"` on all 3 print
    screens (D121's source-order claim, proved against the toggle path F-31
@@ -36,10 +37,10 @@ files), and `vite build` all green. Live e2e (added spec) green — see below.
 5. **Timezone (D118):** `startTime`/`endTime` are `Timestamp =
    z.string().datetime({offset:true})`, so `Date.parse` is offset-correct; live
    countdown read `676:45:05` on the running contest. Correct.
-6. **No untranslated JSX** in theme.tsx / teams.tsx / contest-monitor.tsx /
-   the discussion — grep empty; every visible string is a `t()` key (the team
-   form already wraps its inputs in labelled `<label>`s). i18n-parity (in the
-   575) passes with the new keys.
+6. **No untranslated JSX** — grep over theme.tsx / teams.tsx /
+   contest-monitor.tsx / problem.tsx empty; every visible string is a `t()` key
+   (the team form already wraps its inputs in labelled `<label>`s). i18n-parity
+   (in the 575) passes with the new keys.
 7. **Keyboard reachability:** the theme control is three `<button>`s in a named
    `role="group"` (44px, global `:focus-visible` ring, B-20); the countdown is
    a non-interactive `role="timer"` — nothing to reach.
