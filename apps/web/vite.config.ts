@@ -16,7 +16,23 @@ import react from '@vitejs/plugin-react';
  * `DUCKOJ_API_ORIGIN` when the stack is on a tailnet address.
  */
 const apiOrigin = process.env.DUCKOJ_API_ORIGIN ?? 'http://localhost:8080';
-const proxy = { '/api': { target: apiOrigin, changeOrigin: false } };
+const proxy = {
+  '/api': { target: apiOrigin, changeOrigin: false },
+  // `/ws` as well as `/api`, and this is not cosmetic (D150). The verdict on
+  // the submit page arrives over the socket and ONLY over the socket:
+  // `useSubmissionSocket` fetches on `open` and on every `signal` frame, and
+  // nothing else on that page ever asks the API again. Without this rule
+  // `vite preview` answered `/ws` with its own SPA fallback — an `index.html`
+  // and a 200, so the upgrade failed silently — and a submission that the
+  // judge had already marked AC sat on screen as an empty panel forever.
+  // That is what made `journey`, `contest-day`, `features` and `authoring`
+  // fail against a preview build even after their seeding was unblocked.
+  //
+  // `changeOrigin: false` for the same reason as above: the browser's real
+  // `Origin` must reach the gateway, which checks it against the same
+  // allow-list D82's CSRF guard uses (D70).
+  '/ws': { target: apiOrigin, changeOrigin: false, ws: true },
+};
 
 /**
  * The preview port is PINNED, and pinned here rather than passed on a command

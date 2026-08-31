@@ -6661,6 +6661,19 @@ WS_EXTRA_ORIGINS=http://localhost:8080,http://localhost:4321
   a vite implementation detail, and without `strictPort` a clash silently
   moves the server to 4322 and reinstates the 403 as a mystery.
 
+**The gap had two halves, and the second was invisible until the first was
+open.** With seeding unblocked, `journey`, `contest-day`, `features` and
+`authoring` still failed — every one of them on a verdict that never appeared,
+for a submission the judge had already marked `AC` in the database. The submit
+page learns a verdict over the WebSocket and over nothing else
+(`useSubmissionSocket` fetches on `open` and on each `signal` frame; no other
+code on that page ever re-asks), and `vite preview` proxied only `/api`, so
+`/ws` was answered by its own SPA fallback — an `index.html` with a 200, an
+upgrade that fails with no error to catch. So the proxy carries `/ws` too,
+with `ws: true` and the same `changeOrigin: false`, and the browser's real
+origin reaches the gateway's D70 check — which passes for the same one-list
+reason the CSRF guard now does.
+
 **Rejected: making `vite preview` present `http://localhost:8080`.** A proxy
 that rewrites the `Origin` header defeats the check rather than satisfying it,
 and it would make the harness pass in exactly the case a real browser would
