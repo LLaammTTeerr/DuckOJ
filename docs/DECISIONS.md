@@ -5650,6 +5650,67 @@ to consult. No migration: two DTO fields, one query param, two SQL laterals
 reusing existing predicates, and the web wiring.*
 
 
+## D126 — A contest anybody entered cannot be deleted, and a problem's current revision must be a revision of that problem
+
+B-31's data-integrity sweep enumerated every foreign key in the schema (67 before this
+migration, 68 after) against a real migrated database and found two `ON DELETE` rules that did not say what the
+repo believed they said. Migration **0040** repairs both.
+
+- **Migration 0016's RESTRICT was reachable AROUND, not through.** It made
+  `contest_submissions.contest_problem_id` `ON DELETE restrict` so "a contest
+  submission's link to its contest problem must never vanish silently". But
+  `contest_participations.contest_id` cascaded from `contests`, and
+  `contest_submissions.participation_id` cascades from the participation — so
+  `DELETE FROM contests` walked the second path, removed the children, and the
+  restrict on the first was evaluated against nothing. Measured on a throwaway
+  database: `DELETE 1`, `contest_submissions` left = **0**. Worse, whether the
+  restrict fires at all depended on the ORDER Postgres created the referential
+  triggers, i.e. on which migration last rewrote which constraint — a
+  guarantee that turns on migration history is not a guarantee. So
+  `contest_participations.contest_id` is now `restrict`: a contest anybody
+  entered is history (D11) and is refused, loudly. **A contest nobody entered
+  still deletes** — the mistyped one an organiser wants gone has no
+  participations by definition. Nothing in the app deletes a contest today;
+  this is about the psql session during an incident and about the endpoint
+  somebody adds later.
+- **`problems.current_revision_id` carried no foreign key at all** — the only
+  id column in the schema without one — and it is the column that decides
+  which package grades a submission: `SubmissionAccessService.create` loads
+  the revision by this id alone and never re-checks whose problem it belongs
+  to, so a crossed pointer would grade one problem's submissions against
+  another problem's tests, silently and forever. The new key is **composite**,
+  `(id, current_revision_id) REFERENCES problem_revisions (problem_id, id)`,
+  because "some revision exists" is not the fact worth stating. `MATCH SIMPLE`
+  leaves a NULL — a problem with no published revision — unconstrained, which
+  is the intended state, and `NO ACTION` rather than `RESTRICT` so deleting a
+  problem (which cascades its revisions in the same statement) still works.
+  It is hand-written in the migration because drizzle cannot express it:
+  `problems`' table config runs before `problemRevisions` exists, so naming
+  those columns is a temporal-dead-zone error. drizzle-kit diffs the snapshot
+  against the schema file, so a constraint in neither is invisible to it and
+  will not be dropped by a later `generate`;
+  `packages/db/test/referential-integrity.spec.ts` is where it is pinned.
+- **The whole foreign-key map and every uniqueness rule are now one literal
+  each in that spec**, asserted against `pg_constraint` and `pg_get_indexdef`.
+  An `ON DELETE` is a decision about history and should not be possible to
+  change by accident in a schema file.
+- **`scripts/integrity-check.ts` is the standing audit** for what no key can
+  state — a seat's participation is for the seat's own contest, a cached
+  counter equals the aggregate it caches (the D100 reconcile), a solver
+  actually has an `AC`, an id buried in jsonb still resolves. 23 checks, one
+  list, two transports: a `DATABASE_URL` for tests and CI, and
+  `--live` through `podman exec … psql` because the deployed Postgres
+  publishes no host port. Both run read-only, enforced by
+  `default_transaction_read_only` rather than promised in a comment. Exit 0
+  clean, 1 violations, 2 could not run. Run against the live province
+  database on 2026-08-31 (333 users, 714 submissions, 192 seats, 104 counter
+  rows): **23/23 clean**, which is the first end-to-end evidence that B-28's
+  counter-drift fix holds in production and that no seat has drifted since
+  D104 shipped.
+
+*Ruled by the implementer during the 2026-08-31 B-31 loop, no human available
+to consult. Migration 0040.*
+
 ## D129 — Seat slips are printed before the gun, one card per competitor, and carry no password
 
 A province-scale contest is sat in rooms full of borrowed machines, and the
@@ -5716,3 +5777,4 @@ the same honest 501 on a server with no typst.
 *Ruled by the implementer during the 2026-08-31 f35 loop, no human available
 to consult. No migration: one route, one typst builder, one cache namespace
 and the web link beside D71's.*
+
