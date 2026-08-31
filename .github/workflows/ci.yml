@@ -88,3 +88,12 @@ jobs:
 
       - name: Build
         run: pnpm --filter @duckoj/web exec vite build
+
+      # D120/B-26 — the Caddy CSP allows index.html's inline theme script by
+      # its sha256. Vite could transform that script during the build, changing
+      # the SERVED hash while the source-based unit test stays green and the
+      # site's CSP silently blocks it. This runs after the build, on the built
+      # dist/index.html Caddy actually serves, and fails if any inline hash is
+      # missing from the Caddyfile.
+      - name: Verify CSP hash matches the built index.html
+        run: pnpm run verify:csp
