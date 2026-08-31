@@ -6785,3 +6785,97 @@ at `AC` (D150).
 *Ruled by the implementer during the f37 home-and-socket loop, no human
 available to consult. Cost if wrong: two timers in one hook and one line in one
 screen; deleting them restores the previous behaviour, which was silence.*
+
+## D153 — A test artefact is one whose NAME says so, and deleting it is opt-in and refuses on a real dependency
+
+D11 keeps submissions and grading history forever. Migration 0040 made
+`contest_participations.contest_id` RESTRICT so a contest with entrants cannot
+be dropped by accident. Both say the same thing, and it is the thing a judge is
+for: **a record must never disappear quietly.** Meanwhile this instance — the
+loop's rehearsal ground since 22 Aug — measured on 2026-09-01 carries 420
+accounts, 137 contests, 59 problems, 45 teams, 25 organizations, 20 problem
+sets and 816 submissions, of which the demo content a province is actually
+shown is *three accounts, one contest and seven problems*. Nothing in the
+database can tell those apart. Before a province uses this host somebody has to,
+and the usual cleanup posture — find what looks unused — is exactly the rule
+that eventually eats a real school.
+
+**A row is litter because of its name, never because of its shape.**
+`scripts/cleanup-test-data.ts` classifies against a fixed list of prefixes,
+each annotated with the loop that minted it (`e2e*`, `probe*`, `routercheck`,
+`bh<n>*`, `fe<n>*`, `cd-*`, `contest-day-*`, `rehearse-*`, `c1-*`, `mcp-*`,
+`prep-*`). No date cutoff, no orphan heuristic, no "zero submissions". The demo
+set — `duckadmin`, `hocsinh1`, `system`, the five Vietnamese problems,
+`aplusb`, `hello`, `thu-nghiem-1` — is a deny-list applied *before* the
+patterns and asserted *again* after classification, so widening a pattern
+carelessly aborts the transaction instead of deleting the content a province
+was promised. Of the brief's list, `j*-` matched nothing and `b32drill` was
+D130's throwaway compose project, not database rows; both are recorded here so
+nobody hunts them again.
+
+**Teams and problem sets are classified by their organization, and that is
+derived but not a heuristic.** They carry no distinguishing name of their own:
+44 of the 45 teams are called "Team Alpha" or "Team Bravo" and all 20 problem
+sets are slugged `tuan-1`. Their org matched a pattern explicitly, and a team
+whose org is later refused is refused with it.
+
+**Deletion is opt-in twice over, and the dry run is enforced by Postgres.** The
+default plans only, inside a transaction opened with
+`SET TRANSACTION READ ONLY` and closed with `ROLLBACK` — a write that leaked
+into the plan errors rather than runs, which is a stronger claim than a comment
+promising the same. Deleting needs `--apply` *and* `CONFIRM=yes`, and then
+classification, the blocker pass and the deletes all happen inside ONE
+read-write transaction. A plan computed by a previous process is worthless
+while the API is up and still writing.
+
+**The refusal tier, and the line this entry exists to draw.** Every foreign-key
+edge running from a kept row into the delete set is a rule, in one of two
+tiers. `refuse` takes the row back out of the delete set, and holds exactly
+three cases: competitive history in either direction (a participation, a seat,
+a submission, a rating event, a solver row belonging to a kept person or a kept
+contest); every NO ACTION edge, which would abort anyway and is caught so the
+operator reads a sentence instead of a Postgres error; and anything that
+changes a kept row in place or changes its **reach** — deleting a test
+organization would empty a kept contest's allow-list and quietly make it
+public. Refusals propagate to a fixpoint, because refusing a contest can make
+an account undeletable and that can make an organization undeletable.
+
+`disclose` prints what a kept container loses and then proceeds. This is the
+half that needed deciding, and it was decided by measurement rather than
+taste. Under a single refuse-everything tier this database produced **258
+refusals that reduced to one sentence — "duckadmin touched it"** — because the
+operator account owns every rehearsal school, created every drill problem and
+asked every drill clarification. 24 organizations, 45 teams, 20 problem sets
+and 19 contests became permanently undeletable, which ships the litter to the
+province: the outcome the script exists to prevent. The distinction that
+survives is structural, not sentimental — an association row like a membership
+line, a question asked inside a drill round, or an authoring role on a drill
+problem depends on **both** endpoints and dies with its container, so no kept
+row survives-and-loses by its deletion. With the two tiers separated the same
+database refuses **28** rows, and both of the cases worth refusing are among
+them: 24 accounts that competed in `thu-nghiem-1`, and the four `fe1`/`fe6`
+rounds `hocsinh1` entered.
+
+**What it deliberately does not refuse, said out loud.** A test account's
+submissions to a KEPT problem go: 603 against `tong-hai-so`, 80 against
+`aplusb`, 2 against `hello`. Nothing depends on them — a submission points at a
+problem, never the reverse — but those problems' counters change, so the
+inventory prints the three lines rather than burying them. Refusing here
+instead would refuse every account on the instance.
+
+**The post-condition is a script we already own.** The sweep also deletes
+notifications whose jsonb payload names a deleted contest, problem or
+submission — jsonb holds no foreign keys, so nothing else would clear them and
+`integrity-check.ts`'s `notification-payload-dangling-id` would flag every one.
+Running `scripts/integrity-check.ts --live` afterwards and getting a clean
+report is how an operator knows the cleanup landed.
+`packages` / `package_files` are left alone: they are content-addressed and
+shared by hash, and an unreferenced package is inert.
+
+*Ruled by the implementer during the f38 cleanup loop, no human available to
+consult. Cost if wrong: one script, one spec and one guide page; the live
+database was never touched, because the deliverable is the dry-run inventory
+and the decision to delete is the operator's. A pattern that is too narrow
+leaves litter a second run removes; a pattern that is too wide is caught by the
+deny assertion, and everything genuinely load-bearing is caught by the refusal
+tier before a row moves.*
