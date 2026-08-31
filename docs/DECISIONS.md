@@ -6343,3 +6343,111 @@ screen in the app offered a way to ask again.
 *Ruled by the implementer during the 2026-08-31 fe3 states loop. Cost if wrong: one
 component; every call site reverts to its own `<p role="alert">` independently.*
 
+
+
+## D146 — A 422's field attribution reaches the field: the server already said which one
+
+`ZodValidationPipe` has answered every failed validation with
+`fields: { "<issue.path>": ["<message>"] }` since it was written — the API
+knows, per field, exactly what it objected to. The browser threw all of it
+away. Every form in `apps/web` rendered the pipe's one banner sentence,
+*"The request body failed validation."*, in English, in a Vietnamese page,
+beside no field at all. Twelve forms; one of them (the roster import) read
+`fields`, and only to build a table of row numbers.
+
+So `ApiError` carries `fields`, and `src/forms.tsx`'s **`mapFieldErrors`**
+rewrites the server's paths into the ids a particular form gives its inputs.
+
+- **The dictionary is per-form and explicit.** `POST /contests` objects to
+  `startTime`; the box holding it is called `start`. A form cannot print the
+  server's key and a shared guess would be wrong per screen, so each form
+  declares its own `SERVER_FIELDS` next to the request it describes.
+- **`*` matches one path segment.** `problems.*.points` catches row 4's
+  objection without the form enumerating rows it has not drawn.
+- **An unmappable path is DROPPED, never guessed onto a nearby field** — D26's
+  rule for `fieldForCode`, for the same reason. It falls through to the
+  banner, which still has the server's `detail`.
+- **Several objections about one field are joined, not overwritten.** Zod
+  reports "too short" and "bad characters" as two issues on one path; showing
+  one sends the reader round the loop twice.
+- **Attribution beats the banner.** A call site that attributed the failure
+  does not also raise `CodeAlert` — one refusal, one place.
+
+Applied to `/register` (where the client rules are deliberately laxer than
+zod's, so a 422 can still arrive), `/contests/new` (both `POST /contests` and
+the clone) and `/contests/$key/edit`. `email` is in register's map and does
+not reopen D26: a `validation_failed` is the pipe objecting to the SHAPE of an
+address and says nothing about whether an account holds it — `email_taken`
+remains absent from `fieldForCode`, which is where the enumeration oracle
+actually lived.
+
+*Ruled by the implementer during the fe4 forms loop, no human available to
+consult. `apps/web` only; no migration, no API change.*
+
+
+## D147 — A form with unsaved work in it warns before the page goes
+
+`grep -rn beforeunload apps/web/src` returned nothing. Nothing in this app
+had ever asked "you have unsaved changes" — not the contest editor, not the
+problem authoring screen with a statement in it, not the create form a setter
+fills in on contest morning. A click on the nav bar, on *Hủy*, on the back
+button, and the work was gone with no prompt and no draft. (D84's editor is
+the one exception, and it solves a different problem: it *stores* a draft.)
+
+`useDirtyGuard(dirty)` in `src/forms.tsx` is both halves, because neither
+substitutes for the other: a `beforeunload` listener for the closed tab and
+the reload, and TanStack Router's `useBlocker` for an in-app navigation, which
+never fires `beforeunload` at all — and which is the likelier way the work
+actually dies.
+
+- **It returns `release()`, and that is load-bearing.** A save that succeeds
+  navigates, and the guard would block *that*. `release()` is called in the
+  same tick as `navigate()`, before React has necessarily re-rendered, so the
+  answer has to come off a ref: `shouldBlockFn` reads `armedRef`, not the
+  `disabled` option.
+- **Dirty is measured against the SEED, not against emptiness.** An edit form
+  arrives prefilled with the contest's own values; warning about those would
+  fire the prompt on every visit and teach organisers to click through it.
+  `contest-edit.tsx` snapshots every field when it seeds and compares, with
+  the problem table flattened by `rowsFingerprint` — the rows are rebuilt
+  objects, so identity says nothing.
+- **The prompt's words come from `window.confirm`, kept in the active
+  locale by `DirtyGuardText` in the shell.** A blocker's callback runs outside
+  React and cannot read a hook, and no page has been able to choose the
+  browser's own `beforeunload` wording for a decade.
+- **A form nobody has touched does not guard.** `disabled: !dirty`, so
+  opening a form and changing your mind costs nothing.
+
+*Ruled by the implementer during the fe4 forms loop, no human available to
+consult. `apps/web` only; no migration.*
+
+
+## D148 — A submit button is live unless it is busy, and it says what it is doing
+
+Two habits, both wrong, both everywhere.
+
+**`disabled={busy || key === ''}`.** Eleven of this app's buttons were dead
+until some field was non-empty. A greyed-out button names nothing: a setter on
+contest morning with eleven inputs in front of them is told *that* the form is
+not ready, never *which* box is the reason, and a screen reader is told even
+less — a disabled control is skipped. The emptiness check was doing validation
+without the ability to explain itself. So the button is live, the press runs
+`validate()`, and the objection appears beside the field with D110's summary
+taking focus.
+
+**A busy button that still reads *Tạo kỳ thi*.** Two of twenty-nine handlers
+swapped the label while a request was in flight; the rest just went grey, which
+on a slow provincial link is indistinguishable from a page that ignored the
+click. Now `aria-busy` plus a label that says the verb: *Đang tạo…*, *Đang
+lưu…*, *Đang nộp…*. Double-submit stays impossible for the same reason it
+always was — `disabled={busy}` — with a `if (busy) return;` guard at the top
+of the handler for the paths a keyboard shortcut can reach.
+
+The exceptions kept deliberately: a control disabled because the *state of the
+world* forbids it, not because the form is incomplete — the tab you are
+already on, the font stepper at its limit, the sample test case a setter may
+not delete, "load more" while a page is loading. Those name their reason by
+position or by an adjacent sentence.
+
+*Ruled by the implementer during the fe4 forms loop, no human available to
+consult. `apps/web` only; no migration.*

@@ -22,12 +22,13 @@
  * such field, because confirming a password is a typo guard for humans, not
  * a property of the account being created.
  */
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api } from '../api.js';
 import { dropDepartingViewerCache } from '../me.js';
 import { useT, type TFunction } from '../i18n/index.js';
+import { ErrorSummary, mapFieldErrors } from '../forms.js';
 
 /** The five inputs, keyed the way `fieldErrors` and the DOM ids are. */
 type Field = 'username' | 'email' | 'displayName' | 'password' | 'confirm';
@@ -103,6 +104,28 @@ function fieldForCode(code: string | undefined): Field | null {
 }
 
 /**
+ * `RegisterRequest`'s own keys → this form's fields (D146).
+ *
+ * The client rules above are deliberately laxer than zod's in two places
+ * (`LOOKS_LIKE_EMAIL`, and the username regex is the contract's but the
+ * server may tighten), so a 422 CAN still come back on a form this page
+ * thought was clean — and it used to arrive as one English banner with no
+ * field named.
+ *
+ * `email` is in this map and does not reopen D26: a 422 `validation_failed`
+ * is the pipe objecting to the SHAPE of the address, and says nothing about
+ * whether an account with it exists. `email_taken` remains absent from
+ * `fieldForCode`, which is where the enumeration oracle actually lived.
+ * `confirm` is not here because the contract has no such field.
+ */
+const SERVER_FIELDS: Readonly<Partial<Record<string, Field>>> = {
+  username: 'username',
+  email: 'email',
+  displayName: 'displayName',
+  password: 'password',
+};
+
+/**
  * One labelled input plus its own error, wired with `aria-describedby` so a
  * screen reader reads the objection as part of the field rather than as a
  * stray paragraph somewhere on the page.
@@ -172,20 +195,12 @@ export function RegisterPage() {
   const registered = useRef<{ username: string; password: string } | null>(null);
 
   /**
-   * The error summary. `fieldErrors` only ever changes on a submit attempt
-   * (typing edits `values`, never the errors), so focusing the summary
-   * whenever it becomes non-empty moves focus exactly once per failed submit
-   * — the behaviour the Focusable Error Summary pattern asks for — without
-   * ever stealing focus mid-typing. `submitCount` is what makes a SECOND
-   * failed submit with the identical set of errors re-focus: the object
-   * reference alone would not change if the same fields fail again.
+   * The error summary lives in `src/forms.tsx` now — D110's pattern was built
+   * here and stayed here for eleven other forms that needed it. `submitCount`
+   * is still this page's, because only this page knows when an attempt was
+   * made; the focus behaviour it drives is the component's.
    */
-  const summaryRef = useRef<HTMLDivElement>(null);
   const [submitCount, setSubmitCount] = useState(0);
-  const hasFieldErrors = Object.keys(fieldErrors).length > 0;
-  useEffect(() => {
-    if (hasFieldErrors) summaryRef.current?.focus();
-  }, [submitCount, hasFieldErrors]);
 
   function set(field: Field): (value: string) => void {
     return (value: string) => {
@@ -218,6 +233,13 @@ export function RegisterPage() {
           },
         });
         if (created.error) {
+          // D146 first: a 422 names the fields itself, and the server's own
+          // attribution beats anything this page could infer from a code.
+          const attributed = mapFieldErrors(created.error.fields, SERVER_FIELDS);
+          if (Object.keys(attributed).length > 0) {
+            setFieldErrors(attributed);
+            return;
+          }
           const field = fieldForCode(created.error.code);
           // The server's `detail` is its own wording and is shown verbatim —
           // it is not in either catalogue, by design (see i18n/en.ts).
@@ -282,26 +304,11 @@ export function RegisterPage() {
             of problems and steps straight to the first one. `#${id}` is a
             real fragment for a pointer, and the click handler carries the
             focus that a hash href does not move on its own. */}
-        {hasFieldErrors ? (
-          <div className="error-summary" role="alert" tabIndex={-1} ref={summaryRef}>
-            <strong>{t('auth.errorSummaryTitle')}</strong>
-            <ul>
-              {FIELD_ORDER.filter((field) => fieldErrors[field]).map((field) => (
-                <li key={field}>
-                  <a
-                    href={`#${field}`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      document.getElementById(field)?.focus();
-                    }}
-                  >
-                    {fieldErrors[field]}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+        {/* The Focusable Error Summary (WCAG 3.3.1 + guideline), now
+            `src/forms.tsx`'s. It COMPLEMENTS the inline per-field errors,
+            never replaces them: a reader gets the overview and the per-field
+            objection both. */}
+        <ErrorSummary errors={fieldErrors} order={FIELD_ORDER} attempt={submitCount} />
         <TextField
           id="username"
           label={t('common.username')}

@@ -56,6 +56,13 @@ export const vi = {
   // ── shared across screens ──────────────────────────────────────────────
   'common.loading': 'Đang tải…',
   'common.working': 'Đang xử lý…',
+
+  // ── biểu mẫu: bản tóm tắt D110, lỗi theo trường D146, cảnh báo D147 ────
+  'form.errorSummaryTitle': 'Vui lòng sửa các lỗi sau',
+  'form.leaveConfirm': 'Bạn có thay đổi chưa lưu. Rời khỏi trang này?',
+  'form.required': 'Ô này là bắt buộc.',
+  'form.saving': 'Đang lưu…',
+  'form.creating': 'Đang tạo…',
   'common.networkError': 'Không kết nối được máy chủ. Kiểm tra đường truyền rồi thử lại.',
   'common.serverError': 'Máy chủ đang gặp sự cố khi trả lời. Không phải do bạn — hãy thử lại sau giây lát.',
   'common.signInRequired': 'Đăng nhập để xem trang này.',
@@ -142,7 +149,6 @@ export const vi = {
   'auth.errDisplayName': 'Từ 1 đến 64 ký tự.',
   'auth.errPasswordLength': 'Ít nhất 10 ký tự.',
   'auth.errPasswordMismatch': 'Hai mật khẩu không khớp nhau.',
-  'auth.errorSummaryTitle': 'Vui lòng sửa các lỗi sau',
 
   // ── home ──────────────────────────────────────────────────────────────
   'home.intro':
@@ -532,7 +538,8 @@ export const vi = {
   'contestNew.cloneSubmit': 'Nhân bản kỳ thi',
   'contestNew.cloneNameSuggestion': '{name} (bản sao)',
   'contestNew.badPoints': 'Bài {code}: điểm phải là số không âm.',
-  'contestNew.datesRequired': 'Phải nhập thời điểm bắt đầu và kết thúc.',
+  'contestNew.errKeyFormat': 'Chỉ gồm chữ thường, chữ số, - và _; từ 2 đến 64 ký tự, bắt đầu bằng chữ hoặc số.',
+  'contestNew.errEndBeforeStart': 'Kỳ thi phải kết thúc sau khi bắt đầu.',
   'contestNew.createError': 'Không tạo được kỳ thi.',
   'contestNew.badFreeze': 'Thời gian đóng băng phải là số phút nguyên và ngắn hơn kỳ thi.',
 

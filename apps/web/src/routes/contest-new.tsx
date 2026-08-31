@@ -8,7 +8,7 @@
  * UTC while their browser thinks in ICT is how a contest starts seven
  * hours early.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api } from '../api.js';
@@ -16,6 +16,7 @@ import { apiError, read } from '../api-error.js';
 import { useT } from '../i18n/index.js';
 import { CodeAlert, type CodeAlertState } from '../states.js';
 import { OrgPicker } from '../org-picker.js';
+import { ErrorSummary, FieldError, fieldProps, mapFieldErrors, useDirtyGuard } from '../forms.js';
 
 interface ProblemRow {
   code: string;
@@ -25,6 +26,41 @@ interface ProblemRow {
 
 /** The four formats the registry ships; the API refuses anything else. */
 const FORMATS = ['default', 'icpc', 'ioi16', 'legacy_ioi'] as const;
+
+/**
+ * The inputs D146's attribution can land on, keyed the way their DOM ids are
+ * (`ErrorSummary` focuses by `getElementById`). `rows` is the problems TABLE,
+ * which has no single input — the objection is shown above it.
+ */
+type Field = 'key' | 'name' | 'start' | 'end' | 'freeze' | 'rows';
+
+/** Screen order, so the summary reads the way the form does. */
+const FIELD_ORDER: readonly Field[] = ['key', 'name', 'start', 'end', 'freeze', 'rows'];
+
+/**
+ * `CONTEST_KEY` from `@duckoj/contracts`, copied here the way register.tsx
+ * copies `Username`'s: a client rule that is merely SIMILAR to the server's
+ * refuses keys the server would have taken, which is worse than not checking.
+ */
+const CONTEST_KEY = /^[a-z0-9][a-z0-9_-]{1,63}$/;
+
+/**
+ * The request bodies' own paths → this form's fields (D146). Both endpoints,
+ * because one page sends either: `POST /contests` names `key`/`startTime`,
+ * `POST /contests/{key}/clone` names `newKey`/`newName`.
+ */
+const SERVER_FIELDS: Readonly<Partial<Record<string, Field>>> = {
+  key: 'key',
+  newKey: 'key',
+  name: 'name',
+  newName: 'name',
+  startTime: 'start',
+  endTime: 'end',
+  frozenLastMinutes: 'freeze',
+  maxTeamSize: 'rows',
+  'problems.*.code': 'rows',
+  'problems.*.points': 'rows',
+};
 
 /**
  * `/contests/new`, and — with `?cloneFrom=<key>` — D88's "Nhân bản kỳ thi".
@@ -67,6 +103,19 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
   const [error, setError] = useState<CodeAlertState>(null);
   const [busy, setBusy] = useState(false);
   const [seeded, setSeeded] = useState(false);
+  /**
+   * D146/D110. `fieldErrors` changes only inside `handleSubmit` — typing
+   * edits the values, never the errors — which is what lets `ErrorSummary`
+   * take focus once per failed attempt without ever stealing it mid-typing.
+   */
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
+  const [attempt, setAttempt] = useState(0);
+  /**
+   * What the form held when it was seeded: '' for a fresh create, the source
+   * contest's suggestion for a clone. Anything else in these two boxes is the
+   * setter's own typing.
+   */
+  const [baseline, setBaseline] = useState({ key: '', name: '' });
 
   const source = useQuery({
     queryKey: ['contest', cloneFrom],
@@ -91,10 +140,98 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
   // and a field that arrives pre-refused is not a helpful default.
   useEffect(() => {
     if (seeded || !source.data) return;
-    setKey(`${source.data.key}-2`);
-    setName(t('contestNew.cloneNameSuggestion', { name: source.data.name }));
+    const suggestion = {
+      key: `${source.data.key}-2`,
+      name: t('contestNew.cloneNameSuggestion', { name: source.data.name }),
+    };
+    setKey(suggestion.key);
+    setName(suggestion.name);
+    // The suggestion is not the setter's work — D147 must not warn about it.
+    setBaseline(suggestion);
     setSeeded(true);
   }, [seeded, source.data, t]);
+
+  /**
+   * D147 — is there work here a route change would destroy? The four
+   * substantial answers (the two names, the window, the problem list), not
+   * every select: a format nobody changed back is five seconds, a problem
+   * list is not.
+   */
+  const dirty =
+    key !== baseline.key ||
+    name !== baseline.name ||
+    start !== '' ||
+    end !== '' ||
+    orgSlugs.length > 0 ||
+    rows.some((row) => row.code.trim() !== '');
+  const release = useDirtyGuard(dirty);
+
+  /**
+   * The contract's rules, in the active locale, before a request is sent.
+   *
+   * Every one of these used to be either a dead button (`key === ''` simply
+   * greyed it out, naming nothing) or a round trip: `contest_window_invalid`
+   * comes back as a 400 with NO field attribution at all, so a setter who put
+   * the end before the start was told an identifier and left to guess which
+   * of the two boxes it meant.
+   */
+  const validate = useMemo(
+    () =>
+      function validateForm(): Partial<Record<Field, string>> {
+        const invalid: Partial<Record<Field, string>> = {};
+        if (key.trim() === '') invalid.key = t('form.required');
+        else if (!CONTEST_KEY.test(key)) invalid.key = t('contestNew.errKeyFormat');
+        if (name.trim() === '') invalid.name = t('form.required');
+        if (start === '') invalid.start = t('form.required');
+        if (end === '') invalid.end = t('form.required');
+        else if (start !== '' && new Date(end) <= new Date(start)) {
+          invalid.end = t('contestNew.errEndBeforeStart');
+        }
+        if (cloneFrom === undefined) {
+          const frozen = Number(freeze);
+          if (freeze.trim() === '' || !Number.isInteger(frozen) || frozen < 0) {
+            invalid.freeze = t('contestNew.badFreeze');
+          }
+          for (const row of rows.filter((r) => r.code.trim() !== '')) {
+            if (Number.isNaN(Number(row.points)) || Number(row.points) < 0) {
+              invalid.rows = t('contestNew.badPoints', { code: row.code });
+            }
+          }
+        }
+        return invalid;
+      },
+    [key, name, start, end, freeze, rows, cloneFrom, t],
+  );
+
+  /**
+   * The one entry point both buttons used to have separately. Validation,
+   * then the request, then — only on success — the guard is released and the
+   * page navigates.
+   */
+  async function handleSubmit(): Promise<void> {
+    if (busy) return;
+    // Bumped on every attempt so the summary re-takes focus even when the
+    // same fields fail twice in a row (D110's own note).
+    setAttempt((n) => n + 1);
+    const invalid = validate();
+    setFieldErrors(invalid);
+    setError(null);
+    if (Object.keys(invalid).length > 0) return;
+    await (cloneFrom === undefined ? create() : clone());
+  }
+
+  /**
+   * A refusal, filed where the server filed it. Answers whether it was
+   * attributable, so the caller knows not to ALSO raise a banner saying the
+   * same thing in the pipe's English.
+   */
+  function attribute(err: { code?: string | undefined; fields?: Record<string, string[]> | undefined }): boolean {
+    const attributed = mapFieldErrors(err.fields, SERVER_FIELDS);
+    if (Object.keys(attributed).length === 0) return false;
+    setFieldErrors(attributed);
+    setAttempt((n) => n + 1);
+    return true;
+  }
 
   function setRow(index: number, patch: Partial<ProblemRow>): void {
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -106,10 +243,7 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
    * are actually reachable.
    */
   async function clone(): Promise<void> {
-    if (start === '' || end === '') {
-      setError({ message: t('contestNew.datesRequired') });
-      return;
-    }
+    // The date check lives in `validate()` now, beside the field it is about.
     setBusy(true);
     try {
       const { data, error: err } = await api.POST('/contests/{key}/clone', {
@@ -122,9 +256,13 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
         },
       });
       if (err || !data) {
+        // D146 first: the server's own attribution beats a banner.
+        if (err && attribute(err)) return;
         setError({ message: err?.detail ?? t('contestNew.createError'), code: err?.code });
         return;
       }
+      // The work is saved; the guard must not block the navigation that says so.
+      release();
       await navigate({ to: '/contests/$key', params: { key: data.key } });
     } catch {
       setError({ message: t('common.networkError') });
@@ -134,22 +272,10 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
   }
 
   async function create(): Promise<void> {
+    // Points, window and freeze are all `validate()`'s now — checked before
+    // this runs, and reported beside the field rather than in one banner.
     const problems = rows.filter((row) => row.code.trim() !== '');
-    for (const row of problems) {
-      if (Number.isNaN(Number(row.points)) || Number(row.points) < 0) {
-        setError({ message: t('contestNew.badPoints', { code: row.code }) });
-        return;
-      }
-    }
-    if (start === '' || end === '') {
-      setError({ message: t('contestNew.datesRequired') });
-      return;
-    }
     const frozenLastMinutes = Number(freeze);
-    if (!Number.isInteger(frozenLastMinutes) || frozenLastMinutes < 0) {
-      setError({ message: t('contestNew.badFreeze') });
-      return;
-    }
     setBusy(true);
     try {
       const { data, error: err } = await api.POST('/contests', {
@@ -174,9 +300,11 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
         },
       });
       if (err) {
+        if (attribute(err)) return;
         setError({ message: err.detail ?? t('contestNew.createError'), code: err.code });
         return;
       }
+      release();
       await navigate({ to: '/contests/$key', params: { key: data.key } });
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
@@ -215,26 +343,58 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
           ) : null}
         </>
       ) : null}
+      {/* D110's Focusable Error Summary, reused rather than reinvented: the
+          failure is announced, focus lands on the list, and each item carries
+          a keyboard reader to the field it names. */}
+      <ErrorSummary errors={fieldErrors} order={FIELD_ORDER} attempt={attempt} />
       <p>
+        {/* The `<label>` WRAPS the input, so the objection is rendered
+            OUTSIDE it — inside, the error text would fold into the field's
+            accessible NAME and every `getByLabelText` for it would stop
+            matching. See register.tsx's note. */}
         <label>
           {t('contestNew.key')}{' '}
-          <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="spring-open" />
+          <input
+            {...fieldProps('key', fieldErrors.key)}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder="spring-open"
+          />
         </label>
+        <FieldError id="key" message={fieldErrors.key} />
       </p>
       <p>
         <label>
-          {t('common.name')} <input value={name} onChange={(e) => setName(e.target.value)} />
+          {t('common.name')}{' '}
+          <input
+            {...fieldProps('name', fieldErrors.name)}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </label>
+        <FieldError id="name" message={fieldErrors.name} />
       </p>
       <p>
         <label>
           {t('contestNew.starts')}{' '}
-          <input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
-        </label>{' '}
+          <input
+            {...fieldProps('start', fieldErrors.start)}
+            type="datetime-local"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+          />
+        </label>
+        <FieldError id="start" message={fieldErrors.start} />{' '}
         <label>
           {t('contestNew.ends')}{' '}
-          <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
+          <input
+            {...fieldProps('end', fieldErrors.end)}
+            type="datetime-local"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+          />
         </label>
+        <FieldError id="end" message={fieldErrors.end} />
       </p>
       {cloneFrom === undefined ? (
         <>
@@ -254,11 +414,13 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
         <label>
           {t('contestNew.freeze')}{' '}
           <input
+            {...fieldProps('freeze', fieldErrors.freeze)}
             aria-label={t('contestNew.freeze')}
             value={freeze}
             onChange={(e) => setFreeze(e.target.value)}
           />
-        </label>{' '}
+        </label>
+        <FieldError id="freeze" message={fieldErrors.freeze} />{' '}
         <label>
           {t('common.visibility')}{' '}
           {/* Here the VALUE is the API's enum and the LABEL is prose, so
@@ -301,7 +463,8 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
 
       <OrgPicker value={orgSlugs} onChange={setOrgSlugs} />
 
-      <h2>{t('contestNew.problems')}</h2>
+      <h2 id="rows">{t('contestNew.problems')}</h2>
+      <FieldError id="rows" message={fieldErrors.rows} />
       <table>
         <thead>
           <tr>
@@ -352,12 +515,15 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
 
       {error ? <CodeAlert {...error} /> : null}
       <p>
-        <button
-          type="button"
-          disabled={busy || key === '' || name === ''}
-          onClick={() => void (cloneFrom === undefined ? create() : clone())}
-        >
-          {cloneFrom === undefined ? t('contestNew.create') : t('contestNew.cloneSubmit')}
+        {/* D148 — live unless it is genuinely busy, and it says what it is
+            doing while it is. `disabled={key === ''}` used to grey it out
+            with no reason given: eleven inputs and no clue which one. */}
+        <button type="button" disabled={busy} aria-busy={busy} onClick={() => void handleSubmit()}>
+          {busy
+            ? t('form.creating')
+            : cloneFrom === undefined
+              ? t('contestNew.create')
+              : t('contestNew.cloneSubmit')}
         </button>{' '}
         <Link to="/contests">{t('common.cancel')}</Link>
       </p>

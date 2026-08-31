@@ -15,12 +15,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const get = vi.fn();
 const patch = vi.fn();
 const navigate = vi.fn();
+const blocker = vi.fn();
 vi.mock('../src/api.js', () => ({
   api: { GET: (...a: unknown[]) => get(...a), POST: vi.fn(), PATCH: (...a: unknown[]) => patch(...a) },
 }));
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a href="#">{children}</a>,
   useNavigate: () => navigate,
+  // D147's dirty guard hangs off the router; the page renders bare here.
+  useBlocker: (...args: unknown[]) => blocker(...args) as unknown,
 }));
 
 const { ContestEditPage } = await import('../src/routes/contest-edit.js');
@@ -60,6 +63,7 @@ afterEach(() => {
   get.mockReset();
   patch.mockReset();
   navigate.mockReset();
+  blocker.mockReset();
 });
 
 describe('ContestEditPage', () => {
@@ -186,5 +190,107 @@ describe('the link into it', () => {
     wrap(<ContestPage contestKey="spring" />);
     expect(await screen.findByRole('heading', { name: /spring open/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /sửa kỳ thi/i })).toBeNull();
+  });
+});
+
+/**
+ * D146/D147/D148 on the screen that edits a contest while it is being run.
+ * Before this loop a refused save was one banner in the pipe's English, the
+ * button went grey when the name was cleared with no reason given, and a
+ * click on the cancel link took every edit with it.
+ */
+describe('ContestEditPage — the form teaches, and keeps what was typed', () => {
+  it('names the cleared field instead of quietly killing the button', async () => {
+    get.mockResolvedValue({ data: CONTEST });
+    wrap(<ContestEditPage contestKey="spring" />);
+    await screen.findByDisplayValue('Spring Open');
+    await userEvent.clear(screen.getByLabelText('Tên'));
+
+    const save = screen.getByRole('button', { name: /^Lưu/ });
+    expect(save).not.toBeDisabled();
+    await userEvent.click(save);
+
+    expect(patch).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Tên')).toHaveAttribute('aria-invalid', 'true');
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveFocus());
+  });
+
+  it('names the END field when the window would run backwards', async () => {
+    get.mockResolvedValue({ data: CONTEST });
+    wrap(<ContestEditPage contestKey="spring" />);
+    await screen.findByDisplayValue('Spring Open');
+    const end = screen.getByLabelText('Kết thúc');
+    await userEvent.clear(end);
+    await userEvent.type(end, '2020-01-01T00:00');
+    await userEvent.click(screen.getByRole('button', { name: /^Lưu/ }));
+
+    expect(patch).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Kết thúc')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('puts the server 422 on the field the server named (D146)', async () => {
+    get.mockResolvedValue({ data: CONTEST });
+    patch.mockResolvedValue({
+      data: undefined,
+      error: {
+        code: 'validation_failed',
+        detail: 'The request body failed validation.',
+        fields: { frozenLastMinutes: ['Too long'] },
+      },
+      response: { status: 422 },
+    });
+    wrap(<ContestEditPage contestKey="spring" />);
+    await screen.findByDisplayValue('Spring Open');
+    await userEvent.click(screen.getByRole('button', { name: /^Lưu/ }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    const freeze = screen.getByLabelText(/Đóng băng/);
+    await waitFor(() => expect(freeze).toHaveAttribute('aria-invalid', 'true'));
+    expect(document.getElementById(freeze.getAttribute('aria-describedby')!)).toHaveTextContent(
+      'Too long',
+    );
+  });
+
+  it('keeps every edit when the save is refused', async () => {
+    get.mockResolvedValue({ data: CONTEST });
+    patch.mockResolvedValue({ data: undefined, error: { code: 'contest_started' } });
+    wrap(<ContestEditPage contestKey="spring" />);
+    await screen.findByDisplayValue('Spring Open');
+    await userEvent.clear(screen.getByLabelText('Tên'));
+    await userEvent.type(screen.getByLabelText('Tên'), 'Vòng tỉnh');
+    await userEvent.click(screen.getByRole('button', { name: /^Lưu/ }));
+
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText('Tên')).toHaveValue('Vòng tỉnh');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('says it is saving, and cannot be double-submitted (D148)', async () => {
+    get.mockResolvedValue({ data: CONTEST });
+    patch.mockReturnValue(new Promise(() => undefined));
+    wrap(<ContestEditPage contestKey="spring" />);
+    await screen.findByDisplayValue('Spring Open');
+    await userEvent.click(screen.getByRole('button', { name: /^Lưu/ }));
+
+    const busy = await screen.findByRole('button', { name: /Đang lưu/ });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    await userEvent.click(busy);
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
+
+  it('guards an edited contest against a route change, not an untouched one (D147)', async () => {
+    get.mockResolvedValue({ data: CONTEST });
+    wrap(<ContestEditPage contestKey="spring" />);
+    await screen.findByDisplayValue('Spring Open');
+    // Prefilled is not edited: the seed is the contest's own values.
+    await waitFor(() =>
+      expect((blocker.mock.calls.at(-1)![0] as { disabled: boolean }).disabled).toBe(true),
+    );
+
+    await userEvent.type(screen.getByLabelText('Tên'), ' 2026');
+    await waitFor(() =>
+      expect((blocker.mock.calls.at(-1)![0] as { disabled: boolean }).disabled).toBe(false),
+    );
   });
 });

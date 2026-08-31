@@ -11,6 +11,7 @@ import {
   useSearch,
 } from '@tanstack/react-router';
 import { OfflineBanner } from './states.js';
+import { DirtyGuardText } from './forms.js';
 import { LoginForm, type LoginValues } from './routes/login.js';
 import { RegisterPage } from './routes/register.js';
 import { DEFAULT_PROBLEM_CODE, SubmitPage } from './routes/submit.js';
@@ -162,6 +163,10 @@ function RootComponent() {
   return (
     <>
       <PreferenceSync />
+      {/* D147 — `useBlocker`'s callback runs outside React and can only ask
+          `window.confirm`, so the sentence it asks with is kept in step with
+          the active locale from here rather than read through a hook. */}
+      <DirtyGuardText />
       <ShellNav />
       {/* D144 — one line, under the bar, on every screen. Above `<main>` so
           it is the first thing after the navigation in the reading order and

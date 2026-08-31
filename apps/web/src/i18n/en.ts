@@ -64,6 +64,13 @@ export const en = {
   // ── shared across screens ──────────────────────────────────────────────
   'common.loading': 'Loading…',
   'common.working': 'Working…',
+
+  // ── forms: D110's summary, D146's field errors, D147's leave guard ─────
+  'form.errorSummaryTitle': 'Please fix the following',
+  'form.leaveConfirm': 'You have unsaved changes. Leave this page?',
+  'form.required': 'This field is required.',
+  'form.saving': 'Saving…',
+  'form.creating': 'Creating…',
   'common.networkError': 'Could not reach the server. Check your connection and try again.',
   'common.serverError': 'The server had a problem answering. Nothing you did caused it — try again in a moment.',
   'common.signInRequired': 'Sign in to see this page.',
@@ -156,7 +163,6 @@ export const en = {
   'auth.errDisplayName': 'Between 1 and 64 characters.',
   'auth.errPasswordLength': 'At least 10 characters.',
   'auth.errPasswordMismatch': 'The two passwords do not match.',
-  'auth.errorSummaryTitle': 'Please fix the following',
 
   // ── home ──────────────────────────────────────────────────────────────
   'home.intro':
@@ -558,7 +564,8 @@ export const en = {
   'contestNew.cloneSubmit': 'Clone the contest',
   'contestNew.cloneNameSuggestion': '{name} (copy)',
   'contestNew.badPoints': 'Problem {code}: points must be a non-negative number.',
-  'contestNew.datesRequired': 'Start and end are required.',
+  'contestNew.errKeyFormat': 'Lower-case letters, digits, - and _ only, 2 to 64 characters, starting with a letter or digit.',
+  'contestNew.errEndBeforeStart': 'The contest must end after it starts.',
   'contestNew.createError': 'Could not create the contest.',
   'contestNew.badFreeze': 'The freeze window must be a whole number of minutes, and shorter than the contest.',
 
