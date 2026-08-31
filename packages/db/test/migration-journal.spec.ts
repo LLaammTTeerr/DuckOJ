@@ -28,11 +28,29 @@
  * deploy this". Every other spec in this package migrates a container too,
  * but all of them do it inside a shared harness that would report a broken
  * migration as "some unrelated test could not find a table".
+ *
+ * D131 then found the hole every assertion above leaves open: production had
+ * applied 34 of 35 migrations, and *nothing here could have said so*. The
+ * journal was monotonic, the files were all present, a fresh database applied
+ * every one of them — and `0025_dashboard_bounds` was still missing from the
+ * live database forever, because it reached `main` after a later-stamped
+ * migration had already been applied there and drizzle's migrator only runs
+ * entries newer than the newest already applied. No property of the
+ * repository distinguishes that state; only a particular database's ledger
+ * does. So the guard that actually closes this class lives in
+ * `runMigrations` (D133) — every journal entry must be present in the ledger
+ * once the migrator has finished, or the run throws instead of exiting 0 —
+ * and the last describe block below is that guard put through the exact
+ * production shape: 34 rows, 0025 skipped, 0041 repairing it.
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import { runMigrations } from '../src/index.js';
 
@@ -65,6 +83,34 @@ function names(dir: string, suffix: string): string[] {
     .filter((f) => f.endsWith(suffix))
     .map((f) => f.slice(0, -suffix.length))
     .sort();
+}
+
+/**
+ * The objects `0025_dashboard_bounds` creates — the ones D131 found missing
+ * from production — and `0041_dashboard_bounds_repair` re-creates with
+ * `IF NOT EXISTS`.
+ */
+const DASHBOARD_INDEXES = [
+  'grading_jobs_active_idx',
+  'grading_jobs_submission_idx',
+  'submissions_failed_idx',
+  'submissions_judged_at_idx',
+];
+
+async function indexNames(sql: postgres.Sql): Promise<string[]> {
+  const rows = await sql<{ indexname: string }[]>`
+    select indexname from pg_indexes
+     where schemaname = 'public' and indexname = any(${DASHBOARD_INDEXES})
+     order by indexname
+  `;
+  return rows.map((r) => r.indexname);
+}
+
+async function stamps(sql: postgres.Sql): Promise<number[]> {
+  const rows = await sql<{ created_at: string }[]>`
+    select created_at::text as created_at from drizzle.__drizzle_migrations order by created_at
+  `;
+  return rows.map((r) => Number(r.created_at));
 }
 
 describe('the migration journal', () => {
@@ -135,17 +181,130 @@ describe('a database with nothing in it', () => {
       `;
       expect(Number(applied[0]!.count)).toBe(journal().entries.length);
 
-      // A column added by the LAST entry in the journal (0021_editorials),
-      // so this fails if the final migration is listed but never actually
-      // runs — the exact failure a numbering gap was suspected of causing.
+      // A column added mid-journal (0021_editorials), so this fails if an
+      // entry is listed but never actually runs — the failure a numbering gap
+      // was suspected of causing.
       const editorial = await sql<{ present: boolean }[]>`
         select count(*) > 0 as present
           from information_schema.columns
          where table_name = 'problems' and column_name = 'editorial_published_at'
       `;
       expect(editorial[0]!.present).toBe(true);
+
+      // The four indexes 0025 creates and 0041 re-creates idempotently. On a
+      // fresh database 0025 makes them and 0041 is a no-op; asserting them
+      // here pins that the repair migration did not disturb the fresh path
+      // (it is the last entry, so this doubles as "the final entry ran").
+      expect(await indexNames(sql)).toEqual(DASHBOARD_INDEXES);
     } finally {
       await sql.end({ timeout: 5 });
     }
   }, 300_000);
+});
+
+/**
+ * Production, reproduced exactly (D131/D133).
+ *
+ * The setup does not hand-replay SQL: it copies the real migrations folder to
+ * a temporary directory, removes `0025_dashboard_bounds` and the repair from
+ * *the copy's* journal, and lets drizzle's own migrator apply what is left.
+ * That leaves a database in the precise state the live one was measured in —
+ * 34 ledger rows, newest stamp `0040`'s, and not one of 0025's indexes — and
+ * it leaves it there the way production got there, by drizzle's own rules
+ * rather than by a fixture asserting itself.
+ */
+describe('a database that skipped a migration, the way production did', () => {
+  let container: StartedPostgreSqlContainer | undefined;
+  let tempFolder: string | undefined;
+
+  afterAll(async () => {
+    await container?.stop();
+    container = undefined;
+    if (tempFolder) rmSync(tempFolder, { recursive: true, force: true });
+    tempFolder = undefined;
+  }, 60_000);
+
+  const SKIPPED = '0025_dashboard_bounds';
+  const REPAIR = '0041_dashboard_bounds_repair';
+
+  it('is repaired by 0041, and repairing it twice changes nothing', async () => {
+    tempFolder = mkdtempSync(join(tmpdir(), 'duckoj-migrations-'));
+    cpSync(migrationsDir, tempFolder, { recursive: true });
+    const withoutSkipped = journal().entries.filter((e) => e.tag !== SKIPPED && e.tag !== REPAIR);
+    writeFileSync(
+      join(tempFolder, 'meta', '_journal.json'),
+      JSON.stringify({ version: '7', dialect: 'postgresql', entries: withoutSkipped }, null, 2),
+    );
+
+    container = await new PostgreSqlContainer('postgres:16-alpine').start();
+    const url = container.getConnectionUri();
+
+    // --- production's state, produced by drizzle itself -------------------
+    const setup = postgres(url, { max: 1 });
+    try {
+      await migrate(drizzle(setup), { migrationsFolder: tempFolder });
+    } finally {
+      await setup.end({ timeout: 5 });
+    }
+
+    const sql = postgres(url, { max: 1 });
+    try {
+      expect(await stamps(sql)).toHaveLength(withoutSkipped.length);
+      // The defect itself: 0025's stamp is older than the newest applied one,
+      // so drizzle's `created_at desc limit 1` rule can never reach it again.
+      const skipped = journal().entries.find((e) => e.tag === SKIPPED)!;
+      expect(Math.max(...(await stamps(sql)))).toBeGreaterThan(skipped.when);
+      expect(await indexNames(sql)).toEqual([]);
+
+      // --- the repair -----------------------------------------------------
+      await runMigrations(url);
+
+      expect(await indexNames(sql)).toEqual(DASHBOARD_INDEXES);
+      // 0041 back-stamps 0025 as well as re-creating its objects, so the
+      // ledger stops lying about what this database contains and the drift
+      // check in `runMigrations` has something true to verify against.
+      expect(await stamps(sql)).toContain(skipped.when);
+      expect(await stamps(sql)).toHaveLength(journal().entries.length);
+
+      // --- and again: a no-op ---------------------------------------------
+      const afterRepair = await stamps(sql);
+      await runMigrations(url);
+      expect(await stamps(sql)).toEqual(afterRepair);
+      expect(await indexNames(sql)).toEqual(DASHBOARD_INDEXES);
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  }, 300_000);
+
+  /**
+   * The guard itself, on the database the previous test left healthy: take
+   * one row back out of the ledger and the next run has nothing to apply
+   * (every stamp is older than the newest one) — which used to mean "exit 0,
+   * say nothing" and now means a named failure. Runs second on purpose, so it
+   * reuses that container rather than paying for a third one.
+   */
+  it('refuses to report success while a journal entry is unapplied', async () => {
+    const url = container!.getConnectionUri();
+    const skipped = journal().entries.find((e) => e.tag === SKIPPED)!;
+    const sql = postgres(url, { max: 1 });
+    try {
+      await sql`delete from drizzle.__drizzle_migrations where created_at = ${skipped.when}`;
+
+      await expect(runMigrations(url)).rejects.toThrow(/0025_dashboard_bounds/);
+      // Nothing was applied — drizzle had no entry newer than the newest
+      // stamp — so without this check the run would have exited 0.
+      expect(await stamps(sql)).toHaveLength(journal().entries.length - 1);
+
+      // The operator's documented way past it, for a drift that is understood
+      // and being repaired by hand.
+      process.env.DUCKOJ_ALLOW_MIGRATION_DRIFT = '1';
+      try {
+        await expect(runMigrations(url)).resolves.toBeUndefined();
+      } finally {
+        delete process.env.DUCKOJ_ALLOW_MIGRATION_DRIFT;
+      }
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  }, 120_000);
 });
