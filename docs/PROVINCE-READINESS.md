@@ -58,6 +58,15 @@ corepack pnpm bootstrap:admin <you>   # first admin (D19)
 # import problems: content/README.md
 ```
 
+**Turning THIS host over to a province is a different list.** It has been the
+rehearsal ground since 22 Aug: every secret on it has been seen, and it carries
+393 generated accounts, 132 generated contests and 52 generated problems
+alongside the demo content. `docs/guide/truoc-khi-trien-khai.md` is the
+one-time checklist — rotate the seeded secrets, point SMTP at a real relay,
+clear `localhost` out of `WS_EXTRA_ORIGINS`, run `scripts/cleanup-test-data.ts`
+(D153), prove a restore (D130), mint the real admin, import real problems, and
+the "you are live" smoke checks.
+
 ## Added by the feature/bug loop (2026-08-29 → 2026-08-31)
 
 Features: contest clarifications + announcements (D31) · problem tags,
