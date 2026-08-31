@@ -120,3 +120,4 @@
 - F-29 DONE (0a6ead4..cef1347): teammate submission visibility (D117) via actingParticipationWhere, NULL-safe freeze escape; api 1110/1110; deployed + pushed. Orchestration note: don't merge worktree branches into main while a main-editing feature agent runs (B-23↔F-29 collided; F-29 recovered).
 - Full e2e after F-29/B-23 deploy: exit 0 (green). F-30 dispatched (main): team date tz + picker disambiguation + contest countdown (D118).
 - B-24 dispatched (worktree): full contest-day rehearsal e2e — authoring→team contest+freeze+monitor+clarifications→rejudge/DQ→results/certificates/similarity + individual path (D119–D121).
+- F-30 DONE_WITH_CONCERNS (2453b30..c70e260, on main): TeamPage tz, picker composite value, live countdown (D118); web 570/570, rebuilt, pushed. Queued small follow-up: JoinContestRequest needs orgSlug to honour a same-slug team pick (p-join-org-followup.md).
