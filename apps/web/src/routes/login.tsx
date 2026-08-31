@@ -25,15 +25,37 @@ export function LoginForm(props: {
   const [totpCode, setTotpCode] = useState('');
   const [recoveryCode, setRecoveryCode] = useState('');
   const [useRecovery, setUseRecovery] = useState(false);
+  /**
+   * A sign-in is in flight (D148).
+   *
+   * This button had no busy state at all, so a double click — or Enter held a
+   * beat on a slow phone — sent two `POST /auth/login`. D16 meters login
+   * attempts PER ACCOUNT, so on contest morning a pupil could rate-limit
+   * themselves out of their own round by pressing the button twice. The state
+   * is this component's rather than a prop because `useAuthGate.handleLogin`
+   * resolves either way and the form is the only thing that knows a press
+   * happened.
+   */
+  const [busy, setBusy] = useState(false);
 
   function handleSubmit(event: FormEvent): void {
     event.preventDefault();
-    void props.onSubmit({
-      usernameOrEmail,
-      password,
-      totpCode: useRecovery || totpCode === '' ? undefined : totpCode,
-      recoveryCode: !useRecovery || recoveryCode === '' ? undefined : recoveryCode,
-    });
+    if (busy) return;
+    setBusy(true);
+    void props
+      .onSubmit({
+        usernameOrEmail,
+        password,
+        totpCode: useRecovery || totpCode === '' ? undefined : totpCode,
+        recoveryCode: !useRecovery || recoveryCode === '' ? undefined : recoveryCode,
+      })
+      // A wrong password, a missing TOTP code and a dead network all resolve
+      // here, and every one of them must leave the door usable again — this
+      // form outlives a failed attempt by design (the second factor is asked
+      // for on the same screen).
+      .finally(() => {
+        setBusy(false);
+      });
   }
 
   return (
@@ -88,7 +110,9 @@ export function LoginForm(props: {
           </>
         )
       ) : null}
-      <button type="submit">{t('auth.signIn')}</button>
+      <button type="submit" disabled={busy} aria-busy={busy}>
+        {busy ? t('common.working') : t('auth.signIn')}
+      </button>
     </form>
   );
 }

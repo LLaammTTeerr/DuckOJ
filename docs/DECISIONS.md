@@ -6443,11 +6443,50 @@ lưu…*, *Đang nộp…*. Double-submit stays impossible for the same reason i
 always was — `disabled={busy}` — with a `if (busy) return;` guard at the top
 of the handler for the paths a keyboard shortcut can reach.
 
+**Two forms had no busy state at all**, which is the same bug with nothing to
+soften it. `LoginForm`'s `<button type="submit">` sent a second
+`POST /auth/login` on a double click — and D16 meters login attempts per
+ACCOUNT, so a pupil on a slow phone could rate-limit themselves out of their
+own round by pressing the button twice. `CreateOrgForm.create()` had neither a
+busy flag nor a `try/catch`: two clicks were two schools attempted (the second
+answered `org_slug_taken`, which reads as "somebody took the name you chose ten
+seconds ago"), and a dead network was an unhandled rejection with nothing on
+screen.
+
+**What this covers.** The verb-while-busy and the live button are wired on
+`/register`, `/contests/new`, `/contests/$key/edit`, the problem authoring
+form, the submit box, `/account/password`, the org create form, `/settings`,
+`/account/tokens` and the homework-set form. Left as they are, and named here
+so the ledger is not read as app-wide: **`security.tsx`**'s six TOTP buttons
+(disabled until a well-formed six-digit code is typed — a rule the box's own
+length makes obvious, but they say no verb while working) and the per-row
+action buttons on the contest, org and discussion screens, where the row
+itself is the context. `problem-testdata.tsx` needed nothing and is the model
+the rest should follow: it names the actual PHASE — loading, uploading,
+building — in a `role="status"`, which is more than a verb on a button.
+
+**`busy` and `disabled` are two different props now**, because the words
+depend on the difference. `SubmitForm` conflated them and so, during D80's
+rate-limit cooldown, its button claimed to be submitting while nothing was
+being sent. `account-recovery.tsx` already had the right shape and is where
+the split was copied from.
+
 The exceptions kept deliberately: a control disabled because the *state of the
 world* forbids it, not because the form is incomplete — the tab you are
 already on, the font stepper at its limit, the sample test case a setter may
-not delete, "load more" while a page is loading. Those name their reason by
-position or by an adjacent sentence.
+not delete, a source past the size ceiling the alert beside it just named,
+"load more" while a page is loading. Those name their reason by position or by
+an adjacent sentence.
+
+**A validation objection waits for the reader to finish.** `/account/password`
+— the one form every roster-imported pupil (D61) must get through before they
+may see anything — computed its objections live: "Ngắn hơn 10 ký tự." appeared
+on the FIRST character of a twelve-character password and stayed for nine
+more, and the mismatch line sat under the confirmation for the whole time it
+was being typed. Objections are raised on blur or on submit now. The blur path
+deliberately does NOT raise D110's summary: the summary takes focus when it
+appears, which is right for a failed submit and catastrophic for a blur — it
+would throw the reader out of the box they had just tabbed into, every time.
 
 *Ruled by the implementer during the fe4 forms loop, no human available to
 consult. `apps/web` only; no migration.*

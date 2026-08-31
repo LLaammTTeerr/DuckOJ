@@ -455,17 +455,28 @@ describe('the forced password change (D61)', () => {
     const save = screen.getByRole('button', { name: en['password.save'] });
     await userEvent.type(screen.getByLabelText(en['password.new']), 'mat-khau-moi');
     await userEvent.type(screen.getByLabelText(en['password.confirm']), 'mat-khau-khac');
+    // The objection now waits for the field to be LEFT (D148): while the
+    // confirmation is half typed it is only "not finished", not "wrong".
+    await userEvent.tab();
     expect(screen.getByText(en['password.mismatch'])).toBeInTheDocument();
-    expect(save).toBeDisabled();
+    // The button is LIVE and the press is what refuses — the protection this
+    // test is about is "no request is sent", and that is unchanged and now
+    // also explained. A disabled button never was the defence: the API
+    // refuses a change with no current password whatever the browser does.
+    await userEvent.click(save);
+    expect(post).not.toHaveBeenCalled();
 
     await userEvent.clear(screen.getByLabelText(en['password.confirm']));
     await userEvent.type(screen.getByLabelText(en['password.confirm']), 'mat-khau-moi');
-    // Still disabled: an unattended browser must not be one click away from
-    // an account takeover.
-    expect(save).toBeDisabled();
+    // Still refused, and now it says which box: an unattended browser must
+    // not be one click away from an account takeover.
+    await userEvent.click(save);
+    expect(post).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(en['password.current'])).toHaveAttribute('aria-invalid', 'true');
 
     await userEvent.type(screen.getByLabelText(en['password.current']), 'cu');
-    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    expect(post).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a new password shorter than the contract allows, before sending it', async () => {
@@ -475,7 +486,11 @@ describe('the forced password change (D61)', () => {
     await userEvent.type(screen.getByLabelText(en['password.current']), 'cu');
     await userEvent.type(screen.getByLabelText(en['password.new']), 'ngan');
     await userEvent.type(screen.getByLabelText(en['password.confirm']), 'ngan');
-    expect(screen.getByRole('button', { name: en['password.save'] })).toBeDisabled();
+    // "before sending it" is the property, and it holds: the press is
+    // refused by `validate()`, beside the field, rather than by a grey
+    // rectangle that names nothing (D148).
+    await userEvent.click(screen.getByRole('button', { name: en['password.save'] }));
     expect(post).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(en['password.new'])).toHaveAttribute('aria-invalid', 'true');
   });
 });

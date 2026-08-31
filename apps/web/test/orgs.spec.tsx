@@ -281,3 +281,74 @@ describe('the roster import panel refuses a duplicate that spans chunks', () => 
     expect(screen.queryByRole('alert')).toBeNull();
   });
 });
+
+/**
+ * D148 on the create-organization form, which had no busy flag AT ALL: the
+ * button was gated purely on two boxes being non-empty, `create()` never set
+ * one, and it carried no `try/catch` either — so a school could be created
+ * twice by a double click, and a dead network was an unhandled rejection with
+ * nothing on screen.
+ */
+describe('CreateOrgForm — the button tells the truth', () => {
+  function asAdmin(): void {
+    get.mockImplementation((path: string) =>
+      path === '/auth/me'
+        ? Promise.resolve({ data: { username: 'root', displayName: 'Root', globalRole: 'admin' } })
+        : Promise.resolve({ data: { items: [], nextCursor: null } }),
+    );
+  }
+
+  async function fill(): Promise<void> {
+    await userEvent.type(await screen.findByLabelText(/^Định danh$/), 'hanoi');
+    await userEvent.type(screen.getByLabelText(/^Tên$/), 'Hanoi CS');
+  }
+
+  it('cannot create the same school twice from two clicks', async () => {
+    asAdmin();
+    post.mockReturnValue(new Promise(() => undefined));
+    wrap(<OrgsPage />);
+    await fill();
+
+    const button = screen.getByRole('button', { name: /^Tạo$/ });
+    await userEvent.click(button);
+    await userEvent.click(screen.getByRole('button', { name: /Đang tạo|^Tạo$/ }));
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it('says what it is doing while the school is being created', async () => {
+    asAdmin();
+    post.mockReturnValue(new Promise(() => undefined));
+    wrap(<OrgsPage />);
+    await fill();
+    await userEvent.click(screen.getByRole('button', { name: /^Tạo$/ }));
+
+    const busy = await screen.findByRole('button', { name: /Đang tạo/ });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('names the missing field rather than going quietly grey', async () => {
+    asAdmin();
+    wrap(<OrgsPage />);
+    const button = await screen.findByRole('button', { name: /^Tạo$/ });
+    expect(button).not.toBeDisabled();
+    await userEvent.click(button);
+
+    expect(post).not.toHaveBeenCalled();
+    const slug = screen.getByLabelText(/^Định danh$/);
+    expect(slug).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('survives a dead network instead of throwing into nothing', async () => {
+    asAdmin();
+    post.mockRejectedValue(new Error('offline'));
+    wrap(<OrgsPage />);
+    await fill();
+    await userEvent.click(screen.getByRole('button', { name: /^Tạo$/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/máy chủ|kết nối/i);
+    // …and the form is pressable again, with what was typed still in it.
+    expect(screen.getByRole('button', { name: /^Tạo$/ })).not.toBeDisabled();
+    expect(screen.getByLabelText(/^Định danh$/)).toHaveValue('hanoi');
+  });
+});

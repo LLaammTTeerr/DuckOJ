@@ -78,7 +78,11 @@ describe('TokensPage transport safety', () => {
     wrap(<TokensPage />);
     await userEvent.type(await screen.findByLabelText(/^Tên$/), 'laptop-cli');
     await userEvent.click(screen.getByRole('button', { name: /^Tạo mã$/ }));
-    expect(screen.getByRole('button', { name: /^Tạo mã$/ })).toBeDisabled();
+    // The NAME changes while it is in flight (D148): a button that still
+    // reads "Tạo mã" and does nothing is indistinguishable, on a slow link,
+    // from a click nothing heard. Disabled is still the half that makes a
+    // second press impossible.
+    expect(screen.getByRole('button', { name: /Đang tạo/ })).toBeDisabled();
     resolve({ data: { id: 1, token: 'duckoj_secret_abc' } });
     await screen.findByRole('status');
   });

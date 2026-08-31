@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { LoginForm } from '../src/routes/login.js';
@@ -92,5 +92,52 @@ describe('LoginForm', () => {
       totpCode: undefined,
       recoveryCode: 'ABCDE-FGHJK',
     });
+  });
+});
+
+/**
+ * D148 on the front door.
+ *
+ * `<button type="submit">` carried no busy state at all, so a double click
+ * (or Enter held a beat) sent two `POST /auth/login` — against D16's login
+ * meter, which counts attempts per account. A pupil with a slow phone on
+ * contest morning could rate-limit themselves out of their own round by
+ * pressing the button twice.
+ */
+describe('LoginForm — the front door cannot be knocked on twice', () => {
+  it('sends one attempt for two fast clicks', async () => {
+    const onSubmit = vi.fn(() => new Promise<void>(() => undefined));
+    render(<LoginForm onSubmit={onSubmit} error={null} needsTotp={false} />);
+    await userEvent.type(screen.getByLabelText(/Tên đăng nhập hoặc email/), 'hocsinh1');
+    await userEvent.type(screen.getByLabelText(/^Mật khẩu$/), 'mat-khau-dai');
+
+    const button = screen.getByRole('button', { name: 'Đăng nhập' });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('says it is signing in, and is pressable again once it failed', async () => {
+    let release!: () => void;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    render(<LoginForm onSubmit={onSubmit} error={null} needsTotp={false} />);
+    await userEvent.type(screen.getByLabelText(/Tên đăng nhập hoặc email/), 'hocsinh1');
+    await userEvent.type(screen.getByLabelText(/^Mật khẩu$/), 'mat-khau-dai');
+    await userEvent.click(screen.getByRole('button', { name: 'Đăng nhập' }));
+
+    const busy = await screen.findByRole('button', { name: /Đang xử lý/ });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+
+    // A wrong password must not leave the door bolted.
+    release();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Đăng nhập' })).not.toBeDisabled(),
+    );
   });
 });

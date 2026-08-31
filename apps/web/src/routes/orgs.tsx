@@ -22,6 +22,7 @@ import { apiError, read } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { LoadError } from '../states.js';
 import { useT, type MsgKey, type TFunction } from '../i18n/index.js';
+import { ErrorSummary, FieldError, fieldProps } from '../forms.js';
 import { OrgSets } from './problem-sets.js';
 import { OrgTeams } from './teams.js';
 
@@ -58,6 +59,9 @@ function roleLabel(t: TFunction, role: Member['role']): string {
   return t(ROLE_KEYS[role]);
 }
 
+/** The create form's two required inputs, in screen order (D110/D146). */
+const FIELD_ORDER = ['slug', 'org-name'] as const;
+
 /** Admin-only (the API refuses everyone else); shown to admins on the list. */
 function CreateOrgForm({ onCreated }: { onCreated: () => Promise<void> }) {
   const t = useT();
@@ -66,32 +70,74 @@ function CreateOrgForm({ onCreated }: { onCreated: () => Promise<void> }) {
   const [joinPolicy, setJoinPolicy] = useState<'open' | 'request' | 'invite'>('request');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
   const [error, setError] = useState<string | null>(null);
+  /**
+   * This form had NO busy flag at all (D148), and no `try/catch` either — the
+   * one async handler on this site that was neither. So a double click sent
+   * two `POST /orgs` (the second answered `org_slug_taken`, which reads as
+   * "somebody else took the name you just chose"), and a dead network was an
+   * unhandled rejection with nothing on screen at all.
+   */
+  const [busy, setBusy] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<'slug' | 'org-name', string>>>({});
+  const [attempt, setAttempt] = useState(0);
 
   async function create(): Promise<void> {
-    const { error: err } = await api.POST('/orgs', {
-      body: { slug, name, joinPolicy, visibility },
-    });
-    if (err) {
-      setError(err.detail ?? t('orgs.createError'));
-      return;
-    }
+    if (busy) return;
+    setAttempt((n) => n + 1);
+    const invalid: Partial<Record<'slug' | 'org-name', string>> = {};
+    if (slug.trim() === '') invalid.slug = t('form.required');
+    if (name.trim() === '') invalid['org-name'] = t('form.required');
+    setFieldErrors(invalid);
+    if (Object.keys(invalid).length > 0) return;
+
+    setBusy(true);
     setError(null);
-    setSlug('');
-    setName('');
-    await onCreated();
+    try {
+      const { error: err } = await api.POST('/orgs', {
+        body: { slug, name, joinPolicy, visibility },
+      });
+      if (err) {
+        setError(err.detail ?? t('orgs.createError'));
+        return;
+      }
+      setError(null);
+      setSlug('');
+      setName('');
+      await onCreated();
+    } catch {
+      // openapi-fetch rethrows network-level failures rather than resolving
+      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+      setError(t('common.networkError'));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <>
       <h2>{t('orgs.new')}</h2>
+      {/* D110's Focusable Error Summary, reused rather than reinvented. */}
+      <ErrorSummary errors={fieldErrors} order={FIELD_ORDER} attempt={attempt} />
       <p>
         <label>
           {t('orgs.slug')}{' '}
-          <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="hanoi-cs" />
-        </label>{' '}
+          <input
+            {...fieldProps('slug', fieldErrors.slug)}
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            placeholder="hanoi-cs"
+          />
+        </label>
+        <FieldError id="slug" message={fieldErrors.slug} />{' '}
         <label>
-          {t('common.name')} <input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>{' '}
+          {t('common.name')}{' '}
+          <input
+            {...fieldProps('org-name', fieldErrors['org-name'])}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <FieldError id="org-name" message={fieldErrors['org-name']} />{' '}
         <label>
           {t('orgs.joining')}{' '}
           <select value={joinPolicy} onChange={(e) => setJoinPolicy(e.target.value as typeof joinPolicy)}>
@@ -107,8 +153,10 @@ function CreateOrgForm({ onCreated }: { onCreated: () => Promise<void> }) {
             <option value="private">{t('visibility.private')}</option>
           </select>
         </label>{' '}
-        <button type="button" disabled={slug === '' || name === ''} onClick={() => void create()}>
-          {t('common.create')}
+        {/* D148 — live unless it is genuinely busy, and it says the verb
+            while it is. */}
+        <button type="button" disabled={busy} aria-busy={busy} onClick={() => void create()}>
+          {busy ? t('form.creating') : t('common.create')}
         </button>
       </p>
       {error ? <p role="alert">{error}</p> : null}

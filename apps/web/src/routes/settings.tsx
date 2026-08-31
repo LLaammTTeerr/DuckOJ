@@ -175,8 +175,16 @@ export function SettingsPage() {
       {error ? <p role="alert">{error}</p> : null}
       {saved ? <p role="status">{t('settings.saved')}</p> : null}
       <p>
-        <button type="button" disabled={busy || displayName.trim() === ''} onClick={() => void save()}>
-          {t('settings.save')}
+        {/* D148 — it says the verb while it is working. The emptiness gate
+            stays: this form has one required box and its label is right
+            there, so a greyed button names its own reason. */}
+        <button
+          type="button"
+          disabled={busy || displayName.trim() === ''}
+          aria-busy={busy}
+          onClick={() => void save()}
+        >
+          {busy ? t('form.saving') : t('settings.save')}
         </button>
       </p>
     </section>
