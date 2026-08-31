@@ -5545,3 +5545,58 @@ reachable from app.css — with vi/en labels (D18). Four i18n keys, no
 to consult. Web-only + this ledger: two buttons and four i18n keys on one
 existing page, no DTO field, no endpoint, no migration — the source the tools
 act on is already in the page's DTO.*
+
+## D124 — The api/judged image builds skip lifecycle scripts and drop the ssh2 native chain, because ssh2 is a test-only devDep (via testcontainers), not MCP's
+
+`scripts/deploy.sh api judged` intermittently failed at the image build's
+`pnpm install --frozen-lockfile` with `ssh2 … gyp ERR! find Python` /
+`cpu-features: Unable to detect compiler type`. `ssh2` and `cpu-features` are
+OPTIONAL native deps whose install-time `node-gyp` rebuild has no Python or
+C toolchain in the `node:22-alpine` deps stage, so on a bad day the build died.
+
+**Corrected provenance (the B29 brief's premise was wrong).** These deps do
+NOT come from `apps/mcp`. `@modelcontextprotocol/sdk@1.30.0`'s dependency block
+in `pnpm-lock.yaml` lists express/hono/ajv/… and **no ssh2**. `ssh2`'s only
+dependant in the whole lockfile is `ssh-remote-port-forward`, whose only
+dependant is `testcontainers`, which enters through `@testcontainers/postgresql`
+— a **devDependency of `apps/api`, `apps/judged` AND `packages/db`**. So the
+image pulls ssh2 through its own test harness, and `apps/mcp` is exonerated;
+the deps stage never even copies mcp's manifest.
+
+**The fix (Dockerfile-only, both images).**
+1. Deps stage installs with `--ignore-scripts`. Nothing either image needs runs
+   a lifecycle script: `tsc` is pure JS, and `@node-rs/argon2` + `esbuild`
+   (which `tsx` spawns) ship their platform binaries AS prebuilt
+   `optionalDependencies`, not as script outputs — verified `tsx --version` and
+   an `@node-rs/argon2` import both work in the built image. This kills the
+   flake at its exact mechanism, and covers any *future* native devDep too.
+2. Build stage, AFTER the compile (the typecheck's test half type-references
+   testcontainers), `rm -rf` the `ssh2@*`, `ssh-remote-port-forward@*`,
+   `cpu-features@*`, `@types+ssh2@*`, `@types+ssh2-streams@*` dirs from
+   `node_modules/.pnpm`, so the wholesale `COPY --from=build /app /app` runtime
+   stage carries no ssh2 at all (`ls node_modules/.pnpm | grep -c ssh2` → 0 in
+   both final images). The inert `nan`/`buildcheck` JS orphans are left as-is.
+
+**Three remedies rejected.**
+- *Filter out `apps/mcp`* (the brief's "preferred") — wrong premise; mcp is not
+  the source and is not in the build context, so filtering changes nothing.
+- *`pnpm deploy --prod` / `pnpm install --prod`* — `docker-compose.yml`'s
+  `migrate` service hardcodes `packages/db/node_modules/.bin/tsx scripts/
+  migrate.ts`, and `tsx` is a `packages/db` **devDependency**; any `--prod`
+  prune deletes it and breaks migrate (the migrate image is built from
+  `apps/api/Dockerfile`). Keeping the full install + `--ignore-scripts`
+  preserves the tsx/migrate path untouched.
+- *`ENV npm_config_optional=false` / `--no-optional`* (the brief's "belt") —
+  `@node-rs/argon2` and `esbuild` deliver their platform binaries THROUGH
+  optionalDependencies; disabling optionals yields an image that builds green
+  and then fails at boot/migrate. Rejected outright.
+
+The lockfile is untouched (ssh2 stays — it is legitimately testcontainers');
+`apps/mcp` is untouched; the typst stage and the tsx/migrate path are untouched.
+Proof is the image build, not vitest (Dockerfiles carry no unit tests): before
+= `grep -c ssh2` 4 with a live `gyp ERR!` in the deps log; after = 0 in both
+images, both boot to a DB/Redis-connect failure (not a module error).
+
+*Ruled by the implementer during the 2026-08-31 B29 image-hardening loop, no
+human available. Build/ops decision in the shape of D85/D86; see
+`docs/superpowers/briefs/loop-b29-image-hardening-report.md`.*

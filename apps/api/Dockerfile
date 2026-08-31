@@ -14,7 +14,18 @@ COPY packages/package-format/package.json packages/package-format/
 COPY packages/realtime/package.json packages/realtime/
 COPY packages/similarity/package.json packages/similarity/
 COPY apps/api/package.json apps/api/
-RUN pnpm install --frozen-lockfile
+# --ignore-scripts: the whole-workspace install pulls ssh2 + cpu-features as
+# OPTIONAL native transitive deps of @testcontainers/postgresql — a devDep of
+# apps/api AND packages/db (testcontainers -> ssh-remote-port-forward -> ssh2
+# -> cpu-features). Their install-time node-gyp compile has no Python/compiler
+# in this alpine stage and intermittently fails the whole build (B29, D124 —
+# and NOT apps/mcp: @modelcontextprotocol/sdk has no ssh2 in its dep tree).
+# Nothing this image needs runs a lifecycle script: tsc is pure JS, and
+# @node-rs/argon2 + esbuild ship their platform binaries AS prebuilt packages
+# (optionalDependencies), not as script outputs — so skipping scripts is safe
+# and makes the install deterministic. Do NOT add npm_config_optional=false:
+# that would drop those same argon2/esbuild platform binaries and break boot.
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 FROM deps AS build
 COPY . .
@@ -25,6 +36,19 @@ COPY . .
 # here on a module the runtime never needs. The test tree is checked by CI
 # and the verify ritual, not by the image build.
 RUN pnpm --filter "@duckoj/api..." exec tsc -b
+
+# Sever the test-only ssh2 native chain from the store so it can never reach
+# the runtime image — the `COPY --from=build /app /app` below carries
+# node_modules verbatim. ssh2/cpu-features enter only through testcontainers
+# (a devDep), which the api never imports; --ignore-scripts already stops them
+# building, and this removes the files themselves (B29, D124). AFTER the
+# compile, so the type tree that references @types/ssh2 still resolves. The
+# inert `nan`/`buildcheck` JS orphans are left as-is.
+RUN rm -rf node_modules/.pnpm/ssh2@* \
+           node_modules/.pnpm/ssh-remote-port-forward@* \
+           node_modules/.pnpm/cpu-features@* \
+           node_modules/.pnpm/@types+ssh2@* \
+           node_modules/.pnpm/@types+ssh2-streams@*
 
 # typst for statement PDFs (Phase 7b). x86_64 musl release — this Dockerfile
 # already assumes the build host's arch for node's own binaries; a different
