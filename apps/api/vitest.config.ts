@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 /**
- * D143 — container-backed specs run on a package-wide budget, not per-file
+ * D149 — container-backed specs run on a package-wide budget, not per-file
  * magic numbers.
  *
  * Almost every spec in `apps/api/test` starts a Postgres (and often a Redis)

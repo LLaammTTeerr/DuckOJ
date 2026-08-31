@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 /**
- * D143 — container-backed specs run on a package-wide budget.
+ * D149 — container-backed specs run on a package-wide budget.
  *
  * `packages/db/test` starts Postgres containers (migrations, referential
  * integrity, the seed/bootstrap/import scripts) and so inherits the same

@@ -43,7 +43,7 @@ export function bypassCache(): ScoreboardCache {
  * each went red once in seven whole-workspace runs, and never in six runs of
  * `apps/api` alone.
  *
- * That is NOT the D143 defect and no timeout fixes it: the case did not run
+ * That is NOT the D149 defect and no timeout fixes it: the case did not run
  * out of time, the DATA did. The stable mechanism is to stop asserting
  * against the wall clock — the TTL's own value is pinned by
  * `scoreboard.cache`'s unit tests, and these specs are about keying,

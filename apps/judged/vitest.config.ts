@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 /**
- * D143 — container-backed specs run on a package-wide budget.
+ * D149 — container-backed specs run on a package-wide budget.
  *
  * `apps/judged/test` starts Postgres containers through its own
  * `db.harness.ts` exactly as `apps/api` does, so it inherits the same hazard

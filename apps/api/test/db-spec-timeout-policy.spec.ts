@@ -1,5 +1,5 @@
 /**
- * D143 — a container-backed spec may never run on vitest's default budget.
+ * D149 — a container-backed spec may never run on vitest's default budget.
  *
  * The single most-reported failure of this campaign is one sentence, in
  * twenty hunt reports: "X.spec.ts failed under the full parallel run, passes
@@ -163,7 +163,7 @@ function containerSpecs(): ContainerSpec[] {
   );
 }
 
-describe('D143 — container-backed specs never run on vitest defaults', () => {
+describe('D149 — container-backed specs never run on vitest defaults', () => {
   // A floor, so a broken discovery regex cannot make the assertions below
   // pass by finding nothing. There were 139 such specs when this was written.
   it('discovers the container-backed specs it is meant to police', () => {

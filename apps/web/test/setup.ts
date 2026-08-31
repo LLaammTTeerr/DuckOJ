@@ -13,7 +13,7 @@ import { THEME_STORAGE_KEY } from '../src/theme.js';
 afterEach(cleanup);
 
 /**
- * D143's rule, in the shape this package needs.
+ * D149's rule, in the shape this package needs.
  *
  * `findBy*` and `waitFor` do NOT run on vitest's `testTimeout`; Testing
  * Library keeps its own budget, and it defaults to **one second**. That is

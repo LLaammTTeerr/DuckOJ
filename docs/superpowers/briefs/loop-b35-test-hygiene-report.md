@@ -1,10 +1,10 @@
 # B-35 — "container contention" was a missing timeout, and four more test defects
 
-Branch `worktree-agent-a0e5b66b35a9e4de9`, nothing pushed, one commit. **D143 spent** (policy, guard, three corollaries, an amendment, a
+Branch `worktree-agent-a0e5b66b35a9e4de9`, nothing pushed, one commit. **D149 spent** (policy, guard, three corollaries, an amendment, a
 thermal postscript); **D144–D145 reserved and unspent**. No migration, no contract change, **no `src/` touched** — only test files,
 vitest configs and DECISIONS.
 
-**1. The D143 floor. 38 spec files ran container work on vitest's 5 s / 10 s defaults** — B-34 diagnosed one (`problem-comments`); the
+**1. The D149 floor. 38 spec files ran container work on vitest's 5 s / 10 s defaults** — B-34 diagnosed one (`problem-comments`); the
 audit found `app.smoke`, `route-marker-coverage`, `id-param-overflow` and `org-member-import`'s twenty-one cases among the rest, plus
 **41** cases and `beforeAll`s that had opted DOWN to `60_000`/`30_000`. ONE mechanism, not 800 magic numbers: a new `vitest.config.ts`
 in `apps/api`, `apps/judged`, `packages/db` declaring `testTimeout`/`hookTimeout` `180_000`, the 41 below-floor arguments deleted.

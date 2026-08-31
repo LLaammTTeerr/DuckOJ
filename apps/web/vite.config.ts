@@ -30,7 +30,7 @@ export default defineConfig({
     globals: false,
     setupFiles: ['./test/setup.ts'],
     exclude: ['node_modules/**', 'dist/**', 'e2e/**'],
-    // D143. No container starts here, so this is not the api package's
+    // D149. No container starts here, so this is not the api package's
     // 120 s floor — it is headroom over `test/setup.ts`'s 5 s
     // `asyncUtilTimeout`, which a case may spend more than once while
     // `pnpm -r test` has every other package running beside it. Vitest's
