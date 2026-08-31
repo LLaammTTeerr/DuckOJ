@@ -22,12 +22,31 @@ import { apiError } from '../api-error.js';
 import { useT } from '../i18n/index.js';
 import { OrgPicker } from '../org-picker.js';
 import { CodeAlert, LoadError, type CodeAlertState } from '../states.js';
+import { ErrorSummary, FieldError, fieldProps, mapFieldErrors, useDirtyGuard } from '../forms.js';
 
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
 type Visibility = ContestDetail['visibility'];
 
 /** The four formats the registry ships; the API refuses anything else. */
 const FORMATS = ['default', 'icpc', 'ioi16', 'legacy_ioi'] as const;
+
+/** The inputs D146's attribution can land on, keyed by their DOM ids. */
+type Field = 'name' | 'start' | 'end' | 'freeze' | 'rows';
+const FIELD_ORDER: readonly Field[] = ['name', 'start', 'end', 'freeze', 'rows'];
+
+/**
+ * `UpdateContestRequest`'s own paths -> this form's fields (D146). `key` is
+ * absent because the schema refuses it: a contest's key is its URL.
+ */
+const SERVER_FIELDS: Readonly<Partial<Record<string, Field>>> = {
+  name: 'name',
+  startTime: 'start',
+  endTime: 'end',
+  frozenLastMinutes: 'freeze',
+  maxTeamSize: 'rows',
+  'problems.*.code': 'rows',
+  'problems.*.points': 'rows',
+};
 
 interface ProblemRow {
   code: string;
@@ -49,6 +68,17 @@ interface ProblemRow {
    * something this form should have to know.
    */
   label?: string;
+}
+
+/**
+ * The problem table, flattened to one comparable string (D147).
+ *
+ * The rows are objects rebuilt on every keystroke, so identity says nothing;
+ * this is what lets "has anything changed?" be one `!==` rather than a
+ * hand-written deep compare that would go stale the moment a column is added.
+ */
+function rowsFingerprint(rows: readonly ProblemRow[]): string {
+  return rows.map((r) => `${r.code}\u0000${r.points}\u0000${String(r.partial)}`).join('\u0001');
 }
 
 /**
@@ -120,6 +150,9 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
   const [rows, setRows] = useState<ProblemRow[]>([]);
   const [error, setError] = useState<CodeAlertState>(null);
   const [busy, setBusy] = useState(false);
+  /** D146/D110 - see contest-new.tsx, which this mirrors clause for clause. */
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
+  const [attempt, setAttempt] = useState(0);
 
   // Which contest the form was seeded FROM — a key, not a boolean. The
   // router keys this component by `$key` as well (both, for the same reason
@@ -130,6 +163,24 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
   // minute-resolution strings the inputs show. `instantFor` sends the instant
   // back untouched when the string still matches (m5).
   const [startSeed, setStartSeed] = useState<{ local: string; iso: string } | null>(null);
+  /**
+   * Every field as the contest itself had it (D147). The prefill IS the
+   * contest, so "dirty" can only mean "different from this" - measuring
+   * against emptiness would warn an organiser who opened the page, read it
+   * and pressed back.
+   */
+  const [seed, setSeed] = useState<{
+    name: string;
+    start: string;
+    end: string;
+    format: string;
+    visibility: Visibility;
+    mode: 'individual' | 'team';
+    maxTeamSize: string;
+    freeze: string;
+    orgSlugs: string;
+    rows: string;
+  } | null>(null);
   const [endSeed, setEndSeed] = useState<{ local: string; iso: string } | null>(null);
   useEffect(() => {
     const contest = query.data;
@@ -159,6 +210,25 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
         label: problem.label,
       })),
     );
+    setSeed({
+      name: contest.name,
+      start: toLocalInput(contest.startTime),
+      end: toLocalInput(contest.endTime),
+      format: contest.format,
+      visibility: contest.visibility,
+      mode: contest.participationMode,
+      maxTeamSize: String(contest.maxTeamSize),
+      freeze: String(contest.frozenLastMinutes),
+      orgSlugs: contest.orgs.map((org) => org.slug).join(','),
+      rows: rowsFingerprint(
+        contest.problems.map((problem) => ({
+          code: problem.code,
+          points: String(problem.points),
+          partial: problem.partial,
+          label: problem.label,
+        })),
+      ),
+    });
     setSeededFrom(contest.key);
   }, [seededFrom, query.data]);
 
@@ -166,29 +236,71 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
-  async function save(): Promise<void> {
-    const problems = rows.filter((row) => row.code.trim() !== '');
-    for (const row of problems) {
-      if (Number.isNaN(Number(row.points)) || Number(row.points) < 0) {
-        setError({ message: t('contestNew.badPoints', { code: row.code }) });
-        return;
-      }
-    }
-    if (start === '' || end === '') {
-      setError({ message: t('contestNew.datesRequired') });
-      return;
+  /**
+   * D147 - is there an edit here a route change would destroy?
+   *
+   * Compared against the SEED, not against emptiness: this form arrives
+   * prefilled, and warning about the contest's own values would make the
+   * guard fire on every visit and teach setters to click through it. `seed`
+   * is null until the contest lands, and an unseeded form has nothing to lose.
+   */
+  const dirty =
+    seed !== null &&
+    (name !== seed.name ||
+      start !== seed.start ||
+      end !== seed.end ||
+      format !== seed.format ||
+      visibility !== seed.visibility ||
+      mode !== seed.mode ||
+      maxTeamSize !== seed.maxTeamSize ||
+      freeze !== seed.freeze ||
+      orgSlugs.join(',') !== seed.orgSlugs ||
+      rowsFingerprint(rows) !== seed.rows);
+  const release = useDirtyGuard(dirty);
+
+  /**
+   * The contract's rules, in the active locale, before a request is sent.
+   *
+   * `contest_window_invalid` is a 400 with no field attribution at all, so an
+   * organiser who typed the end before the start used to be handed an
+   * identifier and left to work out which of the two boxes it meant.
+   */
+  function validate(): Partial<Record<Field, string>> {
+    const invalid: Partial<Record<Field, string>> = {};
+    if (name.trim() === '') invalid.name = t('form.required');
+    if (start === '') invalid.start = t('form.required');
+    if (end === '') invalid.end = t('form.required');
+    else if (start !== '' && new Date(end) <= new Date(start)) {
+      invalid.end = t('contestNew.errEndBeforeStart');
     }
     // `.trim() === ''` FIRST (m6): `Number('')` is 0 and `Number.isInteger(0)`
-    // is true, so an emptied box used to sail through this check and PATCH
-    // `frozenLastMinutes: 0` — the contest's freeze, switched off, with
-    // nothing on screen saying so.
-    const frozenLastMinutes = Number(freeze);
-    if (freeze.trim() === '' || !Number.isInteger(frozenLastMinutes) || frozenLastMinutes < 0) {
-      setError({ message: t('contestNew.badFreeze') });
-      return;
+    // is true, so an emptied box used to sail through and PATCH
+    // `frozenLastMinutes: 0` - the contest's freeze, switched off, silently.
+    const frozen = Number(freeze);
+    if (freeze.trim() === '' || !Number.isInteger(frozen) || frozen < 0) {
+      invalid.freeze = t('contestNew.badFreeze');
     }
-    setBusy(true);
+    for (const row of rows.filter((r) => r.code.trim() !== '')) {
+      if (Number.isNaN(Number(row.points)) || Number(row.points) < 0) {
+        invalid.rows = t('contestNew.badPoints', { code: row.code });
+      }
+    }
+    return invalid;
+  }
+
+  async function save(): Promise<void> {
+    if (busy) return;
+    // Bumped on every attempt so the summary re-takes focus even when the
+    // same fields fail twice in a row (D110).
+    setAttempt((n) => n + 1);
+    const invalid = validate();
+    setFieldErrors(invalid);
     setError(null);
+    if (Object.keys(invalid).length > 0) return;
+
+    const problems = rows.filter((row) => row.code.trim() !== '');
+    const frozenLastMinutes = Number(freeze);
+    setBusy(true);
     try {
       const { error: err } = await api.PATCH('/contests/{key}', {
         params: { path: { key: contestKey } },
@@ -214,13 +326,23 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
         },
       });
       if (err) {
+        // D146 first: the server's own attribution beats a banner written in
+        // the validation pipe's English.
+        const attributed = mapFieldErrors(err.fields, SERVER_FIELDS);
+        if (Object.keys(attributed).length > 0) {
+          setFieldErrors(attributed);
+          setAttempt((n) => n + 1);
+          return;
+        }
         setError({ message: err.detail ?? t('contestEdit.saveFailed'), code: err.code });
         return;
       }
+      // Saved; the guard must not block the navigation that says so.
+      release();
       await navigate({ to: '/contests/$key', params: { key: contestKey } });
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
-      // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
+      // them to `{ error }` - see submit.tsx's handleSubmit for the pattern.
       setError({ message: t('common.networkError') });
     } finally {
       setBusy(false);
@@ -234,35 +356,43 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
   return (
     <section className="panel">
       <h1>{t('contestEdit.title', { key: query.data.key })}</h1>
+      {/* D110's Focusable Error Summary, reused rather than reinvented. */}
+      <ErrorSummary errors={fieldErrors} order={FIELD_ORDER} attempt={attempt} />
       <p>
         <label>
           {t('common.name')}{' '}
           <input
+            {...fieldProps('name', fieldErrors.name)}
             aria-label={t('common.name')}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
         </label>
+        <FieldError id="name" message={fieldErrors.name} />
       </p>
       <p>
         <label>
           {t('contestNew.starts')}{' '}
           <input
+            {...fieldProps('start', fieldErrors.start)}
             type="datetime-local"
             aria-label={t('contestNew.starts')}
             value={start}
             onChange={(e) => setStart(e.target.value)}
           />
-        </label>{' '}
+        </label>
+        <FieldError id="start" message={fieldErrors.start} />{' '}
         <label>
           {t('contestNew.ends')}{' '}
           <input
+            {...fieldProps('end', fieldErrors.end)}
             type="datetime-local"
             aria-label={t('contestNew.ends')}
             value={end}
             onChange={(e) => setEnd(e.target.value)}
           />
         </label>
+        <FieldError id="end" message={fieldErrors.end} />
       </p>
       <p>
         <label>
@@ -284,6 +414,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
         <label>
           {t('contestNew.freeze')}{' '}
           <input
+            {...fieldProps('freeze', fieldErrors.freeze)}
             type="number"
             min={0}
             step={1}
@@ -291,7 +422,8 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
             value={freeze}
             onChange={(e) => setFreeze(e.target.value)}
           />
-        </label>{' '}
+        </label>
+        <FieldError id="freeze" message={fieldErrors.freeze} />{' '}
         <label>
           {t('common.visibility')}{' '}
           {/* Here the VALUE is the API's enum and the LABEL is prose, so
@@ -333,7 +465,8 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
 
       <OrgPicker value={orgSlugs} onChange={setOrgSlugs} />
 
-      <h2>{t('contestNew.problems')}</h2>
+      <h2 id="rows">{t('contestNew.problems')}</h2>
+      <FieldError id="rows" message={fieldErrors.rows} />
       <table>
         <thead>
           <tr>
@@ -382,8 +515,11 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
 
       {error ? <CodeAlert {...error} /> : null}
       <p>
-        <button type="button" disabled={busy || name === ''} onClick={() => void save()}>
-          {t('contestEdit.save')}
+        {/* D148 - live unless it is genuinely busy, and it says what it is
+            doing while it is. `disabled={name === ''}` used to grey it out
+            with no reason given. */}
+        <button type="button" disabled={busy} aria-busy={busy} onClick={() => void save()}>
+          {busy ? t('form.saving') : t('contestEdit.save')}
         </button>{' '}
         <Link to="/contests/$key" params={{ key: contestKey }}>
           {t('common.cancel')}

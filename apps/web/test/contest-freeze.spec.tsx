@@ -25,6 +25,8 @@ vi.mock('../src/api.js', () => ({
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a href="#">{children}</a>,
   useNavigate: () => navigate,
+  // D147's dirty guard hangs off the router; these pages render bare here.
+  useBlocker: () => undefined,
 }));
 
 const { ScoreboardPage } = await import('../src/routes/contests.js');

@@ -20,9 +20,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { meQueryOptions } from '../me.js';
 import { useT } from '../i18n/index.js';
+import { ErrorSummary, FieldError, fieldProps } from '../forms.js';
 
 /** `Password` in `@duckoj/contracts` — restated so the form can refuse early. */
 const MIN_PASSWORD_LENGTH = 10;
+
+/** The three inputs, keyed the way `fieldErrors` and the DOM ids are. */
+type Field = 'current' | 'next' | 'confirm';
+const FIELD_ORDER: readonly Field[] = ['current', 'next', 'confirm'];
 
 export function ChangePasswordPage({
   forced = false,
@@ -50,18 +55,79 @@ export function ChangePasswordPage({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
+  /**
+   * The objections, raised on BLUR or on submit and never while typing.
+   *
+   * This form used to compute them live: "Ngắn hơn 10 ký tự." appeared on the
+   * first character of a twelve-character password and stayed for nine more,
+   * and the mismatch line sat under the confirm box for the whole time it was
+   * being typed. An objection that is true only because the reader has not
+   * finished is not teaching them anything — and this is the one form every
+   * roster-imported pupil (D61) must get through before they may see the site
+   * at all.
+   */
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<Field, string>>>({});
+  const [attempt, setAttempt] = useState(0);
+  /**
+   * Whether the SUMMARY is showing — which is not the same question as
+   * whether there are field errors.
+   *
+   * D110's summary takes focus when it appears, and that is right for a
+   * failed submit and catastrophic for a blur: tabbing out of the new-password
+   * box would rip focus off the confirm box the reader had just tabbed INTO.
+   * So a blur raises the field's own objection and nothing else; only a press
+   * raises the overview.
+   */
+  const [showSummary, setShowSummary] = useState(false);
 
   // The flag on the account decides, not the prop: a reader who lands on this
   // URL directly while flagged must get the same form the gate would have
   // shown them, and one whose flag was cleared in another tab must not be
   // offered a shortcut that no longer works.
   const mustChange = forced || me.data?.mustChangePassword === true;
-  const tooShort = next.length > 0 && next.length < MIN_PASSWORD_LENGTH;
-  const mismatch = confirm.length > 0 && confirm !== next;
-  const ready =
-    next.length >= MIN_PASSWORD_LENGTH && confirm === next && (mustChange || current.length > 0);
+  /**
+   * The contract's rules, in the active locale. `mustChange` decides whether
+   * the current password is asked for at all — a pupil off a roster import
+   * has none of their own to produce.
+   */
+  function validate(): Partial<Record<Field, string>> {
+    const invalid: Partial<Record<Field, string>> = {};
+    if (!mustChange && current.length === 0) invalid.current = t('form.required');
+    if (next.length < MIN_PASSWORD_LENGTH) invalid.next = t('password.tooShort', { n: MIN_PASSWORD_LENGTH });
+    else if (confirm !== next) invalid.confirm = t('password.mismatch');
+    return invalid;
+  }
+
+  /**
+   * One field, checked because the reader has LEFT it — the moment they have
+   * actually finished with it, which is the earliest an objection about it can
+   * be true. Only ever raises or clears that one field's own error, so
+   * blurring the new-password box cannot put a complaint under a confirm box
+   * nobody has reached yet.
+   */
+  function checkOnBlur(field: Field): () => void {
+    return () => {
+      setShowSummary(false);
+      const invalid = validate();
+      setFieldErrors((current_) => {
+        const nextErrors = { ...current_ };
+        if (invalid[field] === undefined) delete nextErrors[field];
+        else nextErrors[field] = invalid[field];
+        return nextErrors;
+      });
+    };
+  }
 
   async function save(): Promise<void> {
+    if (busy) return;
+    // Bumped on every attempt so the summary re-takes focus even when the
+    // same fields fail twice in a row (D110).
+    setAttempt((n) => n + 1);
+    const invalid = validate();
+    setFieldErrors(invalid);
+    setShowSummary(true);
+    setError(null);
+    if (Object.keys(invalid).length > 0) return;
     setBusy(true);
     try {
       const { error: err } = await api.POST('/auth/password/change', {
@@ -73,6 +139,8 @@ export function ChangePasswordPage({
       }
       setError(null);
       setDone(true);
+      setFieldErrors({});
+      setShowSummary(false);
       setCurrent('');
       setNext('');
       setConfirm('');
@@ -98,47 +166,62 @@ export function ChangePasswordPage({
       {mustChange ? <p role="alert">{t('password.forced')}</p> : null}
       {done ? <p role="status">{t('password.done')}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
+      {/* D110's Focusable Error Summary, reused rather than reinvented: a
+          pupil who pressed the button on an incomplete form is told so, and
+          focus lands on the list of what is missing. */}
+      <ErrorSummary errors={showSummary ? fieldErrors : {}} order={FIELD_ORDER} attempt={attempt} />
       {mustChange ? null : (
         <p>
           <label>
             {t('password.current')}{' '}
             <input
+              {...fieldProps('current', fieldErrors.current)}
               type="password"
               autoComplete="current-password"
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
+              onBlur={checkOnBlur('current')}
             />
           </label>
+          <FieldError id="current" message={fieldErrors.current} />
         </p>
       )}
       <p>
         <label>
           {t('password.new')}{' '}
           <input
+            {...fieldProps('next', fieldErrors.next)}
             type="password"
             autoComplete="new-password"
             value={next}
             onChange={(e) => setNext(e.target.value)}
+            onBlur={checkOnBlur('next')}
           />
         </label>{' '}
+        {/* The RULE, stated up front and always. It is not an objection, so it
+            stays put while the objection comes and goes. */}
         <span className="muted">{t('password.hint', { n: MIN_PASSWORD_LENGTH })}</span>
+        <FieldError id="next" message={fieldErrors.next} />
       </p>
       <p>
         <label>
           {t('password.confirm')}{' '}
           <input
+            {...fieldProps('confirm', fieldErrors.confirm)}
             type="password"
             autoComplete="new-password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
+            onBlur={checkOnBlur('confirm')}
           />
         </label>
+        <FieldError id="confirm" message={fieldErrors.confirm} />
       </p>
-      {tooShort ? <p className="muted">{t('password.tooShort', { n: MIN_PASSWORD_LENGTH })}</p> : null}
-      {mismatch ? <p className="muted">{t('password.mismatch')}</p> : null}
       <p>
-        <button type="button" disabled={!ready || busy} onClick={() => void save()}>
-          {t('password.save')}
+        {/* D148 — `disabled={!ready}` greyed this out with nothing on screen
+            saying which of three boxes it was waiting for. */}
+        <button type="button" disabled={busy} aria-busy={busy} onClick={() => void save()}>
+          {busy ? t('form.saving') : t('password.save')}
         </button>
       </p>
     </section>

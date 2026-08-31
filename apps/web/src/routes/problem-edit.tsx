@@ -8,6 +8,7 @@ import { tagsQueryOptions } from '../tags.js';
 import { useLocale, useT, tagName } from '../i18n/index.js';
 import { CodeAlert, type CodeAlertState } from '../states.js';
 import { ProblemTestDataTab } from './problem-testdata.js';
+import { useDirtyGuard } from '../forms.js';
 
 type ProblemDetail = paths['/problems/{code}']['get']['responses'][200]['content']['application/json'];
 type Visibility = ProblemDetail['visibility'];
@@ -35,6 +36,54 @@ function parseOrgSlugs(raw: string): string[] {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 }
+
+/**
+ * The whole editable form as one comparable string (D147).
+ *
+ * A fingerprint rather than a field-by-field compare: the form has nine
+ * editable pieces of state and a hand-written comparison would go stale the
+ * first time a tenth is added — which is exactly how a dirty guard quietly
+ * stops guarding. `\u0000` separates fields so no value can impersonate a
+ * boundary.
+ */
+interface FormShape {
+  name: string;
+  statement: string;
+  visibility: string;
+  sourceAccess: string;
+  orgSlugsRaw: string;
+  tagSlugs: readonly string[];
+  difficultyRaw: string;
+  editorial: string;
+  editorialPublished: boolean;
+}
+
+function fingerprint(form: FormShape): string {
+  return [
+    form.name,
+    form.statement,
+    form.visibility,
+    form.sourceAccess,
+    form.orgSlugsRaw,
+    form.tagSlugs.join(','),
+    form.difficultyRaw,
+    form.editorial,
+    String(form.editorialPublished),
+  ].join('\u0000');
+}
+
+/** The create route's baseline: an untouched empty form is not dirty. */
+const EMPTY_FORM: FormShape = {
+  name: '',
+  statement: '',
+  visibility: 'private',
+  sourceAccess: 'private',
+  orgSlugsRaw: '',
+  tagSlugs: [],
+  difficultyRaw: '',
+  editorial: '',
+  editorialPublished: false,
+};
 
 /**
  * `/problems/new` (no `code` prop — create) and `/problems/:code/edit`
@@ -208,6 +257,17 @@ export function ProblemEditPage(props: { code?: string }) {
   // then saves it over the new one. (The route also keys this component by
   // code — router.tsx — so this is defense in depth.)
   const [seededFrom, setSeededFrom] = useState<string | null>(null);
+  /**
+   * Every editable field as the PROBLEM had it (D147), flattened to one
+   * string so "has anything changed?" is one `!==`.
+   *
+   * Compared against the seed rather than against emptiness: this form
+   * arrives prefilled, and a guard that fired for the problem's own statement
+   * would prompt on every visit and teach setters to click through it. On the
+   * create route the seed is the empty form, which is the right baseline
+   * there too.
+   */
+  const [seed, setSeed] = useState<string>(() => fingerprint(EMPTY_FORM));
   useEffect(() => {
     if (!query.data || seededFrom === query.data.code) return;
     setCode(query.data.code);
@@ -224,8 +284,41 @@ export function ProblemEditPage(props: { code?: string }) {
     // publish state itself.
     setEditorial(query.data.editorial ?? '');
     setEditorialPublished(query.data.editorialAvailable);
+    setSeed(
+      fingerprint({
+        name: query.data.name,
+        statement: query.data.statement,
+        visibility: query.data.visibility,
+        sourceAccess: query.data.sourceAccess,
+        orgSlugsRaw: query.data.orgSlugs.join(', '),
+        tagSlugs: query.data.tags.map((tag) => tag.slug),
+        difficultyRaw: query.data.difficulty === null ? '' : String(query.data.difficulty),
+        editorial: query.data.editorial ?? '',
+        editorialPublished: query.data.editorialAvailable,
+      }),
+    );
     setSeededFrom(query.data.code);
   }, [seededFrom, query.data]);
+
+  /**
+   * D147. The statement box holds the largest single thing anybody types into
+   * this site, and until this loop a click on the nav bar took it with no
+   * prompt, no draft and no way back. (D84 gives the SUBMIT editor a stored
+   * draft; nothing had ever guarded the authoring one.)
+   */
+  const release = useDirtyGuard(
+    fingerprint({
+      name,
+      statement,
+      visibility,
+      sourceAccess,
+      orgSlugsRaw,
+      tagSlugs,
+      difficultyRaw,
+      editorial,
+      editorialPublished,
+    }) !== seed,
+  );
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -275,6 +368,23 @@ export function ProblemEditPage(props: { code?: string }) {
         setSubmitError({ message: t('problemEdit.saveFailed'), code: error.code });
         return;
       }
+      // Saved: this IS the problem now, so the guard has nothing left to
+      // protect — and `release()` is synchronous for the same reason
+      // contest-edit's is, since a save may be followed by a navigation.
+      setSeed(
+        fingerprint({
+          name,
+          statement,
+          visibility,
+          sourceAccess,
+          orgSlugsRaw,
+          tagSlugs,
+          difficultyRaw,
+          editorial,
+          editorialPublished,
+        }),
+      );
+      release();
       setSaved(true);
     } catch {
       setSubmitError({ message: t('common.networkError') });
@@ -438,8 +548,11 @@ export function ProblemEditPage(props: { code?: string }) {
         <label htmlFor="problem-org-slugs">{t('problemEdit.orgSlugs')}</label>
         <input id="problem-org-slugs" value={orgSlugsRaw} onChange={(e) => setOrgSlugsRaw(e.target.value)} />
 
-        <button type="submit" disabled={busy}>
-          {isEdit ? t('common.save') : t('common.create')}
+        {/* D148 — a save of a long statement is not instant, and a button
+            that only goes grey is indistinguishable from a click nothing
+            heard. */}
+        <button type="submit" disabled={busy} aria-busy={busy}>
+          {busy ? t('form.saving') : isEdit ? t('common.save') : t('common.create')}
         </button>
       </form>
 

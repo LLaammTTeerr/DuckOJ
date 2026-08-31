@@ -132,8 +132,14 @@ export function TokensPage() {
         ))}
       </p>
       <p>
-        <button type="button" disabled={busy || name === ''} onClick={() => void create()}>
-          {t('tokens.createButton')}
+        {/* D148. One required box, its label beside it. */}
+        <button
+          type="button"
+          disabled={busy || name === ''}
+          aria-busy={busy}
+          onClick={() => void create()}
+        >
+          {busy ? t('form.creating') : t('tokens.createButton')}
         </button>
       </p>
 

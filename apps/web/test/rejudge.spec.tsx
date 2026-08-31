@@ -18,6 +18,8 @@ vi.mock('../src/api.js', () => ({
 }));
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a href="#">{children}</a>,
+  // D147's dirty guard hangs off the router; these pages render bare here.
+  useBlocker: () => undefined,
 }));
 
 const { SubmissionPage } = await import('../src/routes/submission.js');

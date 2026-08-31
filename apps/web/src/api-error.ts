@@ -30,12 +30,32 @@ export class ApiError extends Error {
    */
   readonly detail: string | undefined;
 
-  constructor(status: number, message: string, code?: string, detail?: string) {
+  /**
+   * The server's own field-by-field attribution of a 422 (D146).
+   *
+   * `ZodValidationPipe` turns every failed issue into
+   * `fields[issue.path.join('.')]`, so a refused `POST /contests` says
+   * exactly which of `key`, `startTime` or `problems.3.points` it objected
+   * to — and until D146 every screen in this app dropped all of it and
+   * printed the pipe's one English banner sentence instead. Kept as the
+   * server's own keys; `src/forms.tsx`'s `mapFieldErrors` is what rewrites
+   * them into a particular form's input ids.
+   */
+  readonly fields: Record<string, string[]> | undefined;
+
+  constructor(
+    status: number,
+    message: string,
+    code?: string,
+    detail?: string,
+    fields?: Record<string, string[]>,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.detail = detail;
+    this.fields = fields;
   }
 }
 
@@ -48,7 +68,14 @@ export class ApiError extends Error {
  * and `code` off it.
  */
 export interface FailedRequest {
-  error?: { detail?: string | undefined; code?: string | undefined } | undefined;
+  error?:
+    | {
+        detail?: string | undefined;
+        code?: string | undefined;
+        /** A 422's per-field objections (D146); absent on every other status. */
+        fields?: Record<string, string[]> | undefined;
+      }
+    | undefined;
   response?: { status?: number | undefined } | undefined;
 }
 
@@ -67,6 +94,7 @@ export function apiError(result: FailedRequest, fallback: string): ApiError {
     result.error?.detail ?? fallback,
     result.error?.code,
     result.error?.detail,
+    result.error?.fields,
   );
 }
 

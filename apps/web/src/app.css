@@ -1753,6 +1753,25 @@ textarea:disabled {
   padding-left: var(--sp-4);
 }
 
+/*
+ * One field's objection (D146), rendered beside the input it describes and
+ * pointed at by its `aria-describedby`.
+ *
+ * Deliberately NOT a verdict hue. D46/D67 reserve red for a rejected
+ * submission and the rank ramp; a red "this field is required" would teach a
+ * reader that the two reds mean the same kind of thing. D110 made the same
+ * call for the summary: neutral chrome, weight and position do the work.
+ * `display: block` puts it on its own line under a wrapping `<label>`, where
+ * the field it belongs to is still obvious.
+ */
+.field-error {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--dim);
+  margin-top: var(--sp-1);
+}
+
 /* The draft notice and the size counter are both status text, not data. */
 .editor-note {
   font-family: var(--font-ui);

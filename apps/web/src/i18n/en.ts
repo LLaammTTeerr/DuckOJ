@@ -64,6 +64,14 @@ export const en = {
   // ── shared across screens ──────────────────────────────────────────────
   'common.loading': 'Loading…',
   'common.working': 'Working…',
+
+  // ── forms: D110's summary, D146's field errors, D147's leave guard ─────
+  'form.errorSummaryTitle': 'Please fix the following',
+  'form.leaveConfirm': 'You have unsaved changes. Leave this page?',
+  'form.required': 'This field is required.',
+  'form.saving': 'Saving…',
+  'form.submitting': 'Submitting…',
+  'form.creating': 'Creating…',
   'common.networkError': 'Could not reach the server. Check your connection and try again.',
   'common.serverError': 'The server had a problem answering. Nothing you did caused it — try again in a moment.',
   'common.signInRequired': 'Sign in to see this page.',
@@ -156,7 +164,6 @@ export const en = {
   'auth.errDisplayName': 'Between 1 and 64 characters.',
   'auth.errPasswordLength': 'At least 10 characters.',
   'auth.errPasswordMismatch': 'The two passwords do not match.',
-  'auth.errorSummaryTitle': 'Please fix the following',
 
   // ── home ──────────────────────────────────────────────────────────────
   'home.intro':
@@ -336,6 +343,7 @@ export const en = {
   'submit.draftRestored': 'Restored the draft you left here.',
   'submit.uploadFile': 'Open a file',
   'submit.uploadFailed': 'That file could not be read.',
+  'submit.fileTooLarge': 'That file is far too large to be a solution — the limit is {max} characters.',
   'submit.fontSmaller': 'Smaller editor text',
   'submit.fontLarger': 'Larger editor text',
   'submit.submit': 'Submit',
@@ -511,6 +519,8 @@ export const en = {
   'clar.askPlaceholder': 'What is unclear?',
   'clar.ask': 'Send',
   'clar.askError': 'Could not send the question.',
+  'clar.announceError': 'Could not post the announcement.',
+  'clar.answerError': 'Could not save that change to the question.',
   'clar.joinToAsk': 'Join the contest to ask a question.',
   'clar.anyProblem': 'The contest as a whole',
   'clar.frozenWarning':
@@ -558,7 +568,8 @@ export const en = {
   'contestNew.cloneSubmit': 'Clone the contest',
   'contestNew.cloneNameSuggestion': '{name} (copy)',
   'contestNew.badPoints': 'Problem {code}: points must be a non-negative number.',
-  'contestNew.datesRequired': 'Start and end are required.',
+  'contestNew.errKeyFormat': 'Lower-case letters, digits, - and _ only, 2 to 64 characters, starting with a letter or digit.',
+  'contestNew.errEndBeforeStart': 'The contest must end after it starts.',
   'contestNew.createError': 'Could not create the contest.',
   'contestNew.badFreeze': 'The freeze window must be a whole number of minutes, and shorter than the contest.',
 

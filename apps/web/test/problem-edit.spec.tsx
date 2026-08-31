@@ -15,6 +15,14 @@ vi.mock('../src/api.js', () => ({
   api: { GET: vi.fn(), POST: vi.fn(), PATCH: vi.fn() },
 }));
 
+// D147's dirty guard reaches the router; these pages render bare here, so
+// the blocker is observed rather than driven.
+const { blocker } = vi.hoisted(() => ({ blocker: vi.fn() }));
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children }: { children: React.ReactNode }) => <a href="#">{children}</a>,
+  useBlocker: (...args: unknown[]) => blocker(...args) as unknown,
+}));
+
 const mockedGet = vi.mocked(api.GET);
 const mockedPost = vi.mocked(api.POST);
 const mockedPatch = vi.mocked(api.PATCH);
@@ -32,6 +40,7 @@ afterEach(() => {
   mockedGet.mockReset();
   mockedPost.mockReset();
   mockedPatch.mockReset();
+  blocker.mockReset();
 });
 
 const PROBLEM_DETAIL = {
@@ -297,5 +306,64 @@ describe('the form reseeds when the route code changes without a remount', () =>
     // here — the state a Save would then write over problem B.
     expect(await screen.findByDisplayValue('Problem B')).toBeInTheDocument();
     expect(screen.queryByDisplayValue('Problem A')).toBeNull();
+  });
+});
+
+/**
+ * D147/D148 on the form that holds a whole problem statement — by a distance
+ * the largest thing a setter can lose to a mis-click on this site.
+ */
+describe('ProblemEditPage — the statement is not thrown away silently', () => {
+  function seeded() {
+    mockedGet.mockResolvedValue({
+      data: PROBLEM_DETAIL,
+      error: undefined,
+      response: new Response(),
+    } as never);
+  }
+
+  function guardDisabled(): boolean {
+    return (blocker.mock.calls.at(-1)![0] as { disabled: boolean }).disabled;
+  }
+
+  it('guards an edited statement against a route change, and not an untouched one', async () => {
+    seeded();
+    renderWithClient(<ProblemEditPage code="aplusb" />);
+    await screen.findByDisplayValue('A Plus B');
+    // Prefilled is not edited: the seed IS the problem.
+    await waitFor(() => expect(guardDisabled()).toBe(true));
+
+    await userEvent.click(screen.getByLabelText(/Đề bài/));
+    await userEvent.paste('\n\nOne more paragraph.');
+    await waitFor(() => expect(guardDisabled()).toBe(false));
+  });
+
+  it('stops guarding once the save has landed', async () => {
+    seeded();
+    mockedPatch.mockResolvedValue({
+      data: PROBLEM_DETAIL,
+      error: undefined,
+      response: new Response(),
+    } as never);
+    renderWithClient(<ProblemEditPage code="aplusb" />);
+    await screen.findByDisplayValue('A Plus B');
+    await userEvent.click(screen.getByLabelText(/Đề bài/));
+    await userEvent.paste(' more');
+    await waitFor(() => expect(guardDisabled()).toBe(false));
+
+    await userEvent.click(screen.getByRole('button', { name: /^Lưu$/ }));
+    await waitFor(() => expect(guardDisabled()).toBe(true));
+  });
+
+  it('says it is saving rather than just going grey (D148)', async () => {
+    seeded();
+    mockedPatch.mockReturnValue(new Promise(() => undefined) as never);
+    renderWithClient(<ProblemEditPage code="aplusb" />);
+    await screen.findByDisplayValue('A Plus B');
+    await userEvent.click(screen.getByRole('button', { name: /^Lưu$/ }));
+
+    const busy = await screen.findByRole('button', { name: /Đang lưu/ });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute('aria-busy', 'true');
   });
 });

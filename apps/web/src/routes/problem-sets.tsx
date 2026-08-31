@@ -269,8 +269,15 @@ function SetForm({
       <ProblemPicker picked={picked} onChange={setPicked} />
       {error ? <p role="alert">{error}</p> : null}
       <p>
-        <button type="button" disabled={busy || setSlug === '' || name === ''} onClick={() => void save()}>
-          {t('sets.save')}
+        {/* D148 — a homework set with twenty problems in it is not an
+            instant save. */}
+        <button
+          type="button"
+          disabled={busy || setSlug === '' || name === ''}
+          aria-busy={busy}
+          onClick={() => void save()}
+        >
+          {busy ? t('form.saving') : t('sets.save')}
         </button>{' '}
         {onCancel ? (
           <button type="button" onClick={onCancel}>
