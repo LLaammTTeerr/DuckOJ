@@ -5888,3 +5888,31 @@ and fail every one of those runs.
 
 *Ruled by the implementer during the 2026-08-31 b32 loop, no human available to
 consult. The live stack was not written to.*
+
+## D135 — A countdown of a day or more counts in days; D118's uncapped hours were only ever right for contest day
+
+D118 ruled that the header countdown is `HH:MM:SS` with hours **not** capped at 24,
+so "an upcoming contest days away reads `72:00:15` rather than losing the days".
+That is exactly right for the twelve hours either side of the gun, which is what the
+rule was written for. It is wrong for the rest of the calendar. The live stack's
+month-long `thu-nghiem-1` renders **`Kết thúc sau 671:53:57`** — a number no teacher
+or student converts into "four weeks" without arithmetic, on the one line of the
+contest header whose entire job is to answer "when?".
+
+- **Whole days come off the front; the clock keeps its meaning.**
+  `formatCountdownParts` returns `{ days, clock }`, and the header picks a message
+  key by whether `days` is zero. `27 ngày 23:53:57` / `27d 23:53:57`.
+- **Contest day is untouched, to the pixel.** Under 24 hours `days` is 0, the bare
+  `contest.startsIn`/`contest.endsIn` keys render exactly what D118 shipped, and
+  `formatCountdown` itself is unchanged — so the tabular-figures rule, the
+  per-second tick and the `role="timer"` line all keep their existing behaviour and
+  their existing tests.
+- **The word is the caller's, not the formatter's.** `formatCountdownParts` stays
+  locale-neutral (a number and a clock) because "ngày" and "d" are not the same
+  token; the day phrase lives in `contest.startsInDays`/`contest.endsInDays` in both
+  catalogues. English uses the compact `{days}d` so the line needs no plural rule to
+  read correctly at 1 as well as at 27.
+
+*Ruled by the implementer during the 2026-08-31 fe1 visual-audit loop, no human
+available to consult; found by screenshotting the live contest header at 390px. No
+migration: two i18n keys and one pure function.*

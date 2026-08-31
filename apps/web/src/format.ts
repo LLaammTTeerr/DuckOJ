@@ -59,3 +59,24 @@ export function formatCountdown(ms: number): string {
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
+
+/**
+ * The same duration, split into WHOLE DAYS and the clock that remains (D135,
+ * amending D118's "hours are not capped at 24").
+ *
+ * D118 was written for contest day, where every countdown is under a day and
+ * `HH:MM:SS` is exactly right. It is wrong for the other half of the calendar:
+ * a teacher scheduling next month's round met "Bắt đầu sau 671:53:57" on the
+ * live stack, and nobody reads a three-digit hour as "four weeks away". So the
+ * days come off the front and the clock keeps its meaning — 27 ngày 23:53:57.
+ *
+ * `days` is 0 for anything under 24 hours, which is what makes the caller's
+ * choice trivial: no days, no day phrase, contest day unchanged to the pixel.
+ * Still locale-neutral — this returns a NUMBER and a clock, and the word
+ * "ngày"/"d" is the caller's message key, because it is not the same word.
+ */
+export function formatCountdownParts(ms: number): { days: number; clock: string } {
+  const total = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0;
+  const days = Math.floor(total / 86_400);
+  return { days, clock: formatCountdown((total - days * 86_400) * 1000) };
+}

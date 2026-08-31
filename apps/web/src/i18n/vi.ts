@@ -393,6 +393,9 @@ export const vi = {
   'contest.notStarted': 'Chưa bắt đầu.',
   'contest.startsIn': 'Bắt đầu sau {d}',
   'contest.endsIn': 'Kết thúc sau {d}',
+  // D135 — "ngày" is invariant in Vietnamese, so one form covers 1 and 27.
+  'contest.startsInDays': 'Bắt đầu sau {days} ngày {d}',
+  'contest.endsInDays': 'Kết thúc sau {days} ngày {d}',
   'contest.restrictedTo': 'Chỉ dành cho thành viên của',
   'contest.problems': 'Bài tập',
   'contest.noProblems': 'Chưa có bài nào.',

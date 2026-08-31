@@ -415,6 +415,11 @@ export const en = {
   'contest.notStarted': 'Not started yet.',
   'contest.startsIn': 'Starts in {d}',
   'contest.endsIn': 'Ends in {d}',
+  // D135 — a wait of a day or more counts in days; "Starts in 671:53:57"
+  // is a number nobody reads as "four weeks". Compact `d` rather than
+  // "days" so the line needs no plural rule to stay correct at 1.
+  'contest.startsInDays': 'Starts in {days}d {d}',
+  'contest.endsInDays': 'Ends in {days}d {d}',
   'contest.restrictedTo': 'Open to members of',
   'contest.problems': 'Problems',
   'contest.noProblems': 'No problems.',

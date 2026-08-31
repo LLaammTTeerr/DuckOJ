@@ -6,7 +6,7 @@ import { API_PREFIX } from '@duckoj/api-prefix';
 import { api } from '../api.js';
 import { Avatar } from '../avatar.js';
 import { apiError, read } from '../api-error.js';
-import { formatCountdown, formatPoints } from '../format.js';
+import { formatCountdownParts, formatPoints } from '../format.js';
 import { meQueryOptions } from '../me.js';
 import { formatDateTime, formatTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
 
@@ -218,11 +218,27 @@ export function ContestCountdown({ startTime, endTime }: { startTime: string; en
 
   const start = Date.parse(startTime);
   const end = Date.parse(endTime);
+  // D135: past 24 hours the clock alone stops being readable ("671:53:57"),
+  // so the whole days come off the front and get their own word. Under a day
+  // — contest day, every time — `days` is 0 and the line is byte-identical to
+  // what D118 shipped.
+  const line = (remaining: number, bare: MsgKey, withDays: MsgKey) => {
+    const { days, clock } = formatCountdownParts(remaining);
+    return days === 0 ? t(bare, { d: clock }) : t(withDays, { days: String(days), d: clock });
+  };
   if (now < start) {
-    return <p className="countdown" role="timer">{t('contest.startsIn', { d: formatCountdown(start - now) })}</p>;
+    return (
+      <p className="countdown" role="timer">
+        {line(start - now, 'contest.startsIn', 'contest.startsInDays')}
+      </p>
+    );
   }
   if (now <= end) {
-    return <p className="countdown" role="timer">{t('contest.endsIn', { d: formatCountdown(end - now) })}</p>;
+    return (
+      <p className="countdown" role="timer">
+        {line(end - now, 'contest.endsIn', 'contest.endsInDays')}
+      </p>
+    );
   }
   return null;
 }
