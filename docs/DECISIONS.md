@@ -5341,3 +5341,58 @@ in their head, once a second. The header now counts down.
 
 *Ruled by the implementer during the 2026-08-31 f30 loop, no human available to
 consult. Web-only: one leaf component, one display helper, two i18n keys.*
+
+## D119 — A team is one entity: members share their team's private clarifications
+
+D117 made a team's contest submissions the whole roster's to read. The
+clarification feed had the same seam: `list()` filtered `visibility = 'public'
+OR askedBy = me` — team-blind. So when a member asked a private question and the
+organiser answered it per-team without publishing to the room, only the one
+member who typed it could read the reply, while the notification set
+`broadcastRecipientsQuery` already unioned the whole squad (D99×D14) — the
+notification promised the team a reply the read endpoint then hid.
+
+- **The read twin of the recipient set.** `list()` now also matches `askedBy IN
+  (teammates in this contest)` via `teammatesInThisContest`, two `team_members`
+  joins onto the contest's participations: one pins a participation to a team
+  the caller is on, the other enumerates that team's roster. Uncorrelated
+  (evaluated once for the whole query, not per row), and empty for an individual
+  round — the participation's `team_id` is NULL there, so the first join matches
+  nothing and individual contests are untouched.
+- **No cross-contest or rival leak.** The subquery is scoped to participations
+  in THIS contest, so it never reaches a team's clarifications in another
+  contest, and a rival — on no team the caller shares — matches nobody. The
+  organiser/`canRunContest` path is unchanged; this only widens what a
+  competitor may read of their own team.
+
+*Ruled by the implementer during the 2026-08-31 B-24 rehearsal loop, no human
+available to consult; found on the live stack. Recorded retroactively during the
+B-26 review (commit `8cc07fb` cited D119 with no ledger entry). No migration:
+one read predicate widened.*
+
+## D120 — index.html's pre-paint theme script is allowed by its exact CSP hash, never by 'unsafe-inline'
+
+D116 added a blocking inline `<script>` to `apps/web/index.html` that sets
+`data-theme` before first paint (no dark-mode flash). The Caddy CSP was
+`script-src 'self'` with no hash or nonce — written earlier, its comment still
+claiming the Vite build emits no inline scripts. The two never met in a browser:
+the inline script is blocked on EVERY page, logging a CSP violation and giving
+dark-mode users a light flash, and the whole Playwright browser suite went red
+against the live stack (the shipped smoke spec failed identically).
+
+- **The script's sha256 in `script-src`, not `'unsafe-inline'`.** Adding the
+  one script's exact hash keeps every OTHER inline script refused — an injected
+  `<script>` still cannot run. The concession is one known script, not a door.
+- **Pinned so source and CSP cannot silently diverge.** `security-headers.spec.ts`
+  computes the hash from `index.html` and asserts it is in the CSP. B-26 added
+  the built-artefact half `scripts/verify-csp-hash.ts` (run after `vite build`
+  in `verify` and CI): the unit test hashes the SOURCE, but Caddy serves the
+  BUILT `dist/index.html`, and a Vite transform of the inline script would move
+  the served hash while the source test stayed green — the drift guard hashes
+  every inline script in the built file against the Caddyfile.
+
+*Ruled by the implementer during the 2026-08-31 B-24 rehearsal loop, no human
+available to consult; found on the live stack. Recorded retroactively during the
+B-26 review (commit `dd82d89` cited D120 with no ledger entry). No migration:
+one CSP directive and its guards. (D121 was pre-allocated in the B-24 dispatch
+note's "D119–D121" range but never became a ruling — no commit cites it.)*
