@@ -105,11 +105,11 @@ test('journey 1 — an admin authors a problem entirely in the browser and publi
 
   await page.getByRole('button', { name: 'Thêm test' }).click();
   await page.getByRole('button', { name: 'Thêm test' }).click();
-  await page.getByLabel('Đầu vào').nth(0).fill('1 2\n');
-  await page.getByLabel('Đáp án').nth(0).fill('3\n');
+  await page.getByLabel('Đầu vào', { exact: true }).nth(0).fill('1 2\n');
+  await page.getByLabel('Đáp án', { exact: true }).nth(0).fill('3\n');
   await page.getByLabel('Điểm của test 1').fill('50');
-  await page.getByLabel('Đầu vào').nth(1).fill('-7 4\n');
-  await page.getByLabel('Đáp án').nth(1).fill('-3\n');
+  await page.getByLabel('Đầu vào', { exact: true }).nth(1).fill('-7 4\n');
+  await page.getByLabel('Đáp án', { exact: true }).nth(1).fill('-3\n');
   await page.getByLabel('Điểm của test 2').fill('50');
   await expect(page.getByText('2 test, tổng 100 điểm')).toBeVisible();
 
@@ -130,8 +130,8 @@ test('journey 1 — an admin authors a problem entirely in the browser and publi
   await expect(page.getByText('Đã tải dữ liệu chấm từ phiên bản 1.')).toBeVisible({
     timeout: 60_000,
   });
-  await expect(page.getByLabel('Đầu vào').nth(0)).toHaveValue('1 2\n');
-  await expect(page.getByLabel('Đáp án').nth(1)).toHaveValue('-3\n');
+  await expect(page.getByLabel('Đầu vào', { exact: true }).nth(0)).toHaveValue('1 2\n');
+  await expect(page.getByLabel('Đáp án', { exact: true }).nth(1)).toHaveValue('-3\n');
 
   expect(watch.errors).toEqual([]);
 });

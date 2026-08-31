@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { adminCredentials } from './credentials.js';
 
@@ -22,6 +23,13 @@ import { adminCredentials } from './credentials.js';
 
 const require = createRequire(import.meta.url);
 const AXE_PATH = require.resolve('axe-core/axe.min.js');
+// The live app ships a strict CSP (`script-src 'self' 'sha256-…'`, D120), so
+// `page.addScriptTag` — which injects an inline <script> subject to that CSP —
+// is refused. Instead we hand the axe source to `page.evaluate`, whose code
+// runs through CDP's Runtime.evaluate in an isolated world that the page CSP
+// does not police (the shape `@axe-core/playwright` uses). The source is read
+// once here and self-installs `window.axe` when evaluated.
+const AXE_SOURCE = readFileSync(AXE_PATH, 'utf8');
 
 const WCAG_AA = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
@@ -34,7 +42,12 @@ interface Violation {
 
 /** Inject axe, run it, and return only the serious/critical violations. */
 async function scan(page: Page): Promise<Violation[]> {
-  await page.addScriptTag({ path: AXE_PATH });
+  // Install axe only once per document; a re-navigation wipes it, so guard on
+  // the global rather than assuming it survives.
+  const present = await page.evaluate(() => 'axe' in window);
+  if (!present) {
+    await page.evaluate(AXE_SOURCE);
+  }
   const violations = await page.evaluate(async (tags) => {
     const axe = (window as unknown as { axe: { run: (ctx: unknown, opts: unknown) => Promise<{ violations: Array<{ id: string; impact: string | null; help: string; nodes: Array<{ target: string[] }> }> }> } }).axe;
     const res = await axe.run(document, { runOnly: { type: 'tag', values: tags } });
