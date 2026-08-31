@@ -50,6 +50,44 @@ function parseBlocks(text: string): Block[] {
     .filter((block) => 'password' in block);
 }
 
+/**
+ * A NON-admin account on the same stack, for the specs that are about what a
+ * pupil sees.
+ *
+ * An admin's app is a different app: an extra nav cluster, a wider bar, and —
+ * on a stack whose admin only ever provisioned it — no submissions and no
+ * solved problems at all. `mobile.spec.ts` measures a student's contest day,
+ * so signing in as `duckadmin` there measures the wrong screen and then fails
+ * on missing fixture data rather than on the layout it exists to guard.
+ *
+ * Same two ways in as `adminCredentials`, one rule different: the block
+ * CHOSEN is the first whose `globalRole` is not `admin`. Name one explicitly
+ * with `E2E_STUDENT_USER` on a stack whose demo pupil is called something
+ * else.
+ */
+export function studentCredentials(): AdminCredentials {
+  const wanted = process.env.E2E_STUDENT_USER;
+  const file =
+    process.env.E2E_SECRETS_FILE ?? resolve(process.cwd(), '../../.secrets/duckadmin.txt');
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch {
+    throw new Error(`No student credentials: put the operator secrets file at ${file}.`);
+  }
+  const blocks = parseBlocks(text);
+  const block =
+    blocks.find((b) =>
+      wanted === undefined ? (b.globalRole ?? 'user') !== 'admin' : b.username === wanted,
+    ) ?? null;
+  if (block === null) {
+    throw new Error(
+      `${file} has no ${wanted === undefined ? 'non-admin account' : `block for ${wanted}`} — a student-facing spec needs one.`,
+    );
+  }
+  return { username: block.username ?? 'hocsinh1', password: block.password! };
+}
+
 export function adminCredentials(): AdminCredentials {
   const wanted = process.env.E2E_ADMIN_USER;
   const fromEnv = process.env.E2E_ADMIN_PASSWORD;

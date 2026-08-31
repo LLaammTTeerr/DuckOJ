@@ -111,4 +111,30 @@ describe('renderStatement', () => {
     expect(mixed).toContain('Sau.');
     expect(mixed).toContain('katex-error');
   });
+
+  /**
+   * D136. Below 700px `app.css` turns a `<table>` into its own scroll
+   * container, which makes CSS generate an anonymous — and therefore
+   * unstylable — table box inside it that shrink-wraps to its content: a
+   * constraints table's tinted header band then stops short of the well it
+   * is painted in (95px short on `/help` at 390px, measured in Chromium).
+   * Only a real wrapper restoring `display: table` fixes it, and a
+   * statement's tables come from here, not from JSX.
+   */
+  it('wraps every rendered table so it fills its well on a phone', () => {
+    const html = renderStatement('| a | b |\n| - | - |\n| 1 | 2 |\n');
+    expect(html).toContain('<div class="table-wrap" tabindex="0"><table>');
+    expect(html).toContain('</table></div>');
+    // The wrapper survives DOMPurify — both the class it is selected by and
+    // the tabindex that makes an overflowing column keyboard-reachable.
+    expect(html.match(/<table/g)).toHaveLength(1);
+    expect(html.match(/table-wrap/g)).toHaveLength(1);
+  });
+
+  it('wraps each of several tables exactly once', () => {
+    const html = renderStatement('| a |\n| - |\n| 1 |\n\nprose\n\n| b |\n| - |\n| 2 |\n');
+    expect(html.match(/<table/g)).toHaveLength(2);
+    expect(html.match(/table-wrap/g)).toHaveLength(2);
+    expect(html).toContain('prose');
+  });
 });

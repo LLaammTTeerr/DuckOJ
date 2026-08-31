@@ -7,6 +7,7 @@ import { apiError } from '../api-error.js';
 import { formatPoints } from '../format.js';
 import { verdictToken } from './submit.js';
 import { formatTimestamp, useLocale, useT, verdictName } from '../i18n/index.js';
+import { usePhoneLayout } from '../nav.js';
 
 type Submission = paths['/submissions']['get']['responses'][200]['content']['application/json']['items'][number];
 // `NonNullable` twice: once to strip `?`'s implicit `undefined` off the
@@ -48,6 +49,11 @@ export function SubmissionsPage({
   // local state.
   const t = useT();
   const { locale, timeZone } = useLocale();
+  // D136: the same rows, two shapes. On a phone the eight columns become a
+  // card per submission, so the verdict is on screen instead of 470px across
+  // a 390px display; the wrapper's sideways scroll — and therefore its tab
+  // stop — only exists on the desktop table.
+  const phone = usePhoneLayout();
   const [problem, setProblem] = useState(initialProblem);
   const [user, setUser] = useState(initialUser);
   const [contest, setContest] = useState(initialContest);
@@ -154,8 +160,13 @@ export function SubmissionsPage({
           so the verdict and points columns are reachable by keyboard on a
           phone. */}
       {submissions.length > 0 ? (
-        <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('submissions.tableLabel')}>
-        <table>
+        <div
+          className="grid-scroll"
+          {...(phone
+            ? {}
+            : { tabIndex: 0, role: 'region', 'aria-label': t('submissions.tableLabel') })}
+        >
+        <table className="card-rows">
           <thead>
             <tr>
               <th className="num">{t('submissions.colId')}</th>
@@ -171,12 +182,12 @@ export function SubmissionsPage({
           <tbody>
             {submissions.map((s: Submission) => (
               <tr key={s.id}>
-                <td className="num">
+                <td className="num" data-col="id" data-label={t('submissions.colId')}>
                   <Link to="/submissions/$id" params={{ id: String(s.id) }}>
                     {s.id}
                   </Link>
                 </td>
-                <td>
+                <td data-col="problem" data-label={t('submissions.colProblem')}>
                   <Link to="/problems/$code" params={{ code: s.problemCode }}>
                     {s.problemCode}
                   </Link>
@@ -187,7 +198,11 @@ export function SubmissionsPage({
                     the same em dash every other empty cell on this table
                     uses. The contest's NAME is the label — contest names are
                     content and are never translated. */}
-                <td>
+                <td
+                  data-col="contest"
+                  data-label={t('submissions.colContest')}
+                  {...(s.contestKey ? {} : { 'data-empty': 'true' })}
+                >
                   {s.contestKey ? (
                     <Link to="/contests/$key" params={{ key: s.contestKey }}>
                       {s.contestLabel ?? s.contestKey}
@@ -201,14 +216,14 @@ export function SubmissionsPage({
                     shares the row. `teamName` is null for practice and
                     individual entries; a team name is content, never
                     translated. */}
-                <td>
+                <td data-col="user" data-label={t('submissions.colUser')}>
                   <Link to="/users/$username" params={{ username: s.username }}>
                     {s.username}
                   </Link>
                   {s.teamName ? ` (${t('submission.teamLabel', { name: s.teamName })})` : ''}
                 </td>
-                <td>{s.languageKey}</td>
-                <td>
+                <td data-col="language" data-label={t('submissions.colLanguage')}>{s.languageKey}</td>
+                <td data-col="verdict" data-label={t('submissions.colVerdict')}>
                   {/* D23: a frozen row is a row whose verdict is being
                       withheld, which is a different thing from one that has
                       no verdict yet — `?` rather than the pending `—`, with
@@ -225,12 +240,14 @@ export function SubmissionsPage({
                     {s.frozen ? '?' : (s.verdict ?? '—')}
                   </span>
                 </td>
-                <td className="num">
+                <td className="num" data-col="points" data-label={t('submissions.colPoints')}>
                   {typeof s.points === 'number' && typeof s.maxPoints === 'number'
                     ? `${formatPoints(s.points)}/${formatPoints(s.maxPoints)}`
                     : '—'}
                 </td>
-                <td>{formatTimestamp(s.createdAt, locale, timeZone)}</td>
+                <td data-col="when" data-label={t('submissions.colWhen')}>
+                  {formatTimestamp(s.createdAt, locale, timeZone)}
+                </td>
               </tr>
             ))}
           </tbody>

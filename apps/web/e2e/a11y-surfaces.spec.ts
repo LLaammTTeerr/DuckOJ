@@ -143,10 +143,23 @@ test.describe('B-27 web-surfaces a11y sweep', () => {
     }
   });
 
+  /**
+   * `/submissions` is deliberately NOT in this list any more (D136). It used
+   * to be, and the assertion below — "the wrapper does carry the overflow" —
+   * was the bug written down as a requirement: at 390px the verdict, the one
+   * cell the list exists for, sat 470px across a 390px screen behind a swipe
+   * nothing advertised. Its rows are cards on a phone now, so there IS no
+   * overflow to carry; `mobile.spec.ts` asserts the replacement invariant
+   * (the verdict on screen, the wrapper not scrolling at all). The problem
+   * list and the scoreboard keep this contract because they cannot lose it:
+   * the scoreboard grows a column per problem, so no phone layout makes a
+   * twenty-problem board fit, and reaching those columns from a keyboard is
+   * exactly what the tab stop is for.
+   */
   test('the wide data tables are keyboard-reachable scroll regions', async ({ page }) => {
     const admin = adminCredentials();
     await signIn(page, admin.username, admin.password);
-    for (const path of ['/problems', '/submissions', `/contests/${CONTEST}/scoreboard`]) {
+    for (const path of ['/problems', `/contests/${CONTEST}/scoreboard`]) {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(path, { waitUntil: 'networkidle' });
       await page.waitForTimeout(300);

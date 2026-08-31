@@ -455,6 +455,111 @@ a:hover {
   margin-left: auto;
 }
 
+/* Density (D139). Nineteen pills at 24px of horizontal padding each is 152px
+   of air inside a bar capped at 960px — the difference between one row and
+   two for an admin, who carries `Quản trị` as well. 16px still clears the
+   44px thumb target this bar is built around, because the target is the
+   pill's HEIGHT; the width only has to hold the word. Scoped to `.nav-bar`,
+   so the phone's five tabs — which want every pixel of width they can get —
+   are untouched, and through `.shell-nav` so it OUT-SPECIFIES the
+   `.shell-nav a` rule below rather than merely tying with it. */
+.shell-nav .nav-bar a,
+.shell-nav .nav-bar button {
+  padding: 0 var(--sp-2);
+}
+
+/* A long display name truncates rather than wrapping the whole bar. With the
+   overflow button in place the signed-in admin bar fits 958px with about
+   20px to spare, and a name is the one item on it whose width is user data —
+   "Nguyễn Thị Minh Khai" would put the bar back on two rows. The name stays
+   whole in the DOM (and therefore in every e2e locator that reads it); only
+   its rendering is clipped. */
+.nav-bar .nav-me {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The account overflow (D139). The panel hangs off the button rather than
+   covering the page: this is a disclosure, not the phone's modal sheet, and
+   the bar underneath it stays readable. `position: relative` on the wrapper
+   is what the panel is measured from; `.shell-nav`'s own backdrop-filter
+   makes it a containing block for `position: fixed`, but never for
+   `absolute`, so this resolves where it looks like it should. */
+.nav-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* A caret that says the button opens something, rotated when it has. Drawn
+   with borders rather than a glyph so it inherits `currentColor` and needs no
+   font that might not be there; `aria-hidden` is implicit — a ::after carries
+   no accessible name of its own. */
+.nav-menu-button::after {
+  content: '';
+  margin-left: var(--sp-1);
+  border: 4px solid transparent;
+  border-top-color: currentColor;
+  transform: translateY(2px);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nav-menu-button[aria-expanded='true']::after {
+  transform: translateY(-2px) rotate(180deg);
+}
+.nav-menu-button[aria-expanded='true'] {
+  background: var(--sel);
+  color: var(--fg);
+}
+
+.nav-menu {
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 200px;
+  padding: var(--sp-2);
+  border: 1px solid var(--glass-stroke);
+  border-radius: var(--r-lg);
+  background-color: var(--panel);
+  background-image: var(--glass-specular);
+  background-repeat: no-repeat;
+  background-size: 100% 22px;
+  box-shadow: var(--shadow-2), 0 0 0 1px var(--glass-edge);
+}
+
+/* Left-aligned inside the panel: a column of links is READ down its left
+   edge, and the bar's centring rule would leave every label floating. Scoped
+   through `.shell-nav` on purpose — `.nav-menu a` alone ties with
+   `.shell-nav a`, which is declared later in this file and would win. */
+.shell-nav .nav-menu a,
+.shell-nav .nav-menu button {
+  justify-content: flex-start;
+  width: 100%;
+  padding: 0 var(--sp-3);
+}
+
+/* The theme choice keeps its three named buttons — collapsing it to one
+   toggle would hide which of light / dark / system is actually in force —
+   but inside the panel they sit on one row, as a segmented control. */
+.nav-menu .theme-toggle {
+  display: flex;
+  width: 100%;
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+}
+.shell-nav .nav-menu .theme-toggle button {
+  flex: 1;
+  justify-content: center;
+  padding: 0 var(--sp-1);
+  min-width: 0;
+}
+
 /* Every nav item is a 44px-tall pill, so the whole row is one band of tap
    targets rather than a line of 13px text that is a coin-flip with a thumb. */
 .shell-nav a,
@@ -1220,6 +1325,206 @@ tr:hover td {
 .grid-scroll:focus-visible {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
+}
+
+/* A LIGHT wrapper, for a table that is merely narrow rather than merely wide.
+ *
+ * FE-1's finding 12, now measured: at <=700px `table { display: block }`
+ * makes the table its own scroll container, and CSS then generates an
+ * ANONYMOUS table box around the row groups inside that block. An anonymous
+ * block-level table shrink-wraps to its content and no selector can reach it,
+ * so a table narrower than its well paints its tinted header band 95px short
+ * of the well's right edge (`/help` at 390px, exactly the number FE-1 read
+ * off the screen). Three CSS-only remedies were measured and none works,
+ * because none of them can address a box that has no element.
+ *
+ * A wrapper can: restoring `display: table` inside it puts the table's own
+ * `width: 100%` back in charge, so it fills the well and still overflows —
+ * into the wrapper, never onto the page — when its content is genuinely
+ * wider. `tabindex` is what makes those overflowing columns reachable
+ * without a mouse (WCAG 2.1.1); unlike `.grid-scroll` it carries no
+ * `role="region"`, because a region must be NAMED and these tables are
+ * rendered by the Markdown pipeline, which has no `t()`.
+ */
+.table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.table-wrap > table {
+  display: table;
+}
+
+.table-wrap:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+/* --- a row as a card, on a phone (D136) ---------------------------------
+ *
+ * THE PROBLEM. The submissions list is eight columns wide and the verdict is
+ * the sixth. At 390px — the width most of this judge's readers meet it at —
+ * the verdict badge started 470px across a 390px screen: present in the DOM,
+ * absent from the phone. A student on contest day opens this list to answer
+ * exactly one question, "did it pass?", and the answer was behind a sideways
+ * swipe nothing on screen advertised. The other four visible columns were no
+ * better: `duong-di-ngan-nhat` in a 60px column is a tower of single letters.
+ *
+ * THE SHAPE. Below the D76 breakpoint each `<tr>` becomes a card — a
+ * three-line grid whose areas are named after the columns, so the ORDER on a
+ * phone is a product decision written here rather than an accident of the
+ * `<td>` order the desktop table needs:
+ *
+ *     ┌──────────────────────────────────────┐
+ *     │ #715   aplusb                 [+ AC] │
+ *     │ NGƯỜI NỘP  NGÔN NGỮ        ĐIỂM      │
+ *     │ hocsinh1   cpp17            100/100  │
+ *     │ KỲ THI                     THỜI GIAN │
+ *     │ FE1 đông băng…          30/08 14:22  │
+ *     └──────────────────────────────────────┘
+ *
+ * WHY IT IS STILL A `<table>`. The markup does not change at all — one
+ * `data-col` attribute per cell and nothing else. Every `getByRole('row')`,
+ * every `within(row).getByText('AC')` and every Playwright `hasText` filter
+ * in the suite goes on matching, because none of them is about layout; the
+ * cell captions are `::before` pseudo-content, which never enters
+ * `textContent`. Measured in Chromium: `display: grid` on a `<tr>` and
+ * `display: block` on a `<td>` do NOT strip the row/cell roles from the
+ * accessibility tree, so a screen reader still reads a table.
+ *
+ * WHY THE CAPTIONS ARE THERE AT ALL. `<thead>` is hidden in this shape, and
+ * a bare `100/100` under a bare `cpp17` is two numbers with no nouns. The
+ * caption is `attr(data-label)` — the SAME translated column heading the
+ * desktop table prints, so the two shapes can never drift apart or fall out
+ * of Vietnamese.
+ */
+@media (max-width: 700px) {
+  /* Beats `.grid-scroll table { display: table }` on specificity, not on
+     source order: this table lives inside that wrapper on every screen. */
+  .grid-scroll table.card-rows,
+  table.card-rows {
+    display: block;
+    /* The well moves onto each card, so the container stops being one. */
+    background: none;
+    border: 0;
+    margin: var(--sp-3) 0 0;
+  }
+
+  table.card-rows thead {
+    /* Not `visibility: hidden` — the headings are re-shown per cell below,
+       and two copies of "KẾT QUẢ" is what a screen reader would then read. */
+    display: none;
+  }
+
+  table.card-rows tbody {
+    display: block;
+  }
+
+  table.card-rows tbody tr {
+    display: grid;
+    /* id and the right rail size to their content; the middle column takes
+       what is left, which is what keeps a long problem code on one line. */
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'id      problem  verdict'
+      'user    language points'
+      'contest contest  contest'
+      'when    when     when';
+    column-gap: var(--sp-3);
+    row-gap: var(--sp-2);
+    align-items: baseline;
+    padding: var(--sp-3);
+    margin-bottom: var(--sp-2);
+    background: var(--glass-inset);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+  }
+
+  table.card-rows tbody tr:hover td {
+    /* The desktop row-hover tint would paint a stripe across a card. */
+    background: none;
+  }
+
+  table.card-rows td {
+    display: block;
+    padding: 0;
+    border-bottom: 0;
+    min-width: 0;
+    /* A card is 312px of usable width; a contest name or a problem code that
+       does not fit breaks at a character rather than pushing the card. */
+    overflow-wrap: anywhere;
+  }
+
+  table.card-rows td[data-col='id'] {
+    grid-area: id;
+  }
+  table.card-rows td[data-col='problem'] {
+    grid-area: problem;
+    font-weight: 600;
+  }
+  table.card-rows td[data-col='verdict'] {
+    grid-area: verdict;
+    text-align: right;
+  }
+  table.card-rows td[data-col='user'] {
+    grid-area: user;
+  }
+  table.card-rows td[data-col='language'] {
+    grid-area: language;
+  }
+  table.card-rows td[data-col='points'] {
+    grid-area: points;
+  }
+  table.card-rows td[data-col='contest'] {
+    grid-area: contest;
+  }
+  table.card-rows td[data-col='when'] {
+    grid-area: when;
+  }
+
+  /* The captions. Same face, size and colour as the `<th>` they replace, so
+     the card reads as the table it is. Only the four cells whose value is
+     ambiguous on its own get one: a problem code, a verdict badge and an id
+     with a `#` in front of it each say what they are. */
+  table.card-rows td[data-col='user']::before,
+  table.card-rows td[data-col='language']::before,
+  table.card-rows td[data-col='points']::before,
+  table.card-rows td[data-col='contest']::before,
+  table.card-rows td[data-col='when']::before {
+    content: attr(data-label);
+    display: block;
+    font-family: var(--font-ui);
+    font-size: 10px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--dim);
+    margin-bottom: 2px;
+  }
+
+  /* A practice attempt has no contest, and on a card that fact costs a whole
+     captioned line to say `KỲ THI —`. The em dash stays on the DESKTOP table,
+     where the column has to line up with the rows around it; here the row
+     simply is not drawn. `data-empty` rather than `:empty`, because the cell
+     is not empty — it holds the dash the table needs. */
+  table.card-rows td[data-col='contest'][data-empty] {
+    display: none;
+  }
+
+  /* The id reads as an id without spending a caption line on it. */
+  table.card-rows td[data-col='id'] a::before {
+    content: '#';
+    color: var(--dim);
+  }
+
+  /* Read against the card's right edge. `when` spans the full width on a row
+     of its own rather than sharing the right rail: a full timestamp is 110px
+     wide, and sizing the rail to it stole the middle column's width — which
+     is what broke `duong-di-ngan-nhat` into a two-line tower. */
+  table.card-rows td[data-col='points'],
+  table.card-rows td[data-col='when'] {
+    text-align: right;
+  }
 }
 
 /* --- forms --------------------------------------------------------------
@@ -2412,4 +2717,98 @@ fieldset label {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
+}
+
+/* --- the signed-in home (D138) ------------------------------------------
+ * Two panels above the fold: the round that is running (or the next to
+ * start) and the reader's own last five verdicts. Side by side where there
+ * is room, stacked on a phone — which is where the questions they answer
+ * ("when does it start?", "did it pass?") are actually asked.
+ *
+ * `.panel`'s glass is deliberately not reused: these sit INSIDE the page's
+ * own sheet, so they are inset wells like a table, not raised panes floating
+ * on one. Two blurs stacked is the thing D67 spends a paragraph forbidding.
+ */
+.home-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--sp-4);
+  margin: var(--sp-4) 0;
+  /* Each panel is as tall as what it holds. Stretched to a common height,
+     the contest panel became a tall empty box beside a full list of
+     verdicts — an equal-height grid is for cards that carry equal content. */
+  align-items: start;
+}
+
+@media (max-width: 700px) {
+  .home-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.home-panel {
+  min-width: 0;
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  background: var(--glass-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+/* The panel heading is a caption, not a second page title: same face and
+   tracking as a table's `<th>`, so the two panels read as furniture around
+   the content rather than as two more sections competing with the `<h1>`. */
+.home-panel h2 {
+  margin: 0 0 var(--sp-2);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-weight: 600;
+}
+
+/* The contest's own name, which is the largest thing in its panel because it
+   is the answer to the question the panel exists for. */
+.home-contest {
+  margin: 0 0 var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.home-verdicts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* The verdict and the problem on one line, the points and the instant on
+   their own beneath. Panels are ~270px wide even on a desktop, and a
+   timestamp on the same line as the code left `tong-hai-so` to break across
+   two — the code is what the row is FOR, so it gets the whole line. */
+.home-verdicts li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.home-verdicts li:last-child {
+  border-bottom: 0;
+}
+
+/* Points and the instant: present, but never competing with the verdict.
+   `margin-left: auto` puts them on the right rail of the row, and they are
+   the first thing to be squeezed when the line has to wrap. */
+.home-verdict-meta {
+  flex-basis: 100%;
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 12px;
+  text-align: right;
 }

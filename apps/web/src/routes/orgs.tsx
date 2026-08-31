@@ -137,6 +137,7 @@ export function OrgsPage() {
         <p className="muted">{t('orgs.empty')}</p>
       ) : null}
       {query.data && query.data.items.length > 0 ? (
+        <div className="table-wrap" tabIndex={0}>
         <table>
           <thead>
             <tr>
@@ -157,6 +158,7 @@ export function OrgsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       ) : null}
       {me.data?.globalRole === 'admin' ? (
         <CreateOrgForm onCreated={() => client.invalidateQueries({ queryKey: ['orgs'] })} />
@@ -754,6 +756,7 @@ export function OrgPage({ slug }: { slug: string }) {
 
       <h2>{t('org.members')}</h2>
       {memberRows.length > 0 ? (
+        <div className="table-wrap" tabIndex={0}>
         <table>
           <thead>
             <tr>
@@ -802,6 +805,7 @@ export function OrgPage({ slug }: { slug: string }) {
             ))}
           </tbody>
         </table>
+        </div>
       ) : (
         <p className="muted">{t('org.noMembers')}</p>
       )}
