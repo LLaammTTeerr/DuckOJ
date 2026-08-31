@@ -167,7 +167,11 @@ test('journey 1 — register on the form, refuse a mismatched confirmation, then
   // The page's own submit button, not the nav's link of the same name.
   await page.getByRole('button', { name: 'Đăng ký', exact: true }).click();
 
-  await expect(page.getByText('Hai mật khẩu không khớp nhau.')).toBeVisible();
+  // D110 shows this string in BOTH the error summary and the field error;
+  // assert the summary (`role="alert"`) so the assertion names one element.
+  await expect(
+    page.getByRole('alert').getByText('Hai mật khẩu không khớp nhau.'),
+  ).toBeVisible();
   // Refused in the browser, before any request: still on `/register`, and the
   // watchdog below would have caught a 4xx if the form had posted anyway.
   await expect(page).toHaveURL(/\/register$/);
