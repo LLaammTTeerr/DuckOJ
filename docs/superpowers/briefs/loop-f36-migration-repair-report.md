@@ -32,14 +32,27 @@ check would fail every future deploy.
   applied by *drizzle's own migrator*: 34 rows, newest stamp 0040's, zero indexes, and
   0025's stamp provably older than the newest applied. Then `runMigrations`: four indexes
   created, 0025 back-stamped, count 36.
-- **(c) re-run** — stamps and indexes identical, a no-op. Deleting 0025's ledger row by
-  hand then makes the next run throw rather than exit 0 — the guard, on a healthy database.
+- **(c) re-run** — stamps and indexes identical, a no-op. Deleting 0025's ledger row then
+  makes the next run throw rather than exit 0 — the guard, on a healthy database.
 - **Red→green** — removing 0041's journal entry reds (b) with `MigrationDriftError: …
-  0025_dashboard_bounds (when=1788078255700)` — the live defect exactly; removing only the
-  back-stamp reds it too. Both restored, green.
+  0025_dashboard_bounds (when=1788078255700)`, the live defect exactly; removing only the
+  back-stamp reds it too. Both restored, green. Suites: db 62, api 1147 (serial), judged
+  130, web 604 — one `logout.spec.tsx` load-flake, green isolated, no database involved.
 
 ## For the operator
 `scripts/deploy.sh api` **is sufficient**: `packages/db/migrations` changed, so the migrate
 step runs, 0041 creates the four indexes and heals the ledger to 36, and the new check
 verifies it in the same run. New failure mode, deliberately: drift now exits non-zero and
 `deploy.sh` recreates nothing — `DUCKOJ_ALLOW_MIGRATION_DRIFT=1` is the way past it.
+
+## Concerns
+- The check's first live run is safe because B-32 compared the ledgers: every entry but
+  0025 matches live by timestamp (D131). 0028/0029/0035 carry `merge-decisions.py`'s
+  `+1000` re-chain signature, so that rewrite predates their deploy — without the drill's
+  comparison this check could have blocked the very deploy that ships it.
+- **New sharp edge:** if a future merge conflict makes `merge-decisions.py --journal`
+  re-chain the `when` of a migration production already applied, that new stamp is absent
+  from the ledger and the deploy dies — correct in principle (journal and ledger really do
+  disagree), but a merge unrelated to schema can now stop a deploy. Remedy: hand-reconcile
+  the ledger row, or `DUCKOJ_ALLOW_MIGRATION_DRIFT=1`.
+- `apps/api` must run `--no-file-parallelism`; under full-parallel load it times out.
