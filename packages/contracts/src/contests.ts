@@ -422,6 +422,22 @@ const VALIDATION_FAILED = {
   content: { 'application/problem+json': { schema: ProblemDetails } },
 };
 
+/**
+ * Which part of a contest's life a listing wants (D151).
+ *
+ * `running` and `upcoming` are D134's phases, said once. `active` is their
+ * union — "not finished yet" — and it exists because that is the single
+ * question a landing page asks: what is happening to me now, or next. There
+ * is deliberately NO `finished`: nothing in this app needs a page of rounds
+ * that are over ordered by when they began, and an unused filter value is a
+ * promise to keep working.
+ *
+ * `finished` is still reachable — it is the unfiltered list, which is
+ * everything.
+ */
+export const ContestPhaseFilter = z.enum(['running', 'upcoming', 'active']);
+export type ContestPhaseFilterDto = z.infer<typeof ContestPhaseFilter>;
+
 export const ContestListQuery = PaginationQuery.extend({
   /**
    * An organization's slug: only contests restricted to it (D56).
@@ -431,6 +447,35 @@ export const ContestListQuery = PaginationQuery.extend({
    * existence oracle `GET /orgs/{slug}` is careful not to be.
    */
   org: z.string().min(1).max(64).optional(),
+  /**
+   * Only contests in this phase, ordered by START TIME rather than by id
+   * (D151). Without it this endpoint answers page 1 of an id-ordered list,
+   * which is the order rounds were CREATED in — so the round created today,
+   * the one a pupil opens the app to find, is on the last page.
+   *
+   * The ordering change is scoped to this filter: the unfiltered list keeps
+   * its id cursor and its id order, and every existing caller of it is
+   * unaffected.
+   */
+  phase: ContestPhaseFilter.optional(),
+  /**
+   * `true` — only contests this caller has JOINED, or could join (D151/D56).
+   *
+   * "Could join" is D56's rule said as a filter: a contest with no
+   * organizations is open to anyone who can see it, and one with
+   * organizations is open to a member of one of them. Visibility is
+   * unchanged by this — it can only ever REMOVE rows the caller could
+   * already see, never add one.
+   *
+   * Anonymous callers get an EMPTY page: joining requires an account, so
+   * "contests I may join" is empty for someone who is nobody. Not 401 —
+   * this is a public listing and a filter must not change that.
+   *
+   * A string rather than a boolean because a query string carries strings;
+   * `mine=false` is spelled out so that omitting it and switching it off are
+   * distinguishable to a reader of the URL.
+   */
+  mine: z.enum(['true', 'false']).optional(),
 });
 export type ContestListQueryDto = z.infer<typeof ContestListQuery>;
 
@@ -439,6 +484,9 @@ registry.registerPath({
   path: '/contests',
   tags: ['Contests'],
   summary: 'Contests visible to the caller',
+  description:
+    'Ordered by id — creation order — unless `phase` is given, in which case the page is ordered ' +
+    'by start time and its cursor is a composite of start time and id (D151).',
   request: { query: ContestListQuery },
   responses: {
     200: { description: 'A page of contests', content: { 'application/json': { schema: ContestPage } } },

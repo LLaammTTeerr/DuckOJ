@@ -70,6 +70,7 @@
           "Contests"
         ],
         "summary": "Contests visible to the caller",
+        "description": "Ordered by id — creation order — unless `phase` is given, in which case the page is ordered by start time and its cursor is a composite of start time and id (D151).",
         "parameters": [
           {
             "schema": {
@@ -98,6 +99,31 @@
             },
             "required": false,
             "name": "org",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "running",
+                "upcoming",
+                "active"
+              ]
+            },
+            "required": false,
+            "name": "phase",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false,
+            "name": "mine",
             "in": "query"
           }
         ],

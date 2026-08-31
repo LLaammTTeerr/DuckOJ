@@ -110,6 +110,11 @@ export class ContestsController {
       cursor: query.cursor,
       limit: query.limit,
       org: query.org,
+      phase: query.phase,
+      // The query string carries strings; the service takes the decision.
+      // `mine=false` is spelled out rather than merely omitted so that a
+      // reader of the URL can tell the two apart (D151).
+      mine: query.mine === 'true',
     });
   }
 

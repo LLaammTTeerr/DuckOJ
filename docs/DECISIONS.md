@@ -6692,3 +6692,56 @@ changed.
 *Ruled by the implementer during the fe5 e2e-gap loop, no human available to
 consult. Config plus `apps/web/vite.config.ts`; no migration. The `.env` edit
 is on the operator's machine and is not in git — `.env.example` documents it.*
+
+## D151 — The contest list can be asked for the round that is happening, in start-time order
+
+`GET /contests` answered one question — "all of them, oldest id first" — and the
+signed-in home panel (D138) asked it hoping for a different one. On this judge
+that is page 1 of 125 rows in **creation** order, so the round a school set up
+this morning was not on the front page at all. Found by FE-5's phone journey, at
+the one moment the panel exists for.
+
+- **`phase=running|upcoming|active`, and it reorders the page.** `active` is
+  the union — "not ended" — and it is the value a landing page wants: since a
+  running contest started in the past and an upcoming one starts in the future,
+  ordering `active` by start time alone puts the round the reader is IN first,
+  then the next to begin. That is `pickContest`'s rule, arrived at by the
+  `ORDER BY` rather than by a phase column nobody stores. **No `finished`**: the
+  unfiltered list is already everything, and an unused filter value is a promise
+  to keep working.
+- **The reordering is scoped to the filter.** Unfiltered, the list keeps its id
+  cursor and its id order — every existing caller is byte-identical. A `phase`
+  page walks `(start_time, id)` with a composite cursor, because two rounds
+  beginning at 08:00 on the same Saturday is the normal case here and a
+  single-column seek over a non-unique key either repeats one of them or loses
+  it. A cursor from the other grammar is 422 `invalid_cursor`, not a silent
+  page 1 forever.
+- **The clock is the database's** (`now()`), not the API process's. The rows
+  being compared were written by that server; a filter straddling a start time
+  must not turn on container clock drift.
+- **`mine=true` is `assertMayJoin` said as a filter** (D56), branch for branch
+  and in its order: a participation already held wins outright (that gate sits
+  after the idempotent short-circuit precisely so a competitor who is in stays
+  in), then a contest with no organizations is open to anyone who can see it,
+  then membership of one of them. An admin passes all of it, because
+  `assertMayJoin` returns early for an admin. Anonymous gets an **empty page,
+  never 401** — a filter must not turn a public listing into a guarded one.
+- **Neither filter is a second visibility rule.** Both compose with
+  `visibleContestsWhere` as plain `AND`s, so they can only remove rows the
+  caller could already see. Concealment is untouched for a reason worth writing
+  down rather than testing: D35 hides a problem's tags and difficulty and D22
+  freezes a scoreboard, and `ContestSummary` carries neither a tag nor a score.
+  `toSummary` is unchanged, which is what makes that true.
+- **This supersedes one clause of D138.** That entry had the home panel share
+  `contests.tsx`'s `['contests']` key to warm the contest list. Now that home
+  asks a *filtered* question, sharing the key would have opening the front page
+  seed the cache with three contests and the contest list render three of a
+  hundred and twenty-five. Two questions are never one key — the same rule
+  D138 already applied to the verdicts panel, applied now to the other one.
+  The panel takes `['home-contest']`, and warming the list was never worth a
+  wrong list.
+
+*Ruled by the implementer during the f37 home-and-socket loop, no human
+available to consult. Cost if wrong: two optional query parameters and one
+branch in `listVisible`; deleting them restores the previous behaviour exactly,
+because the unfiltered path is untouched.*

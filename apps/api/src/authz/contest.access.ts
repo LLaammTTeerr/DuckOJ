@@ -1,11 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, max, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, max, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   contestOrgs,
   contestParticipations,
   contestProblems,
   contestSubmissions,
   contests,
+  orgMembers,
   organizations,
   problemRevisions,
   problems,
@@ -21,6 +22,7 @@ import type { Scoreboard } from '@duckoj/contest-formats';
 import type {
   CloneContestRequestDto,
   ContestParticipationDto,
+  ContestPhaseFilterDto,
   ContestParticipationModeDto,
   JoinContestRequestDto,
   ContestDetailDto,
@@ -180,11 +182,38 @@ export class ContestAccessService {
     @Inject(ScoreboardCache) private readonly scoreboards: ScoreboardCache,
   ) {}
 
+  /**
+   * D151 — WHY THIS ENDPOINT LEARNED TO FILTER.
+   *
+   * Unfiltered, this is page 1 of an **id**-ordered list: the order contests
+   * were CREATED in. On a judge with a hundred and twenty-five rounds behind
+   * it, the round a school created this morning is on the last page — so the
+   * home panel that reads this endpoint could not see today's contest, which
+   * is the one moment a pupil opens the app to find it.
+   *
+   * `phase` filters and, with it, ORDERS BY START TIME. The reordering is
+   * scoped to the filter on purpose: the unfiltered list keeps its id cursor
+   * and its id order, so no existing caller changes behaviour.
+   *
+   * `mine` is D56's join rule said as a filter, so a panel headed "your
+   * contests" is not headlining another school's round.
+   *
+   * Neither filter touches VISIBILITY: both compose with
+   * `visibleContestsWhere` as plain `AND`s and can only ever remove rows the
+   * caller could already see. Nor do they touch concealment — D35 hides a
+   * problem's tags and difficulty and D22 freezes a scoreboard, and
+   * `ContestSummary` carries neither a tag nor a score. `toSummary` is
+   * unchanged, which is what makes that true rather than merely believed.
+   */
   async listVisible(
     actor: Actor | null,
-    page: Pick<PaginationQueryDto, 'limit'> & { cursor?: string | undefined; org?: string | undefined },
+    page: Pick<PaginationQueryDto, 'limit'> & {
+      cursor?: string | undefined;
+      org?: string | undefined;
+      phase?: ContestPhaseFilterDto | undefined;
+      mine?: boolean | undefined;
+    },
   ): Promise<ContestPageDto> {
-    const after = parseCursor(page.cursor);
     // `?org=` (D56). A slug naming nothing — or an organization this caller
     // may not see — answers an EMPTY page rather than 404: the filter must
     // not become the existence oracle `GET /orgs/{slug}` is careful not to
@@ -201,11 +230,42 @@ export class ContestAccessService {
               .innerJoin(organizations, eq(organizations.id, contestOrgs.orgId))
               .where(sql`lower(${organizations.slug}) = lower(${page.org})`),
           );
+
+    // The database's clock, not this process's. The rows being compared are
+    // stored by the same server; a filter that straddles a start time must
+    // not depend on how far the API container's clock has drifted from the
+    // one that wrote the row.
+    const now = sql`now()`;
+    // `active` is `upcoming ∪ running`, which — since a contest's end is
+    // always after its start — is exactly "has not ended". One comparison,
+    // not two OR'd, and it is the one a landing page asks.
+    const inPhase =
+      page.phase === undefined
+        ? undefined
+        : page.phase === 'running'
+          ? and(sql`${contests.startTime} <= ${now}`, sql`${contests.endTime} >= ${now}`)
+          : page.phase === 'upcoming'
+            ? sql`${contests.startTime} > ${now}`
+            : sql`${contests.endTime} >= ${now}`;
+
+    const joinable = page.mine === true ? this.joinableWhere(actor) : undefined;
+
+    // Two orderings, and therefore two cursor grammars. `phase` pages walk
+    // `(start_time, id)`, so the cursor has to carry both: ordering by a
+    // non-unique column with a single-column cursor either repeats rows or
+    // skips them whenever two contests start in the same second — and two
+    // rounds starting at 08:00 on the same Saturday is the normal case here,
+    // not a corner one.
+    const seek =
+      page.phase === undefined
+        ? gt(contests.id, parseCursor(page.cursor))
+        : startTimeSeek(page.cursor);
+
     const rows = await this.db
       .select()
       .from(contests)
-      .where(and(visibleContestsWhere(this.db, actor), gt(contests.id, after), restrictedTo))
-      .orderBy(asc(contests.id))
+      .where(and(visibleContestsWhere(this.db, actor), seek, restrictedTo, inPhase, joinable))
+      .orderBy(...(page.phase === undefined ? [asc(contests.id)] : [asc(contests.startTime), asc(contests.id)]))
       .limit(page.limit + 1);
 
     const kept = rows.slice(0, page.limit);
@@ -213,8 +273,64 @@ export class ContestAccessService {
     // would otherwise be 51 round trips to render a badge.
     const orgsByContest = await this.loadOrgs(kept.map((row) => row.id));
     const items = kept.map((row) => toSummary(row, orgsByContest.get(row.id) ?? []));
-    const nextCursor = rows.length > page.limit ? String(items.at(-1)!.id) : null;
+    const last = kept.at(-1);
+    const nextCursor =
+      rows.length > page.limit && last
+        ? page.phase === undefined
+          ? String(last.id)
+          : `${last.startTime.getTime()}_${last.id}`
+        : null;
     return { items, nextCursor };
+  }
+
+  /**
+   * `?mine=true` — contests this caller has entered, or could enter (D151).
+   *
+   * The three branches are `assertMayJoin`'s rule, in list form and in its
+   * order:
+   *
+   * 1. **A participation already held wins outright.** `assertMayJoin` sits
+   *    AFTER the idempotent short-circuit precisely so that a competitor who
+   *    is already in stays in whatever the roster says today; a filter that
+   *    dropped their contest off their own home page would contradict the
+   *    endpoint that still lets them submit to it.
+   * 2. **No organizations means anyone who can see it may join** (D56).
+   * 3. **Otherwise, membership of one of them.**
+   *
+   * An ADMIN passes them all, because `assertMayJoin` returns early for an
+   * admin: "contests I may join" is every contest they can see, and saying
+   * otherwise here would make this filter disagree with the endpoint it
+   * describes.
+   *
+   * Anonymous: nothing. Joining needs an account, so the set is empty — an
+   * empty page, never a 401, because a filter must not turn a public listing
+   * into a guarded one.
+   */
+  private joinableWhere(actor: Actor | null): SQL | undefined {
+    if (actor === null) return sql`false`;
+    if (isAdmin(actor)) return undefined;
+    const userId = actor.userId;
+    return or(
+      inArray(
+        contests.id,
+        this.db
+          .select({ contestId: contestParticipations.contestId })
+          .from(contestParticipations)
+          .where(eq(contestParticipations.userId, userId)),
+      ),
+      // `contest_orgs.contest_id` is NOT NULL, so this subquery yields no
+      // NULLs and `NOT IN` cannot collapse to unknown for every row — the
+      // trap that makes `NOT IN (subquery)` silently return nothing.
+      notInArray(contests.id, this.db.select({ contestId: contestOrgs.contestId }).from(contestOrgs)),
+      inArray(
+        contests.id,
+        this.db
+          .select({ contestId: contestOrgs.contestId })
+          .from(contestOrgs)
+          .innerJoin(orgMembers, eq(orgMembers.orgId, contestOrgs.orgId))
+          .where(eq(orgMembers.userId, userId)),
+      ),
+    );
   }
 
   /**
@@ -2072,6 +2188,41 @@ function toSummary(
     orgs,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+/**
+ * The `phase` page's cursor (D151): `<start-time-in-ms>_<id>`.
+ *
+ * A keyset seek on `(start_time, id)`, not an offset — the same shape the id
+ * cursor already has, extended by one column because start time is not
+ * unique. Two rounds beginning at 08:00 on the same Saturday is the normal
+ * case on this judge, and a single-column seek over a non-unique key either
+ * repeats one of them on the next page or loses it.
+ *
+ * Garbage is 422 `invalid_cursor` — the same refusal the id cursor gives,
+ * because a client that hands back a cursor from the OTHER ordering has made
+ * exactly that mistake and should hear about it rather than silently read
+ * page 1 again.
+ */
+function startTimeSeek(cursor: string | undefined): SQL | undefined {
+  if (cursor === undefined) return undefined;
+  const [millis, id, ...rest] = cursor.split('_');
+  const after = Number(millis);
+  const afterId = Number(id);
+  if (
+    rest.length > 0 ||
+    id === undefined ||
+    !Number.isSafeInteger(after) ||
+    !Number.isSafeInteger(afterId) ||
+    afterId < 0
+  ) {
+    throw new AppError(422, 'invalid_cursor', 'That page cursor is not valid.');
+  }
+  const at = new Date(after);
+  return or(
+    gt(contests.startTime, at),
+    and(eq(contests.startTime, at), gt(contests.id, afterId)),
+  );
 }
 
 function parseCursor(cursor: string | undefined): number {

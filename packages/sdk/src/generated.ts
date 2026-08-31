@@ -11,13 +11,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Contests visible to the caller */
+        /**
+         * Contests visible to the caller
+         * @description Ordered by id — creation order — unless `phase` is given, in which case the page is ordered by start time and its cursor is a composite of start time and id (D151).
+         */
         get: {
             parameters: {
                 query?: {
                     cursor?: string;
                     limit?: number;
                     org?: string;
+                    phase?: "running" | "upcoming" | "active";
+                    mine?: "true" | "false";
                 };
                 header?: never;
                 path?: never;
