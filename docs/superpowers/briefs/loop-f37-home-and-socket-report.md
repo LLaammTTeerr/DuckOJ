@@ -19,7 +19,7 @@ Both real, both invisible to every test that existed, and both the same shape: a
 
 **RAN:** `-r typecheck` + `typecheck:scripts` · `-r lint` + `lint:scripts` · `vitest run --no-file-parallelism` **726 passed (65 files)**, +8 on FE-5 · contracts+SDK regen, no diff · `vite build` · `verify:csp`. All green.
 
-**WRITTEN, NOT RUN:** `apps/api/test/contest-list-filters.spec.ts` — 6 container-backed tests (D106/D149; CI runs them serially). They compile and lint here, which is their only local check. The expensive one is deliberate: 30 finished rounds seeded first so they own the low ids, then today's, then "absent from the unfiltered first page, first on the filtered one". Nothing cheaper reproduces the bug.
+**WRITTEN, NOT RUN:** `apps/api/test/contest-list-filters.spec.ts` — 7 container-backed tests (D106/D149; CI runs them serially). They compile and lint here, which is their only local check. The expensive one is deliberate: 30 finished rounds seeded first so they own the low ids, then today's, then "absent from the unfiltered first page, first on the filtered one". Nothing cheaper reproduces the bug.
 
 **Mutations (web, red→green):** drop the home params → red · restore the shared key → red (asserted on the contest list's FIRST paint — a background refetch repairs the collision, so an `await` hides it) · remove the deadline arm → 5 red · re-arm per attempt → the connect→close-loop spec red.
 
@@ -29,6 +29,6 @@ Both real, both invisible to every test that existed, and both the same shape: a
 
 ## Concerns
 
-- **Thermal.** The full vitest run peaked **k10temp 94.1 °C**, over the 85 °C cap, on a suite that only gets longer. It was the one unavoidable run.
+- **Thermal.** The full vitest run peaked **k10temp 94.1 °C** and the mandated `graphify update .` (16 AST workers) hit **93.3 °C** — both over the 85 °C cap, on a gate that only gets longer. Cooled to <70 °C between them; neither was avoidable if the gate is to be run at all.
 - **No e2e this loop** (run budget), so neither fix has been walked on a phone. `e2e/phone-contest.spec.ts` is what would prove the panel; `states.spec.ts` the fallback line.
 - FE-5's stray trailing blank line in `docs/DECISIONS.md` folded into D151.
