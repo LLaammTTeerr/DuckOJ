@@ -6151,3 +6151,87 @@ regrouping fits that, only removing something from the row does.
 component and one CSS block; the links move back onto the bar by deleting a
 wrapper.*
 
+
+## D140 — A mailed password reset clears `must_change_password`
+
+`AuthService.changePassword` sets `mustChangePassword: false`;
+`AccountRecoveryService.resetPassword` set only the hash. So an account that
+took the *other* route to a password of its own kept D61's flag forever.
+
+The flag records one fact: **this account still holds the password this server
+generated and printed on a sheet handed round a classroom.** Redeeming a
+mailed reset makes that false as completely as a change does — the pupil
+chose the new password, this server did not, and nothing was printed. Two
+features had simply never been run against each other.
+
+Leaving it set was wrong in both directions at once:
+
+- **D102 refuses every access token the account will ever hold.** `oj login`
+  and the MCP server answer `409 password_change_required` for a pupil who
+  did the responsible thing, and the remedy D102 names ("change your password
+  in the web interface") is one they have already performed. The mailed reset
+  is also the route taken by exactly the population that cannot perform it —
+  someone who has forgotten the printed password.
+- **The bootstrap exemption stays open for good.** The flag is what makes
+  `currentPassword` OPTIONAL on `POST /auth/password/change` (D61: the printed
+  sheet must not be the credential that authorises replacing the printed
+  sheet). That exemption is meant to be spent once. Kept permanently, it means
+  whoever next sits down at that shared school computer — the failure mode
+  this whole area is designed around — can rewrite the account's password from
+  the session alone, without knowing it, and D73's meter never even runs
+  because that path checks no password to meter.
+
+**Cleared in the same transaction** as the hash, the session purge and D32's
+token purge, so no observer sees a self-chosen password beside a flag saying
+otherwise. **Only `resetPassword`** — `verifyEmail` redeems from the same
+table and proves nothing about a password, so it does not touch the flag.
+
+Nothing sets the flag except `runImport` (D61), so this cannot un-flag an
+account some other feature wanted flagged; if an "expire this password"
+admin action is ever added, this ruling is what says a reset discharges it.
+
+*Ruled by the implementer during the 2026-08-31 B-34 auth re-hunt, no human
+available to consult. No migration, no contract change.*
+
+## D141 — Changing a password ends every reset link the account has in flight
+
+`AccountRecoveryService.redeem` marks the ONE `one_time_tokens` row it was
+handed used. That is single use, correctly implemented, and it says nothing
+about the account's OTHER live `password_reset` rows — and
+`AuthService.changePassword` never touched the table at all.
+
+So a mailed reset link outlived the credential change made to stop it, for
+the rest of its hour. There is routinely more than one link in flight: a
+person who clicks "Forgotten your password?" twice because the first mail was
+slow has two, and so does an intruder who asked for one of their own out of a
+mailbox they can read — a shared school computer with a signed-in webmail tab
+is the specific scenario this deployment is designed around.
+
+This is D32's ruling with one table left out. D32 killed sessions and access
+tokens on a reset because "there is no instant at which the new password is
+live and an old credential still is". **A live reset link is a third
+credential** — the only one an attacker can obtain without ever holding a
+session, and the only one that keeps working after the account has been
+rescued.
+
+**The rule.** Redeeming a reset, and changing a password from a session, both
+mark every LIVE unused `password_reset` row for that user used, in the same
+transaction as the new hash.
+
+- **`used_at`, not a delete**, so a dead link is dead in exactly the one way
+  `redeem` already tests for; a second definition of "spent" is a second thing
+  that can drift.
+- **Live rows only** — an expired row is already unredeemable, and relabelling
+  it would rewrite a fact the expiry had already settled.
+- **`password_reset` only.** `one_time_tokens` holds address verifications
+  too; that link proves nothing about a password and is none of this rule's
+  business. Sweeping it would log a pupil out of the verification flow for
+  changing their password, and is exactly the cross-purpose mistake `redeem`'s
+  own doc comment warns the single-table shape makes possible.
+
+**Not applied to a TOTP disable or an admin TOTP reset.** Those change the
+second factor, not the password, and a reset link is a password credential.
+
+*Ruled by the implementer during the 2026-08-31 B-34 auth re-hunt, no human
+available to consult. No migration, no contract change.*
+

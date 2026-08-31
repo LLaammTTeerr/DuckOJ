@@ -81,6 +81,15 @@ async function seedContest(
   }
 }
 
+/**
+ * Every case here carries `120_000`, the budget every other container-backed
+ * spec in this suite uses. They were written with none, i.e. vitest's 5 s
+ * default, while thirteen of them start a Postgres container and run
+ * `runMigrations` against it — which is comfortably over 5 s on a loaded host.
+ * Found by B-34: this file was the one red in an otherwise green api pass
+ * ("Test timed out in 5000ms"), passed alone, and touches nothing that branch
+ * changed. A budget that only holds on an idle machine is not a budget.
+ */
 describe('problem comments (D109)', () => {
   it('serves a thread with one level of replies, oldest first', async () => {
     await withTestDb(async (db) => {
@@ -102,7 +111,7 @@ describe('problem comments (D109)', () => {
       expect(page.items[0]!.replies[0]!.body).toBe('a reply');
       expect(page.items[0]!.replies[0]!.parentId).toBe(top.id);
     });
-  });
+  }, 120_000);
 
   // The endpoint advertises `?limit=` (PaginationQuery, 1..100), and it was
   // parsed and then dropped — every page was a fixed 25 regardless. A client
@@ -126,7 +135,7 @@ describe('problem comments (D109)', () => {
       expect(second.items.map((i) => i.id)).toEqual([ids[2]]);
       expect(second.nextCursor).toBeNull();
     });
-  });
+  }, 120_000);
 
   it('is invisible on a problem the viewer may not see (404, not 403)', async () => {
     await withTestDb(async (db) => {
@@ -143,7 +152,7 @@ describe('problem comments (D109)', () => {
         status: 404,
       });
     });
-  });
+  }, 120_000);
 
   it('refuses a reply to a reply, to another problem, or to a deleted parent (422)', async () => {
     await withTestDb(async (db) => {
@@ -172,7 +181,7 @@ describe('problem comments (D109)', () => {
         service.create(actorFor(a.id), 'c-lvl-1', { body: 'nope', parentId: top.id }),
       ).rejects.toMatchObject({ status: 422, code: 'comment_bad_parent' });
     });
-  });
+  }, 120_000);
 
   it('hides the whole thread from a viewer sitting a running contest (D109)', async () => {
     await withTestDb(async (db) => {
@@ -208,7 +217,7 @@ describe('problem comments (D109)', () => {
         expect(page.items).toHaveLength(1);
       }
     });
-  });
+  }, 120_000);
 
   it('reveals the thread to the participant once the contest is over', async () => {
     await withTestDb(async (db) => {
@@ -230,7 +239,7 @@ describe('problem comments (D109)', () => {
       expect(page.hiddenDuringContest).toBe(false);
       expect(page.items).toHaveLength(1);
     });
-  });
+  }, 120_000);
 
   it('shows a deleted comment as a tombstone only while it anchors a reply', async () => {
     await withTestDb(async (db) => {
@@ -259,7 +268,7 @@ describe('problem comments (D109)', () => {
       expect(tombstone.replies).toHaveLength(1);
       expect(tombstone.replies[0]!.body).toBe('the reply');
     });
-  });
+  }, 120_000);
 
   it('meters comments at 10 per user per hour', async () => {
     await withTestDb(async (db) => {
@@ -276,7 +285,7 @@ describe('problem comments (D109)', () => {
         code: 'comment_rate_limited',
       });
     });
-  });
+  }, 120_000);
 
   // D80's rule, which this limiter must obey too: the window is spent by a
   // comment that was actually created, and a refusal costs the caller nothing.
@@ -310,7 +319,7 @@ describe('problem comments (D109)', () => {
         .where(and(eq(schema.rateEvents.purpose, 'problem_comment'), eq(schema.rateEvents.key, `user:${String(a.id)}`)));
       expect(attempts).toHaveLength(10);
     });
-  });
+  }, 120_000);
 
   it('notifies the parent author of a reply, but never on a self-reply', async () => {
     await withTestDb(async (db) => {
@@ -333,7 +342,7 @@ describe('problem comments (D109)', () => {
       expect(toA).toHaveLength(1);
       expect((toA[0]!.payload as Record<string, unknown>).problemCode).toBe('c-notif');
     });
-  });
+  }, 120_000);
 
   it('lets only the author edit, and only the author or an admin delete', async () => {
     await withTestDb(async (db) => {
@@ -363,7 +372,7 @@ describe('problem comments (D109)', () => {
       // An admin can.
       await expect(service.remove(actorFor(admin.id, 'admin'), 'c-auth', mine.id)).resolves.toBeUndefined();
     });
-  });
+  }, 120_000);
 
   it('rejects a malformed cursor', async () => {
     await withTestDb(async (db) => {
@@ -371,7 +380,7 @@ describe('problem comments (D109)', () => {
       await seedProblem(db, { code: 'c-cur', createdBy: owner.id });
       await expect(svc(db).list(null, 'c-cur', { cursor: 'not-a-number' })).rejects.toBeInstanceOf(AppError);
     });
-  });
+  }, 120_000);
 
   // D109 × D99. The spoiler rule keys on "who is sitting this running
   // contest", and a team is ONE participation held by whichever member
@@ -436,5 +445,5 @@ describe('problem comments (D109)', () => {
         code: 'comment_hidden_contest',
       });
     });
-  });
+  }, 120_000);
 });

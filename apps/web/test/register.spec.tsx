@@ -28,13 +28,15 @@ vi.mock('@tanstack/react-router', () => ({
 
 const { RegisterPage } = await import('../src/routes/register.js');
 
-function wrap() {
+/** Returns the client, so a test can inspect what registering did to it. */
+function wrap(): QueryClient {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  render(
     <QueryClientProvider client={client}>
       <RegisterPage />
     </QueryClientProvider>,
   );
+  return client;
 }
 
 /** Fills every field with something the contract accepts. */
@@ -181,6 +183,26 @@ describe('RegisterPage on success', () => {
       body: { usernameOrEmail: 'kim.new-1', password: 'a-long-enough-password' },
     });
     expect(navigate).toHaveBeenCalledWith({ to: '/' });
+  });
+
+  it('drops the previous viewer of this tab from the cache (B-34)', async () => {
+    // A shared school machine: the pupil before this one had a session that
+    // ended without the sign-out button, so the tab still holds their answers
+    // when the next person registers on it. `SignOutButton` has cleared them
+    // on the way out since P5; the way IN must do the same, or a brand-new
+    // account is shown somebody else's feed until each entry refetches.
+    post.mockResolvedValue({ error: undefined, data: {} });
+    const client = wrap();
+    client.setQueryData(['me'], { id: 1, username: 'hocsinh1' });
+    client.setQueryData(['notifications'], { unreadCount: 3, items: [{ id: 7 }] });
+
+    await fillValid();
+    await submit();
+
+    expect(client.getQueryData(['notifications'])).toBeUndefined();
+    // `['me']` is refetched, never removed — a mounted observer whose query
+    // vanished goes on rendering what it last saw (see `SignOutButton`).
+    expect(client.getQueryState(['me'])).toBeDefined();
   });
 
   it('says a confirmation mail will be sent, BEFORE the form is submitted', async () => {

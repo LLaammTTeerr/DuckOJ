@@ -58,7 +58,16 @@ const WINDOW_MS = 15 * 60_000;
 export async function spendPasswordCheck(limiter: RateLimiter, userId: number): Promise<void> {
   const key = String(userId);
   if (await limiter.allow(PURPOSE, key, LIMIT, WINDOW_MS)) return;
-  const retryAfter = await limiter.retryAfterSeconds(PURPOSE, key, LIMIT, WINDOW_MS);
+  // `mark: false` — `allow` above ALREADY wrote the refusal marker for this
+  // request (D47), and this second call is only here to read the wait. Left
+  // marking, one refused request became two rows under
+  // `refused:password_check`, which is the number an operator reads during an
+  // incident and D95's monitor shows an organiser mid-contest. Same purpose,
+  // same key, same request — exactly the case D80's submission meter passes
+  // `mark: false` for.
+  const retryAfter = await limiter.retryAfterSeconds(PURPOSE, key, LIMIT, WINDOW_MS, {
+    mark: false,
+  });
   throw new AppError(
     429,
     'password_check_rate_limited',

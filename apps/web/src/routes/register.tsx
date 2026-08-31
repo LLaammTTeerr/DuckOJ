@@ -26,6 +26,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api } from '../api.js';
+import { dropDepartingViewerCache } from '../me.js';
 import { useT, type TFunction } from '../i18n/index.js';
 
 /** The five inputs, keyed the way `fieldErrors` and the DOM ids are. */
@@ -237,6 +238,11 @@ export function RegisterPage() {
         setError(signedIn.error.detail ?? t('auth.signInFailed'));
         return;
       }
+      // B-34 — the same swap `useAuthGate` performs, for the same reason: a
+      // brand-new account must not inherit whatever the tab was holding for
+      // whoever used it last. Before `['me']`, so nothing renders the new
+      // viewer over the old viewer's answers.
+      dropDepartingViewerCache(client);
       await client.invalidateQueries({ queryKey: ['me'] });
       await navigate({ to: '/' });
     } catch {

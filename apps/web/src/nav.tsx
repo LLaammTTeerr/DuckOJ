@@ -46,7 +46,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { api } from './api.js';
-import { meQueryOptions } from './me.js';
+import { dropDepartingViewerCache, meQueryOptions } from './me.js';
 import { notificationsQueryOptions } from './routes/notifications.js';
 import { useLocale, useT } from './i18n/index.js';
 import { ThemeToggle } from './theme.js';
@@ -209,7 +209,11 @@ function SignOutButton(): ReactNode {
       // instinct. `clear()` cannot do this job — it drops `['me']` too, and
       // a mounted observer whose query vanished keeps rendering the data it
       // last saw, so the nav went on showing the departed viewer's name.
-      client.removeQueries({ predicate: (query) => query.queryKey[0] !== 'me' });
+      //
+      // Shared with the sign-IN path (B-34): the hazard is the swap, not the
+      // direction, and this half having the rule while the other half did not
+      // is how the other half stayed wrong.
+      dropDepartingViewerCache(client);
     }
   }
   return (

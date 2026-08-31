@@ -8,6 +8,7 @@ import { AppError } from '../common/app.error.js';
 import { RateLimiter } from '../common/rate-limiter.js';
 import { PasswordService } from './password.service.js';
 import { spendPasswordCheck } from './password-check.js';
+import { invalidateOutstandingPasswordResets } from './account-recovery.service.js';
 
 /** Postgres SQLSTATE for a unique-constraint violation. */
 const UNIQUE_VIOLATION = '23505';
@@ -164,6 +165,12 @@ export class AuthService {
         .where(eq(schema.users.id, userId));
       await tx.delete(schema.sessions).where(eq(schema.sessions.userId, userId));
       await tx.delete(schema.accessTokens).where(eq(schema.accessTokens.userId, userId));
+      // D141 — and every reset link the account has in flight. This method
+      // already destroys the two credential kinds an intruder could be
+      // holding; a mailed link is a third, it is the one an intruder can
+      // obtain without ever touching this server, and nothing else in the
+      // product ends it before its hour is up.
+      await invalidateOutstandingPasswordResets(tx, userId);
     });
   }
 
