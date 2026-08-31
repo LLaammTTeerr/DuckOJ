@@ -41,13 +41,20 @@ export interface ContestTeam {
  * team contest names its schools (D99 requires at least one), and a slug is
  * only unique per organization, so "team `doi-1`" is a question that only
  * has an answer inside a school. Two of the contest's schools each holding a
- * `doi-1` is resolved by the caller's own membership, which is checked next
- * — and if they are on both, the lowest team id wins, deterministically.
+ * `doi-1` is resolved by the caller's own membership (`preferMemberId`): the
+ * lowest-id `doi-1` they are ON, or — for a caller on none, and for the
+ * organiser-seeding path that names no member — the lowest-id `doi-1` of all,
+ * deterministically. Resolving by id ALONE was a bug: a pupil on only the
+ * higher-id `doi-1` named their slug, the resolver handed back the other
+ * school's team, and the membership check downstream refused them
+ * `contest_team_not_member` — a team they were eligible to enter, blocked by a
+ * slug another school happened to share.
  */
 export async function resolveContestTeam(
   db: Db,
   contestId: number,
   teamSlug: string,
+  preferMemberId?: number,
 ): Promise<ContestTeam | undefined> {
   const rows = await db
     .select({
@@ -63,13 +70,29 @@ export async function resolveContestTeam(
     .where(and(eq(contestOrgs.contestId, contestId), sql`lower(${teams.slug}) = lower(${teamSlug})`))
     .orderBy(asc(teams.id));
   if (rows.length === 0) return undefined;
-  const [first, ...rest] = rows;
-  const found = [first!, ...rest];
-  const members = await loadTeamMembers(
-    db,
-    found.map((row) => row.id),
-  );
-  return { ...found[0]!, members: members.get(found[0]!.id) ?? [] };
+  // Only a same-slug collision across the contest's schools makes the choice
+  // non-trivial; in the ordinary single-team case this whole branch is skipped.
+  let chosen = rows[0]!;
+  if (preferMemberId !== undefined && rows.length > 1) {
+    const mine = await db
+      .select({ teamId: teamMembers.teamId })
+      .from(teamMembers)
+      .where(
+        and(
+          inArray(
+            teamMembers.teamId,
+            rows.map((row) => row.id),
+          ),
+          eq(teamMembers.userId, preferMemberId),
+        ),
+      );
+    const mineIds = new Set(mine.map((row) => row.teamId));
+    // `rows` is ordered by id asc, so the first match is the lowest-id team
+    // the caller is on — the tiebreak D99's contract names.
+    chosen = rows.find((row) => mineIds.has(row.id)) ?? chosen;
+  }
+  const members = await loadTeamMembers(db, [chosen.id]);
+  return { ...chosen, members: members.get(chosen.id) ?? [] };
 }
 
 /**

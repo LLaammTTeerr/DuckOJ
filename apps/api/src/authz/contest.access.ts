@@ -1221,7 +1221,12 @@ export class ContestAccessService {
         'This contest is entered by team; name the team you are entering with.',
       );
     }
-    const team = await resolveContestTeam(this.db, contest.id, teamSlug);
+    // `actor.userId` disambiguates a slug two of the contest's schools share
+    // (D99): the caller's OWN `doi-1` wins over a lowest-id one they are not on,
+    // which would otherwise 422 them `contest_team_not_member` for a team they
+    // may enter. The membership check below is still the gate for a genuine
+    // non-member.
+    const team = await resolveContestTeam(this.db, contest.id, teamSlug, actor.userId);
     // 422, not 404: `loadVisible` has already shown this caller the contest,
     // and the contest names its organizations in every response it serves
     // (D56) — there is no existence left to protect, and the answer a client
