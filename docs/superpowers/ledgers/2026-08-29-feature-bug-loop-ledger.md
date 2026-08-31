@@ -119,3 +119,4 @@
 - B-23 DONE, merged (8c8e6c7): MAJOR team-slug collision resolved to caller's own team; else cleared; api 1104/1104, fresh-DB 34 migrations clean. Deployed; pushed. Minor residuals (TeamPage tz, picker same-slug disambiguation) → next sweep.
 - F-29 DONE (0a6ead4..cef1347): teammate submission visibility (D117) via actingParticipationWhere, NULL-safe freeze escape; api 1110/1110; deployed + pushed. Orchestration note: don't merge worktree branches into main while a main-editing feature agent runs (B-23↔F-29 collided; F-29 recovered).
 - Full e2e after F-29/B-23 deploy: exit 0 (green). F-30 dispatched (main): team date tz + picker disambiguation + contest countdown (D118).
+- B-24 dispatched (worktree): full contest-day rehearsal e2e — authoring→team contest+freeze+monitor+clarifications→rejudge/DQ→results/certificates/similarity + individual path (D119–D121).
