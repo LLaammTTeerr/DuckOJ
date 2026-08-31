@@ -46,9 +46,13 @@ async function scan(page: Page): Promise<Violation[]> {
   return violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
 }
 
-// A running public contest and the seeded public problem, both live.
+// A running public contest and the seeded public problem, both live. The org
+// carries a team, so its page shows the D99 team panel and the team has a
+// TeamPage — both admin-visible.
 const CONTEST = 'thu-nghiem-1';
 const PROBLEM = 'aplusb';
+const ORG = 'bh19-school-1';
+const TEAM = 'bh19-doi';
 
 // Each screen names an element that MUST be visible once it has really
 // loaded, so an error/404 page (which is also axe-clean) cannot pass as a
@@ -59,6 +63,8 @@ const SCREENS: Array<{ path: string; ready: (p: Page) => Promise<unknown> }> = [
   { path: `/contests/${CONTEST}/monitor`, ready: (p) => p.getByRole('heading', { name: 'Theo dõi trực tiếp' }).waitFor() },
   { path: `/problems/${PROBLEM}`, ready: (p) => p.getByRole('heading', { name: 'Thảo luận' }).waitFor() },
   { path: '/submissions', ready: (p) => p.getByRole('heading', { name: 'Bài nộp', level: 1 }).waitFor() },
+  { path: `/orgs/${ORG}`, ready: (p) => p.getByRole('heading', { name: 'Đội tuyển' }).waitFor() },
+  { path: `/orgs/${ORG}/teams/${TEAM}`, ready: (p) => p.getByRole('heading', { name: 'Các kỳ thi đã dự' }).waitFor() },
 ];
 
 async function signIn(page: Page, username: string, password: string): Promise<void> {
