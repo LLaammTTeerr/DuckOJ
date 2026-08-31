@@ -11,6 +11,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <!-- The chrome around the page follows the scheme the stylesheet does. -->
     <meta name="color-scheme" content="light dark" />
+    <!-- Theme, applied BEFORE first paint (D116). A blocking inline script,
+         not `main.tsx`: the CSS `--bg` wash paints the moment the stylesheet
+         loads, which is before the deferred module runs, so reading the
+         choice here is what avoids a light-then-dark flash. `data-theme` is
+         set only for an explicit "light"/"dark"; "system" (or nothing stored,
+         or storage that throws in a locked-down webview) leaves the attribute
+         off so `prefers-color-scheme` decides. Kept in sync with
+         `src/theme.tsx` — `test/theme.spec.tsx` runs this exact script. -->
+    <script>
+      try {
+        var duckojTheme = localStorage.getItem('duckoj.theme');
+        if (duckojTheme === 'light' || duckojTheme === 'dark') {
+          document.documentElement.setAttribute('data-theme', duckojTheme);
+        }
+      } catch (e) {
+        /* storage blocked — fall back to the OS scheme */
+      }
+    </script>
     <title>DuckOJ</title>
   </head>
   <body>

@@ -5171,3 +5171,45 @@ one.
 *Ruled by the implementer during the 2026-08-31 b21 loop, no human available
 to consult. No migration; a bugfix plus a recorded bound.*
 
+
+## D116 — The theme is a manual light/dark/system choice, per device, applied before first paint
+
+Until now the interface followed the OS alone (D67's
+`@media (prefers-color-scheme: dark)`). A reader can now override it: a
+three-way control — Sáng / Tối / Hệ thống (Light / Dark / System) — sets
+`data-theme="light"|"dark"` on `<html>`; **System removes the attribute** and
+hands the decision back to `prefers-color-scheme`.
+
+**Per device, not per account — the deliberate opposite of D57.** Language and
+time zone live on the account because a reader wants the same ones on every
+machine they sign in from. A DISPLAY choice is the other way round: the phone
+read in bed wants dark, the classroom projector wants light, and the same
+account is behind both. So the theme lives in `localStorage['duckoj.theme']`
+(try/catch on every access, so a locked-down webview still switches for the
+page view it just cannot persist) and never touches the server. A signed-out
+visitor can set it too.
+
+**Defined once, applied by both triggers — no contrast regression.** `data-theme`
+has to reach the SAME palette the media query already did, and the dark `--rte`
+correction (D67) must not be made twice. So both `tokens.css` (material) and
+`app.css` (verdict/syntax/rank) now hold the dark values ONCE as `--dark-*`
+source aliases, and two thin trigger blocks — the OS media query and
+`:root:where([data-theme="dark"])` — alias the live tokens to them. The bodies
+are byte-identical (`test/app-css.spec.ts`-style guard), so the measured
+D67/B-20 AA pairs hold in all three modes by construction. The attribute
+triggers are wrapped in `:where()` on purpose: it keeps them at `:root`'s own
+(0,1,0) specificity so the solid-twin collapse blocks (reduced-transparency,
+`@supports not backdrop-filter`) still win on source order — a bare
+`[data-theme="dark"]` would be (0,2,0) and would keep translucent glass for a
+forced-dark reader who also asked to reduce transparency.
+
+**Applied before first paint.** The `--bg` wash paints when the stylesheet
+loads, before the deferred bundle runs, so a tiny blocking inline script in
+`index.html` reads the key and sets the attribute — no light-then-dark flash.
+`src/theme.tsx` owns the write side (a module store read through
+`useSyncExternalStore`, so the nav control and the `/account/settings` control
+agree instantly with no provider). The control is 44px, keyboard-reachable,
+uses `role="group"` + `aria-pressed` (not colour), and is translated vi/en.
+
+*Ruled by the implementer during the 2026-08-31 f28 loop, no human available
+to consult. No migration: a stylesheet and a browser-local preference.*

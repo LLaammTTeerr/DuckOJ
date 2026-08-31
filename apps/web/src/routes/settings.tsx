@@ -19,6 +19,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api.js';
 import { meQueryOptions } from '../me.js';
 import { useT } from '../i18n/index.js';
+import { ThemeToggle } from '../theme.js';
 
 /**
  * `''` is the "no preference" option in both selects, and maps to the `null`
@@ -163,6 +164,13 @@ export function SettingsPage() {
         </label>
       </p>
       <p className="muted">{t('settings.timezoneHint')}</p>
+
+      {/* Per-device, so it applies the instant it is clicked and has no part
+          in the Save below (which writes the account-side preferences). D116. */}
+      <p>
+        {t('settings.theme')} <ThemeToggle />
+      </p>
+      <p className="muted">{t('settings.themeHint')}</p>
 
       {error ? <p role="alert">{error}</p> : null}
       {saved ? <p role="status">{t('settings.saved')}</p> : null}

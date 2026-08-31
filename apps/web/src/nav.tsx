@@ -49,6 +49,7 @@ import { api } from './api.js';
 import { meQueryOptions } from './me.js';
 import { notificationsQueryOptions } from './routes/notifications.js';
 import { useLocale, useT } from './i18n/index.js';
+import { ThemeToggle } from './theme.js';
 
 /** The one breakpoint. Kept in step with `app.css`'s `@media (max-width: 700px)`. */
 export const PHONE_QUERY = '(max-width: 700px)';
@@ -319,6 +320,7 @@ function DesktopNav({ viewer, unread }: { viewer: Viewer | null; unread: number 
               <Link to="/account/tokens">{t('nav.tokens')}</Link>
               <Link to="/account/password">{t('nav.password')}</Link>
               <LocaleToggle />
+              <ThemeToggle />
               <SignOutButton />
             </>
           ) : (
@@ -326,6 +328,7 @@ function DesktopNav({ viewer, unread }: { viewer: Viewer | null; unread: number 
               <Link to="/">{t('nav.signIn')}</Link>
               <Link to="/register">{t('nav.register')}</Link>
               <LocaleToggle />
+              <ThemeToggle />
             </>
           )}
         </div>
@@ -554,6 +557,7 @@ function PhoneNav({ viewer, unread }: { viewer: Viewer | null; unread: number })
           </Link>
           <a href="/api/v1/docs">{t('nav.api')}</a>
           <LocaleToggle />
+          <ThemeToggle />
           {viewer ? <SignOutButton /> : null}
         </MoreSheet>
       ) : null}

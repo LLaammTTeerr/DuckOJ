@@ -203,38 +203,112 @@
   --rank-legendary-grandmaster: #5a4620;
 }
 
+/* The dark values for the three semantic scales, DEFINED ONCE as `--dark-*`
+ * source values (D116), for the same reason the material palette in
+ * tokens.css is: `data-theme="dark"` and the OS media query must reach the
+ * SAME hues, and the dark `--rte` correction (D67) must not have to be made
+ * twice. Without honouring `[data-theme="dark"]` here too, a forced-dark
+ * reader would get the LIGHT verdict reds on dark surfaces — the exact
+ * 2.7:1 failure D67 fixed. */
+:root {
+  --dark-ac: #3fb950;
+  --dark-wa: #f85149;
+  --dark-tle: #d29922;
+  --dark-mle: #db6d28;
+  --dark-ole: #bf8700;
+  --dark-rte: #ef6a5f;
+  --dark-ir: #ff7b72;
+  --dark-ie: #a371f7;
+  --dark-ce: #58a6ff;
+  --dark-pend: #aeb8c6;
+
+  --dark-syn-keyword: #d2a8ff;
+  --dark-syn-string: #7ee2a8;
+  --dark-syn-comment: #9aa4b0;
+  --dark-syn-number: #79c0ff;
+  --dark-syn-type: #ffa657;
+  --dark-syn-name: #a8c7ff;
+  --dark-syn-punct: #9aa4b0;
+
+  --dark-rank-newbie: #9aa0a8;
+  --dark-rank-pupil: #8fb69c;
+  --dark-rank-specialist: #7fb6c2;
+  --dark-rank-expert: #8aabdc;
+  --dark-rank-candidate-master: #a29ce0;
+  --dark-rank-master: #bd9ad6;
+  --dark-rank-international-master: #d095b4;
+  --dark-rank-grandmaster: #d99a8f;
+  --dark-rank-international-grandmaster: #cfae76;
+  --dark-rank-legendary-grandmaster: #e8d49a;
+}
+
+/* Trigger 1 — System (no `data-theme`), OS dark. `:where()` keeps it at
+ * (0,1,0); the body is byte-identical to trigger 2. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --ac: #3fb950;
-    --wa: #f85149;
-    --tle: #d29922;
-    --mle: #db6d28;
-    --ole: #bf8700;
-    --rte: #ef6a5f;
-    --ir: #ff7b72;
-    --ie: #a371f7;
-    --ce: #58a6ff;
-    --pend: #aeb8c6;
+  :root:where(:not([data-theme='light'])) {
+    --ac: var(--dark-ac);
+    --wa: var(--dark-wa);
+    --tle: var(--dark-tle);
+    --mle: var(--dark-mle);
+    --ole: var(--dark-ole);
+    --rte: var(--dark-rte);
+    --ir: var(--dark-ir);
+    --ie: var(--dark-ie);
+    --ce: var(--dark-ce);
+    --pend: var(--dark-pend);
 
-    --syn-keyword: #d2a8ff;
-    --syn-string: #7ee2a8;
-    --syn-comment: #9aa4b0;
-    --syn-number: #79c0ff;
-    --syn-type: #ffa657;
-    --syn-name: #a8c7ff;
-    --syn-punct: #9aa4b0;
+    --syn-keyword: var(--dark-syn-keyword);
+    --syn-string: var(--dark-syn-string);
+    --syn-comment: var(--dark-syn-comment);
+    --syn-number: var(--dark-syn-number);
+    --syn-type: var(--dark-syn-type);
+    --syn-name: var(--dark-syn-name);
+    --syn-punct: var(--dark-syn-punct);
 
-    --rank-newbie: #9aa0a8;
-    --rank-pupil: #8fb69c;
-    --rank-specialist: #7fb6c2;
-    --rank-expert: #8aabdc;
-    --rank-candidate-master: #a29ce0;
-    --rank-master: #bd9ad6;
-    --rank-international-master: #d095b4;
-    --rank-grandmaster: #d99a8f;
-    --rank-international-grandmaster: #cfae76;
-    --rank-legendary-grandmaster: #e8d49a;
+    --rank-newbie: var(--dark-rank-newbie);
+    --rank-pupil: var(--dark-rank-pupil);
+    --rank-specialist: var(--dark-rank-specialist);
+    --rank-expert: var(--dark-rank-expert);
+    --rank-candidate-master: var(--dark-rank-candidate-master);
+    --rank-master: var(--dark-rank-master);
+    --rank-international-master: var(--dark-rank-international-master);
+    --rank-grandmaster: var(--dark-rank-grandmaster);
+    --rank-international-grandmaster: var(--dark-rank-international-grandmaster);
+    --rank-legendary-grandmaster: var(--dark-rank-legendary-grandmaster);
   }
+}
+
+/* Trigger 2 — the reader chose dark by hand. Same body as trigger 1. */
+:root:where([data-theme='dark']) {
+  --ac: var(--dark-ac);
+  --wa: var(--dark-wa);
+  --tle: var(--dark-tle);
+  --mle: var(--dark-mle);
+  --ole: var(--dark-ole);
+  --rte: var(--dark-rte);
+  --ir: var(--dark-ir);
+  --ie: var(--dark-ie);
+  --ce: var(--dark-ce);
+  --pend: var(--dark-pend);
+
+  --syn-keyword: var(--dark-syn-keyword);
+  --syn-string: var(--dark-syn-string);
+  --syn-comment: var(--dark-syn-comment);
+  --syn-number: var(--dark-syn-number);
+  --syn-type: var(--dark-syn-type);
+  --syn-name: var(--dark-syn-name);
+  --syn-punct: var(--dark-syn-punct);
+
+  --rank-newbie: var(--dark-rank-newbie);
+  --rank-pupil: var(--dark-rank-pupil);
+  --rank-specialist: var(--dark-rank-specialist);
+  --rank-expert: var(--dark-rank-expert);
+  --rank-candidate-master: var(--dark-rank-candidate-master);
+  --rank-master: var(--dark-rank-master);
+  --rank-international-master: var(--dark-rank-international-master);
+  --rank-grandmaster: var(--dark-rank-grandmaster);
+  --rank-international-grandmaster: var(--dark-rank-international-grandmaster);
+  --rank-legendary-grandmaster: var(--dark-rank-legendary-grandmaster);
 }
 
 /* ── base ─────────────────────────────────────────────────────────────── */
@@ -501,6 +575,44 @@ a:hover {
   background: var(--glass-raised);
   border-color: var(--glass-stroke);
   box-shadow: var(--shadow-1);
+}
+
+/* The three-way theme control (D116) — Sáng / Tối / Hệ thống. Three buttons
+   and a group wrapper, not a <select>, for the same reason `.nav-locale` is:
+   every choice is worth showing and the active one is marked with
+   `aria-pressed` rather than colour (rule 1). The same component appears in
+   the nav account cluster, the phone More sheet and on `/account/settings`,
+   so it carries its own `aria-pressed` styling rather than leaning on the
+   `.shell-nav`/`.nav-sheet` rule above, which does not reach the settings
+   page. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 var(--sp-1);
+}
+.theme-toggle button {
+  min-height: var(--tap);
+  padding: 0 var(--sp-3);
+  margin-top: 0;
+  box-shadow: none;
+  white-space: nowrap;
+}
+.theme-toggle button[aria-pressed='true'] {
+  color: var(--fg);
+  background: var(--glass-raised);
+  border-color: var(--glass-stroke);
+  box-shadow: var(--shadow-1);
+}
+.nav-sheet .theme-toggle {
+  margin: var(--sp-1) 0 0;
+  align-self: stretch;
+}
+.nav-sheet .theme-toggle button {
+  flex: 1 1 0;
+  justify-content: center;
+  border-color: var(--line);
 }
 
 /* Sign out is bordered rather than bare: it is the one control here that
