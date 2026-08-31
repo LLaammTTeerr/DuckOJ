@@ -5991,3 +5991,113 @@ contest header whose entire job is to answer "when?".
 available to consult; found by screenshotting the live contest header at 390px. No
 migration: two i18n keys and one pure function.*
 
+
+## D136 — Below 700px a submissions row is a card, and a narrow table gets a wrapper
+
+At 390px — the width most Vietnamese pupils meet this judge at — `/submissions`
+put its **verdict badge 470px across a 390px screen**, column six of eight inside a
+sideways scroller. A student on contest day opens that list to answer one question,
+"did it pass?", and the answer was behind a swipe nothing advertised. The four
+columns that *were* on screen fared no better: `duong-di-ngan-nhat` in a 60px cell
+is a tower of single letters. FE-1 measured it and left it, correctly, as needing a
+product call: the honest fix is a sticky verdict column, but verdict is a *middle*
+column, so `position: sticky` would pin it over the columns scrolling beneath.
+
+- **The row becomes a card, and the markup does not change.** One `data-col`
+  attribute per `<td>`; the `<table>` stays a `<table>`. Below the D76 breakpoint
+  the `<tr>` is a grid whose areas are named after the columns, so the phone's
+  reading ORDER (problem + verdict, then who/how/points, then contest, then the
+  instant) is a decision written in the stylesheet rather than an accident of the
+  `<td>` order the desktop table needs. **Measured in Chromium: `display: grid` on a
+  `<tr>` and `display: block` on a `<td>` do not strip the row/cell roles**, so
+  every `getByRole('row')`, every `within(row).getByText('AC')` and every Playwright
+  `hasText` filter in the suite goes on matching — `test/submissions.spec.tsx` did
+  not need a single edit — and a screen reader still reads a table.
+- **The captions are `attr(data-label)` pseudo-content**, taken from the SAME
+  translated column heading the desktop `<th>` prints. So the two shapes cannot
+  drift apart or fall out of Vietnamese, and because pseudo-content never enters
+  `textContent`, no text query in the suite sees them.
+- **A practice attempt's contest row is not drawn.** The desktop table keeps its em
+  dash — the column has to line up with the rows around it — but a card does not
+  spend a captioned line saying `KỲ THI —`.
+- **`/submissions` loses the scroll-region contract, and `a11y-surfaces.spec.ts`
+  loses that assertion for it.** "The wrapper does carry the overflow" was the bug
+  written down as a requirement. The problem list and the scoreboard keep it: a
+  board grows a column per problem, so no phone layout makes a twenty-problem
+  scoreboard fit. **The scoreboard needs no card treatment** — measured at 390px, its
+  rank, participant, score and cumulative-time cells all end inside the viewport
+  (26–373px) and only the per-problem columns scroll, which is what the tab stop is
+  for.
+- **FE-1's finding 12 is real and only a wrapper fixes it, so five tables got one.**
+  Reproduced exactly: `/help` at 390px paints its header band 95px short of the
+  well. The cause is that `table { display: block }` makes CSS generate an
+  *anonymous* table box around the row groups, which shrink-wraps to its content and
+  which no selector can reach — which is why the three CSS-only remedies FE-1
+  measured all failed. `.table-wrap` restores `display: table` and carries the
+  scroll and the tab stop. It is applied at the **Markdown pipeline** (so every
+  statement's constraints table and every guide table is covered by one change) plus
+  the progress and org tables — not to all 41.
+
+*Ruled by the implementer during the 2026-08-31 fe2 mobile loop, no human available
+to consult. Cost if wrong: the phone layout is one media block and eight
+`data-col` attributes, revertible without touching a test.*
+
+## D137 — The desktop bar collapses the account PAGES, never the way out
+
+D76 gave the signed-in bar three clusters on one row and argued the account cluster
+must not become a dropdown. Twelve items later it was **three rows at 1280px** — a
+142px band of chrome above every screen, with `Đăng xuất` alone on the last line.
+The bar is capped at 960px, so it had 928px of room for 1376px of pills; no
+regrouping fits that, only removing something from the row does.
+
+- **D76's rule is about sign-out, not about collapsing.** Its reason is written
+  down: shared school machines, where "the previous pupil is still signed in" is the
+  default state and a way out costing a discovery click is a way out nobody takes.
+  So the bell, the display name, the language switch and `Đăng xuất` stay on the
+  bar — exactly what `e2e/journey.spec.ts` and `e2e/smoke.spec.ts` assert with no
+  interaction.
+- **What moves is the five account PAGES and the theme choice** — progress,
+  settings, security, tokens, password, light/dark/system: six things a reader goes
+  looking for deliberately, none of which anyone needs to see to know where they
+  are. Behind `Thêm`, the same word the phone sheet already uses for overflow, so
+  the two architectures name the same idea identically.
+- **The language switch never collapses (D18).** A reader who cannot read Vietnamese
+  must not have to find a Vietnamese word in order to escape Vietnamese.
+- **A disclosure, not a `role="menu"`.** That role brings arrow-key roving focus
+  with it and a list of ordinary links owes the reader plain Tab; `aria-expanded` +
+  `aria-controls` is the whole contract. Escape closes it, a pointer press outside
+  closes it, following a link closes it, and closing returns focus to the button.
+- Plus 8px off each pill's horizontal padding inside `.nav-bar` only — 152px of air
+  across nineteen pills was the difference between one row and two for an admin, who
+  carries `Quản trị` as well. The 44px thumb target is the pill's HEIGHT and is
+  untouched. Measured after: 52px tall, every item on one line.
+
+*Ruled by the implementer during the 2026-08-31 fe2 mobile loop. Cost if wrong: one
+component and one CSS block; the links move back onto the bar by deleting a
+wrapper.*
+
+## D138 — The signed-in home answers "what is happening to me now"
+
+`/` signed in was two links and a paragraph. A pupil who opens this app at 07:55 on
+a Saturday has two questions — when does it start, and did my last attempt pass —
+and both answers were three taps away behind a nav.
+
+- **The round that is running, or the next one to start.** Never a finished one: a
+  home page counting down to nothing is worse than one that says there is nothing.
+  It carries D134's phase chip and D135's countdown as the SAME components the
+  contest screens use, so the front page can never drift out of step with them.
+- **The reader's own last five verdicts**, verdict first, through the one shared
+  `.badge` glyph+colour system — never a second verdict renderer.
+- **No new endpoint, and no new query key.** `GET /contests` and
+  `GET /submissions?user=…`, cached under the keys `contests.tsx` and
+  `submissions.tsx` already use, so opening the home page warms the contest list
+  rather than duplicating it.
+- **A visitor's browser is asked for nothing.** Both panels are `enabled` on a
+  viewer; `/submissions` 401s signed out, and a landing page firing two doomed
+  requests at every visitor is load with nothing to show for it. The signed-out page
+  is unchanged, which is what keeps `smoke.spec.ts`'s sign-in flow working.
+- **An empty panel says which emptiness it is** and offers the one action that
+  resolves it, the shape FE-1 gave the submissions list.
+
+*Ruled by the implementer during the 2026-08-31 fe2 mobile loop. Cost if wrong: two
+leaf components and one CSS block, deletable without touching an endpoint.*
