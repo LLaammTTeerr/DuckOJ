@@ -5545,3 +5545,51 @@ reachable from app.css — with vi/en labels (D18). Four i18n keys, no
 to consult. Web-only + this ledger: two buttons and four i18n keys on one
 existing page, no DTO field, no endpoint, no migration — the source the tools
 act on is already in the page's DTO.*
+
+## D125 — The problem list gains a per-viewer status filter, window-gated like the solved counter
+
+`GET /problems` gains `status = solved | attempted | unsolved`, and every list
+row (and the detail) now carries `myStatus: 'solved' | 'attempted' | null` for
+a ✓/… marker. Both are per-viewer and read the viewer's OWN submissions —
+never anyone else's — so the freeze (D23) has nothing of theirs to mask.
+
+- **"solved" is window-gated, exactly as D49's `solvedCount` is.** An `AC`
+  made inside a still-open contest window does not count as solved until the
+  window closes — reusing `contestWindowOpenWhere`, the same D49 predicate the
+  public counter filters by, so the marker flips at the very instant the
+  viewer joins `solvedCount`. This is deliberately NOT `me.verdict`: `me` is
+  "your verdict, yours the moment it grades" (D23), so a live-contest row can
+  read `me.verdict === 'AC'` beside `myStatus: 'attempted'` with no
+  contradiction — the personal fact and the catalogue status answer two
+  different questions. An in-window `AC` is still a submission, so it reads
+  **attempted**, not unsolved, meanwhile.
+- **`myStatus` is folded from the two `me` laterals, not a third idiom.** A
+  second `LEFT JOIN LATERAL` (`me_solved`) answers one boolean — does the
+  viewer hold a closed-window `AC`? — beside the existing best-verdict lateral,
+  in the SAME single statement (no N+1; pinned by a one-statement query-log
+  test). The solved signal cannot be read off the best row: an in-window `AC`
+  is the best row yet does not count, so it needs its own existence probe.
+  `me_solved` keys on `submissions.user_id`, never
+  `contest_participations.user_id`, so the D113 source-scan guard stays green.
+- **Anonymous callers get 422 `status_requires_auth`, never a silent ignore.**
+  `GET /problems` is `@Public()`, but a silently-ignored `?status=solved` would
+  answer with problems the caller has not solved — a wrong 200. Refusing it is
+  the honest answer; `myStatus` itself stays `null` for an anonymous caller,
+  mirroring `me`. **In-flight-only submissions read unsolved**, mirroring `me`'s
+  graded-only lateral: a queued submission is not yet a status, as it is not
+  yet a `me`.
+- **`status` does NOT widen the D35 hidden-problem exclusion.** That exclusion
+  exists because `tag`/`difficulty` filter over the MASKED hint and would
+  otherwise be an oracle for it; `myStatus` reads the viewer's own submissions,
+  which D35 never masks, so a status-only filter keeps listing a hidden problem
+  (blanked), exactly as an unfiltered page does. `tag`/`difficulty` keep their
+  exclusion when composed with `status`.
+- **Web.** A `<select>` in the filter bar, shown only to a signed-in reader
+  (the API answers 422 otherwise), wired to the URL via `validateSearch` like
+  the topic/difficulty filters — an unknown value is dropped, not passed on.
+  The row marker is a glyph (✓/…) with an `aria-label`, never colour alone
+  (B-20/D77); vi/en throughout.
+
+*Ruled by the implementer during the 2026-08-31 f34 loop, no human available
+to consult. No migration: two DTO fields, one query param, two SQL laterals
+reusing existing predicates, and the web wiring.*
