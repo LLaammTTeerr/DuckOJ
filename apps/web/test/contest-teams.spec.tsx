@@ -145,6 +145,80 @@ describe('joining a team contest', () => {
     );
   });
 
+  it('lets a member on two same-slug teams from different schools choose between them', async () => {
+    // Two teams the caller is on that share a slug — D99's tiebreak made real
+    // (B-23). Keyed on the bare slug, the picker collapses them onto one
+    // value and the member cannot say which they enter with.
+    const SAME_SLUG = {
+      items: [
+        {
+          slug: 'doi-1',
+          name: 'Đội 1',
+          orgSlug: 'thpt',
+          orgName: 'THPT Chuyên',
+          memberCount: 2,
+          createdAt: '',
+          inRunningContest: false,
+          eligible: true,
+          ineligibleReason: null,
+        },
+        {
+          slug: 'doi-1',
+          name: 'Đội Một',
+          orgSlug: 'khac',
+          orgName: 'Trường Khác',
+          memberCount: 2,
+          createdAt: '',
+          inRunningContest: false,
+          eligible: true,
+          ineligibleReason: null,
+        },
+      ],
+      truncated: false,
+    };
+    get.mockImplementation((path: string) => {
+      if (path === '/contests/{key}')
+        return Promise.resolve({
+          data: contest({
+            orgs: [
+              { slug: 'thpt', name: 'THPT Chuyên' },
+              { slug: 'khac', name: 'Trường Khác' },
+            ],
+          }),
+        });
+      if (path === '/auth/me') return Promise.resolve({ data: { username: 'anh', globalRole: 'user' } });
+      if (path === '/users/me/teams') return Promise.resolve({ data: SAME_SLUG });
+      return Promise.resolve({
+        error: { code: 'participation_not_found', detail: 'x' },
+        response: { status: 404 },
+      });
+    });
+    post.mockResolvedValue({ data: { id: 7 } });
+    wrap(<ContestPage contestKey="doi" />);
+
+    const picker = (await screen.findByRole('combobox')) as HTMLSelectElement;
+    const options = within(picker).getAllByRole('option');
+    expect(options).toHaveLength(2);
+    // Both same-slug rows are told apart by their school, in the value too.
+    expect(options.map((o) => (o as HTMLOptionElement).value)).toEqual(['thpt/doi-1', 'khac/doi-1']);
+    expect(picker.value).toBe('thpt/doi-1');
+
+    // Pick the OTHER school's team — impossible with slug-only values.
+    await userEvent.selectOptions(picker, 'khac/doi-1');
+    expect(picker.value).toBe('khac/doi-1');
+
+    // The strict join contract still carries only the bare slug, so the org
+    // choice does not yet reach the server (report: JoinContestRequest needs
+    // an orgSlug/team-id to honour it — B-23's lowest-id tiebreak stands).
+    await userEvent.click(screen.getByRole('button', { name: 'Tham gia' }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith('/contests/{key}/join', {
+        params: { path: { key: 'doi' } },
+        body: { teamSlug: 'doi-1' },
+      }),
+    );
+  });
+
   it('says so, rather than offering a picker, when the viewer is on no team', async () => {
     get.mockImplementation((path: string) => {
       if (path === '/contests/{key}') return Promise.resolve({ data: contest() });

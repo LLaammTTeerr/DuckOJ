@@ -1,11 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { paths } from '@duckoj/sdk';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { api } from '../api.js';
 import { apiError, read } from '../api-error.js';
-import { formatPoints } from '../format.js';
+import { formatCountdown, formatPoints } from '../format.js';
 import { meQueryOptions } from '../me.js';
 import { formatDateTime, formatTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
 
@@ -179,6 +179,38 @@ function phaseLabel(t: TFunction, phase: Phase): string {
   return t(PHASE_KEYS[phase]);
 }
 
+/**
+ * The live countdown in the contest header (D118): "bắt đầu sau …" while the
+ * round is upcoming, "kết thúc sau …" while it runs, and NOTHING once it has
+ * ended — a finished round has nothing to count down to.
+ *
+ * A leaf of its own, not state on the page: the ticking `now` re-renders only
+ * this line each second, never the problem table or the join panel above it.
+ * It derives the phase itself every tick, so the label flips from "starts in"
+ * to "ends in" at the gun without the parent re-rendering. Plain text — no
+ * `role="status"`/`aria-live` (that would read the clock aloud every second)
+ * and no animation, so it is `prefers-reduced-motion`-safe by construction.
+ * The interval is cleared on unmount.
+ */
+export function ContestCountdown({ startTime, endTime }: { startTime: string; endTime: string }) {
+  const t = useT();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const start = Date.parse(startTime);
+  const end = Date.parse(endTime);
+  if (now < start) {
+    return <p role="timer">{t('contest.startsIn', { d: formatCountdown(start - now) })}</p>;
+  }
+  if (now <= end) {
+    return <p role="timer">{t('contest.endsIn', { d: formatCountdown(end - now) })}</p>;
+  }
+  return null;
+}
+
 export function ContestsPage() {
   const t = useT();
   const { locale, timeZone } = useLocale();
@@ -321,7 +353,19 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
   // The first team that CAN enter, so the button is not pre-loaded with a
   // choice the server is about to refuse.
   const defaultTeam = teamChoices.find((team) => team.eligible !== false) ?? teamChoices[0];
-  const teamSlug = pickedTeam === '' ? (defaultTeam?.slug ?? '') : pickedTeam;
+  // A composite `orgSlug/slug`, not the bare slug: two teams from different
+  // schools can share a slug, and a member on both must be able to pick which
+  // one they enter with (D99's tiebreak, exposed to the reader). A `<select>`
+  // keyed on slug alone would collapse them onto one value.
+  //
+  // NOTE: the join body can still only carry the bare `teamSlug` —
+  // `JoinContestRequest` is `.strict({ teamSlug })` with no org — so the
+  // server falls back to its deterministic lowest-id-the-caller-is-on
+  // tiebreak (B-23). Honouring the reader's org choice at the gun needs an
+  // `orgSlug` (or team id) added to that contract; out of this web-only scope.
+  const teamValue = (team: (typeof teamChoices)[number]): string => `${team.orgSlug}/${team.slug}`;
+  const selectedValue = pickedTeam === '' ? (defaultTeam ? teamValue(defaultTeam) : '') : pickedTeam;
+  const selectedTeam = teamChoices.find((team) => teamValue(team) === selectedValue);
 
   async function join(): Promise<void> {
     setJoinBusy(true);
@@ -330,7 +374,8 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         params: { path: { key: contestKey } },
         // `{}` for an individual contest — the server refuses a `teamSlug`
         // there rather than ignoring it, so the two must not be confused.
-        body: contest.data?.participationMode === 'team' ? { teamSlug } : {},
+        body:
+          contest.data?.participationMode === 'team' ? { teamSlug: selectedTeam?.slug ?? '' } : {},
       });
       if (error) {
         setJoinError(error.detail ?? t('contest.joinError'));
@@ -368,6 +413,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
             the Join button asks for and what the board will print (D99). */}
         {isTeamContest ? ` · ${t('contest.teamMode')}` : null}
       </p>
+      <ContestCountdown startTime={contest.data.startTime} endTime={contest.data.endTime} />
       {contest.data.orgs.length > 0 ? (
         <p>
           <OrgBadges orgs={contest.data.orgs} />
@@ -446,11 +492,11 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
               <p>
                 <label>
                   {t('contest.teamPick')}{' '}
-                  <select value={teamSlug} onChange={(e) => setPickedTeam(e.target.value)}>
+                  <select value={selectedValue} onChange={(e) => setPickedTeam(e.target.value)}>
                     {teamChoices.map((team) => (
                       <option
-                        key={`${team.orgSlug}/${team.slug}`}
-                        value={team.slug}
+                        key={teamValue(team)}
+                        value={teamValue(team)}
                         // Disabled from the SERVER's verdict, not from a rule
                         // this page re-derived — and the reason is printed
                         // beside the name, so a teacher learns it before the
@@ -474,7 +520,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
             <button
               type="button"
               onClick={() => void join()}
-              disabled={joinBusy || phase === 'upcoming' || (isTeamContest && teamSlug === '')}
+              disabled={joinBusy || phase === 'upcoming' || (isTeamContest && selectedValue === '')}
             >
               {phase === 'finished' ? t('contest.joinVirtually') : t('contest.join')}
             </button>
