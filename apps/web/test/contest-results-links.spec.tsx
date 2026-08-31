@@ -128,3 +128,45 @@ describe('the contest page’s organiser exports', () => {
     expect(screen.queryByRole('link', { name: 'Giấy chứng nhận (PDF)' })).toBeNull();
   });
 });
+
+/**
+ * The seat slips (D129) — the one organiser export offered BEFORE the gun.
+ *
+ * D71's three links wait for `phase === 'finished'`, because printing a board
+ * that is still moving invites a wrong sheet. A seat slip is the opposite
+ * artefact: it is cut up the night before, so gating it on the end of the
+ * contest would ship a feature nobody could ever use in time.
+ */
+describe('the contest page’s seat slips', () => {
+  it('offers the organiser the slips before the contest has started', async () => {
+    mockContest({
+      startTime: new Date(Date.now() + 3_600_000).toISOString(),
+      endTime: new Date(Date.now() + 7_200_000).toISOString(),
+    });
+    wrap(<ContestPage contestKey="spring" />);
+
+    const slips = await screen.findByRole('link', { name: 'Phiếu dự thi (PDF)' });
+    expect(slips).toHaveAttribute('href', '/api/v1/contests/spring/seats.pdf');
+    // …and the results exports are still withheld, as D71 has them.
+    expect(screen.queryByRole('link', { name: 'Kết quả (CSV)' })).toBeNull();
+  });
+
+  it('still offers them once the contest is over, beside the results', async () => {
+    mockContest();
+    wrap(<ContestPage contestKey="spring" />);
+
+    await screen.findByRole('link', { name: 'Kết quả (CSV)' });
+    expect(screen.getByRole('link', { name: 'Phiếu dự thi (PDF)' })).toHaveAttribute(
+      'href',
+      '/api/v1/contests/spring/seats.pdf',
+    );
+  });
+
+  it('never offers them to a competitor', async () => {
+    mockContest({ canEdit: false });
+    wrap(<ContestPage contestKey="spring" />);
+
+    await screen.findByRole('link', { name: 'Tải đề (PDF)' });
+    expect(screen.queryByRole('link', { name: 'Phiếu dự thi (PDF)' })).toBeNull();
+  });
+});

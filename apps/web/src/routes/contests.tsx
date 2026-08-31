@@ -34,6 +34,21 @@ function resultsUrl(contestKey: string, extension: 'csv' | 'pdf'): string {
 }
 
 /**
+ * The seat slips (D129) — the cards a school cuts up and lays on the desks.
+ *
+ * Same `<a>` as its neighbours, and the API's own PDF. Unlike the three D71
+ * exports beside it this one is offered from the moment the contest exists:
+ * a slip is a PRE-contest artefact, and a link that waited for the final
+ * whistle would be a link nobody could ever use in time.
+ *
+ * No parameters. The document is the whole entry list, and there is nothing
+ * on it for a reader to choose.
+ */
+function seatsUrl(contestKey: string): string {
+  return `${import.meta.env.VITE_API_ORIGIN ?? ''}/${API_PREFIX}/contests/${contestKey}/seats.pdf`;
+}
+
+/**
  * The certificates (D71/D74), beside the results sheet they are cut from.
  *
  * The route shipped with F12 and nothing on the site ever linked it, so the
@@ -609,6 +624,15 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
         {contest.data.problems.length > 0 ? (
           <>
             <a href={bookletUrl(contestKey, locale)}>{t('contest.booklet')}</a>{' '}
+          </>
+        ) : null}
+        {/* The seat slips, on `canEdit` ALONE (D129): they are printed the
+            night before, so the `phase === 'finished'` gate the results
+            exports carry would hide this one for the whole time it is
+            wanted. The API agrees — `canRunContest`, no clock. */}
+        {contest.data.canEdit ? (
+          <>
+            <a href={seatsUrl(contestKey)}>{t('contest.seats')}</a>{' '}
           </>
         ) : null}
         {/* The API lets the people who run a contest export at any hour —
