@@ -302,7 +302,7 @@ export function ContestsPage() {
           </p>
         </div>
       ) : null}
-      {/* D140 — the head is drawn WHILE the rows load, so the one question a
+      {/* D143 — the head is drawn WHILE the rows load, so the one question a
           contest list is asked on contest day ("which round is on?") has a
           shape to appear in rather than displacing the page when it lands. */}
       {query.isPending || (query.data && query.data.items.length > 0) ? (
@@ -461,7 +461,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
   }
 
   if (contest.isPending) return <p className="muted">{t('common.loading')}</p>;
-  // D142 — NOT `contest.error.message`. That message is `detail ?? the
+  // D145 — NOT `contest.error.message`. That message is `detail ?? the
   // fallback this file chose`, and the fallback this file chose is
   // `contest.notFound`, so a 500 used to tell a competitor at the bell that
   // their round does not exist.
@@ -952,7 +952,7 @@ function ClarificationsPanel({
 
       {error ? <p role="alert">{error}</p> : null}
       {feed.error ? <LoadError error={feed.error} onRetry={() => void feed.refetch()} /> : null}
-      {/* D141 — this feed is the announcement channel, polled every 30 s
+      {/* D144 — this feed is the announcement channel, polled every 30 s
           while the round runs, and a contestant reading it has no other way
           to tell "nothing has been announced" from "my wifi died four
           minutes ago". Only while it actually polls: outside a running round
@@ -1076,7 +1076,7 @@ function cell(data: Cell | undefined, pending = 0): string {
 }
 
 /**
- * The board's own shape while it loads (D140).
+ * The board's own shape while it loads (D143).
  *
  * Not `<p>Đang tải…</p>`: measured against a 3s-delayed route, that answer
  * threw the heading, the back link and the table away and left one grey line

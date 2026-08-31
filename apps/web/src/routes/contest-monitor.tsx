@@ -276,7 +276,7 @@ export function ContestMonitorPage({ contestKey }: { contestKey: string }) {
               it, so it moves even when nothing on this screen does. This one
               is whether THIS BROWSER is still receiving them: offline,
               TanStack Query pauses the refetch entirely (`networkMode:
-              'online'`), the numbers freeze, and before D141 the page went
+              'online'`), the numbers freeze, and before D144 the page went
               on looking exactly as live as it had a second earlier. */}
           <StaleNotice updatedAt={monitor.dataUpdatedAt} intervalMs={5_000} />
 

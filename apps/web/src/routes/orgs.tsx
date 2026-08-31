@@ -712,7 +712,7 @@ export function OrgPage({ slug }: { slug: string }) {
   }
 
   if (org.isPending) return <p className="muted">{t('common.loading')}</p>;
-  // D142: the fallback behind this message is `org.notFound`, so a 500 used
+  // D145: the fallback behind this message is `org.notFound`, so a 500 used
   // to tell a teacher their school is not on the system.
   if (org.error) return <LoadError error={org.error} onRetry={() => void org.refetch()} />;
   if (!org.data) return null;

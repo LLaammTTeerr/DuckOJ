@@ -137,7 +137,7 @@ export function SubmissionPage({ id }: { id: number }) {
   // here is what stops an unusable id from painting "Loading…" for good.
   if (!idIsUsable) return <p role="alert">{t('submission.notFound')}</p>;
   if (query.isPending) return <p className="muted">{t('common.loading')}</p>;
-  // D142: `query.error.message` is `detail ?? t('submission.notFound')`, so
+  // D145: `query.error.message` is `detail ?? t('submission.notFound')`, so
   // a 500 used to read "there is no such submission".
   if (query.error) return <LoadError error={query.error} onRetry={() => void query.refetch()} />;
   if (!query.data) return null;

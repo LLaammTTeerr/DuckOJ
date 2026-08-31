@@ -1,5 +1,5 @@
 /**
- * Loading, failing and offline, in a real browser (D140–D142).
+ * Loading, failing and offline, in a real browser (D143–D145).
  *
  * These are the states a contest-day reader on school wifi actually meets,
  * and jsdom cannot see any of them: it does no layout, so it cannot tell that
@@ -81,7 +81,7 @@ test.describe('a read that failed', () => {
 
 test.describe('a read that is still loading', () => {
   test('the scoreboard heading does not move when the board arrives', async ({ page }) => {
-    // The measurement, not a proxy for it. Before D140 the whole page was
+    // The measurement, not a proxy for it. Before D143 the whole page was
     // replaced by one grey "Đang tải…" line, so every pixel below it moved
     // when the answer landed — on the screen this app reloads most.
     await signedIn(page);

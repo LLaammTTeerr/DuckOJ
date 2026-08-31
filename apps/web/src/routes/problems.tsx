@@ -161,7 +161,7 @@ export function ProblemsPage(props: {
   const problems = query.data?.pages.flatMap((page) => page.items) ?? [];
   /**
    * Whether ANY narrowing is in force — which is what decides which of the
-   * two empty states the reader is in (D142). Read off the same five values
+   * two empty states the reader is in (D145). Read off the same five values
    * the query key is built from, so the two cannot disagree.
    */
   const filtered =
@@ -292,7 +292,7 @@ export function ProblemsPage(props: {
             </tr>
           </thead>
           <tbody>
-            {/* D140 — the head, the filter bar and the "load more" button
+            {/* D143 — the head, the filter bar and the "load more" button
                 keep their positions while the rows arrive; before this the
                 table vanished entirely and one grey line stood in for nine
                 columns. */}
@@ -393,7 +393,7 @@ export function ProblemsPage(props: {
         // box, so a query that filters everything away must be announced
         // rather than silently swapping the table for this line. (loop-b20)
         //
-        // D142 — and it says WHICH emptiness, the way `/submissions` has
+        // D145 — and it says WHICH emptiness, the way `/submissions` has
         // since FE-1: "no problem matches these filters" with the filters to
         // clear is a different screen from "nothing has been published yet",
         // and one sentence for both left the reader unable to tell which.

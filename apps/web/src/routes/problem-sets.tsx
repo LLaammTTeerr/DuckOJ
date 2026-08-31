@@ -307,7 +307,7 @@ export function OrgSets({ slug, canManage }: { slug: string; canManage: boolean 
       // that spelling turned every 500 into an empty array — and this panel
       // renders an empty array as `sets.empty`, "Chưa có bài tập nào": a
       // pupil told their teacher has assigned them nothing (B-8's swallow,
-      // one more survivor, found by the D140 sweep).
+      // one more survivor, found by the D143 sweep).
       const result = await api.GET('/orgs/{slug}/sets', { params: { path: { slug } } });
       return read(result, t('sets.loadError'))?.items ?? [];
     },

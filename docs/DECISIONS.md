@@ -6152,7 +6152,7 @@ component and one CSS block; the links move back onto the bar by deleting a
 wrapper.*
 
 
-## D140 — Loading reserves the space the answer will need
+## D143 — Loading reserves the space the answer will need
 
 Every data screen in this app answered `if (query.isPending) return <p>Đang tải…</p>`:
 the whole page thrown away and one grey line painted at the top of an empty sheet.
@@ -6183,7 +6183,7 @@ that is doing badly, so it is the load this app's readers see most.
 *Ruled by the implementer during the 2026-08-31 fe3 states loop. Cost if wrong: one
 component and one CSS block; the old line comes back by reverting five call sites.*
 
-## D141 — The app says when the connection is gone, and when a poll has stopped
+## D144 — The app says when the connection is gone, and when a poll has stopped
 
 `navigator.onLine` appeared nowhere in `src/`. A dead access point in a school hall
 looked exactly like a working one: the numbers on screen simply stopped changing, and
@@ -6212,7 +6212,7 @@ the page went on presenting them with the same authority it had a second earlier
 *Ruled by the implementer during the 2026-08-31 fe3 states loop. Cost if wrong: one
 banner and one line; both delete cleanly.*
 
-## D142 — A failure is named by its STATUS, and it always offers the next move
+## D145 — A failure is named by its STATUS, and it always offers the next move
 
 `apiError(result, fallback)` takes ONE fallback for every status, and the fallback a
 detail screen naturally chooses is its not-found sentence. So a 500 on

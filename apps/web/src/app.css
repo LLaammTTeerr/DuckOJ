@@ -2293,7 +2293,7 @@ section section > h3:first-child {
   margin: 0 0 var(--sp-2);
 }
 
-/* --- the states nobody designs (D140–D142) -------------------------------
+/* --- the states nobody designs (D143–D145) -------------------------------
  * Skeletons, the failure block and the two connection notices. Every colour
  * here is an EXISTING token — `--sel`, `--line`, `--dim`, `--glass-inset` —
  * which is what makes the dark theme free: tokens.css aliases each of them

@@ -1,5 +1,5 @@
 /**
- * The states nobody designs: loading, empty, failing, offline (D140–D142).
+ * The states nobody designs: loading, empty, failing, offline (D143–D145).
  *
  * Every case here is a screen a contest-day reader on school wifi actually
  * sees, and each was measured in Chromium against `vite preview` with

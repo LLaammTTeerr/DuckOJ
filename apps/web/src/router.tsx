@@ -148,7 +148,7 @@ function RootComponent() {
     <>
       <PreferenceSync />
       <ShellNav />
-      {/* D141 — one line, under the bar, on every screen. Above `<main>` so
+      {/* D144 — one line, under the bar, on every screen. Above `<main>` so
           it is the first thing after the navigation in the reading order and
           so no route has to remember to say it. */}
       <OfflineBanner />

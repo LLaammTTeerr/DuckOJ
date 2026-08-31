@@ -61,7 +61,7 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
   // who can see it may join.
   const [orgSlugs, setOrgSlugs] = useState<string[]>([]);
   const [rows, setRows] = useState<ProblemRow[]>([{ code: '', points: '100', partial: true }]);
-  // `{ message, code }` (D142): the sentence a setter reads, and the
+  // `{ message, code }` (D145): the sentence a setter reads, and the
   // server's identifier beside it — this screen used to show the
   // identifier ALONE (`contest_key_taken`) as the whole message.
   const [error, setError] = useState<CodeAlertState>(null);
@@ -74,7 +74,7 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
       const result = await api.GET('/contests/{key}', {
         params: { path: { key: cloneFrom! } },
       });
-      // D142 — was `new Error(err?.code)`, which put `contest_not_found` on
+      // D145 — was `new Error(err?.code)`, which put `contest_not_found` on
       // screen as a sentence and threw the STATUS away with it, so
       // `src/query.ts` retried a 404 three times before saying so.
       const data = read(result, t('contest.notFound'));

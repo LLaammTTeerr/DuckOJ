@@ -66,7 +66,7 @@ export function ProblemRevisionsPage(props: { code: string }) {
   const [packageHash, setPackageHash] = useState('');
   const [attachBusy, setAttachBusy] = useState(false);
   // `{ message, code }`, not a bare string: the message is what a setter
-  // reads, the code is what they search for (D142).
+  // reads, the code is what they search for (D145).
   const [attachError, setAttachError] = useState<CodeAlertState>(null);
   // The version currently mid-publish, if any — used only to disable that
   // one row's button while the request is in flight, not to gate the whole
