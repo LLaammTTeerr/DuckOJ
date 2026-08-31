@@ -2274,3 +2274,41 @@ fieldset label {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* --- the initials avatar (D122) ------------------------------------------
+ * A deterministic initials chip, sized and coloured entirely by inline style
+ * (width/height/font-size, and the name-derived background + AA foreground —
+ * see avatar.tsx). This rule owns only the SHAPE and the shared traits: a
+ * rounded square, centred bold initials on `--font-ui`, and a hairline
+ * `--line` border that separates a dark-hued chip from a dark ground.
+ *
+ * SOLID fill only. This chip renders once per scoreboard row, and D67 names a
+ * per-row `backdrop-filter` the single most expensive thing this app could
+ * ask a phone to composite — so there is deliberately no glass token and no
+ * blur here. Nothing animates, so there is no duration to flatten either.
+ */
+.avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-family: var(--font-ui);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  vertical-align: text-bottom;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* The common placement: a chip immediately before the name it is drawn from.
+   `align-items: baseline` would drop the chip; `center` keeps it beside the
+   text, and the gap is the one 8px step. */
+.avatar-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
