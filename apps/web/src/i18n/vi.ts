@@ -335,6 +335,8 @@ export const vi = {
   'submit.cooldown': 'Có thể nộp bài tiếp sau {seconds} giây.',
   'submit.liveUnavailable':
     'Không nhận được cập nhật trực tiếp ({code}). Tải lại trang để xem trạng thái mới nhất.',
+  'submit.liveSlow':
+    'Đang cập nhật chậm… Không mở được kênh trực tiếp, nhưng bài của bạn vẫn đang được chấm và trang này tự hỏi kết quả vài giây một lần. Không cần tải lại.',
   'submit.status': 'Trạng thái: {state}',
   'submit.verdict': 'Kết quả:',
   'submit.compilerOutput': 'Kết xuất trình biên dịch:',

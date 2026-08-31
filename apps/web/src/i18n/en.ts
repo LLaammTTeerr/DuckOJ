@@ -353,6 +353,9 @@ export const en = {
     'You are submitting too quickly — one submission every 10 seconds, and 20 every 10 minutes. Try again in {seconds} s.',
   'submit.cooldown': 'You can submit again in {seconds} s.',
   'submit.liveUnavailable': 'Live updates unavailable ({code}). Refresh to see the latest state.',
+  'submit.liveSlow':
+    'Updating slowly… The live channel would not open, but your submission is still being judged and ' +
+    'this page is asking for the result every few seconds. No need to refresh.',
   'submit.status': 'Status: {state}',
   'submit.verdict': 'Verdict:',
   'submit.compilerOutput': 'Compiler output:',

@@ -406,3 +406,134 @@ describe('useSubmissionSocket — reconnect backoff', () => {
     expect(FakeWebSocket.instances).toHaveLength(5);
   });
 });
+
+/**
+ * D152 — a socket that never opens is silent.
+ *
+ * `onSubscriptionError` fires only on an explicit `error` FRAME, which means
+ * the gateway accepted the upgrade and then refused the subscribe. A failed
+ * upgrade — a proxy that does not carry `/ws`, a blocked port, a captive
+ * portal — produces no frame of any kind, so the page sat on a blank verdict
+ * panel forever while the judge was in fact grading the submission. Measured:
+ * `vite preview` did exactly this for four e2e specs, which waited 60 s for a
+ * badge on a submission the DB already had at `AC`.
+ *
+ * So a deadline: no `subscribed` ack within it and the hook says so and falls
+ * back to polling the endpoint that already exists.
+ */
+describe('useSubmissionSocket — the fallback when the socket never opens', () => {
+  it('declares itself degraded and polls when no ack arrives before the deadline', () => {
+    const fetchSubmission = vi.fn(async () => undefined);
+    const terminalRef = { current: false };
+    const onDegraded = vi.fn();
+
+    // The upgrade never completes: no 'open', no frames, nothing at all.
+    renderHook(() => useSubmissionSocket(11, fetchSubmission, terminalRef, undefined, onDegraded));
+    expect(onDegraded).not.toHaveBeenCalled();
+    expect(fetchSubmission).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(6_000);
+    });
+    // It says so — and it does not merely say so: the first poll is
+    // immediate, because by now nothing at all has been fetched.
+    expect(onDegraded).toHaveBeenCalledWith(true);
+    expect(fetchSubmission).toHaveBeenCalledWith(11);
+
+    const afterFirst = fetchSubmission.mock.calls.length;
+    act(() => {
+      vi.advanceTimersByTime(12_000);
+    });
+    expect(fetchSubmission.mock.calls.length).toBeGreaterThan(afterFirst);
+  });
+
+  it('never fires the deadline while a proxy loops connect→close faster than it', () => {
+    const fetchSubmission = vi.fn(async () => undefined);
+    const terminalRef = { current: false };
+    const onDegraded = vi.fn();
+    renderHook(() => useSubmissionSocket(12, fetchSubmission, terminalRef, undefined, onDegraded));
+
+    // ONE deadline per submission, armed when the effect first connects —
+    // not restarted per connection attempt. A proxy that refuses upgrades
+    // produces exactly this loop, each leg shorter than the deadline, and a
+    // per-attempt timer would never fire in the case it exists for.
+    for (let i = 0; i < 6; i += 1) {
+      act(() => {
+        FakeWebSocket.instances.at(-1)!.simulateServerClose();
+        vi.advanceTimersByTime(1_000);
+      });
+    }
+    expect(onDegraded).toHaveBeenCalledWith(true);
+  });
+
+  it('stops polling and says it is live again when the ack finally arrives', () => {
+    const fetchSubmission = vi.fn(async () => undefined);
+    const terminalRef = { current: false };
+    const onDegraded = vi.fn();
+    renderHook(() => useSubmissionSocket(13, fetchSubmission, terminalRef, undefined, onDegraded));
+
+    act(() => {
+      vi.advanceTimersByTime(6_000);
+    });
+    expect(onDegraded).toHaveBeenLastCalledWith(true);
+
+    // A later connection works. The ack is the one frame that proves it, the
+    // same frame the backoff resets on.
+    act(() => {
+      const ws = FakeWebSocket.instances.at(-1)!;
+      ws.simulateOpen();
+      ws.simulateMessage({ type: 'subscribed', id: 13 });
+    });
+    expect(onDegraded).toHaveBeenLastCalledWith(false);
+
+    const settled = fetchSubmission.mock.calls.length;
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    // Nothing but the socket now. A poll left running behind a working feed
+    // is the load this fallback exists to avoid spending.
+    expect(fetchSubmission.mock.calls.length).toBe(settled);
+  });
+
+  it('stops polling once the submission is terminal', () => {
+    const fetchSubmission = vi.fn(async () => undefined);
+    const terminalRef = { current: false };
+    const onDegraded = vi.fn();
+    renderHook(() => useSubmissionSocket(14, fetchSubmission, terminalRef, undefined, onDegraded));
+
+    act(() => {
+      vi.advanceTimersByTime(6_000);
+    });
+    expect(fetchSubmission).toHaveBeenCalled();
+
+    // The poll reached the verdict — which is the whole point of it.
+    terminalRef.current = true;
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    const settled = fetchSubmission.mock.calls.length;
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(fetchSubmission.mock.calls.length).toBe(settled);
+  });
+
+  it('leaves no timer behind when the effect is torn down mid-poll', () => {
+    const fetchSubmission = vi.fn(async () => undefined);
+    const terminalRef = { current: false };
+    const { unmount } = renderHook(() =>
+      useSubmissionSocket(15, fetchSubmission, terminalRef, undefined, vi.fn()),
+    );
+    act(() => {
+      vi.advanceTimersByTime(6_000);
+    });
+    expect(fetchSubmission).toHaveBeenCalled();
+
+    unmount();
+    const settled = fetchSubmission.mock.calls.length;
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(fetchSubmission.mock.calls.length).toBe(settled);
+  });
+});

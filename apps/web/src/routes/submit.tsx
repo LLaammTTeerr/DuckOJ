@@ -504,6 +504,33 @@ export function problemCodeFromSearch(search: string): string {
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10_000];
 
 /**
+ * D152 — how long the page waits for proof the live feed works before it
+ * stops trusting it.
+ *
+ * `onSubscriptionError` only ever fired on an explicit `error` FRAME, which
+ * means the gateway accepted the upgrade and then refused the subscribe. A
+ * failed UPGRADE — a proxy that does not carry `/ws`, a blocked port, a
+ * captive portal — sends no frame of any kind, so nothing ever fired and the
+ * verdict panel stayed blank forever while the judge was in fact grading.
+ * Measured: `vite preview` did exactly this, and four e2e specs waited a full
+ * minute for a badge the database already had.
+ *
+ * Six seconds, which is past the longest reconnect rung (10 s is the rung
+ * AFTER three failures, so a working-but-flaky link normally acks well
+ * inside this), and short enough that a pupil who has just pressed the button
+ * learns within one breath that the answer will be a little slower.
+ */
+const LIVE_DEADLINE_MS = 6_000;
+
+/**
+ * How often the fallback asks. Four seconds is a compromise between a pupil
+ * staring at the panel and a hall of thirty of them behind one access point;
+ * the endpoint is the same `GET /submissions/{id}` the socket's own signal
+ * frames trigger, so this adds no surface, only a schedule.
+ */
+const LIVE_POLL_MS = 4_000;
+
+/**
  * Owns the WebSocket. On mount (and on every id change) it opens `/ws` on the
  * same origin as the page — authentication is the session cookie, sent
  * automatically; there is never a credential in the URL. Order is subscribe
@@ -530,6 +557,15 @@ export function useSubmissionSocket(
   fetchSubmission: (id: number) => Promise<void>,
   terminalRef: { current: boolean },
   onSubscriptionError?: (code: string) => void,
+  /**
+   * D152. Called `true` when the live feed has not proved itself inside
+   * `LIVE_DEADLINE_MS` and this hook has started polling instead, and `false`
+   * when an ack later proves it after all. Separate from
+   * `onSubscriptionError` on purpose: that one is a permanent refusal with a
+   * code, and its wording ("refresh to see the latest state") becomes a lie
+   * the moment the page refreshes itself.
+   */
+  onDegraded?: (degraded: boolean) => void,
 ): void {
   useEffect(() => {
     if (submissionId === null) return;
@@ -548,6 +584,12 @@ export function useSubmissionSocket(
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
+    // D152's three pieces: the deadline that has to expire before the live
+    // feed is disbelieved, the poll that replaces it, and the flag that says
+    // an ack has been seen on the CURRENT connection.
+    let deadline: ReturnType<typeof setTimeout> | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let acked = false;
 
     // openapi-fetch has no `onError` middleware registered, so a
     // network-level failure (not an HTTP error response — an actual refused
@@ -560,6 +602,54 @@ export function useSubmissionSocket(
       fetchSubmission(fetchId).catch((err: unknown) => {
         console.error('submission re-fetch failed', err);
       });
+    }
+
+    function stopPolling(): void {
+      if (pollTimer !== null) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    /**
+     * The live feed did not prove itself. Say so, and start asking.
+     *
+     * The first ask is IMMEDIATE, because in the case this exists for
+     * nothing has been fetched at all: the open-time fetch never ran, so the
+     * panel is not merely stale, it is empty. The reconnect ladder keeps
+     * running underneath — a proxy that starts carrying `/ws` again, or a
+     * pupil who walks back into range, self-heals into the socket and the
+     * ack below turns the poll off.
+     */
+    function degrade(): void {
+      deadline = null;
+      if (disposed || acked || terminalRef.current || pollTimer !== null) return;
+      onDegraded?.(true);
+      safeFetch(id);
+      pollTimer = setInterval(() => {
+        if (disposed) return;
+        if (terminalRef.current) {
+          // The poll reached the verdict, which is the whole point of it.
+          stopPolling();
+          return;
+        }
+        safeFetch(id);
+      }, LIVE_POLL_MS);
+    }
+
+    /**
+     * ONE deadline per submission, not one per connection attempt.
+     *
+     * A proxy that refuses upgrades produces a connect→close→reconnect loop
+     * whose every leg is shorter than the deadline; a timer restarted on each
+     * attempt would never fire in exactly the situation it exists for. So
+     * this no-ops while one is already pending, and is re-armed only after an
+     * ack has cleared it — a connection that worked and then vanished for
+     * good deserves the same fallback as one that never worked at all.
+     */
+    function armDeadline(): void {
+      if (deadline !== null || disposed || terminalRef.current) return;
+      deadline = setTimeout(degrade, LIVE_DEADLINE_MS);
     }
 
     function connect(): void {
@@ -614,6 +704,19 @@ export function useSubmissionSocket(
           // A connection that got this far worked, so the next drop is a
           // blip and deserves the fast rung again.
           attempt = 0;
+          // And it is the proof D152 waits for: cancel the deadline, stop
+          // any poll the deadline already started, and say the feed is live.
+          // A poll left running behind a working socket is precisely the
+          // load this fallback exists to avoid spending.
+          acked = true;
+          if (deadline !== null) {
+            clearTimeout(deadline);
+            deadline = null;
+          }
+          if (pollTimer !== null) {
+            stopPolling();
+            onDegraded?.(false);
+          }
           safeFetch(id);
           return;
         }
@@ -630,20 +733,30 @@ export function useSubmissionSocket(
 
       ws.addEventListener('close', () => {
         if (disposed || terminalRef.current) return;
+        // This connection's proof died with it, and a fresh deadline starts
+        // running — but only because the ack had cleared the old one. While
+        // no ack has ever arrived the original deadline is still pending and
+        // `armDeadline` no-ops, which is what keeps a fast reconnect loop
+        // from postponing the fallback forever.
+        acked = false;
+        armDeadline();
         const delay = RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)]!;
         attempt += 1;
         reconnectTimer = setTimeout(connect, delay);
       });
     }
 
+    armDeadline();
     connect();
 
     return () => {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (deadline !== null) clearTimeout(deadline);
+      stopPolling();
       socket?.close();
     };
-  }, [submissionId, fetchSubmission, terminalRef, onSubscriptionError]);
+  }, [submissionId, fetchSubmission, terminalRef, onSubscriptionError, onDegraded]);
 }
 
 /**
@@ -685,6 +798,14 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /**
+   * D152 — the live feed did not prove itself and the page is polling
+   * instead. Its OWN state, not `submitError`: nothing has failed and there
+   * is nothing for the reader to do, so it is a standing fact rendered
+   * `role="status"` rather than an `alert` that interrupts (D144's reasoning
+   * about the offline banner, applied to the same reader's other silence).
+   */
+  const [liveDegraded, setLiveDegraded] = useState(false);
   /**
    * Seconds left on D80's meter, or `0`. Counted down here rather than left
    * as a one-off message: the button has to be disabled for as long as
@@ -741,7 +862,14 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
     [t],
   );
 
-  useSubmissionSocket(submissionId, fetchSubmission, terminalRef, handleSubscriptionError);
+  // Stable, because it is a dependency of the socket effect: an identity
+  // that changed every render would tear the socket down and reopen it on
+  // every keystroke.
+  const handleDegraded = useCallback((degraded: boolean) => {
+    setLiveDegraded(degraded);
+  }, []);
+
+  useSubmissionSocket(submissionId, fetchSubmission, terminalRef, handleSubscriptionError, handleDegraded);
 
   /**
    * Answers whether the API ACCEPTED the submission — the form clears its
@@ -781,6 +909,10 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
         return false;
       }
       setSubmission(null);
+      // A new attempt starts with a fresh belief about the feed: the socket
+      // effect re-arms its deadline for the new id, and a line left over
+      // from the previous submission would be describing nothing.
+      setLiveDegraded(false);
       setSubmissionId(data.id);
       return true;
     } catch {
@@ -826,6 +958,14 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
       />
       {cooldown > 0 ? <p role="status">{t('submit.cooldown', { seconds: String(cooldown) })}</p> : null}
       {submitError ? <p role="alert">{submitError}</p> : null}
+      {/* Only while there is still something to wait for. Once the verdict
+          is in, "updates are slow" describes nothing — the answer is on the
+          screen (D152). */}
+      {liveDegraded && !terminalRef.current ? (
+        <p role="status" className="muted">
+          {t('submit.liveSlow')}
+        </p>
+      ) : null}
       {submission ? <VerdictPanel submission={submission} /> : null}
     </section>
   );

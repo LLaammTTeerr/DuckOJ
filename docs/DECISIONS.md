@@ -6745,3 +6745,43 @@ the one moment the panel exists for.
 available to consult. Cost if wrong: two optional query parameters and one
 branch in `listVisible`; deleting them restores the previous behaviour exactly,
 because the unfiltered path is untouched.*
+
+## D152 — A live feed has a deadline to prove itself, and the page polls when it misses it
+
+`submit.liveUnavailable` fired on an explicit `error` FRAME — the gateway
+accepted the upgrade and then refused the subscribe. A failed UPGRADE sends no
+frame at all, so a proxy that does not carry `/ws`, a blocked port or a captive
+portal left the verdict panel blank forever while the judge was in fact grading
+the submission. Measured, not imagined: `vite preview` did exactly this, and
+four e2e specs each waited a full minute for a badge the database already had
+at `AC` (D150).
+
+- **Six seconds without a `subscribed` ack and the socket is disbelieved.** The
+  ack, not `open` — `open` was already ruled to be no evidence a connection is
+  any good, and a proxy that answers the upgrade and drops it is the case that
+  ruling exists for. Six is past the reconnect ladder's normal recovery and
+  inside a pupil's patience.
+- **ONE deadline per submission, not one per connection attempt.** A refusing
+  proxy produces a connect→close→reconnect loop whose every leg is shorter than
+  the deadline; a timer restarted on each attempt would never fire in precisely
+  the situation it exists for. It is re-armed only after an ack has cleared it,
+  so a connection that worked and then vanished for good gets the same fallback
+  as one that never worked at all.
+- **The fallback is the endpoint that already exists.** `GET /submissions/{id}`,
+  every four seconds, the same read the socket's own signal frames trigger — so
+  this adds a schedule, not a surface. The first ask is immediate, because in
+  this case the open-time fetch never ran and the panel is not stale but empty.
+  The ack turns the poll off: a poll left running behind a working socket is the
+  load this is meant to avoid spending.
+- **It says so, and it is not an error.** A new sentence, `submit.liveSlow`, in
+  both locales — not a reuse of `liveUnavailable`, whose "refresh to see the
+  latest state" becomes a lie the moment the page refreshes itself, and whose
+  trigger is a permanent refusal with a code. `role="status"`, not `alert`:
+  nothing has failed and there is nothing for the reader to do, which is D144's
+  reasoning about the offline banner applied to the same reader's other
+  silence. It disappears once the verdict is on the screen, because then it
+  describes nothing.
+
+*Ruled by the implementer during the f37 home-and-socket loop, no human
+available to consult. Cost if wrong: two timers in one hook and one line in one
+screen; deleting them restores the previous behaviour, which was silence.*
