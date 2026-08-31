@@ -93,6 +93,11 @@ const NOT_A_DECL = new Set([
   'if', 'for', 'while', 'switch', 'catch', 'return', 'and', 'or', 'eq', 'ne', 'sql', 'select',
   'from', 'where', 'inArray', 'isNull', 'not', 'count', 'values', 'set', 'map', 'filter', 'get',
   'some', 'find', 'insert', 'update', 'delete', 'join', 'innerJoin', 'leftJoin', 'forEach', 'new',
+  // `notInArray` for `inArray`'s reason: a drizzle operator, never a declaration.
+  // Without it a `notInArray(contestParticipations.userId, …)` reads as its own
+  // "function", and the hit is attributed to the operator rather than to the
+  // audited function that contains it — a census entry that names nothing.
+  'notInArray',
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {

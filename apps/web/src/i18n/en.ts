@@ -682,11 +682,14 @@ export const en = {
   'notifications.joinDecidedApproved': ' was approved.',
   'notifications.joinDecidedDeclined': ' was declined.',
   'notifications.roleGranted': 'You are now a {role}.',
+  'notifications.membersImportedPrefix': '{count} members were imported into ',
+  'notifications.membersImportedSuffix': '.',
   // M9. No link: the page to go to is the reader's own security page, which
   // the shell already offers, and a notification that scolded would be wrong
   // — an admin reset is usually one the reader asked for.
   'notifications.clarificationAnsweredPrefix': 'Your question in ',
   'notifications.clarificationAnsweredSuffix': ' has been answered.',
+  'notifications.clarificationAnsweredTeamPrefix': 'Your team’s question in ',
   'notifications.clarificationPublishedPrefix': 'A clarification was published in ',
   'notifications.clarificationPublishedSuffix': '.',
   'notifications.contestAnnouncementPrefix': 'New announcement in ',

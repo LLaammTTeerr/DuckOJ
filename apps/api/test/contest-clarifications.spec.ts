@@ -551,15 +551,15 @@ describe('broadcastRecipients — the notification cap (D59)', () => {
       }
       const ordered = students.map((s) => s.id).sort((a, b) => a - b);
 
-      const capped = await broadcastRecipients(db, contestId, organiser.id, 3);
+      const capped = await broadcastRecipients(db, contestId, [organiser.id], 3);
       expect(capped.userIds).toEqual(ordered.slice(0, 3));
       expect(capped.truncated).toBe(true);
 
-      const whole = await broadcastRecipients(db, contestId, organiser.id, 10);
+      const whole = await broadcastRecipients(db, contestId, [organiser.id], 10);
       expect(whole.userIds).toEqual(ordered);
       // Exactly the cap is NOT truncation — an off-by-one here would log a
       // warning about a room that was fully notified.
-      expect((await broadcastRecipients(db, contestId, organiser.id, 5)).truncated).toBe(false);
+      expect((await broadcastRecipients(db, contestId, [organiser.id], 5)).truncated).toBe(false);
     });
   }, 120_000);
 
@@ -570,7 +570,7 @@ describe('broadcastRecipients — the notification cap (D59)', () => {
       // is the HashAggregate plan on a real over-cap room that returns an
       // arbitrary subset, and no fixture can summon it. So the clause is
       // asserted where it is unambiguous: in the statement itself.
-      const { sql: text } = broadcastRecipientsQuery(db, 1, 2, 3).toSQL();
+      const { sql: text } = broadcastRecipientsQuery(db, 1, [2], 3).toSQL();
       expect(text.toLowerCase()).toMatch(/order by/);
     });
   }, 120_000);
@@ -583,7 +583,7 @@ describe('broadcastRecipients — the notification cap (D59)', () => {
       const student = await insertUser(db, 'cap-student');
       await join(db, contestId, student.id);
 
-      const all = await broadcastRecipients(db, contestId, organiser.id, NOTIFY_CAP);
+      const all = await broadcastRecipients(db, contestId, [organiser.id], NOTIFY_CAP);
       expect(all.userIds).toEqual([student.id]);
       expect(all.truncated).toBe(false);
     });
@@ -620,7 +620,7 @@ describe('broadcastRecipients — the notification cap (D59)', () => {
         .insert(contestParticipations)
         .values({ contestId, userId: captain.id, teamId: team!.id, startTime: new Date(START) });
 
-      const all = await broadcastRecipients(db, contestId, organiser.id, NOTIFY_CAP);
+      const all = await broadcastRecipients(db, contestId, [organiser.id], NOTIFY_CAP);
       expect(all.userIds).toEqual([captain.id, second.id, third.id].sort((a, b) => a - b));
     });
   }, 120_000);
@@ -766,6 +766,101 @@ describe('a team reads its own private clarifications (D119)', () => {
         // A rival on another team still sees nothing private.
         const rival = await rivalAgent.get('/api/v1/contests/d119/clarifications');
         expect(ClarificationList.parse(rival.body).items).toEqual([]);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});
+
+// D137. D119 widened the READ to the whole squad on the strength of a claim
+// about the tell — "the notification set `broadcastRecipientsQuery` already
+// unioned the whole squad" — which is true only of the PUBLISH broadcast. A
+// private answer fires one `notify(row.askedBy)` and nothing else, so the
+// teammates D119 gave the answer to are never told it landed: on contest day
+// the reply is in a feed nobody has been given a reason to open.
+describe('a team is told when its private clarification is answered (D137)', () => {
+  it('tells the asker, tells the teammate in the team’s own words, tells no rival — and does not tell the teammate twice when the same answer is published', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const orgAgent = await agentFor(app, 'd137-org');
+        const organiserId = await userIdOf(db, 'd137-org');
+        const contestId = await seedContest(db, { key: 'd137', createdBy: organiserId });
+        await db
+          .update(contests)
+          .set({ participationMode: 'team', maxTeamSize: 3 })
+          .where(eq(contests.id, contestId));
+
+        const [school] = await db
+          .insert(organizations)
+          .values({ slug: 'd137-school', name: 'Trường' })
+          .returning({ id: organizations.id });
+        await db.insert(contestOrgs).values({ contestId, orgId: school!.id });
+
+        const captainAgent = await agentFor(app, 'd137-cap');
+        await agentFor(app, 'd137-mate');
+        await agentFor(app, 'd137-rival');
+        const captainId = await userIdOf(db, 'd137-cap');
+        const mateId = await userIdOf(db, 'd137-mate');
+        const rivalId = await userIdOf(db, 'd137-rival');
+
+        const [teamA] = await db
+          .insert(teams)
+          .values({ orgId: school!.id, slug: 'd137-a', name: 'Đội A', createdBy: organiserId })
+          .returning({ id: teams.id });
+        const [teamB] = await db
+          .insert(teams)
+          .values({ orgId: school!.id, slug: 'd137-b', name: 'Đội B', createdBy: organiserId })
+          .returning({ id: teams.id });
+        await db.insert(teamMembers).values([
+          { teamId: teamA!.id, userId: captainId },
+          { teamId: teamA!.id, userId: mateId },
+          { teamId: teamB!.id, userId: rivalId },
+        ]);
+        await db.insert(contestParticipations).values([
+          { contestId, userId: captainId, teamId: teamA!.id, startTime: new Date(START) },
+          { contestId, userId: rivalId, teamId: teamB!.id, startTime: new Date(START) },
+        ]);
+
+        const asked = await captainAgent
+          .post('/api/v1/contests/d137/clarifications')
+          .send({ question: 'May our team use the lab printer?' });
+        const clarId = Clarification.parse(asked.body).id;
+
+        // Answered PRIVATELY: no broadcast fires at all, so this notification
+        // is the only thing that can reach the squad.
+        const answered = await orgAgent
+          .patch(`/api/v1/contests/d137/clarifications/${String(clarId)}`)
+          .send({ answer: 'Yes.' });
+        expect(answered.status).toBe(200);
+
+        expect((await feedOf(db, captainId)).items.map((n) => n.kind)).toEqual([
+          'clarification_answered',
+        ]);
+        // Its own kind, not the asker's: "your question was answered" is the
+        // wrong sentence to show somebody who did not ask it.
+        expect((await feedOf(db, mateId)).items.map((n) => n.kind)).toEqual([
+          'clarification_answered_team',
+        ]);
+        expect((await feedOf(db, rivalId)).items).toEqual([]);
+
+        // Published afterwards. The room hears it; the squad already did, and
+        // is left out for exactly the reason the asker is (D31: a second
+        // notification about one answer is noise, not service).
+        const published = await orgAgent
+          .patch(`/api/v1/contests/d137/clarifications/${String(clarId)}`)
+          .send({ visibility: 'public' });
+        expect(published.status).toBe(200);
+        expect((await feedOf(db, rivalId)).items.map((n) => n.kind)).toEqual([
+          'clarification_published',
+        ]);
+        expect((await feedOf(db, mateId)).items.map((n) => n.kind)).toEqual([
+          'clarification_answered_team',
+        ]);
+        expect((await feedOf(db, captainId)).items.map((n) => n.kind)).toEqual([
+          'clarification_answered',
+        ]);
       } finally {
         await app.close();
       }

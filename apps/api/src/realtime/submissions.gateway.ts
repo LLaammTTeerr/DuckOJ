@@ -101,11 +101,32 @@ interface Client {
   actor: Actor;
   subscriptions: Set<number>;
   /**
+   * Ids whose authorization is in flight right now — a reservation against
+   * the cap, held from before `getVisible` is awaited until it answers.
+   *
+   * Without it the cap is a check on a value that cannot have changed yet:
+   * `subscriptions.size` is read synchronously and the `add` happens after
+   * three queries, while `ws` emits every frame that arrived in one read
+   * synchronously and each handler is launched as `void this.onMessage(...)`.
+   * So a burst of N frames all read an empty set, all pass, and all reach the
+   * database — the exact flood the cap exists to make free, plus a
+   * `subscriptions` set that ends up above its own bound. Counted with
+   * `subscriptions` and released in a `finally`, so a refusal costs no slot.
+   */
+  pending: Set<number>;
+  /**
    * Contests this socket receives `contest-activity` for, by canonical key
    * (D95). Organiser-only: every entry got here through
    * `ContestMonitorService.assertMayWatch`.
    */
   contests: Set<string>;
+  /**
+   * `pending`'s twin for `watch-contest`, keyed by the LOWERCASED key the
+   * client sent — the canonical spelling is only known once `assertMayWatch`
+   * answers, and contest keys are case-folded (D8), so lowercasing is what
+   * makes two spellings of one in-flight watch a single reservation.
+   */
+  pendingContests: Set<string>;
   /** Set on each ping, cleared on the matching pong. Still set at the next
    * sweep means the previous ping went unanswered. */
   awaitingPong: boolean;
@@ -268,7 +289,9 @@ export class SubmissionsGateway implements OnModuleDestroy {
     this.clients.set(ws, {
       actor,
       subscriptions: new Set(),
+      pending: new Set(),
       contests: new Set(),
+      pendingContests: new Set(),
       awaitingPong: false,
     });
     // Presence, at once rather than at the next sweep (D95): a competitor who
@@ -379,14 +402,23 @@ export class SubmissionsGateway implements OnModuleDestroy {
       return;
     }
 
+    // A second frame for an id already being authorized is that same
+    // subscription, not a new one: the in-flight call will ack it. Dropped
+    // rather than counted, so a client that repeats itself cannot spend its
+    // own cap on one id.
+    if (client.pending.has(submissionId)) return;
+
     // Checked BEFORE `getVisible`, deliberately: past the cap a flood must
     // cost this process nothing at all, and a refusal that first ran three
     // queries would be the cheapest half of the attack it exists to stop.
-    if (client.subscriptions.size >= this.maxSubscriptions) {
+    // `pending` counts here for exactly that reason — see its declaration:
+    // without it the check is on a set the burst has not had time to grow.
+    if (client.subscriptions.size + client.pending.size >= this.maxSubscriptions) {
       ws.send(JSON.stringify({ type: 'error', code: 'subscription_limit' }));
       return;
     }
 
+    client.pending.add(submissionId);
     try {
       // Authorizing the SUBSCRIPTION, not merely the connection. Without this
       // any signed-in user could watch anyone's grading in real time.
@@ -418,6 +450,12 @@ export class SubmissionsGateway implements OnModuleDestroy {
         this.logger.error(describeError(error));
         ws.send(JSON.stringify({ type: 'error', code: 'internal_error' }));
       }
+    } finally {
+      // Released whatever happened. A reservation kept past a refusal would
+      // let a burst of ids the caller may not see spend the whole cap and
+      // leave the socket unable to subscribe to anything, ever — a denial of
+      // service handed to the client by the bound meant to protect it.
+      client.pending.delete(submissionId);
     }
   }
 
@@ -440,7 +478,8 @@ export class SubmissionsGateway implements OnModuleDestroy {
     // Matched case-insensitively because contest keys are (D8's
     // `contests_key_lower_idx`), so a re-watch spelled differently is still
     // the same watch rather than a second one.
-    const held = [...client.contests].find((k) => k.toLowerCase() === key.toLowerCase());
+    const folded = key.toLowerCase();
+    const held = [...client.contests].find((k) => k.toLowerCase() === folded);
     if (held !== undefined) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'contest-watched', key: held }));
@@ -448,13 +487,20 @@ export class SubmissionsGateway implements OnModuleDestroy {
       return;
     }
 
+    // A repeat of a watch already being authorized is that same watch.
+    // `subscribe`'s rule, folded because contest keys are (D8).
+    if (client.pendingContests.has(folded)) return;
+
     // Checked BEFORE the queries, deliberately: past the cap a flood must
-    // cost this process nothing at all. `subscribe`'s reasoning, unchanged.
-    if (client.contests.size >= this.maxContestWatches) {
+    // cost this process nothing at all. `subscribe`'s reasoning, unchanged —
+    // including `pendingContests`, without which a burst of `watch-contest`
+    // frames all pass a check on a set none of them has had time to grow.
+    if (client.contests.size + client.pendingContests.size >= this.maxContestWatches) {
       ws.send(JSON.stringify({ type: 'error', code: 'contest_watch_limit' }));
       return;
     }
 
+    client.pendingContests.add(folded);
     try {
       const canonical = await this.monitor.assertMayWatch(client.actor, key);
       client.contests.add(canonical);
@@ -476,6 +522,11 @@ export class SubmissionsGateway implements OnModuleDestroy {
         this.logger.error(describeError(error));
         ws.send(JSON.stringify({ type: 'error', code: 'internal_error' }));
       }
+    } finally {
+      // `subscribe`'s `finally`, for `subscribe`'s reason: a refusal —
+      // `contest_not_found` on a contest this caller may not see is the
+      // common one — must not spend a slot.
+      client.pendingContests.delete(folded);
     }
   }
 

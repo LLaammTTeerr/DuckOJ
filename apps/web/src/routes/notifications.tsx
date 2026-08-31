@@ -72,6 +72,28 @@ function line(t: TFunction, item: Item): React.ReactNode {
             : t('notifications.joinDecidedDeclined')}
         </>
       );
+    // `scripts/org-import.ts` tells an org's owners that a roster landed
+    // (D14, in the import's own transaction). It was the one kind the server
+    // ships that this switch had never learned, so it fell through to the
+    // fallback and printed `org_members_imported` — an untranslated
+    // snake_case identifier, in front of a teacher, on the one screen whose
+    // whole job is to be read in Vietnamese.
+    //
+    // The payload's `by` is a user ID, not a username, so it is deliberately
+    // not in the sentence: a bare number names nobody, and resolving it would
+    // be a second request for a line that already says what happened.
+    case 'org_members_imported':
+      return (
+        <>
+          {t('notifications.membersImportedPrefix', {
+            count: typeof p.count === 'number' ? p.count : 0,
+          })}
+          <Link to="/orgs/$slug" params={{ slug }}>
+            {slug}
+          </Link>
+          {t('notifications.membersImportedSuffix')}
+        </>
+      );
     case 'role_granted':
       return (
         <>
@@ -80,10 +102,16 @@ function line(t: TFunction, item: Item): React.ReactNode {
           })}
         </>
       );
-    // The three D31 kinds. All carry `contestKey`, and all read better as
-    // a sentence wrapped around a link to the contest than as a bare line —
+    // The D31 kinds, plus D137's. All carry `contestKey`, and all read better
+    // as a sentence wrapped around a link to the contest than as a bare line —
     // the reader's next move is always "open the contest and look".
+    //
+    // `clarification_answered_team` is a separate kind rather than the same
+    // sentence sent to more people: "your question" is simply false told to a
+    // teammate who did not ask it, and Vietnamese marks the difference in one
+    // word (`của bạn` / `của đội bạn`).
     case 'clarification_answered':
+    case 'clarification_answered_team':
     case 'clarification_published':
     case 'contest_announcement': {
       const contestKey = typeof p.contestKey === 'string' ? p.contestKey : '';
@@ -91,11 +119,13 @@ function line(t: TFunction, item: Item): React.ReactNode {
       const prefix =
         item.kind === 'clarification_answered'
           ? 'notifications.clarificationAnsweredPrefix'
-          : item.kind === 'clarification_published'
-            ? 'notifications.clarificationPublishedPrefix'
-            : 'notifications.contestAnnouncementPrefix';
+          : item.kind === 'clarification_answered_team'
+            ? 'notifications.clarificationAnsweredTeamPrefix'
+            : item.kind === 'clarification_published'
+              ? 'notifications.clarificationPublishedPrefix'
+              : 'notifications.contestAnnouncementPrefix';
       const suffix =
-        item.kind === 'clarification_answered'
+        item.kind === 'clarification_answered' || item.kind === 'clarification_answered_team'
           ? 'notifications.clarificationAnsweredSuffix'
           : item.kind === 'clarification_published'
             ? 'notifications.clarificationPublishedSuffix'

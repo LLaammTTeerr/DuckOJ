@@ -5991,3 +5991,39 @@ contest header whose entire job is to answer "when?".
 available to consult; found by screenshotting the live contest header at 390px. No
 migration: two i18n keys and one pure function.*
 
+## D137 — A team is told what its team may read: a private clarification answer notifies the whole squad, and the later publish leaves them out
+
+D119 widened the clarification feed so a private answer to one member's question
+is the **whole team's** to read, and justified it with a claim about the other
+half of the seam: "the notification set `broadcastRecipientsQuery` already
+unioned the whole squad (D99×D14)". That is true of the **publish broadcast**
+and of nothing else. A private answer runs a different path — one
+`notify(row.askedBy)`, one row, one person — so the teammates D119 gave the
+answer to were never told it had arrived. On contest day the reply sat in a
+feed nobody had been given a reason to open, which is the same captain-only
+failure D101, D105 and B-21 each closed on another surface.
+
+- **`clarification_answered_team`, its own kind.** Not the asker's kind sent to
+  more people: "Câu hỏi của bạn" — *your* question — is simply false told to a
+  member who did not type it, and D14 made `kind` an open string precisely so
+  the client can render the right sentence. Vietnamese marks the difference in
+  one word (`của bạn` / `của đội bạn`), so the two prefixes are two keys.
+- **The recipients are `teammatesInThisContest(askedBy)` minus the asker and
+  minus the answerer**, read on the answering transaction rather than on
+  `this.db`: the notification and the answer it describes land together or not
+  at all, and a recipient list read outside that transaction is a list from a
+  state the write may still roll back. No cap — a squad is bounded by
+  `max_team_size`, not by the room. Empty in an individual round, where the
+  participation's `team_id` is NULL and the joins match nothing.
+- **Whoever has been told is left out of the broadcast.** `broadcastRecipients`
+  now excludes a LIST, not one id. Publishing the same answer afterwards — in
+  the same PATCH or a week later — would otherwise reach the squad a second
+  time about one event, which is exactly the noise D31's one-shot transitions
+  exist to prevent and the reason the asker was already excluded. `notInArray`
+  over a single id compiles to the `<>` the single-exclusion callers emitted
+  before, so an announcement's fan-out is unchanged.
+
+*Ruled by the implementer during the 2026-08-31 B-33 notifications bug hunt, no
+human available to consult; found by reading D119's own justification against
+the code it justified. No migration: one new notification kind, one predicate
+widened from a scalar to a list.*
