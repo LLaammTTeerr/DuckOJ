@@ -28,10 +28,20 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 const { OrgTeams, TeamPage } = await import('../src/routes/teams.js');
+const { LocaleProvider } = await import('../src/i18n/index.js');
 
 function wrap(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
+function wrapInZone(ui: ReactElement, timeZone: string) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <LocaleProvider initialLocale="vi" initialTimeZone={timeZone}>
+      <QueryClientProvider client={client}>{ui}</QueryClientProvider>
+    </LocaleProvider>,
+  );
 }
 
 const ME = { username: 'co-giao', globalRole: 'user' };
@@ -132,6 +142,34 @@ describe('a team’s own page', () => {
     // that produces it, and means nothing yet for a round still running.
     expect(screen.getByRole('link', { name: 'Bảng điểm' })).toBeInTheDocument();
     expect(screen.getByRole('status').textContent).toMatch(/đang thi/i);
+  });
+
+  it('prints a contest start in the account’s own zone (D57), not the browser’s', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/auth/me') return Promise.resolve({ data: ME });
+      return Promise.resolve({
+        data: detail({
+          contests: [
+            {
+              key: 'tinh2026',
+              name: 'Thi tỉnh 2026',
+              // 01:00 UTC is 08:00 in Asia/Ho_Chi_Minh (+7). A raw
+              // `toLocaleString()` would print the runner's zone instead.
+              startTime: '2026-03-01T01:00:00Z',
+              endTime: '2026-03-01T06:00:00Z',
+              running: false,
+              isDisqualified: false,
+              captain: 'anh',
+            },
+          ],
+        }),
+      });
+    });
+    wrapInZone(<TeamPage slug="thpt" teamSlug="doi-1" />, 'Asia/Ho_Chi_Minh');
+
+    expect(await screen.findByRole('heading', { name: 'Đội 1', level: 1 })).toBeInTheDocument();
+    const row = screen.getByRole('link', { name: 'Thi tỉnh 2026' }).closest('tr')!;
+    expect(row.textContent).toContain('08:00');
   });
 
   it('answers one sentence for a team that is missing, hidden, or not the viewer’s', async () => {

@@ -24,7 +24,7 @@ import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { read } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
-import { useT } from '../i18n/index.js';
+import { formatDateTime, useLocale, useT } from '../i18n/index.js';
 
 type TeamSummary =
   paths['/orgs/{slug}/teams']['get']['responses'][200]['content']['application/json']['items'][number];
@@ -355,6 +355,7 @@ function TeamForm({
  */
 export function TeamPage({ slug, teamSlug }: { slug: string; teamSlug: string }) {
   const t = useT();
+  const { locale, timeZone } = useLocale();
   const me = useQuery(meQueryOptions);
   const team = useQuery({
     queryKey: ['org-team', slug, teamSlug],
@@ -424,7 +425,9 @@ export function TeamPage({ slug, teamSlug }: { slug: string; teamSlug: string })
                     {entry.name}
                   </Link>
                 </td>
-                <td>{new Date(entry.startTime).toLocaleString()}</td>
+                {/* The reader's own zone (D57), like every other screen —
+                    a raw `toLocaleString()` here would print the browser's. */}
+                <td>{formatDateTime(entry.startTime, locale, timeZone)}</td>
                 <td>
                   {/* The captain is the account that holds the row (D99) —
                       the one the disqualify control is keyed by, so it is
