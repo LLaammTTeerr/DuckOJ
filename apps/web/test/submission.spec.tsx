@@ -41,6 +41,8 @@ function wrap(ui: React.ReactElement) {
 const DETAIL = {
   id: 42,
   problemCode: 'aplusb',
+  username: 'alice',
+  teamName: null,
   languageKey: 'cpp17',
   source: 'int main() { return 0; }',
   state: 'done',
@@ -85,6 +87,24 @@ describe('SubmissionPage', () => {
     // problem rendered identically.
     const link = await screen.findByRole('link', { name: 'Spring Cup 2026' });
     expect(link).toHaveAttribute('href', '/contests/spring-2026');
+  });
+
+  it('names the submitter, and the team on a team submission (D117)', async () => {
+    get.mockResolvedValue({ data: { ...DETAIL, username: 'bob', teamName: 'Đội Rồng' } });
+    wrap(<SubmissionPage id={42} />);
+
+    // A teammate may open the team's submission, so the page says who made it.
+    const who = await screen.findByRole('link', { name: 'bob' });
+    expect(who).toHaveAttribute('href', '/users/bob');
+    // The team label rides beside the submitter — one team, one entity.
+    expect(who.closest('p')).toHaveTextContent(/đội Đội Rồng/);
+  });
+
+  it('shows no team label for an individual or practice submission', async () => {
+    get.mockResolvedValue({ data: DETAIL });
+    wrap(<SubmissionPage id={42} />);
+    await screen.findByRole('heading', { name: /Bài nộp #42/ });
+    expect(screen.queryByText(/đội /)).toBeNull();
   });
 
   it('says nothing about a contest for a practice submission', async () => {

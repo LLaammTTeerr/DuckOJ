@@ -361,6 +361,10 @@ export const en = {
   'submission.sourceHidden':
     'The source is hidden while this contest is still running. It becomes readable when the window closes.',
   'submission.contest': 'Contest',
+  // D117 — the "submitted by <member> (team <team>)" label: one team is one
+  // entity, so members share visibility of their team's submissions.
+  'submission.submittedBy': 'Submitted by',
+  'submission.teamLabel': 'team {name}',
   // D111 — the "compare with my previous attempt" toggle and its diff view.
   'submission.compare': 'Compare with previous attempt',
   'submission.compareHide': 'Hide comparison',

@@ -339,6 +339,10 @@ export const vi = {
   'submission.sourceHidden':
     'Mã nguồn được ẩn trong khi kỳ thi còn diễn ra. Mã sẽ hiện ra khi hết thời gian thi.',
   'submission.contest': 'Kỳ thi',
+  // D117 — nhãn "nộp bởi <thành viên> (đội <đội>)": một đội là một thực thể,
+  // các thành viên cùng thấy bài nộp của đội mình.
+  'submission.submittedBy': 'Nộp bởi',
+  'submission.teamLabel': 'đội {name}',
   // D111 — nút so sánh với lần nộp trước và khung diff.
   'submission.compare': 'So sánh với lần nộp trước',
   'submission.compareHide': 'Ẩn so sánh',

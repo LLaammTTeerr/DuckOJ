@@ -49,6 +49,7 @@ const SUBMISSION_A = {
   maxPoints: 100,
   contestKey: 'spring-2026',
   contestLabel: 'Spring Cup 2026',
+  teamName: null,
   createdAt: '2026-01-01T00:00:00Z',
 };
 
@@ -64,6 +65,7 @@ const SUBMISSION_B = {
   // A practice submission: no contest, so nothing to link to.
   contestKey: null,
   contestLabel: null,
+  teamName: null,
   createdAt: '2026-01-01T00:00:00Z',
 };
 
@@ -140,6 +142,24 @@ describe('SubmissionsPage', () => {
     // never a link to nowhere, and never blank.
     const rows = screen.getAllByRole('row');
     expect(within(rows[2]!).queryByRole('link', { name: /Spring/ })).toBeNull();
+  });
+
+  it('labels a team submission with "(đội <team>)" beside the submitter (D117)', async () => {
+    mockedGet.mockResolvedValueOnce({
+      data: {
+        items: [{ ...SUBMISSION_A, username: 'bob', teamName: 'Đội Rồng' }],
+        nextCursor: null,
+      },
+      error: undefined,
+      response: new Response(),
+    } as never);
+
+    renderWithClient(<SubmissionsPage />);
+
+    // The submitter is still their own profile link; the team rides beside it.
+    expect(await screen.findByRole('link', { name: 'bob' })).toHaveAttribute('href', '/users/bob');
+    const userCell = screen.getByRole('link', { name: 'bob' }).closest('td')!;
+    expect(userCell).toHaveTextContent(/đội Đội Rồng/);
   });
 
   it('seeds the filters from the deep link, and queries with them from the first request', async () => {

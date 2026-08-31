@@ -137,6 +137,18 @@ export function SubmissionPage({ id }: { id: number }) {
         {s.timeMs !== null ? ` · ${String(s.timeMs)} ms` : ''}
         {s.memoryKb !== null ? ` · ${String(s.memoryKb)} KB` : ''}
       </p>
+      {/* D117: who made this submission, and — for a team contest — the team
+          it belongs to ("nộp bởi <member> (đội <team>)"). A submission page is
+          no longer only ever the viewer's own: a teammate may open their
+          team's contest submission, so the page names who submitted it. Team
+          names are content and are never translated. */}
+      <p>
+        {t('submission.submittedBy')}:{' '}
+        <Link to="/users/$username" params={{ username: s.username }}>
+          {s.username}
+        </Link>
+        {s.teamName ? ` (${t('submission.teamLabel', { name: s.teamName })})` : ''}
+      </p>
       {/* The contest this attempt belongs to, when it belongs to one. Until
           this line, a contest submission and a practice submission to the
           same problem rendered identically — the one fact that distinguishes

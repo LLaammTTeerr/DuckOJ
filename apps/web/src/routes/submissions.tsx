@@ -176,10 +176,16 @@ export function SubmissionsPage({
                     '—'
                   )}
                 </td>
+                {/* D117: a team submission is labelled "nộp bởi <member>
+                    (đội <team>)" — one team is one entity, so every member
+                    shares the row. `teamName` is null for practice and
+                    individual entries; a team name is content, never
+                    translated. */}
                 <td>
                   <Link to="/users/$username" params={{ username: s.username }}>
                     {s.username}
                   </Link>
+                  {s.teamName ? ` (${t('submission.teamLabel', { name: s.teamName })})` : ''}
                 </td>
                 <td>{s.languageKey}</td>
                 <td>
