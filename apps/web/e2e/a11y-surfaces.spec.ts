@@ -106,6 +106,12 @@ async function checkScreen(page: Page, screen: { path: string; ready: (p: Page) 
 }
 
 test.describe('B-27 web-surfaces a11y sweep', () => {
+  // One test, seven screens × four configs, each an axe.run over a painted
+  // page: real work, not a hang. The project default (60s) was sized for a
+  // single-page check and this sweep outgrew it as screens were added — it
+  // went red on an UNMODIFIED live bundle, so raising it here is the honest
+  // fix rather than splitting a sweep whose value is that it is exhaustive.
+  test.setTimeout(240_000);
   test('no serious/critical violations across the new surfaces (light + dark×2 + phone)', async ({ page }) => {
     const admin = adminCredentials();
     await signIn(page, admin.username, admin.password);
