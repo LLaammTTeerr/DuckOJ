@@ -206,4 +206,12 @@ describe('app.css', () => {
     const mark = host.querySelector('.match')!;
     expect(getComputedStyle(mark).textDecorationLine).toContain('underline');
   });
+
+  it('gives the live countdown tabular digits so it does not reflow each second (D118)', () => {
+    // formatCountdown re-renders HH:MM:SS once a second; proportional digits
+    // would change the line width every tick and jitter the header. jsdom's
+    // computed-style layer does not resolve font-variant-numeric, so this
+    // asserts the rule against the source directly.
+    expect(CSS).toMatch(/\.countdown\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
+  });
 });

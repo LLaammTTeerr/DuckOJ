@@ -76,6 +76,15 @@ describe('the header countdown', () => {
     expect(screen.getByRole('timer').textContent).toContain('00:01:30');
   });
 
+  it('carries the .countdown class so its digits are tabular (no per-second reflow)', () => {
+    // The number changes every second; in a proportional face a "1" is
+    // narrower than a "0", so the line jitters sideways once a second unless
+    // the digits are tabular. The class is where app.css pins that (D118 —
+    // "no layout shift each second").
+    wrap(<ContestCountdown startTime={at(2)} endTime={at(100)} />);
+    expect(screen.getByRole('timer')).toHaveClass('countdown');
+  });
+
   it('shows nothing once the contest has finished', () => {
     wrap(<ContestCountdown startTime={at(-100)} endTime={at(-1)} />);
     expect(screen.queryByRole('timer')).toBeNull();

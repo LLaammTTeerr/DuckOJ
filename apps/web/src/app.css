@@ -967,6 +967,15 @@ pre {
   text-underline-offset: 2px;
 }
 
+/* The live contest-header countdown (D118). It re-renders HH:MM:SS once a
+   second, and in the proportional UI face a "1" is narrower than a "0", so
+   without tabular figures the whole line reflows on every tick and the header
+   jitters sideways. `tabular-nums` fixes each digit to one width — the same
+   reason `.num` carries it in the tables — so the number changes in place. */
+.countdown {
+  font-variant-numeric: tabular-nums;
+}
+
 /* The two columns of a similarity comparison. Grid rather than flex so the
    two halves are exactly equal regardless of which program is longer, and
    `minmax(0, 1fr)` because a <pre> with a long line otherwise refuses to
