@@ -50,6 +50,7 @@ import { meQueryOptions } from './me.js';
 import { notificationsQueryOptions } from './routes/notifications.js';
 import { useLocale, useT } from './i18n/index.js';
 import { ThemeToggle } from './theme.js';
+import { Avatar } from './avatar.js';
 
 /** The one breakpoint. Kept in step with `app.css`'s `@media (max-width: 700px)`. */
 export const PHONE_QUERY = '(max-width: 700px)';
@@ -310,8 +311,11 @@ function DesktopNav({ viewer, unread }: { viewer: Viewer | null; unread: number 
               <Link
                 to="/users/$username"
                 params={{ username: viewer.username }}
-                className="nav-me"
+                className="nav-me avatar-name"
               >
+                {/* Decorative — the name is right here, so the avatar is
+                    aria-hidden and the link's accessible name stays the name. */}
+                <Avatar name={viewer.displayName} size={20} />
                 {viewer.displayName}
               </Link>
               <Link to="/me/progress">{t('nav.progress')}</Link>
@@ -521,9 +525,10 @@ function PhoneNav({ viewer, unread }: { viewer: Viewer | null; unread: number })
               <Link
                 to="/users/$username"
                 params={{ username: viewer.username }}
-                className="nav-me"
+                className="nav-me avatar-name"
                 onClick={close}
               >
+                <Avatar name={viewer.displayName} size={20} />
                 {viewer.displayName}
               </Link>
               <Link to="/me/progress" onClick={close}>

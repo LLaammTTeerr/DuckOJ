@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { paths } from '@duckoj/sdk';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { api } from '../api.js';
+import { Avatar } from '../avatar.js';
 import { apiError, read } from '../api-error.js';
 import { formatCountdown, formatPoints } from '../format.js';
 import { meQueryOptions } from '../me.js';
@@ -1116,6 +1117,10 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
             >
               <td className="num">{row.rank}</td>
               <td>
+                {/* One chip per row, on the participant — the team's name for
+                    a team row, a username otherwise (D122). Decorative: the
+                    name links right beside it. */}
+                <Avatar name={row.participant} size={20} />{' '}
                 {teams?.[row.participant] ? (
                   // A team's name is not a username, so it must not link to a
                   // profile — that URL would 404. It links to the school that

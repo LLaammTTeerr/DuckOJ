@@ -4,6 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { hideDuplicateSampleTables } from '@duckoj/statement-samples';
 import { meQueryOptions } from '../me.js';
 import { api, apiError } from '../api.js';
+import { Avatar } from '../avatar.js';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { renderStatement } from '../markdown.js';
 import { verdictToken } from './submit.js';
@@ -692,6 +693,8 @@ function CommentBody(props: {
   return (
     <div className="comment">
       <p className="comment-meta muted">
+        {/* Decorative chip beside the author's name (D122). */}
+        <Avatar name={comment.author.username} size={20} />{' '}
         <Link to="/users/$username" params={{ username: comment.author.username }}>
           {comment.author.username}
         </Link>{' '}

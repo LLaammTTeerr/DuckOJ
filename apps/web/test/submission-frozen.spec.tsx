@@ -69,6 +69,7 @@ describe('a frozen submission', () => {
     get.mockResolvedValue({
       data: {
         id: 43,
+        username: 'alice',
         problemCode: 'aplusb',
         languageKey: 'cpp17',
         source: 'int main(){}',

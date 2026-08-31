@@ -187,12 +187,16 @@ export function Avatar({
   label,
   locale,
 }: {
-  name: string;
+  // Tolerant of a nullish name on purpose: a shared chip that renders once per
+  // scoreboard row must never take a whole page down because one row's name is
+  // missing — a nullish name falls back to `?`, exactly like an empty one.
+  name: string | null | undefined;
   size?: number;
   label?: string;
   locale?: string;
 }): ReactNode {
-  const { background, color } = avatarColors(name);
+  const safeName = name ?? '';
+  const { background, color } = avatarColors(safeName);
   const style: CSSProperties = {
     width: size,
     height: size,
@@ -205,7 +209,7 @@ export function Avatar({
     : ({ 'aria-hidden': true } as const);
   return (
     <span className="avatar" style={style} {...semantics}>
-      {initials(name, locale)}
+      {initials(safeName, locale)}
     </span>
   );
 }

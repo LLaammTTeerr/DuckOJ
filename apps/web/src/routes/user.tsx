@@ -6,6 +6,7 @@ import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { formatPoints } from '../format.js';
 import { formatDate, rankTitle, useLocale, useT } from '../i18n/index.js';
+import { Avatar } from '../avatar.js';
 import { PublicProgressPanel } from './progress.js';
 
 type Profile = paths['/users/{username}']['get']['responses'][200]['content']['application/json'];
@@ -58,7 +59,12 @@ export function UserPage({ username }: { username: string }) {
 
   return (
     <section className="panel">
-      <h1>{user.displayName}</h1>
+      {/* The profile header, larger than the in-line placements. Decorative:
+          the name is the <h1> beside it. */}
+      <div className="avatar-name">
+        <Avatar name={user.displayName} size={44} />
+        <h1>{user.displayName}</h1>
+      </div>
       <p className="muted">
         {user.username}
         {user.globalRole !== 'user' ? ` · ${user.globalRole}` : ''}

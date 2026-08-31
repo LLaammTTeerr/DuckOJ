@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
+import { Avatar } from '../avatar.js';
 import { apiError } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
 import { VerdictPanel, type SubmissionDetail } from './submit.js';
@@ -144,6 +145,8 @@ export function SubmissionPage({ id }: { id: number }) {
           names are content and are never translated. */}
       <p>
         {t('submission.submittedBy')}:{' '}
+        {/* Decorative chip beside the submitter's name (D122). */}
+        <Avatar name={s.username} size={20} />{' '}
         <Link to="/users/$username" params={{ username: s.username }}>
           {s.username}
         </Link>

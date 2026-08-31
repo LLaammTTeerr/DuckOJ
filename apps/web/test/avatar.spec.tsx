@@ -124,6 +124,11 @@ describe('aria semantics', () => {
     expect(node).not.toHaveAttribute('aria-hidden');
   });
 
+  it('tolerates a nullish name, falling back to ? rather than crashing', () => {
+    const { container } = render(<Avatar name={undefined} />);
+    expect(container.querySelector('.avatar')).toHaveTextContent('?');
+  });
+
   it('sizes itself and paints the deterministic colour inline', () => {
     const { container } = render(<Avatar name="Duck" size={40} />);
     const node = container.querySelector<HTMLElement>('.avatar')!;
