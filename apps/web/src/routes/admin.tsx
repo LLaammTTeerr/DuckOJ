@@ -392,9 +392,15 @@ function Operations() {
           </div>
 
           <h3>{t('admin.judgesHeading')}</h3>
+          {/* Six columns do not fit a phone, so the table scrolls sideways —
+              and unlike the lists elsewhere in the app it holds no link or
+              button, so without a tab stop the columns off the right edge are
+              unreachable from a keyboard (WCAG 2.1.1). Same wrapper the
+              problem list and the scoreboard use. */}
           {data.judges.length === 0 ? (
             <p className="muted">{t('admin.noJudges')}</p>
           ) : (
+            <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('admin.judgesHeading')}>
             <table>
               <thead>
                 <tr>
@@ -437,6 +443,7 @@ function Operations() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
 
           {/* Rendered only when something IS blocked, unlike every other
@@ -469,9 +476,12 @@ function Operations() {
           ) : null}
 
           <h3>{t('admin.workersHeading')}</h3>
+          {/* Same as the judge table above: it scrolls on a phone and holds
+              nothing focusable, so the wrapper is what makes it reachable. */}
           {data.workers.length === 0 ? (
             <p className="muted">{t('admin.noWorkers')}</p>
           ) : (
+            <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('admin.workersHeading')}>
             <table>
               <thead>
                 <tr>
@@ -503,6 +513,7 @@ function Operations() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
 
           <h3>{t('admin.failuresHeading')}</h3>

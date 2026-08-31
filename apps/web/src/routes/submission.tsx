@@ -238,7 +238,12 @@ export function SubmissionPage({ id }: { id: number }) {
       {s.sourceHidden ? (
         <p className="muted">{t('submission.sourceHidden')}</p>
       ) : (
-        <pre>
+        // A source line is longer than a phone, so this block scrolls
+        // sideways — and a scroll container that is not a tab stop is a
+        // region no keyboard can move (WCAG 2.1.1; axe flags it
+        // `scrollable-region-focusable`). The name is the heading right
+        // above it, so a screen reader lands on "Mã nguồn", not "region".
+        <pre tabIndex={0} role="region" aria-label={t('submission.source')}>
           <code>{s.source}</code>
         </pre>
       )}
