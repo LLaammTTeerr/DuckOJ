@@ -5505,3 +5505,43 @@ consult. Web-only + this ledger: one component, one CSS block, five call
 sites, no i18n key (every placement is decorative), no migration — nothing
 persists an avatar. Supersedes D9's deferral for the DEFAULT case only; an
 uploaded image stays deferred.*
+
+## D123 — A readable submission source carries client-only copy and download tools
+
+The submission detail page (`/submissions/$id`) shows the source verbatim to
+anyone who may read it — its submitter, a teammate (D117), the contest's
+creator, an admin, or under a problem's `source_access` (D27) — and until now
+that source could only be selected by hand. D123 adds two controls beside it:
+**Sao chép** copies the source to the clipboard, and **Tải xuống** downloads
+it as a file. Both act only on source already on the page — no request leaves
+the browser, no new route, no server round-trip, no stored state.
+
+**Gated on the readable source, reusing one predicate.** The tools render
+only when `sourceVisible` — `!sourceHidden && source !== null`, the same
+variable D111's diff toggle already keys on. A masked (D27) or absent source
+shows neither tool: there is nothing to copy or download.
+
+- **Copy reuses the recovery-codes pattern (D72/security.tsx).**
+  `navigator.clipboard.writeText(source)` inside one try/catch: the clipboard
+  is absent over plain HTTP and in some embedded browsers, where even reading
+  `.writeText` throws — caught the same as a rejected write. Success shows a
+  persistent `role="status"` "Đã sao chép" confirmation (a live region, so a
+  screen reader is told it worked — WCAG 4.1.3); failure shows a graceful
+  `role="alert"` fallback telling the reader to select and copy by hand. The
+  source stays on screen either way, so a failure is never a lost result.
+- **Download is a Blob + object URL, revoked immediately.** A `text/plain`
+  Blob, an object URL, a synthesised `<a download>` clicked once, then
+  `URL.revokeObjectURL` in a `finally` so the handle never outlives the click.
+- **The extension maps from `languageKey`, by exact key.** `cpp17`→`cpp`,
+  `py3`→`py`, `java`→`java`, everything else→`txt`; the filename is
+  `submission-<id>.<ext>`. Exact keys, not a prefix match: a future `cpp20`
+  is its own decision, not a silent inheritance.
+
+Both controls are plain `<button>`s — already 44px tap targets and keyboard
+reachable from app.css — with vi/en labels (D18). Four i18n keys, no
+`prefers-reduced-motion` surface (no animation).
+
+*Ruled by the implementer during the 2026-08-31 f33 loop, no human available
+to consult. Web-only + this ledger: two buttons and four i18n keys on one
+existing page, no DTO field, no endpoint, no migration — the source the tools
+act on is already in the page's DTO.*
