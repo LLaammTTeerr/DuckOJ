@@ -5888,3 +5888,50 @@ and fail every one of those runs.
 
 *Ruled by the implementer during the 2026-08-31 b32 loop, no human available to
 consult. The live stack was not written to.*
+
+## D133 — 0041 repairs the migration production never applied, and the migrator now refuses to lie about it
+
+D131 found the live database holding **34** applied migrations against the tree's 35:
+`0025_dashboard_bounds` (four indexes behind the admin dashboard's bounded queries,
+D47/D100) was authored in a worktree, merged to `main` after a later-stamped migration
+had already reached production, and is therefore invisible to drizzle forever — the
+migrator reads `select … order by created_at desc limit 1` once and runs only entries
+stamped after that row. Confirmed live: `select count(*) from pg_indexes where indexname
+like '%grading_jobs_active%' or '%submissions_recent_fail%'` → **0**.
+
+**`0041_dashboard_bounds_repair` fixes it in the only shape that is safe on both schema
+populations**: four `CREATE INDEX IF NOT EXISTS` copied verbatim from 0025 (partial
+predicates and `DESC NULLS LAST` included), so it is a no-op where the objects exist and
+a repair where they do not. D131 was explicit that re-stamping 0025's journal entry is
+the wrong remedy — that makes drizzle re-run bare `CREATE INDEX` on every database that
+already has them, and fail on all of them — and this does not do that.
+
+**It also back-stamps the ledger**, inserting 0025's `(hash, created_at)` row into
+`drizzle.__drizzle_migrations` when no row with that `created_at` is there. That is a
+different act from re-stamping the journal and a truthful one: the objects 0025 creates
+now exist, so the row is a fact, and it changes nothing about selection (drizzle read
+its high-water mark before the transaction opened). Without it, production's ledger is
+permanently one row short and the guard below would fail every deploy forever.
+
+**The guard is in `runMigrations`, not in a spec, because no spec can catch this class.**
+`packages/db/test/migration-journal.spec.ts` already asserted strict `when` monotonicity,
+journal↔`.sql`↔snapshot bijection, an intact snapshot chain, and a fresh database applying
+every entry — all four passed the entire time production was missing a migration, and all
+four *had to*: the tree was never wrong. The defect exists only in the relationship between
+a journal and one database's ledger. So after the migrator finishes, `runMigrations` reads
+every `created_at` and throws `MigrationDriftError`, naming the tags, if any journal entry
+is absent. Directional on purpose — extra ledger rows (a restored backup, a `when`
+re-chained by `scripts/merge-decisions.py`) are not an error. `DUCKOJ_ALLOW_MIGRATION_DRIFT=1`
+downgrades it to a warning for an operator repairing drift by hand.
+
+**The cost of this ruling is a new way for a deploy to fail.** `scripts/deploy.sh` dies on
+a non-zero migrate before recreating anything, so drift now stops a deployment rather than
+riding along in silence. That is the trade being bought deliberately: D131's whole point was
+that `migrate exited 0` printed nightly over a gap nothing reported.
+
+*Ruled by the implementer during the 2026-08-31 F-36 loop, no human available to consult.
+Migration 0041. Tests: `packages/db/test/migration-journal.spec.ts` (7 cases). Red→green:
+deleting 0041's journal entry reds the repair case with `MigrationDriftError: …
+0025_dashboard_bounds (when=1788078255700)` (the production defect, reproduced); deleting
+only the ledger back-stamp from 0041 reds it too.*
+

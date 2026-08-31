@@ -52,8 +52,24 @@ export class MigrationDriftError extends Error {
   }
 }
 
+/**
+ * `CREATE SCHEMA/TABLE/INDEX IF NOT EXISTS` raises a NOTICE per object that
+ * was already there. Drizzle's own migrator raises two on every single run
+ * (its schema and its ledger table), and 0041's four idempotent indexes add
+ * four more — six lines of noise per migrate, in every deploy log and every
+ * spec file that starts a container. They are the *expected* outcome of an
+ * idempotent statement, so they are dropped; anything else Postgres has to
+ * say still gets printed.
+ */
+const ALREADY_EXISTS = new Set(['42P06', '42P07', '42710']);
+
 export async function runMigrations(url: string): Promise<void> {
-  const sql = postgres(url, { max: 1 });
+  const sql = postgres(url, {
+    max: 1,
+    onnotice: (notice) => {
+      if (!ALREADY_EXISTS.has(notice.code ?? '')) console.warn('[db]', notice.message);
+    },
+  });
   try {
     await migrate(drizzle(sql), { migrationsFolder: MIGRATIONS_FOLDER });
 
