@@ -65,7 +65,7 @@ import {
   type ScoreboardCacheContest,
   type ScoreboardCacheState,
 } from './scoreboard.cache.js';
-import { canViewProblem, loadProblemContext, visibleProblemsWhere } from './problem.visibility.js';
+import { canViewProblem, loadProblemContext, visibleProblemsWhere, actingParticipationWhere } from './problem.visibility.js';
 import {
   bookletToTypst,
   statementSection,
@@ -316,7 +316,13 @@ export class ContestAccessService {
         this.db
           .select({ contestId: contestParticipations.contestId })
           .from(contestParticipations)
-          .where(eq(contestParticipations.userId, userId)),
+          // `actingParticipationWhere`, not `user_id = me` (D113). In a team
+          // contest the participation row is the CAPTAIN's alone, so the bare
+          // comparison hides a teammate's own running round from the home
+          // panel this filter exists to fill — the D99 class B-18, B-19 and
+          // B-21 each found. The invariant guard caught it here before it
+          // shipped, which is the whole point of having it.
+          .where(actingParticipationWhere(this.db, userId)),
       ),
       // `contest_orgs.contest_id` is NOT NULL, so this subquery yields no
       // NULLs and `NOT IN` cannot collapse to unknown for every row — the
