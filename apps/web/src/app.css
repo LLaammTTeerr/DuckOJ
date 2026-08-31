@@ -461,10 +461,24 @@ a:hover {
    44px thumb target this bar is built around, because the target is the
    pill's HEIGHT; the width only has to hold the word. Scoped to `.nav-bar`,
    so the phone's five tabs — which want every pixel of width they can get —
-   are untouched. */
-.nav-bar a,
-.nav-bar button {
+   are untouched, and through `.shell-nav` so it OUT-SPECIFIES the
+   `.shell-nav a` rule below rather than merely tying with it. */
+.shell-nav .nav-bar a,
+.shell-nav .nav-bar button {
   padding: 0 var(--sp-2);
+}
+
+/* A long display name truncates rather than wrapping the whole bar. With the
+   overflow button in place the signed-in admin bar fits 958px with about
+   20px to spare, and a name is the one item on it whose width is user data —
+   "Nguyễn Thị Minh Khai" would put the bar back on two rows. The name stays
+   whole in the DOM (and therefore in every e2e locator that reads it); only
+   its rendering is clipped. */
+.nav-bar .nav-me {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The account overflow (D137). The panel hangs off the button rather than

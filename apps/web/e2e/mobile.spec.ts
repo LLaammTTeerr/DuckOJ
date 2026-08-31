@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { adminCredentials } from './credentials.js';
+import { adminCredentials, studentCredentials } from './credentials.js';
 
 /**
  * Contest day on a phone.
@@ -19,7 +19,7 @@ const PHONE = { width: 390, height: 844 };
 const LAPTOP = { width: 1280, height: 900 };
 
 async function signIn(page: Page): Promise<void> {
-  const who = adminCredentials();
+  const who = studentCredentials();
   await page.goto('/');
   await page.locator('#identifier').fill(who.username);
   await page.locator('#password').fill(who.password);
@@ -103,6 +103,28 @@ test('the problem code and the time stay legible at 390px', async ({ page }) => 
   for (const cell of info!.cells) {
     expect(cell.right, `a cell ends at ${String(cell.right)}px`).toBeLessThanOrEqual(PHONE.width);
   }
+});
+
+/**
+ * The admin's bar is the WIDEST one this app renders — an extra `Quản trị`
+ * pill in the resources cluster on top of everything a pupil carries — so it
+ * is the one worth measuring. This is the only test here that signs in twice.
+ */
+test('the admin bar, the widest one, is also one row at 1280px', async ({ page }) => {
+  const admin = adminCredentials();
+  await page.goto('/');
+  await page.locator('#identifier').fill(admin.username);
+  await page.locator('#password').fill(admin.password);
+  await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  await expect(page.locator('nav.shell-nav').getByRole('link', { name: 'Quản trị' })).toBeVisible();
+  await page.setViewportSize(LAPTOP);
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.waitForTimeout(400);
+  const tops = await page.evaluate(() => {
+    const bar = document.querySelector('.nav-bar') as HTMLElement;
+    return [...new Set([...bar.querySelectorAll('a, button')].map((el) => Math.round(el.getBoundingClientRect().top)))];
+  });
+  expect(tops.length, `the admin bar sits on ${String(tops.length)} lines: ${JSON.stringify(tops)}`).toBe(1);
 });
 
 /**

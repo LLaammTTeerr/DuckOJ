@@ -1038,6 +1038,10 @@ test('feature 11 — a pupil’s progress page paints a heatmap and topic bars a
   await signIn(page, pupil!.username, pupil!.password);
 
   // Reached the way a pupil reaches it — from the nav, in both IAs (D76).
+  // Behind the account overflow since D137: the bar had grown to three rows
+  // at 1280px, so the five account PAGES moved behind one button while the
+  // way OUT, the name, the bell and the language switch stayed on it.
+  await page.locator('nav.shell-nav').getByRole('button', { name: 'Thêm' }).click();
   await page.locator('nav.shell-nav').getByRole('link', { name: 'Tiến độ' }).click();
   await expect(page).toHaveURL(/\/me\/progress$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Tiến độ của tôi' })).toBeVisible();

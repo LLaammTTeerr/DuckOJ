@@ -6070,7 +6070,13 @@ regrouping fits that, only removing something from the row does.
 - Plus 8px off each pill's horizontal padding inside `.nav-bar` only — 152px of air
   across nineteen pills was the difference between one row and two for an admin, who
   carries `Quản trị` as well. The 44px thumb target is the pill's HEIGHT and is
-  untouched. Measured after: 52px tall, every item on one line.
+  untouched. Measured after: 52px tall, every item on one line — for a pupil AND
+  for an admin, whose bar is the widest this app renders.
+- **A long display name truncates rather than wrapping the whole bar.** The
+  admin bar now fits 958px with about 20px to spare, and the name is the one
+  item on it whose width is user data. It stays whole in the DOM — and
+  therefore in every e2e locator that reads it — and only its rendering is
+  clipped.
 
 *Ruled by the implementer during the 2026-08-31 fe2 mobile loop. Cost if wrong: one
 component and one CSS block; the links move back onto the bar by deleting a
