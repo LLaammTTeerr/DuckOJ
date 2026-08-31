@@ -387,32 +387,48 @@ export class OrgAccessService {
     // `request`. Idempotent while one is pending: the partial unique index
     // makes the second insert a no-op rather than a second row an approver
     // would then see twice.
-    const inserted = await this.db
-      .insert(orgJoinRequests)
-      .values({ orgId: row.id, userId: actor.userId })
-      .onConflictDoNothing()
-      .returning({ id: orgJoinRequests.id });
-    // Deciders are notified only when a request row actually appeared —
-    // `returning` is empty on the idempotent re-ask, and re-notifying every
-    // owner each time someone re-clicks would train them to ignore the kind.
-    if (inserted.length > 0) {
-      const [requester] = await this.db
+    //
+    // The row and the notifications about it are ONE transaction, exactly as
+    // `decideRequest` below writes its pair. Not tidiness: the idempotency
+    // above means a request that outlives its own notification can never be
+    // re-raised — the re-ask finds the row, answers `requested`, and tells
+    // nobody — so a single transient failure here would strand a request that
+    // no owner has heard of and the asker cannot ask again.
+    await this.db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(orgJoinRequests)
+        .values({ orgId: row.id, userId: actor.userId })
+        .onConflictDoNothing()
+        .returning({ id: orgJoinRequests.id });
+      // Deciders are notified only when a request row actually appeared —
+      // `returning` is empty on the idempotent re-ask, and re-notifying every
+      // owner each time someone re-clicks would train them to ignore the kind.
+      if (inserted.length === 0) return;
+
+      const [requester] = await tx
         .select({ username: schema.users.username })
         .from(schema.users)
         .where(eq(schema.users.id, actor.userId))
         .limit(1);
-      const deciders = await this.db
-        .select({ userId: orgMembers.userId, role: orgMembers.role })
+      // The role filter belongs in the WHERE, not in a `continue`: this read
+      // used to serialise every row of `org_members` — a province school's
+      // whole roster, the collection D58 bounded on the read side — to find
+      // the two or three people who may decide. And one INSERT rather than a
+      // loop of them: every decider gets the same payload, which is precisely
+      // what `notifyMany` is for.
+      const deciders = await tx
+        .select({ userId: orgMembers.userId })
         .from(orgMembers)
-        .where(eq(orgMembers.orgId, row.id));
-      for (const member of deciders) {
-        if (member.role !== 'owner' && member.role !== 'admin') continue;
-        await this.notifications.notify(this.db, member.userId, 'org_join_requested', {
-          orgSlug: row.slug,
-          username: requester?.username ?? '',
-        });
-      }
-    }
+        .where(
+          and(eq(orgMembers.orgId, row.id), inArray(orgMembers.role, ['owner', 'admin'] as const)),
+        );
+      await this.notifications.notifyMany(
+        tx,
+        deciders.map((member) => member.userId),
+        'org_join_requested',
+        { orgSlug: row.slug, username: requester?.username ?? '' },
+      );
+    });
     return { result: { outcome: 'requested', role: null }, created: false };
   }
 

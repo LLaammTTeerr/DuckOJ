@@ -84,6 +84,51 @@ describe('org join request notifications', () => {
     });
   }, 120_000);
 
+  /**
+   * The request row and the notification about it are ONE fact.
+   *
+   * `decideRequest` already writes both in one transaction — "a decided
+   * request whose notification failed to write rolls back together with it".
+   * `join` did not, and its failure mode is worse than a merely inconsistent
+   * pair: the request is idempotent by a partial unique index, so once a row
+   * exists a re-ask returns `requested` and notifies NOBODY. A notification
+   * that fails once therefore leaves a request that no owner was told about
+   * and that the asker can never raise again — a dead end reachable by a
+   * single transient database error.
+   */
+  it('leaves no request behind when the notification cannot be written, so the asker can ask again', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'n-tx-owner');
+      const hopeful = await insertUser(db, 'n-tx-hopeful');
+      const org = await seedOrg(db, 'n-tx-club');
+      await db.insert(orgMembers).values({ orgId: org.id, userId: owner.id, role: 'owner' });
+
+      const broken = {
+        notify: () => Promise.reject(new Error('notification store is down')),
+        notifyMany: () => Promise.reject(new Error('notification store is down')),
+      } as unknown as NotificationsService;
+      await expect(
+        new OrgAccessService(db, broken).join(actorFor(hopeful.id), 'n-tx-club'),
+      ).rejects.toThrow(/notification store is down/);
+
+      const stranded = await db
+        .select({ id: orgJoinRequests.id })
+        .from(orgJoinRequests)
+        .where(eq(orgJoinRequests.orgId, org.id));
+      expect(stranded).toEqual([]);
+
+      // And the ask still works — the point of rolling back. With the row
+      // left behind, this second call takes the idempotent path, answers
+      // `requested`, and tells the owner nothing at all.
+      const retry = await new OrgAccessService(db, new NotificationsService(db)).join(
+        actorFor(hopeful.id),
+        'n-tx-club',
+      );
+      expect(retry.result.outcome).toBe('requested');
+      expect((await feedOf(db, owner.id)).items).toHaveLength(1);
+    });
+  }, 120_000);
+
   it('the requester hears the decision, approved and rejected alike', async () => {
     await withTestDb(async (db) => {
       const owner = await insertUser(db, 'd-owner');
