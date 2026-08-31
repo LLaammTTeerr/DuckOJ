@@ -18,6 +18,16 @@ import { formatTimestamp, useLocale, useT } from '../i18n/index.js';
 
 type SubmissionDiff = paths['/submissions/{id}/diff']['get']['responses'][200]['content']['application/json'];
 
+// D123 — the file extension a downloaded source takes, per language key. The
+// keys are the API's own `languageKey` values (the same ones submit.tsx and
+// the DTO use); anything without a mapping downloads as plain `.txt` rather
+// than guessing. Exact keys, not a prefix match: `cpp17` is `cpp`, but a
+// future `cpp20` would be its own decision, not a silent inheritance.
+const SOURCE_EXTENSIONS: Record<string, string> = { cpp17: 'cpp', py3: 'py', java: 'java' };
+function sourceExtension(languageKey: string): string {
+  return SOURCE_EXTENSIONS[languageKey] ?? 'txt';
+}
+
 export function SubmissionPage({ id }: { id: number }) {
   const client = useQueryClient();
   const me = useQuery(meQueryOptions);
@@ -34,6 +44,12 @@ export function SubmissionPage({ id }: { id: number }) {
   // D111: the "So sánh với lần nộp trước" toggle. The diff is only fetched
   // once the reader asks for it.
   const [showDiff, setShowDiff] = useState(false);
+  // D123: the source tools' feedback. `copied` renders the persistent
+  // `role="status"` confirmation (it stays put — the reader may look away and
+  // back); `copyError` is the graceful fallback when the clipboard is refused
+  // or absent. Both live here with the other state, above the early returns.
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   const t = useT();
   const { locale, timeZone } = useLocale();
@@ -124,6 +140,44 @@ export function SubmissionPage({ id }: { id: number }) {
   if (!query.data) return null;
   const s = query.data;
 
+  // D123. Both tools act only on source already on screen — no API call, no
+  // new route. They are rendered only when `sourceVisible`, so `s.source` is
+  // a string here; the guard is belt-and-braces for the type.
+  async function copySource(): Promise<void> {
+    if (s.source === null) return;
+    setCopyError(null);
+    try {
+      // `navigator.clipboard` is absent over plain HTTP and in some embedded
+      // browsers, where reading `.writeText` throws synchronously — caught
+      // here just like a rejected write. Same pattern as security.tsx's
+      // recovery-codes copy: the source is on screen either way, so a failure
+      // is a fallback message, never a lost result.
+      await navigator.clipboard.writeText(s.source);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setCopyError(t('submission.copyError'));
+    }
+  }
+
+  function downloadSource(): void {
+    if (s.source === null) return;
+    const blob = new Blob([s.source], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    try {
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `submission-${String(s.id)}.${sourceExtension(s.languageKey)}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } finally {
+      // Revoked in `finally` so the object URL never outlives the click, even
+      // if appending or clicking throws.
+      URL.revokeObjectURL(url);
+    }
+  }
+
   return (
     <section className="panel">
       <h1>{t('submission.title', { id: s.id })}</h1>
@@ -188,6 +242,29 @@ export function SubmissionPage({ id }: { id: number }) {
           <code>{s.source}</code>
         </pre>
       )}
+      {/* D123: copy and download, offered only when there is a source to act
+          on (masked/absent hides them). Both are client-only conveniences
+          over source already on screen — no request leaves the page. */}
+      {sourceVisible ? (
+        <p className="source-tools">
+          <button type="button" onClick={() => void copySource()}>
+            {t('submission.copy')}
+          </button>{' '}
+          <button type="button" onClick={downloadSource}>
+            {t('submission.download')}
+          </button>{' '}
+          {/* A live region, rendered on copy rather than always present, so a
+              screen reader announces the copy worked (WCAG 4.1.3) — the same
+              shape security.tsx uses for its recovery-codes copy. It persists:
+              the reader may glance away and back. */}
+          {copied ? (
+            <span role="status" className="muted">
+              {t('submission.copied')}
+            </span>
+          ) : null}
+          {copyError ? <span role="alert">{copyError}</span> : null}
+        </p>
+      ) : null}
       {/* D111: offered only when the viewer can read this source AND has an
           earlier own attempt to the same problem. */}
       {sourceVisible && previousId !== null ? (

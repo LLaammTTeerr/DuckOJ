@@ -342,6 +342,11 @@ export const vi = {
   'submission.title': 'Bài nộp #{id}',
   'submission.notFound': 'Không có bài nộp này.',
   'submission.source': 'Mã nguồn',
+  // D123 — the client-only source tools beside a readable source.
+  'submission.copy': 'Sao chép',
+  'submission.copied': 'Đã sao chép.',
+  'submission.copyError': 'Không sao chép được. Hãy bôi đen và tự sao chép.',
+  'submission.download': 'Tải xuống',
   'submission.frozen': 'Được ẩn cho tới khi bảng điểm hết đóng băng.',
   'submission.sourceHidden':
     'Mã nguồn được ẩn trong khi kỳ thi còn diễn ra. Mã sẽ hiện ra khi hết thời gian thi.',

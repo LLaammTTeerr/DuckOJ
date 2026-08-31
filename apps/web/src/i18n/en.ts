@@ -360,6 +360,11 @@ export const en = {
   'submission.title': 'Submission #{id}',
   'submission.notFound': 'No such submission.',
   'submission.source': 'Source',
+  // D123 — the client-only source tools beside a readable source.
+  'submission.copy': 'Copy',
+  'submission.copied': 'Copied.',
+  'submission.copyError': 'Could not copy. Select the source and copy it by hand.',
+  'submission.download': 'Download',
   // D23. Hover text on the `?` a frozen row shows instead of a verdict —
   // "there is a result and it is being withheld", never "still grading".
   'submission.frozen': 'Hidden until the scoreboard unfreezes.',
