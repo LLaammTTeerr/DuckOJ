@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
@@ -29,7 +29,11 @@ describe('SubmitForm', () => {
 
   it('disables the button while a submission is in flight', async () => {
     render(<SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy problemCode="aplusb" />);
-    expect(await screen.findByRole('button', { name: /Nộp bài/ })).toBeDisabled();
+    // The NAME changes while it is busy (D148) — a button that still reads
+    // "Nộp bài" and does nothing is indistinguishable, on a slow link, from a
+    // page that ignored the click. Disabled is still the half that makes a
+    // second press impossible.
+    expect(await screen.findByRole('button', { name: /Đang nộp/ })).toBeDisabled();
   });
 });
 
@@ -123,5 +127,67 @@ describe('VerdictPanel compile errors', () => {
     );
     expect(screen.getByText('IE', { selector: 'strong' })).toBeInTheDocument();
     expect(screen.queryByText(/Lỗi biên dịch/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * D148 and D84 on the box the whole judge exists for.
+ */
+describe('SubmitForm — the button tells the truth', () => {
+  function editorWith(source: string): void {
+    const content = screen.getByLabelText(/Mã nguồn/);
+    const view = EditorView.findFromDOM(content.closest('.cm-editor') as HTMLElement)!;
+    act(() => {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: source } });
+    });
+  }
+
+  it('cannot be submitted twice in one tick', async () => {
+    // `busy` is the PARENT's state: it becomes true only after `onSubmit`
+    // has been awaited and a render has gone round, so two presses inside
+    // one tick both saw `blocked === false` and both sent a submission.
+    // On contest day that is two rows on the board and D80's rate limit
+    // answering the second one.
+    const onSubmit = vi.fn(() => new Promise<boolean>(() => undefined));
+    render(<SubmitForm onSubmit={onSubmit} languages={['cpp17']} busy={false} problemCode="aplusb" />);
+    await screen.findByLabelText(/Mã nguồn/);
+    editorWith('int main(){}');
+
+    const button = screen.getByRole('button', { name: /Nộp bài/ });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('says it is submitting, not just going grey', async () => {
+    render(<SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy problemCode="aplusb" />);
+    const button = await screen.findByRole('button', { name: /Đang nộp/ });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('refuses a file too big to be a solution instead of freezing the tab', async () => {
+    render(
+      <SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy={false} problemCode="aplusb" />,
+    );
+    await screen.findByLabelText(/Mã nguồn/);
+    const picker = screen.getByLabelText(/Mở tệp/) as HTMLInputElement;
+    // A pupil picks the wrong thing — a video, a dataset. `file.text()` on it
+    // decodes the whole blob into a string before anything can measure it.
+    const huge = new File(['x'.repeat(300_000)], 'wrong.cpp', { type: 'text/plain' });
+    await userEvent.upload(picker, huge);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/quá lớn|too large/i);
+    // and the buffer they were working in is untouched
+    const content = screen.getByLabelText(/Mã nguồn/);
+    const view = EditorView.findFromDOM(content.closest('.cm-editor') as HTMLElement)!;
+    expect(view.state.doc.length).toBeLessThan(1000);
+  });
+
+  it('names the Ctrl/Cmd+Enter shortcut where the editor is, not in a help page', async () => {
+    render(
+      <SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy={false} problemCode="aplusb" />,
+    );
+    expect(await screen.findByText(/Ctrl\/Cmd \+ Enter/)).toBeInTheDocument();
   });
 });

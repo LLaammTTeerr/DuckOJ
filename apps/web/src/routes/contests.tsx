@@ -7,7 +7,7 @@ import { api } from '../api.js';
 import { Avatar } from '../avatar.js';
 import { apiError, read } from '../api-error.js';
 import { formatCountdownParts, formatPoints } from '../format.js';
-import { LoadError, SkeletonRows, StaleNotice } from '../states.js';
+import { CodeAlert, LoadError, SkeletonRows, StaleNotice, type CodeAlertState } from '../states.js';
 import { meQueryOptions } from '../me.js';
 import { formatDateTime, formatTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
 
@@ -762,7 +762,13 @@ function ClarificationsPanel({
   const [announceBusy, setAnnounceBusy] = useState(false);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [rowBusy, setRowBusy] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * `{ message, code }` (D145): the sentence an organiser reads, and the
+   * server's identifier beside it. Two of the three writers here used to set
+   * `failure.detail ?? failure.code` - the identifier printed AS the message,
+   * which is what D145 replaced in six other places and missed in these.
+   */
+  const [error, setError] = useState<CodeAlertState>(null);
 
   const feed = useQuery({
     queryKey: ['clarifications', contestKey],
@@ -789,7 +795,7 @@ function ClarificationsPanel({
         body: { question, problemCode: askProblem === '' ? null : askProblem },
       });
       if (failure) {
-        setError(failure.detail ?? t('clar.askError'));
+        setError({ message: failure.detail ?? t('clar.askError'), code: failure.code });
         return;
       }
       setQuestion('');
@@ -797,7 +803,7 @@ function ClarificationsPanel({
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
-      setError(t('common.networkError'));
+      setError({ message: t('common.networkError') });
     } finally {
       setAskBusy(false);
     }
@@ -812,13 +818,13 @@ function ClarificationsPanel({
         body: { text: announcement, problemCode: announceProblem === '' ? null : announceProblem },
       });
       if (failure) {
-        setError(failure.detail ?? failure.code);
+        setError({ message: failure.detail ?? t('clar.announceError'), code: failure.code });
         return;
       }
       setAnnouncement('');
       await refresh();
     } catch {
-      setError(t('common.networkError'));
+      setError({ message: t('common.networkError') });
     } finally {
       setAnnounceBusy(false);
     }
@@ -839,12 +845,12 @@ function ClarificationsPanel({
         body,
       });
       if (failure) {
-        setError(failure.detail ?? failure.code);
+        setError({ message: failure.detail ?? t('clar.answerError'), code: failure.code });
         return;
       }
       await refresh();
     } catch {
-      setError(t('common.networkError'));
+      setError({ message: t('common.networkError') });
     } finally {
       setRowBusy(null);
     }
@@ -950,7 +956,7 @@ function ClarificationsPanel({
         <p className="muted">{t('clar.joinToAsk')}</p>
       )}
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? <CodeAlert {...error} /> : null}
       {feed.error ? <LoadError error={feed.error} onRetry={() => void feed.refetch()} /> : null}
       {/* D144 — this feed is the announcement channel, polled every 30 s
           while the round runs, and a contestant reading it has no other way

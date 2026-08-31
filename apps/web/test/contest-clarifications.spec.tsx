@@ -9,7 +9,7 @@
  * and nothing at all once it has finished.
  */
 import type { ReactElement } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -284,5 +284,51 @@ describe('the Q&A panel', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * D145 reached six raw-`code` sites; these two survived it, on the one screen
+ * an organiser uses while a round is running.
+ */
+describe('the clarification feed refuses in sentences, and keeps what was typed', () => {
+  it('a refused announcement reads as a sentence with the identifier beside it', async () => {
+    routeGet({ canEdit: true, joined: true, items: [] });
+    // No `detail` — a refusal the API answers with a code alone, which used to
+    // be printed AS the message: "contest_not_running" and nothing else.
+    post.mockResolvedValue({ data: undefined, error: { code: 'contest_not_running' } });
+    wrap(<ContestPage contestKey="spring" />);
+
+    await userEvent.type(await screen.findByLabelText('Đăng thông báo'), 'Ten minutes left.');
+    await userEvent.click(screen.getByRole('button', { name: 'Đăng' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/không đăng được|could not/i);
+    expect(within(alert).getByText('contest_not_running').tagName).toBe('CODE');
+  });
+
+  it('keeps the announcement in the box when posting it failed', async () => {
+    routeGet({ canEdit: true, joined: true, items: [] });
+    post.mockResolvedValue({ data: undefined, error: { code: 'contest_not_running' } });
+    wrap(<ContestPage contestKey="spring" />);
+
+    const box = await screen.findByLabelText('Đăng thông báo');
+    await userEvent.type(box, 'Ten minutes left.');
+    await userEvent.click(screen.getByRole('button', { name: 'Đăng' }));
+
+    await screen.findByRole('alert');
+    expect(screen.getByLabelText('Đăng thông báo')).toHaveValue('Ten minutes left.');
+  });
+
+  it('a refused answer names itself too, on the row that failed', async () => {
+    routeGet({ canEdit: true, joined: true, items: [QUESTION] });
+    patch.mockResolvedValue({ data: undefined, error: { code: 'clarification_answer_forbidden' } });
+    wrap(<ContestPage contestKey="spring" />);
+
+    await userEvent.type(await screen.findByLabelText('Trả lời #7'), 'Yes.');
+    await userEvent.click(screen.getByRole('button', { name: 'Trả lời' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText('clarification_answer_forbidden').tagName).toBe('CODE');
   });
 });

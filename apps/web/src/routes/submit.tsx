@@ -61,6 +61,23 @@ const DEFAULT_FONT_INDEX = 1;
 /** What a file picker will accept as a solution. */
 const UPLOAD_ACCEPT = '.cpp,.py,.java,.c,.txt';
 
+/**
+ * The largest file worth decoding at all, in BYTES.
+ *
+ * `file.text()` decodes the whole blob into one string before anything can
+ * measure it, so a pupil who picks a video out of their downloads folder used
+ * to freeze the tab — on the shared school machines D76 was written for, with
+ * the contest clock running. `accept` is a filter a file dialog may ignore and
+ * a drag-and-drop does not consult at all.
+ *
+ * Three bytes per code unit is the true worst case for UTF-8 (a 4-byte
+ * sequence is a surrogate PAIR, so two units), which makes this bound exact
+ * rather than a guess: a file above it cannot possibly fit inside
+ * `MAX_SOURCE_CHARS` no matter what it contains, and everything at or below it
+ * is read and left to the counter and `tooLarge` as before.
+ */
+const MAX_UPLOAD_BYTES = MAX_SOURCE_CHARS * 3;
+
 export interface SubmitValues {
   languageKey: string;
   source: string;
@@ -78,7 +95,17 @@ export interface SubmitValues {
 export function SubmitForm(props: {
   onSubmit: (values: SubmitValues) => Promise<boolean> | boolean;
   languages: string[];
+  /**
+   * A submission is IN FLIGHT — and nothing else (D148).
+   *
+   * Split from `disabled` because the button's WORDS depend on the
+   * difference: it may not be pressed during D80's rate-limit cooldown
+   * either, but a button reading "Đang nộp…" while nothing is being sent is a
+   * lie, and the cooldown already says what it is in its own `role="status"`.
+   */
   busy: boolean;
+  /** Unavailable for some reason that is not "working": D80's cooldown. */
+  disabled?: boolean;
   /** Drafts are keyed per (problem, language) — see `editor/drafts.ts`. */
   problemCode: string;
 }) {
@@ -108,7 +135,7 @@ export function SubmitForm(props: {
   const draft = useDraft(props.problemCode, languageKey);
 
   const tooLarge = source.length > MAX_SOURCE_CHARS;
-  const blocked = props.busy || tooLarge;
+  const blocked = props.busy || (props.disabled ?? false) || tooLarge;
 
   /** A change the PUPIL made — the only kind that starts the autosave clock. */
   function edit(next: string): void {
@@ -124,12 +151,29 @@ export function SubmitForm(props: {
    * as well, because the editor's keymap is built once and would otherwise
    * capture the first render's `source` forever.
    */
+  /**
+   * In flight RIGHT NOW, as opposed to `props.busy`, which is the parent's
+   * state and therefore a render behind (D148).
+   *
+   * That gap is a real double submit, not a theoretical one: `onSubmit` is
+   * awaited before the parent can call `setBusy(true)`, so two presses inside
+   * one tick — a double click, Ctrl+Enter held a beat too long — both saw
+   * `blocked === false` and both sent. On contest day that is two rows on the
+   * board and D80's rate limit answering the second.
+   */
+  const inFlight = useRef(false);
+
   async function submit(): Promise<void> {
-    if (blocked) return;
-    const accepted = await props.onSubmit({ languageKey, source });
-    if (accepted) {
-      draft.clear();
-      setRestored(false);
+    if (blocked || inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const accepted = await props.onSubmit({ languageKey, source });
+      if (accepted) {
+        draft.clear();
+        setRestored(false);
+      }
+    } finally {
+      inFlight.current = false;
     }
   }
   const submitRef = useRef(submit);
@@ -164,6 +208,11 @@ export function SubmitForm(props: {
     input.value = '';
     if (!file) return;
     setUploadError(null);
+    // Measured BEFORE `text()`: the point is not to decode it at all.
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError(t('submit.fileTooLarge', { max: MAX_SOURCE_CHARS }));
+      return;
+    }
     try {
       edit(await file.text());
     } catch {
@@ -247,8 +296,12 @@ export function SubmitForm(props: {
       </p>
       {tooLarge ? <p role="alert">{t('submit.sourceTooLarge', { max: MAX_SOURCE_CHARS })}</p> : null}
       {uploadError ? <p role="alert">{uploadError}</p> : null}
-      <button type="submit" disabled={blocked}>
-        {t('submit.submit')}
+      {/* D148 — `disabled` here is the state of the WORLD (a submission in
+          flight, a source past the ceiling the `role="alert"` above just
+          named), never "the form is incomplete"; and while it is busy it says
+          which. */}
+      <button type="submit" disabled={blocked} aria-busy={props.busy}>
+        {props.busy ? t('form.submitting') : t('submit.submit')}
       </button>
     </form>
   );
@@ -767,7 +820,8 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
       <SubmitForm
         onSubmit={handleSubmit}
         languages={LANGUAGES}
-        busy={busy || cooldown > 0}
+        busy={busy}
+        disabled={cooldown > 0}
         problemCode={problemCode}
       />
       {cooldown > 0 ? <p role="status">{t('submit.cooldown', { seconds: String(cooldown) })}</p> : null}
