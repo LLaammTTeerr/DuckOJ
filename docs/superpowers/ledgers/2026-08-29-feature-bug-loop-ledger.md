@@ -133,3 +133,4 @@
 - B-27 DONE, merged: comment textarea labels + countdown tabular-nums; live axe sweep clean across light/dark(both paths)/phone/print on all new surfaces; web 575→(rebuilt), pushed.
 - e2e 44/44 (my run) after F-32/B-27. Shifted ratio to hunts: B-28 deep judging-correctness + counter-consistency (D100) + soak (worktree, D123–D126); F-33 small download/copy source (main, D123).
 - F-33 DONE (6207bcd..93c0a8a, on main): copy/download source tools (D123); web 598/598, rebuilt, CSP guard green, pushed.
+- B-28 DONE, merged (8cdb25d): HIGH silent counter drift in recomputeContestProblemStats (missing FOR UPDATE, skipped D100 lock head) → verdict deltas lost, solvers drift; fixed + ON CONFLICT on solvers insert. Matrix/disconnect/requeue/rate-limit cleared; soak 25 graded, counters exact. Deployed api+judged; pushed.
