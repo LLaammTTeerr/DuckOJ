@@ -142,3 +142,4 @@
 - e2e after F-34/B-29 deploy: 44/44 on live.
 - B-30 DONE, merged (8a317a4..27d07e7): 3 bigint id-overflow 500s → 422/404/400; route-fuzz had lost ALL write coverage since D82 (no Origin) — restored + guarded; new runtime-route↔OpenAPI parity spec (114 routes). api 1127/1127. Deployed; pushed.
 - Dispatched B-31 data-integrity sweep (worktree: FK ON DELETE audit, scripts/integrity-check.ts run live read-only, uniqueness indexes; D126–D128, migration 0040 if justified) and F-35 printable seat slips (main, D129).
+- F-35 DONE (9f89754..bab8717, main): printable seat slips (D129, typst, no passwords per D61); api 1147/1147, web 604; deployed; pushed.
