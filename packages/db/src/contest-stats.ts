@@ -214,6 +214,24 @@ export async function recomputeContestProblemStats(
   if (contestProblemIds.length === 0) return;
   const ids = sql`${sql.param(contestProblemIds)}::bigint[]`;
 
+  // Lock every submission these contest problems own, FIRST — the same
+  // `submissions` step at the head of the lock hierarchy every incremental
+  // writer takes, which this path used to skip entirely. Without it the two
+  // reads below run on a plain snapshot: a `judged` `writeTerminal` that
+  // commits its verdict (and its own counter delta) between this snapshot and
+  // the absolute `SET = excluded` upsert is then silently overwritten —
+  // `accepted`/`solvers` drift DOWN by that verdict and the cached `solvers`
+  // stops matching the set it counts, until the next recompute. Locking the
+  // rows makes such a write either land before the snapshot or wait until this
+  // transaction commits and then apply its delta on the recomputed base.
+  await db.execute(sql`
+    select s.id
+      from contest_submissions cs
+      join submissions s on s.id = cs.submission_id
+     where cs.contest_problem_id = any(${ids})
+     for update of s
+  `);
+
   // The set first, then its cached count — the same order every incremental
   // writer takes, so the two paths cannot deadlock against each other.
   await db.execute(sql`
@@ -228,6 +246,13 @@ export async function recomputeContestProblemStats(
      where cs.contest_problem_id = any(${ids})
        and s.verdict = 'AC'
      group by cs.contest_problem_id, part.user_id
+    -- Idempotent under a concurrent recompute of the same problem (an
+    -- organiser's ?recompute=1 while a whole-problem rejudge recomputes, or
+    -- two organisers at once): the incremental writer's insert already carries
+    -- this, and without it here the second recompute's DELETE cannot see the
+    -- first's uncommitted rows, re-inserts them, and dies on the primary key —
+    -- 500ing the repair button at the one moment it is needed.
+    on conflict do nothing
   `);
   await db.execute(sql`
     insert into contest_problem_stats
