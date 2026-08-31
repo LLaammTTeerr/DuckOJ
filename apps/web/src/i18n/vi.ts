@@ -654,6 +654,7 @@ export const vi = {
   'notifications.roleGranted': 'Bạn hiện có quyền {role}.',
   'notifications.clarificationAnsweredPrefix': 'Câu hỏi của bạn ở ',
   'notifications.clarificationAnsweredSuffix': ' đã được trả lời.',
+  'notifications.clarificationAnsweredTeamPrefix': 'Câu hỏi của đội bạn ở ',
   'notifications.clarificationPublishedPrefix': 'Có câu hỏi được công bố ở ',
   'notifications.clarificationPublishedSuffix': '.',
   'notifications.contestAnnouncementPrefix': 'Thông báo mới ở ',

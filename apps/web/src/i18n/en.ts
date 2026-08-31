@@ -687,6 +687,7 @@ export const en = {
   // — an admin reset is usually one the reader asked for.
   'notifications.clarificationAnsweredPrefix': 'Your question in ',
   'notifications.clarificationAnsweredSuffix': ' has been answered.',
+  'notifications.clarificationAnsweredTeamPrefix': 'Your team’s question in ',
   'notifications.clarificationPublishedPrefix': 'A clarification was published in ',
   'notifications.clarificationPublishedSuffix': '.',
   'notifications.contestAnnouncementPrefix': 'New announcement in ',

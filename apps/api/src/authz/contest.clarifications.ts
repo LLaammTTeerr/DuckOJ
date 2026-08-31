@@ -14,7 +14,7 @@
  * become the place a private contest's existence leaks.
  */
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, notInArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   contestClarifications,
@@ -79,8 +79,8 @@ export const FEED_CAP = 200;
 
 /**
  * The recipients of one broadcast: every distinct participant of the contest
- * except `excludeUserId`, in **user-id order**, and whether the cap cut the
- * room short.
+ * except `excludeUserIds` — everyone this same answer has already reached —
+ * in **user-id order**, and whether the cap cut the room short.
  *
  * The ordering is the point. `.limit(cap)` with no `ORDER BY` is not a cap,
  * it is a lottery: Postgres is free to hand back whatever the scan reaches
@@ -101,10 +101,10 @@ export const FEED_CAP = 200;
 export async function broadcastRecipients(
   tx: Db,
   contestId: number,
-  excludeUserId: number,
+  excludeUserIds: readonly number[],
   cap: number,
 ): Promise<{ userIds: number[]; truncated: boolean }> {
-  const rows = await broadcastRecipientsQuery(tx, contestId, excludeUserId, cap);
+  const rows = await broadcastRecipientsQuery(tx, contestId, excludeUserIds, cap);
   return { userIds: rows.slice(0, cap).map((row) => row.userId), truncated: rows.length > cap };
 }
 
@@ -119,7 +119,19 @@ export async function broadcastRecipients(
  * summoned from a test fixture. The clause is asserted on the compiled SQL
  * instead, which is deterministic and is exactly the property at issue.
  */
-export function broadcastRecipientsQuery(tx: Db, contestId: number, excludeUserId: number, cap: number) {
+export function broadcastRecipientsQuery(
+  tx: Db,
+  contestId: number,
+  excludeUserIds: readonly number[],
+  cap: number,
+) {
+  // A LIST, not one id (D137). "Who has already been told" grew a second
+  // member the moment a private answer started notifying the asker's squad:
+  // publishing that same answer afterwards would otherwise reach them a
+  // second time, which is the noise D31's one-shot transitions exist to
+  // prevent. `notInArray` over one id compiles to the same `<>` this used to
+  // emit, so the single-exclusion callers are unchanged.
+  const excluded = excludeUserIds.length > 0 ? [...excludeUserIds] : [-1];
   // The two ways a person competes here, D101's "participants online" union.
   // A team is ONE participation held by whichever member pressed Join (D99),
   // so `contest_participations.user_id` names only the captain; the rest of
@@ -134,13 +146,18 @@ export function broadcastRecipientsQuery(tx: Db, contestId: number, excludeUserI
     .select({ userId: contestParticipations.userId })
     .from(contestParticipations)
     .where(
-      and(eq(contestParticipations.contestId, contestId), ne(contestParticipations.userId, excludeUserId)),
+      and(
+        eq(contestParticipations.contestId, contestId),
+        notInArray(contestParticipations.userId, excluded),
+      ),
     );
   const members = tx
     .select({ userId: teamMembers.userId })
     .from(contestParticipations)
     .innerJoin(teamMembers, eq(teamMembers.teamId, contestParticipations.teamId))
-    .where(and(eq(contestParticipations.contestId, contestId), ne(teamMembers.userId, excludeUserId)));
+    .where(
+      and(eq(contestParticipations.contestId, contestId), notInArray(teamMembers.userId, excluded)),
+    );
   return individuals
     .union(members)
     .orderBy(asc(sql`user_id`))
@@ -256,7 +273,7 @@ export class ContestClarificationsService {
           visibility: 'public',
         })
         .returning({ id: contestClarifications.id });
-      await this.broadcast(tx, contest, row!.id, 'contest_announcement', actor.userId);
+      await this.broadcast(tx, contest, row!.id, 'contest_announcement', [actor.userId]);
       return this.byId(tx, row!.id);
     });
   }
@@ -334,17 +351,40 @@ export class ContestClarificationsService {
         })
         .where(eq(contestClarifications.id, row.id));
 
+      // D137 — the asker's SQUAD. D119 gave the whole team the right to read
+      // a privately-answered clarification on the strength of a claim about
+      // the notification that was only ever true of the publish broadcast: a
+      // private answer fires one row, to one person, so the teammates who may
+      // now read the reply were never told it exists. Computed once for both
+      // branches below — the same people are told by the first and left out
+      // by the second — and empty in an individual round, where the
+      // participation's `team_id` is NULL and the joins match nothing.
+      const squad =
+        firstAnswer || (!wasPublished && nowPublished)
+          ? await this.teamRecipients(tx, contest.id, row.askedBy, actor.userId)
+          : [];
+
       if (firstAnswer && row.askedBy !== actor.userId) {
-        await this.notifications.notify(tx, row.askedBy, 'clarification_answered', {
+        const payload = {
           contestKey: contest.key,
           contestName: contest.name,
           clarificationId: row.id,
-        });
+        };
+        await this.notifications.notify(tx, row.askedBy, 'clarification_answered', payload);
+        // Its OWN kind, not the asker's: "your question was answered" is the
+        // wrong sentence to put in front of somebody who did not ask it, and
+        // D14's `kind` is an open string precisely so the client can render
+        // the right one.
+        await this.notifications.notifyMany(tx, squad, 'clarification_answered_team', payload);
       }
       if (!wasPublished && nowPublished) {
         // The asker is excluded: they were told the answer landed, and
-        // hearing about their own question twice is noise, not service.
-        await this.broadcast(tx, contest, row.id, 'clarification_published', row.askedBy);
+        // hearing about their own question twice is noise, not service. So is
+        // the squad, for exactly that reason (D137).
+        await this.broadcast(tx, contest, row.id, 'clarification_published', [
+          row.askedBy,
+          ...squad,
+        ]);
       }
       return this.byId(tx, row.id);
     });
@@ -381,10 +421,10 @@ export class ContestClarificationsService {
    * first join matches nothing) — which keeps individual rounds exactly as they
    * were.
    */
-  private teammatesInThisContest(contestId: number, userId: number) {
+  private teammatesInThisContest(contestId: number, userId: number, db: Db = this.db) {
     const mineOnTeam = alias(teamMembers, 'clar_my_team');
     const teammateOnTeam = alias(teamMembers, 'clar_teammate');
-    return this.db
+    return db
       .selectDistinct({ userId: teammateOnTeam.userId })
       .from(contestParticipations)
       .innerJoin(
@@ -396,6 +436,32 @@ export class ContestClarificationsService {
       )
       .innerJoin(teammateOnTeam, eq(teammateOnTeam.teamId, contestParticipations.teamId))
       .where(eq(contestParticipations.contestId, contestId));
+  }
+
+  /**
+   * The asker's teammates in this contest, minus the asker and minus whoever
+   * is doing the answering — the recipients of `clarification_answered_team`
+   * (D137), and the people the publish broadcast must then leave out.
+   *
+   * Read on `tx`, not `this.db`: the notification and the answer it describes
+   * are one transaction (`NotificationsService.notify`'s own contract), and a
+   * recipient list read outside it is a list from a state the write may roll
+   * back. Sorted, for D59's reason — a deterministic set can be reproduced.
+   *
+   * No cap: a team is bounded by `max_team_size`, which is a handful, so this
+   * is nothing like the room-sized fan-out `NOTIFY_CAP` exists for.
+   */
+  private async teamRecipients(
+    tx: Db,
+    contestId: number,
+    askedBy: number,
+    answeredBy: number,
+  ): Promise<number[]> {
+    const rows = await this.teammatesInThisContest(contestId, askedBy, tx);
+    return rows
+      .map((row) => row.userId)
+      .filter((id) => id !== askedBy && id !== answeredBy)
+      .sort((a, b) => a - b);
   }
 
   async list(actor: Actor | null, key: string): Promise<ClarificationListDto> {
@@ -441,21 +507,21 @@ export class ContestClarificationsService {
    * Every distinct participant of this contest, capped, in **one** INSERT.
    *
    * `selectDistinct` matters: a person holding a live participation plus two
-   * virtual attempts is one recipient, not three. `excludeUserId` keeps the
-   * announcer (or, on a publish, the asker who was already told) out of
-   * their own broadcast.
+   * virtual attempts is one recipient, not three. `excludeUserIds` keeps the
+   * announcer — or, on a publish, the asker and the squad who were already
+   * told (D137) — out of a broadcast about something they have heard.
    */
   private async broadcast(
     tx: Db,
     contest: ContestRef,
     clarificationId: number,
     kind: string,
-    excludeUserId: number,
+    excludeUserIds: readonly number[],
   ): Promise<void> {
     const { userIds, truncated } = await broadcastRecipients(
       tx,
       contest.id,
-      excludeUserId,
+      excludeUserIds,
       NOTIFY_CAP,
     );
     if (truncated) {

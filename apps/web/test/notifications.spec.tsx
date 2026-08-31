@@ -227,4 +227,29 @@ describe('contest clarification notifications', () => {
     expect(screen.queryByText('clarification_answered')).toBeNull();
     expect(screen.queryByText('contest_announcement')).toBeNull();
   });
+
+  // D137. The teammate did not type the question, so the asker's sentence —
+  // "Câu hỏi **của bạn**" — is a false statement about them, which is why the
+  // server sends a kind of its own rather than the same one to more people.
+  it('gives a teammate its own sentence, never the asker’s', async () => {
+    get.mockResolvedValue({
+      data: {
+        unreadCount: 1,
+        items: [
+          {
+            id: 31,
+            kind: 'clarification_answered_team',
+            payload: { contestKey: 'spring', contestName: 'Spring Open', clarificationId: 7 },
+            readAt: null,
+            createdAt: '2026-08-01T00:00:00Z',
+          },
+        ],
+      },
+    });
+    wrap(<NotificationsPage />);
+
+    expect(await screen.findByText(/Câu hỏi của đội bạn ở/)).toBeInTheDocument();
+    expect(screen.queryByText('clarification_answered_team')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Spring Open' })).toBeInTheDocument();
+  });
 });
