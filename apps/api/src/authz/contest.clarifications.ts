@@ -14,7 +14,7 @@
  * become the place a private contest's existence leaks.
  */
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, asc, desc, eq, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   contestClarifications,
@@ -367,6 +367,34 @@ export class ContestClarificationsService {
    * start fifteen minutes late" notice is exactly what a pre-start
    * announcement is for.
    */
+  /**
+   * The user ids who share one of `userId`'s teams in this contest — the
+   * teammates whose private clarifications are the caller's to read (D119).
+   *
+   * Two joins onto `team_members`: one pins the participation to a team the
+   * caller is on, the other enumerates that team's roster. Uncorrelated, so it
+   * is evaluated once for the whole `list` query rather than per row, and empty
+   * for an individual contest (the participation's `teamId` is null, so the
+   * first join matches nothing) — which keeps individual rounds exactly as they
+   * were.
+   */
+  private teammatesInThisContest(contestId: number, userId: number) {
+    const mineOnTeam = alias(teamMembers, 'clar_my_team');
+    const teammateOnTeam = alias(teamMembers, 'clar_teammate');
+    return this.db
+      .selectDistinct({ userId: teammateOnTeam.userId })
+      .from(contestParticipations)
+      .innerJoin(
+        mineOnTeam,
+        and(
+          eq(mineOnTeam.teamId, contestParticipations.teamId),
+          eq(mineOnTeam.userId, userId),
+        ),
+      )
+      .innerJoin(teammateOnTeam, eq(teammateOnTeam.teamId, contestParticipations.teamId))
+      .where(eq(contestParticipations.contestId, contestId));
+  }
+
   async list(actor: Actor | null, key: string): Promise<ClarificationListDto> {
     const contest = await this.contests.loadVisible(actor, key);
     const runsIt = canRunContest(actor, contest);
@@ -374,6 +402,17 @@ export class ContestClarificationsService {
       ? or(
           eq(contestClarifications.visibility, 'public'),
           eq(contestClarifications.askedBy, actor.userId),
+          // D119 — a team is ONE entity (D99/D117): a private clarification a
+          // teammate asked, answered per-team without publishing, is the whole
+          // team's to read. This is the read twin of the recipient set
+          // `broadcastRecipientsQuery` already unions (D99×D14) — without it
+          // the notification promised the squad a reply this endpoint then
+          // showed only the one member who typed the question. Scoped to teams
+          // that hold a participation in THIS contest, so it is empty for an
+          // individual round (teamId is null there) and cannot leak across
+          // contests. `askedBy` is a user id; `teammatesInThisContest` is the
+          // set of user ids sharing one of the caller's contest teams.
+          inArray(contestClarifications.askedBy, this.teammatesInThisContest(contest.id, actor.userId)),
         )
       : eq(contestClarifications.visibility, 'public');
     const scope = eq(contestClarifications.contestId, contest.id);

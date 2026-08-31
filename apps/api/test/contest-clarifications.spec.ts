@@ -690,3 +690,85 @@ describe('the feed is bounded (D63)', () => {
     });
   }, 120_000);
 });
+
+// D119. A team is ONE entity (D99/D117): a submission its captain made is its
+// teammate's to read, and a clarification its member asked — and had answered
+// privately, per-team, without publishing to the whole room — must be too.
+// The list filter was `askedBy = me`, team-blind, so the notification set
+// (which already unions the squad, D99×D14 above) promised the team a reply
+// the read endpoint then hid from everyone but the one member who typed it.
+describe('a team reads its own private clarifications (D119)', () => {
+  it('shows a private answer to the asker’s teammate, and to no rival', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const orgAgent = await agentFor(app, 'd119-org');
+        const organiserId = await userIdOf(db, 'd119-org');
+        const contestId = await seedContest(db, { key: 'd119', createdBy: organiserId });
+        await db
+          .update(contests)
+          .set({ participationMode: 'team', maxTeamSize: 3 })
+          .where(eq(contests.id, contestId));
+
+        const [school] = await db
+          .insert(organizations)
+          .values({ slug: 'd119-school', name: 'Trường' })
+          .returning({ id: organizations.id });
+        await db.insert(contestOrgs).values({ contestId, orgId: school!.id });
+
+        const captainAgent = await agentFor(app, 'd119-cap');
+        const mateAgent = await agentFor(app, 'd119-mate');
+        const rivalAgent = await agentFor(app, 'd119-rival');
+        const captainId = await userIdOf(db, 'd119-cap');
+        const mateId = await userIdOf(db, 'd119-mate');
+        const rivalId = await userIdOf(db, 'd119-rival');
+
+        const [teamA] = await db
+          .insert(teams)
+          .values({ orgId: school!.id, slug: 'doi-a', name: 'Đội A', createdBy: organiserId })
+          .returning({ id: teams.id });
+        const [teamB] = await db
+          .insert(teams)
+          .values({ orgId: school!.id, slug: 'doi-b', name: 'Đội B', createdBy: organiserId })
+          .returning({ id: teams.id });
+        await db.insert(teamMembers).values([
+          { teamId: teamA!.id, userId: captainId },
+          { teamId: teamA!.id, userId: mateId },
+          { teamId: teamB!.id, userId: rivalId },
+        ]);
+        // ONE participation per team, on the captain's account (D99).
+        await db.insert(contestParticipations).values([
+          { contestId, userId: captainId, teamId: teamA!.id, startTime: new Date(START) },
+          { contestId, userId: rivalId, teamId: teamB!.id, startTime: new Date(START) },
+        ]);
+
+        // The captain asks; the organiser answers PRIVATELY (no publish).
+        const asked = await captainAgent
+          .post('/api/v1/contests/d119/clarifications')
+          .send({ question: 'May our team use the lab printer?' });
+        expect(asked.status).toBe(201);
+        const clarId = Clarification.parse(asked.body).id;
+        const answered = await orgAgent
+          .patch(`/api/v1/contests/d119/clarifications/${String(clarId)}`)
+          .send({ answer: 'Yes.' });
+        expect(answered.status).toBe(200);
+        expect(Clarification.parse(answered.body)).toMatchObject({
+          answer: 'Yes.',
+          visibility: 'private',
+        });
+
+        // The teammate — who did not ask — reads the team's own answer.
+        const mate = await mateAgent.get('/api/v1/contests/d119/clarifications');
+        const mateItems = ClarificationList.parse(mate.body).items;
+        expect(mateItems.map((c) => c.id)).toContain(clarId);
+        expect(mateItems.find((c) => c.id === clarId)?.answer).toBe('Yes.');
+
+        // A rival on another team still sees nothing private.
+        const rival = await rivalAgent.get('/api/v1/contests/d119/clarifications');
+        expect(ClarificationList.parse(rival.body).items).toEqual([]);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});

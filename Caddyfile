@@ -110,9 +110,14 @@
 		# runs author-controlled statement HTML through `dangerouslySetInnerHTML`
 		# (apps/web/src/markdown.ts sanitises it, this is the second wall).
 		#
-		# - `script-src 'self'`: the Vite build emits only external, hashed
-		#   module scripts and NO inline scripts (see apps/web/index.html), so
-		#   no `'unsafe-inline'`/nonce is needed and injected `<script>` cannot run.
+		# - `script-src 'self' 'sha256-…'`: the Vite build emits external, hashed
+		#   module scripts, plus the ONE inline pre-paint theme setter D116 added
+		#   to apps/web/index.html (kept inline so `data-theme` is set before the
+		#   first paint — an external fetch would flash). `script-src 'self'`
+		#   alone blocked it on every page (a CSP violation the browser logs, and
+		#   the whole Playwright suite went red on it), so its exact sha256 is
+		#   allowed — NOT `'unsafe-inline'`, so an injected `<script>` still
+		#   cannot run. security-headers.spec.ts pins the hash to the file (D120).
 		# - `style-src 'self' 'unsafe-inline'`: KaTeX emits inline `style="…"`
 		#   attributes on every rendered formula, so inline styles must be
 		#   allowed or maths renders unstyled (double MathML). This is the one
@@ -125,7 +130,7 @@
 		# - `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`,
 		#   `form-action 'self'`: no plugins, no `<base>` hijack, no framing,
 		#   no cross-origin form posts.
-		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+		header Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-R/9xAxzWcnH3E29zWwBbOcYKL7O8FSm3XA5wy8dQK7c='; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 		root * /srv/web
 		try_files {path} /index.html
 		file_server

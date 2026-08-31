@@ -12,6 +12,7 @@
 // proxy up. The empirical half — a throwaway `caddy` container serving this
 // file and answering the headers — was run by hand during the fix.
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -67,5 +68,23 @@ describe('Caddy security headers', () => {
     expect(policy).toMatch(/base-uri 'self'/);
     expect(policy).toMatch(/frame-ancestors 'none'/);
     expect(policy).toMatch(/form-action 'self'/);
+  });
+
+  // D120. index.html carries ONE inline <script> (D116's pre-paint theme
+  // setter, added after this CSP was written), and `script-src 'self'` with no
+  // hash blocks it — a CSP violation the browser logs on EVERY page, which took
+  // the whole Playwright suite red against the live stack. The fix is the
+  // script's sha256 in script-src, never `'unsafe-inline'`; this pins the two
+  // together so index.html and the Caddyfile can never silently diverge again.
+  it('allows index.html’s pre-paint theme bootstrap by its exact hash (D120)', () => {
+    const indexHtml = readFileSync(join(repoRoot, 'apps', 'web', 'index.html'), 'utf8');
+    const inline = /<script>([\s\S]*?)<\/script>/.exec(indexHtml);
+    expect(inline, 'apps/web/index.html has no inline <script> to hash').not.toBeNull();
+    const hash = 'sha256-' + createHash('sha256').update(inline![1]!, 'utf8').digest('base64');
+    const csp = /Content-Security-Policy\s+"([^"]+)"/.exec(caddyfile)![1]!;
+    const scriptSrc = /script-src ([^;]+)/.exec(csp)![1]!;
+    expect(scriptSrc, `script-src must carry the theme-bootstrap hash ${hash}`).toContain(hash);
+    // The hash is an allowance for ONE known script, not a door for any inline.
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
   });
 });
