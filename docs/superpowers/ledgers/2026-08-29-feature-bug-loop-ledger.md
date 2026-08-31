@@ -135,3 +135,4 @@
 - F-33 DONE (6207bcd..93c0a8a, on main): copy/download source tools (D123); web 598/598, rebuilt, CSP guard green, pushed.
 - B-28 DONE, merged (8cdb25d): HIGH silent counter drift in recomputeContestProblemStats (missing FOR UPDATE, skipped D100 lock head) → verdict deltas lost, solvers drift; fixed + ON CONFLICT on solvers insert. Matrix/disconnect/requeue/rate-limit cleared; soak 25 graded, counters exact. Deployed api+judged; pushed.
 - B-28 deployed (api+judged, counter FOR UPDATE fix live) — first build attempt flaked on ssh2/cpu-features gyp (MCP's transitive native dep, prebuilt-fetch fallback), retry green. Real fragility: api/judged images  the whole workspace incl apps/mcp's ssh2 → intermittent deploy/CI failure. → B-29 to filter the image install.
+- Dispatched B-29 image-install hardening (worktree, D124) and F-34 problem status filter solved/attempted/unsolved (main, D125).
