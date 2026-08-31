@@ -14969,7 +14969,8 @@
         "tags": [
           "Problems"
         ],
-        "summary": "Problems visible to the caller, filtered by search text, tags and difficulty",
+        "summary": "Problems visible to the caller, filtered by search text, tags, difficulty and the caller’s own status",
+        "description": "The `status` filter (`solved` | `attempted` | `unsolved`) is per-viewer and authenticated only: an anonymous caller who sends it is answered 422 `status_requires_auth` (D125). \"solved\" needs an `AC` whose contest window has closed (D49), so an in-contest `AC` counts as \"attempted\" until the round ends.",
         "parameters": [
           {
             "schema": {
@@ -15030,6 +15031,19 @@
             },
             "required": false,
             "name": "difficultyMax",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "solved",
+                "attempted",
+                "unsolved"
+              ]
+            },
+            "required": false,
+            "name": "status",
             "in": "query"
           }
         ],
@@ -15123,6 +15137,17 @@
                               "maxPoints"
                             ]
                           },
+                          "myStatus": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              "solved",
+                              "attempted",
+                              null
+                            ]
+                          },
                           "tags": {
                             "type": "array",
                             "items": {
@@ -15170,6 +15195,7 @@
                           "memoryKb",
                           "testCount",
                           "me",
+                          "myStatus",
                           "tags",
                           "difficulty",
                           "attemptedCount",
@@ -15374,6 +15400,17 @@
                         "maxPoints"
                       ]
                     },
+                    "myStatus": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "solved",
+                        "attempted",
+                        null
+                      ]
+                    },
                     "tags": {
                       "type": "array",
                       "items": {
@@ -15522,6 +15559,7 @@
                     "memoryKb",
                     "testCount",
                     "me",
+                    "myStatus",
                     "tags",
                     "difficulty",
                     "attemptedCount",
@@ -15826,6 +15864,17 @@
                         "maxPoints"
                       ]
                     },
+                    "myStatus": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "solved",
+                        "attempted",
+                        null
+                      ]
+                    },
                     "tags": {
                       "type": "array",
                       "items": {
@@ -15974,6 +16023,7 @@
                     "memoryKb",
                     "testCount",
                     "me",
+                    "myStatus",
                     "tags",
                     "difficulty",
                     "attemptedCount",
@@ -16232,6 +16282,17 @@
                         "maxPoints"
                       ]
                     },
+                    "myStatus": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "solved",
+                        "attempted",
+                        null
+                      ]
+                    },
                     "tags": {
                       "type": "array",
                       "items": {
@@ -16380,6 +16441,7 @@
                     "memoryKb",
                     "testCount",
                     "me",
+                    "myStatus",
                     "tags",
                     "difficulty",
                     "attemptedCount",
@@ -16874,6 +16936,17 @@
                         "maxPoints"
                       ]
                     },
+                    "myStatus": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "solved",
+                        "attempted",
+                        null
+                      ]
+                    },
                     "tags": {
                       "type": "array",
                       "items": {
@@ -17022,6 +17095,7 @@
                     "memoryKb",
                     "testCount",
                     "me",
+                    "myStatus",
                     "tags",
                     "difficulty",
                     "attemptedCount",

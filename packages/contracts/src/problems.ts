@@ -136,11 +136,27 @@ const TAG_FILTER_MAX = 10;
  * would emit an `anyOf` query parameter, which generators handle badly and
  * which describes an implementation detail of Express, not the contract.
  */
+/**
+ * A per-viewer filter on the problem list (D125). Authenticated only — an
+ * anonymous caller who sends it is answered 422 `status_requires_auth`, never
+ * silently ignored, because ignoring it would answer `?status=solved` with a
+ * page of problems the caller has not solved (a wrong 200).
+ *
+ * "solved" is window-gated exactly as D49's `solvedCount` is: an `AC` made
+ * inside a still-open contest window does not count until the window closes,
+ * so the ✓ marker flips at the same instant the viewer joins the public
+ * `solvedCount`. Such an in-window `AC` is still a submission, so it reads
+ * "attempted" meanwhile — see `myStatus`.
+ */
+export const ProblemStatusFilter = z.enum(['solved', 'attempted', 'unsolved']);
+export type ProblemStatusFilterDto = z.infer<typeof ProblemStatusFilter>;
+
 export const ProblemListQuery = PaginationQuery.extend({
   q: z.string().max(100).optional(),
   tag: z.array(z.string().max(64)).max(TAG_FILTER_MAX).optional(),
   difficultyMin: DifficultyQuery.optional(),
   difficultyMax: DifficultyQuery.optional(),
+  status: ProblemStatusFilter.optional(),
 });
 export type ProblemListQueryDto = z.infer<typeof ProblemListQuery>;
 
@@ -188,6 +204,23 @@ export const ProblemMe = z
   .nullable();
 export type ProblemMeDto = z.infer<typeof ProblemMe>;
 
+/**
+ * The viewer's own catalogue status on a problem, for the ✓/… row marker
+ * (D125). `null` means "unsolved" — a visible problem this viewer has no
+ * graded submission to — and is spelled as absence, never as an `'unsolved'`
+ * member, so the two-valued shape a row draws (a tick, a partial dot, or
+ * nothing) maps 1:1 onto the field.
+ *
+ * `'solved'` is window-gated like D49's `solvedCount`: it needs an `AC` whose
+ * contest window has CLOSED, so a viewer's in-contest `AC` reads `'attempted'`
+ * — a submission exists — until the round ends, at which instant it flips to
+ * `'solved'`. This is deliberately NOT `me.verdict`: `me` is "your verdict,
+ * yours the moment it grades" (D23), so `me.verdict === 'AC'` can sit beside
+ * `myStatus: 'attempted'` on the same live-contest row without contradiction.
+ */
+export const ProblemMyStatus = z.enum(['solved', 'attempted']).nullable();
+export type ProblemMyStatusDto = z.infer<typeof ProblemMyStatus>;
+
 export const ProblemSummary = z.object({
   id: z.number().int(),
   code: z.string(),
@@ -205,6 +238,8 @@ export const ProblemSummary = z.object({
    */
   testCount: z.number().int().nullable(),
   me: ProblemMe,
+  /** The viewer's own catalogue status (D125) — see `ProblemMyStatus`. */
+  myStatus: ProblemMyStatus,
   /**
    * Expanded, not slugs, and on the **summary** for the same reason
    * `testCount` is: the list renders a chip per tag, and a slug-only
@@ -565,7 +600,11 @@ registry.registerPath({
   method: 'get',
   path: '/problems',
   tags: ['Problems'],
-  summary: 'Problems visible to the caller, filtered by search text, tags and difficulty',
+  summary: 'Problems visible to the caller, filtered by search text, tags, difficulty and the caller’s own status',
+  description:
+    'The `status` filter (`solved` | `attempted` | `unsolved`) is per-viewer and authenticated only: an ' +
+    'anonymous caller who sends it is answered 422 `status_requires_auth` (D125). "solved" needs an `AC` ' +
+    'whose contest window has closed (D49), so an in-contest `AC` counts as "attempted" until the round ends.',
   request: { query: ProblemListQuery },
   responses: {
     200: { description: 'A page of problems', content: { 'application/json': { schema: ProblemPage } } },

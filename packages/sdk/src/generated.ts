@@ -7268,7 +7268,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Problems visible to the caller, filtered by search text, tags and difficulty */
+        /**
+         * Problems visible to the caller, filtered by search text, tags, difficulty and the caller’s own status
+         * @description The `status` filter (`solved` | `attempted` | `unsolved`) is per-viewer and authenticated only: an anonymous caller who sends it is answered 422 `status_requires_auth` (D125). "solved" needs an `AC` whose contest window has closed (D49), so an in-contest `AC` counts as "attempted" until the round ends.
+         */
         get: {
             parameters: {
                 query?: {
@@ -7278,6 +7281,7 @@ export interface paths {
                     tag?: string[];
                     difficultyMin?: number;
                     difficultyMax?: number;
+                    status?: "solved" | "attempted" | "unsolved";
                 };
                 header?: never;
                 path?: never;
@@ -7308,6 +7312,8 @@ export interface paths {
                                     points: number | null;
                                     maxPoints: number | null;
                                 } | null;
+                                /** @enum {string|null} */
+                                myStatus: "solved" | "attempted" | null;
                                 tags: {
                                     slug: string;
                                     nameVi: string;
@@ -7391,6 +7397,8 @@ export interface paths {
                                 points: number | null;
                                 maxPoints: number | null;
                             } | null;
+                            /** @enum {string|null} */
+                            myStatus: "solved" | "attempted" | null;
                             tags: {
                                 slug: string;
                                 nameVi: string;
@@ -7553,6 +7561,8 @@ export interface paths {
                                 points: number | null;
                                 maxPoints: number | null;
                             } | null;
+                            /** @enum {string|null} */
+                            myStatus: "solved" | "attempted" | null;
                             tags: {
                                 slug: string;
                                 nameVi: string;
@@ -7668,6 +7678,8 @@ export interface paths {
                                 points: number | null;
                                 maxPoints: number | null;
                             } | null;
+                            /** @enum {string|null} */
+                            myStatus: "solved" | "attempted" | null;
                             tags: {
                                 slug: string;
                                 nameVi: string;
@@ -7936,6 +7948,8 @@ export interface paths {
                                 points: number | null;
                                 maxPoints: number | null;
                             } | null;
+                            /** @enum {string|null} */
+                            myStatus: "solved" | "attempted" | null;
                             tags: {
                                 slug: string;
                                 nameVi: string;
