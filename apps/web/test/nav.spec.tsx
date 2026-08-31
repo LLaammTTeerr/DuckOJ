@@ -113,7 +113,7 @@ describe('the desktop bar groups what used to be one flat row', () => {
     ]);
   });
 
-  it('puts the account items in their own cluster, and leaves them visible', async () => {
+  it('keeps the way out, the name, the bell and the language on the bar', async () => {
     serve(STUDENT);
     renderShell();
 
@@ -122,19 +122,53 @@ describe('the desktop bar groups what used to be one flat row', () => {
     // flight, so `findByRole('group')` resolves against the visitor's bar.
     await screen.findByRole('button', { name: 'Đăng xuất' });
     const account = screen.getByRole('group', { name: 'Tài khoản' });
-    // The grouping is VISUAL, not a dropdown: on a shared school machine a
-    // sign-out that costs a discovery click is a sign-out nobody takes, and
-    // the e2e journeys assert both this button and the display name are
-    // visible with no interaction at all.
+    // D137 collapsed the five account PAGES behind an overflow button — but
+    // never these four. On a shared school machine a sign-out that costs a
+    // discovery click is a sign-out nobody takes, the e2e journeys assert
+    // both this button and the display name with no interaction at all, and
+    // a reader who cannot read Vietnamese must not have to find a Vietnamese
+    // word in order to escape Vietnamese (D18).
     expect(within(account).getByRole('button', { name: 'Đăng xuất' })).toBeInTheDocument();
     expect(within(account).getByRole('link', { name: 'Hoc Sinh 1' })).toBeInTheDocument();
+    // And the bell, named with its count as a sentence rather than a glyph.
+    expect(within(account).getByRole('link', { name: /Thông báo/ })).toBeInTheDocument();
+    expect(within(account).getByRole('group', { name: 'Ngôn ngữ' })).toBeInTheDocument();
+  });
+
+  it('collapses the five account pages and the theme behind one overflow button (D137)', async () => {
+    serve(STUDENT);
+    renderShell();
+
+    await screen.findByRole('button', { name: 'Đăng xuất' });
+    const account = screen.getByRole('group', { name: 'Tài khoản' });
+    // Closed, they are not merely invisible — they are not in the document.
+    // Rendering them hidden would leave every `getByRole('link', …)` in the
+    // suite resolving to a control no reader can reach.
+    for (const label of ['Tiến độ', 'Cài đặt', 'Bảo mật', 'Mã truy cập', 'Mật khẩu']) {
+      expect(within(account).queryByRole('link', { name: label }), label).toBeNull();
+    }
+
+    const more = within(account).getByRole('button', { name: 'Thêm' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(more);
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+
+    const panel = screen.getByRole('group', { name: 'Thêm lựa chọn' });
     // 'Tiến độ' (D83) belongs here rather than in the main cluster: it is a
     // page about the reader, not a place the work lives.
     for (const label of ['Tiến độ', 'Cài đặt', 'Bảo mật', 'Mã truy cập', 'Mật khẩu']) {
-      expect(within(account).getByRole('link', { name: label })).toBeInTheDocument();
+      expect(within(panel).getByRole('link', { name: label }), label).toBeInTheDocument();
     }
-    // And the bell, named with its count as a sentence rather than a glyph.
-    expect(within(account).getByRole('link', { name: /Thông báo/ })).toBeInTheDocument();
+    // The theme choice keeps all three named states rather than becoming one
+    // toggle: which of light / dark / system is in force is information.
+    expect(within(panel).getByRole('group', { name: 'Giao diện' })).toBeInTheDocument();
+
+    // Escape closes it and hands focus back to the button that opened it —
+    // losing focus to the top of the document is how a keyboard reader ends
+    // up re-walking the whole page after every dismissal.
+    await userEvent.keyboard('{Escape}');
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    expect(more).toHaveFocus();
   });
 
   it('offers a visitor the two ways in, and none of the account items', async () => {

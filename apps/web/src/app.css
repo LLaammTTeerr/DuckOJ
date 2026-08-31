@@ -455,6 +455,97 @@ a:hover {
   margin-left: auto;
 }
 
+/* Density (D137). Nineteen pills at 24px of horizontal padding each is 152px
+   of air inside a bar capped at 960px — the difference between one row and
+   two for an admin, who carries `Quản trị` as well. 16px still clears the
+   44px thumb target this bar is built around, because the target is the
+   pill's HEIGHT; the width only has to hold the word. Scoped to `.nav-bar`,
+   so the phone's five tabs — which want every pixel of width they can get —
+   are untouched. */
+.nav-bar a,
+.nav-bar button {
+  padding: 0 var(--sp-2);
+}
+
+/* The account overflow (D137). The panel hangs off the button rather than
+   covering the page: this is a disclosure, not the phone's modal sheet, and
+   the bar underneath it stays readable. `position: relative` on the wrapper
+   is what the panel is measured from; `.shell-nav`'s own backdrop-filter
+   makes it a containing block for `position: fixed`, but never for
+   `absolute`, so this resolves where it looks like it should. */
+.nav-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* A caret that says the button opens something, rotated when it has. Drawn
+   with borders rather than a glyph so it inherits `currentColor` and needs no
+   font that might not be there; `aria-hidden` is implicit — a ::after carries
+   no accessible name of its own. */
+.nav-menu-button::after {
+  content: '';
+  margin-left: var(--sp-1);
+  border: 4px solid transparent;
+  border-top-color: currentColor;
+  transform: translateY(2px);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.nav-menu-button[aria-expanded='true']::after {
+  transform: translateY(-2px) rotate(180deg);
+}
+.nav-menu-button[aria-expanded='true'] {
+  background: var(--sel);
+  color: var(--fg);
+}
+
+.nav-menu {
+  position: absolute;
+  top: calc(100% + var(--sp-2));
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 200px;
+  padding: var(--sp-2);
+  border: 1px solid var(--glass-stroke);
+  border-radius: var(--r-lg);
+  background-color: var(--panel);
+  background-image: var(--glass-specular);
+  background-repeat: no-repeat;
+  background-size: 100% 22px;
+  box-shadow: var(--shadow-2), 0 0 0 1px var(--glass-edge);
+}
+
+/* Left-aligned inside the panel: a column of links is READ down its left
+   edge, and the bar's centring rule would leave every label floating. Scoped
+   through `.shell-nav` on purpose — `.nav-menu a` alone ties with
+   `.shell-nav a`, which is declared later in this file and would win. */
+.shell-nav .nav-menu a,
+.shell-nav .nav-menu button {
+  justify-content: flex-start;
+  width: 100%;
+  padding: 0 var(--sp-3);
+}
+
+/* The theme choice keeps its three named buttons — collapsing it to one
+   toggle would hide which of light / dark / system is actually in force —
+   but inside the panel they sit on one row, as a segmented control. */
+.nav-menu .theme-toggle {
+  display: flex;
+  width: 100%;
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+}
+.shell-nav .nav-menu .theme-toggle button {
+  flex: 1;
+  justify-content: center;
+  padding: 0 var(--sp-1);
+  min-width: 0;
+}
+
 /* Every nav item is a 44px-tall pill, so the whole row is one band of tap
    targets rather than a line of 13px text that is a coin-flip with a thumb. */
 .shell-nav a,

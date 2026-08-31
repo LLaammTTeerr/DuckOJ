@@ -266,6 +266,103 @@ function BellBadge({ unread }: { unread: number }): ReactNode {
   );
 }
 
+/**
+ * The account overflow (D137).
+ *
+ * THE PROBLEM D76 did not foresee. The bar is capped at 960px, so a signed-in
+ * viewer had 928px of room for twelve account-cluster items plus seven on the
+ * left — 1376px of pills, measured. It wrapped to THREE rows at 1280px, a
+ * 142px band of chrome above every screen with `Dang xuat` alone on the last
+ * line: the nav had quietly become the largest object on the page.
+ *
+ * WHAT MOVES AND WHAT DOES NOT. D76's rule is not "nothing collapses" — it is
+ * that the way OUT must not cost a discovery click, because these are shared
+ * school machines and the previous pupil is still signed in. So the bell, the
+ * viewer's name, the language switch and sign-out stay on the bar, exactly as
+ * the e2e journeys assert them. What moves behind this button is the five
+ * ACCOUNT PAGES (progress, settings, security, tokens, password) and the
+ * theme choice — six things a reader goes looking for deliberately, none of
+ * which anyone needs to see to know where they are. It reuses the phone
+ * sheet's own word for overflow, so the two architectures name the same idea
+ * identically.
+ *
+ * A DISCLOSURE, NOT A MENU. No `role="menu"`: that role brings arrow-key
+ * roving focus with it, and a list of ordinary links owes the reader plain
+ * Tab. `aria-expanded` + `aria-controls` on the button is the whole contract.
+ * Escape closes it, a pointer press anywhere outside closes it, following a
+ * link closes it, and closing returns focus to the button — the same rules as
+ * the phone sheet, minus the modal trap, because this panel does not cover
+ * the page.
+ */
+function AccountMenu({ children }: { children: ReactNode }): ReactNode {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const panelId = useId();
+
+  function close(): void {
+    setOpen(false);
+    buttonRef.current?.focus();
+  }
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    }
+    // `pointerdown`, not `click`: a click on a link inside the panel would
+    // otherwise race the link's own navigation, and pointerdown lets the
+    // outside-check settle before anything else reacts.
+    function onOutside(event: Event): void {
+      const node = wrapRef.current;
+      if (node !== null && !node.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onOutside);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onOutside);
+    };
+  }, [open]);
+
+  return (
+    <div className="nav-menu-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className="nav-menu-button"
+        ref={buttonRef}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => {
+          setOpen((was) => !was);
+        }}
+      >
+        {t('nav.more')}
+      </button>
+      {open ? (
+        <div
+          className="nav-menu"
+          id={panelId}
+          role="group"
+          aria-label={t('nav.moreTitle')}
+          onClick={(event) => {
+            // Any link inside navigates; a panel still covering the bar after
+            // the route changed is chrome the reader has to dismiss by hand.
+            if ((event.target as HTMLElement).closest('a') !== null) close();
+          }}
+        >
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /* --- the desktop bar ----------------------------------------------------- */
 
 function DesktopNav({ viewer, unread }: { viewer: Viewer | null; unread: number }): ReactNode {
@@ -318,13 +415,18 @@ function DesktopNav({ viewer, unread }: { viewer: Viewer | null; unread: number 
                 <Avatar name={viewer.displayName} size={20} />
                 {viewer.displayName}
               </Link>
-              <Link to="/me/progress">{t('nav.progress')}</Link>
-              <Link to="/account/settings">{t('nav.settings')}</Link>
-              <Link to="/account/security">{t('nav.security')}</Link>
-              <Link to="/account/tokens">{t('nav.tokens')}</Link>
-              <Link to="/account/password">{t('nav.password')}</Link>
+              <AccountMenu>
+                <Link to="/me/progress">{t('nav.progress')}</Link>
+                <Link to="/account/settings">{t('nav.settings')}</Link>
+                <Link to="/account/security">{t('nav.security')}</Link>
+                <Link to="/account/tokens">{t('nav.tokens')}</Link>
+                <Link to="/account/password">{t('nav.password')}</Link>
+                <ThemeToggle />
+              </AccountMenu>
+              {/* The language switch never collapses (D18): a reader who
+                  cannot read Vietnamese must not have to find a Vietnamese
+                  word in order to escape Vietnamese. */}
               <LocaleToggle />
-              <ThemeToggle />
               <SignOutButton />
             </>
           ) : (
