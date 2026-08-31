@@ -5446,3 +5446,62 @@ floating glass chrome, the theme's dark ground and half-clipped tables.
 consult. Web-only: one CSS block, three print-only headers, one i18n key. No
 migration — nothing persists a stylesheet.*
 
+
+## D122 — Default avatars are deterministic initials, computed on the client, never stored
+
+D9 deferred avatars: `users.avatar_key` exists, nothing writes it, and no URL
+scheme resolves it, so returning it would hand out a key nobody can
+dereference. D122 gives everyone a default avatar anyway, WITHOUT lifting any
+of that — an image upload stays deferred. The default is not an image at all:
+it is 1–2 initials on a colour, computed from the one name already on screen
+beside the person. Because it is a pure function of that string it needs no
+DTO field, no endpoint, no storage and no migration — which is exactly why it
+can ship where D9's `avatar_key` still cannot.
+
+`<Avatar name size? label?/>` (`apps/web/src/avatar.tsx`), placed beside the
+name in the nav (own name, desktop bar + phone sheet), the profile header,
+scoreboard participant rows (the TEAM's name for a team row — a team is one
+participant, D99), problem-page comment authors (F-26), and the submission
+submitter.
+
+- **Initials are graphemes, NFC first.** The first grapheme of the first name
+  part and of the LAST part, upper-cased with `toLocaleUpperCase`: "Trần Hưng
+  Đạo" → "TĐ", "đỗ quyên" → "ĐQ" (Đ/đ is one Vietnamese letter, not a
+  stripped ASCII d), a single token → one letter, an empty or nullish name →
+  "?". `Intl.Segmenter` groups a base letter with its marks; `Array.from` is
+  the code-point fallback.
+- **The colour is a fixed function of the name — and THE RECIPE IS THE
+  DECISION.** FNV-1a over the NFC-normalised, trimmed, lower-cased name picks a
+  hue; saturation and lightness are fixed at `hsl(hue 65% 25%)`. Lower-casing
+  and normalising so a name colours the same however it is typed or composed.
+  Changing this recipe recolours every avatar in the app, so it is recorded
+  here rather than left as a tweakable constant.
+- **The 25% lightness is a contrast constraint, not a taste call.** It keeps
+  every hue's relative luminance below the ~0.17–0.21 band where NEITHER a
+  near-white nor a near-ink foreground can reach AA. The foreground is then
+  picked per background by measured contrast (near-white `#f8fafc` /
+  near-ink `#111318`, whichever is higher). A 360-hue sweep test holds the
+  chosen pair at ≥ 4.5:1 for every possible hue; the worst is **5.52:1** at
+  h=60 (`rgb(104, 105, 22)` on near-white), and it is **theme-independent** —
+  the initials/background pair is self-contained, so it is identical in the
+  light and dark themes rather than depending on the ground behind the chip.
+  That is the honest answer to "AA in both themes": the same measured pair
+  holds in both by construction.
+- **Solid fill, never glass.** No `--glass-*` token and no `backdrop-filter`:
+  the chip renders once per scoreboard row, and D67 names a per-row backdrop
+  filter the single most expensive thing this app could composite. A hairline
+  `--line` border is all the depth it gets, separating a dark-hued chip from a
+  dark ground. Nothing animates, so `prefers-reduced-motion` has nothing to
+  flatten.
+- **Semantics.** Decorative by default (`aria-hidden`) because every placement
+  sits it beside the very name it is drawn from — so a screen reader reads the
+  name once and accessible names are unchanged. `label` present → `role="img"`
+  with that name, for a future standalone use.
+- **Ruling.** The component tolerates a nullish name (falls back to "?") so one
+  missing name can never crash a page carrying many avatars.
+
+*Ruled by the implementer during the 2026-08-31 f32 loop, no human available to
+consult. Web-only + this ledger: one component, one CSS block, five call
+sites, no i18n key (every placement is decorative), no migration — nothing
+persists an avatar. Supersedes D9's deferral for the DEFAULT case only; an
+uploaded image stays deferred.*
