@@ -17,7 +17,12 @@ import { defineConfig, devices } from '@playwright/test';
  * Bring the stack up first with `scripts/compose-up.sh`, then:
  *   corepack pnpm --filter @duckoj/web test:e2e
  *
- * Override the target with E2E_BASE_URL for the tailnet or LAN address.
+ * Override the target with E2E_BASE_URL for the tailnet or LAN address — or
+ * with `http://localhost:4321` to run the whole suite against a `vite preview`
+ * of a bundle that has NOT been deployed, which is how a frontend change is
+ * vetted before Caddy's bind mount is touched (D149). That works only because
+ * the preview origin is on the API's allow-list; see `.env.example`'s
+ * `WS_EXTRA_ORIGINS` and `vite.config.ts`'s pinned `preview.port`.
  */
 const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 

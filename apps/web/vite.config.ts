@@ -18,10 +18,27 @@ import react from '@vitejs/plugin-react';
 const apiOrigin = process.env.DUCKOJ_API_ORIGIN ?? 'http://localhost:8080';
 const proxy = { '/api': { target: apiOrigin, changeOrigin: false } };
 
+/**
+ * The preview port is PINNED, and pinned here rather than passed on a command
+ * line, because it is half of a contract with the API (D149).
+ *
+ * D82 refuses every cookie-authenticated state change whose `Origin` is not
+ * on the API's allow-list, so a bundle served by `vite preview` could not sign
+ * in, submit, or seed a fixture against the composed stack — which is why no
+ * FE agent could run `smoke`/`journey`/`features`/`contest-day` against its
+ * own build before deploying it. The other half of the fix is
+ * `WS_EXTRA_ORIGINS=…,http://localhost:4321` in the operator `.env`
+ * (empty by default, so production is unchanged). An allow-list entry naming
+ * a port is worthless if the port drifts, and vite's own default (4173)
+ * changes with vite; `strictPort` makes a clash fail loudly instead of
+ * silently serving from 4322 and reinstating the 403.
+ */
+const previewPort = 4321;
+
 export default defineConfig({
   plugins: [react()],
   server: { proxy },
-  preview: { proxy },
+  preview: { proxy, port: previewPort, strictPort: true },
   // `exclude` keeps vitest out of `e2e/` — those are Playwright specs driving
   // a real browser against a live stack, and vitest would try to run them in
   // jsdom and fail on the missing `@playwright/test` runner.

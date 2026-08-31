@@ -84,6 +84,27 @@ if its `Origin` (or `Referer`) is not on the list, or if it sends neither. So:
   `http://localhost:8080`, which is what `WS_EXTRA_ORIGINS` is set to).
 - Anything using a **bearer token** — `oj`, the judge agent, CI — is
   unaffected and needs no origin.
+- **Vetting a candidate bundle before you deploy it** (D149). Caddy serves
+  `apps/web/dist` by bind mount, so a `vite build` in the main clone IS the
+  deploy; the way to run the browser suites against code you have not shipped
+  is `vite preview`, which serves the candidate on `:4321` and proxies `/api`
+  to the composed stack. That origin has to be on this list too, or the
+  candidate cannot even sign in — so a developer host sets
+  `WS_EXTRA_ORIGINS=http://localhost:8080,http://localhost:4321` and the port
+  is pinned in `apps/web/vite.config.ts` (`strictPort`) so the entry stays
+  true. Then, from a worktree:
+
+  ```sh
+  corepack pnpm --filter @duckoj/web exec vite build     # into the worktree's own dist
+  corepack pnpm --filter @duckoj/web exec vite preview &  # :4321
+  E2E_BASE_URL=http://localhost:4321 \
+  E2E_SECRETS_FILE=$PWD/.secrets/duckadmin.txt \
+    corepack pnpm --filter @duckoj/web test:e2e
+  ```
+
+  Changing `.env` needs the API to pick it up: `podman-compose up -d --no-deps
+  api`, then wait for `podman ps` to say `healthy`. Production leaves
+  `WS_EXTRA_ORIGINS` empty and none of this applies.
 
 This exact sequence (container run, `migrate`, `api dev`, `curl /healthz`) was run
 end-to-end while writing this runbook: the container started, `migrate` printed

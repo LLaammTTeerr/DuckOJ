@@ -6490,3 +6490,65 @@ would throw the reader out of the box they had just tabbed into, every time.
 
 *Ruled by the implementer during the fe4 forms loop, no human available to
 consult. `apps/web` only; no migration.*
+
+## D149 — A candidate bundle is vetted from a real, allow-listed origin — configuration, not a lie about `Origin`
+
+D82 refuses every cookie-authenticated state change whose `Origin` is not on
+the API's list. `vite preview` serves a candidate bundle on its own port, so
+that bundle — and every `page.request` fixture the journeys seed with — was
+refused `403 csrf_origin`. Four frontend loops in a row (FE-1 … FE-4) recorded
+the same concern: `smoke`, `journey`, `features`, `contest-day` and
+`authoring` could be run only against the live stack, which serves the
+*previous* bundle. Every one of those loops therefore shipped its changes to
+production having never once run the journeys against the code it changed, and
+substituted a hand-run "every locator still resolves" sweep for the specs
+themselves.
+
+**The gap is closed with configuration, and the origin the browser sends is
+never falsified.** `WS_EXTRA_ORIGINS` on the operator's `.env` gains
+`http://localhost:4321` beside the `http://localhost:8080` already there:
+
+```
+WS_EXTRA_ORIGINS=http://localhost:8080,http://localhost:4321
+```
+
+- **No new variable, and no new code in the guard.** D82 already rules that
+  the allow-list *is* `wsAllowedOrigins` — `PUBLIC_ORIGIN` plus
+  `WS_EXTRA_ORIGINS`, "unchanged and not duplicated", because a deploy that
+  may open a socket from an origin but not write from it is a configuration
+  nobody wants. A `CSRF_EXTRA_ORIGINS` would have been exactly that
+  duplication. The one list also cures the `/ws` refusal a preview bundle hit
+  for the same reason, in the same edit — D82's single-list rationale working
+  as designed.
+- **Production is unchanged.** The variable defaults to empty in
+  `docker-compose.yml` and in `.env.example`; a deployment that never sets it
+  allows `PUBLIC_ORIGIN` and nothing else, exactly as before. What is allowed
+  here is a *loopback* origin: no page on the internet can present
+  `http://localhost:4321` as its `Origin`, because a browser stamps that
+  header itself from the document's own origin — the entry is the same class
+  of thing as the `http://localhost:8080` that has been in this file since
+  D70, and the compose comment beside it already said "e.g. the e2e host".
+- **The port is pinned in `vite.config.ts`** (`preview.port = 4321`,
+  `strictPort: true`), not passed on a command line. An allow-list entry
+  naming a port is worthless if the port drifts; vite's own default (4173) is
+  a vite implementation detail, and without `strictPort` a clash silently
+  moves the server to 4322 and reinstates the 403 as a mystery.
+
+**Rejected: making `vite preview` present `http://localhost:8080`.** A proxy
+that rewrites the `Origin` header defeats the check rather than satisfying it,
+and it would make the harness pass in exactly the case a real browser would
+fail. **Rejected: seeding through a bearer token,** which the guard exempts by
+design. It would have fixed fixture setup and nothing else: the assignment's
+own phone journey signs in and submits *through the UI*, so the writes that
+matter carry a cookie and the preview origin no matter what the harness does.
+
+**The cost if this is wrong:** an attacker who can already run code on the
+operator's own machine, on `localhost:4321`, gains the ability to make
+cookie-authenticated writes — which is strictly less than what running code on
+that machine already grants (the session cookie itself, the `.secrets` file).
+On any host that is not a developer's, the variable is empty and nothing
+changed.
+
+*Ruled by the implementer during the fe5 e2e-gap loop, no human available to
+consult. Config plus `apps/web/vite.config.ts`; no migration. The `.env` edit
+is on the operator's machine and is not in git — `.env.example` documents it.*
