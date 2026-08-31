@@ -38,7 +38,9 @@ import {
   TypstStatementRenderer,
   type StatementRenderer,
 } from '../src/statements/statement-renderer.js';
+import { SCOREBOARD_CACHE_STORE } from '../src/authz/scoreboard.cache.js';
 import { buildApp } from './app.harness.js';
+import { longLivedCacheStore } from './cache.harness.js';
 import { ContestAccessService } from '../src/authz/contest.access.js';
 import { withTestDb } from './db.harness.js';
 import { ensureRedisUrl } from './redis.harness.js';
@@ -721,7 +723,12 @@ describe('GET /contests/{key}/results.pdf', () => {
       const redisUrl = await freshRedis();
       const app = await buildApp(db, {
         configOverrides: { redisUrl },
-        overrides: [{ provide: STATEMENT_RENDERER, useValue: renderer }],
+        overrides: [
+          { provide: STATEMENT_RENDERER, useValue: renderer },
+          // The real store with the expiry raised off the wall clock — see
+          // `cache.harness.ts` (B-35).
+          { provide: SCOREBOARD_CACHE_STORE, useValue: longLivedCacheStore(redisUrl) },
+        ],
       });
       const agent = request.agent(app.getHttpServer());
       try {

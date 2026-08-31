@@ -171,5 +171,5 @@ describe('a failed event write fails the attempt', () => {
     expect(complete).not.toHaveBeenCalled();
     await worker.stop();
     await run;
-  }, 30_000);
+  });
 });

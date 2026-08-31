@@ -106,7 +106,7 @@ describe('route/contract parity', () => {
     await app.init();
     discovery = app.get(DiscoveryService);
     scanner = app.get(MetadataScanner);
-  }, 60_000);
+  });
 
   afterAll(async () => {
     await app.close();

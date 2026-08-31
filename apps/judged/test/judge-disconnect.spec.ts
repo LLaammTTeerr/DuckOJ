@@ -123,7 +123,7 @@ describe('a judge that disconnects mid-grade', () => {
     // rather than permanently one judge short.
     expect(driver.idleCapacity()).toBe(0);
     expect(server.judgeCount()).toBe(0);
-  }, 60_000);
+  });
 
   it('releases the lease at once, so the job is reclaimable without waiting for it to lapse', async () => {
     await withTestDb(async (db) => {

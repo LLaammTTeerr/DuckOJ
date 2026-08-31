@@ -22,8 +22,9 @@ import {
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { ProblemAccessService } from '../src/authz/problem.access.js';
+import { SCOREBOARD_CACHE_STORE } from '../src/authz/scoreboard.cache.js';
 import { buildApp } from './app.harness.js';
-import { bypassCache } from './cache.harness.js';
+import { bypassCache, longLivedCacheStore } from './cache.harness.js';
 import { withTestDb } from './db.harness.js';
 import { ensureRedisUrl } from './redis.harness.js';
 import {
@@ -35,6 +36,16 @@ import type { Actor } from '../src/authz/actor.js';
 import type { PackageStore } from '../src/packages/package.store.js';
 
 const MINUTE = 60_000;
+
+/**
+ * This file's own logical Redis database (D49) — `redis.harness.ts` explains
+ * why a shared one reddened the ritual. Declared as this exact constant, not
+ * inlined at the call site, because `redis-db-assignments.spec.ts` finds the
+ * owners by scanning for `const REDIS_DB = <n>;`: an inline literal is
+ * invisible to that guard, so nothing would have said a word if another spec
+ * had later claimed 2 as well. That was the state of this file until B-35.
+ */
+const REDIS_DB = 2;
 
 /** Mirrors `problem-reads.spec.ts`'s: nothing here touches a package. */
 const UNUSED_STORE: PackageStore = {
@@ -391,14 +402,20 @@ describe('GET /problems/{code}/stats', () => {
     await withTestDb(async (db) => {
       // This file's own logical database, emptied with `flushdb` — see
       // `redis.harness.ts` for why a `flushall` here reddened the ritual.
-      const url = await ensureRedisUrl(2);
+      const url = await ensureRedisUrl(REDIS_DB);
       const redis = new Redis(url);
       try {
         await redis.flushdb();
       } finally {
         redis.disconnect();
       }
-      const app = await buildApp(db, { configOverrides: { redisUrl: url } });
+      const app = await buildApp(db, {
+        configOverrides: { redisUrl: url },
+        // The real store with the expiry raised off the wall clock — see
+        // `cache.harness.ts` (B-35). The 30 s in this test's name is the
+        // constant's, pinned where it is defined.
+        overrides: [{ provide: SCOREBOARD_CACHE_STORE, useValue: longLivedCacheStore(url) }],
+      });
       try {
         await seedProblemAndLanguage(db);
         const problem = await seedProblemWithSourceAccess(db, { code: 'stats-http' });
