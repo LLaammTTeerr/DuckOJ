@@ -6701,6 +6701,7 @@ export interface paths {
                                 maxPoints: number | null;
                                 contestKey: string | null;
                                 contestLabel: string | null;
+                                teamName: string | null;
                                 /** Format: date-time */
                                 createdAt: string;
                                 frozen: boolean;
@@ -6904,7 +6905,7 @@ export interface paths {
         };
         /**
          * A submission visible to the caller
-         * @description During a contest freeze window (D23) a submission that is not the caller's own answers 200 with `frozen: true` and `verdict`, `points`, `timeMs`, `memoryKb`, `compileOutput` null and `cases` empty. The contest's creator and global admins are never masked, and everything is revealed once the submission's own participation has ended.
+         * @description During a contest freeze window (D23) a submission that is not the caller's own answers 200 with `frozen: true` and `verdict`, `points`, `timeMs`, `memoryKb`, `compileOutput` null and `cases` empty. The submitter, a member of the team that made it (D117), the contest's creator and global admins are never masked, and everything is revealed once the submission's own participation has ended. A member of the submitting team also reads its `source` during the contest, where a rival gets `sourceHidden: true` (D27).
          */
         get: {
             parameters: {
@@ -6926,6 +6927,7 @@ export interface paths {
                         "application/json": {
                             id: number;
                             problemCode: string;
+                            username: string;
                             languageKey: string;
                             source: string | null;
                             /** @enum {string} */
@@ -6951,6 +6953,7 @@ export interface paths {
                             }[];
                             contestKey: string | null;
                             contestLabel: string | null;
+                            teamName: string | null;
                             /** Format: date-time */
                             createdAt: string;
                             /** Format: date-time */

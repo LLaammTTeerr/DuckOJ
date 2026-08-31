@@ -149,7 +149,7 @@ export class UserAccessService {
       eq(submissions.userId, userId),
       eq(problems.visibility, 'public'),
     );
-    const frozen = frozenSubmissionsWhere(actor, new Date());
+    const frozen = frozenSubmissionsWhere(this.db, actor, new Date());
 
     const [totals] = await this.db
       .select({

@@ -26,7 +26,8 @@
  * |--------------------------------------------|------------------------------------------------------|
  * | `ctx === null` (no contest)                 | `not exists (… contest_submissions …)`               |
  * | `submission.userId === actor.userId`        | `submissions.user_id <> :me`                          |
- * | (no row form — a profile has no one row)    | `actor === null` drops both ownership clauses         |
+ * | `ctx.viewerOwnsViaTeam` (D117)              | `(actingParticipationWhere) is not true`              |
+ * | (no row form — a profile has no one row)    | `actor === null` drops the ownership clauses          |
  * | `isAdmin(actor)`                            | the whole predicate collapses to `false`              |
  * | `ctx.contestCreatedBy === actor.userId`     | `contests.created_by <> :me`                          |
  * | `freezeAtMs(end, F)` / `isFrozenAt(...)`    | `:now >= endsAt − F min AND :now < endsAt`            |
@@ -54,12 +55,13 @@
  * context is what stops the two rules disagreeing about when a contest is
  * over.
  */
-import { eq, sql, type SQL } from 'drizzle-orm';
+import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { contestParticipations, contestSubmissions, contests, submissions } from '@duckoj/db/guarded';
 import { LIVE, SPECTATE, freezeAtMs, isFrozenAt } from '@duckoj/contest-formats';
 import type { Db } from '@duckoj/db';
 import type { SubmissionDetailDto, SubmissionSummaryDto } from '@duckoj/contracts';
 import { isAdmin, type Actor } from './actor.js';
+import { actingParticipationWhere } from './problem.visibility.js';
 import { participationWindow } from './participation.js';
 
 /**
@@ -80,6 +82,15 @@ export interface SubmissionFreezeContext {
    * stays frozen past the contest's `end_time`, and unfreezes at their own.
    */
   participationEndMs: number;
+  /**
+   * Whether this submission belongs to a participation the viewer ACTS on —
+   * their own row, or one held by a team they are on (D117). A team's own
+   * submissions are never frozen from a member and never source-hidden from
+   * them: the team made them. The row twin of the `is not true` team escape
+   * inside `frozenSubmissionsWhere`, resolved through the same sanctioned
+   * `actingParticipationWhere` predicate (D113).
+   */
+  viewerOwnsViaTeam: boolean;
 }
 
 /**
@@ -97,6 +108,9 @@ export function isSubmissionFrozen(
 ): boolean {
   if (ctx === null) return false;
   if (submission.userId === actor.userId) return false;
+  // The viewer's own team's submission, never frozen from them (D117): the
+  // team made it. Ordered beside ownership, for the same reason.
+  if (ctx.viewerOwnsViaTeam) return false;
   if (isAdmin(actor)) return false;
   if (ctx.contestCreatedBy === actor.userId) return false;
 
@@ -190,11 +204,13 @@ export function contestWindowOpenWhere(now: Date): SQL<boolean> {
  * unique index, so this costs one index probe per row of the page — not a
  * scan, and not a query per row.
  *
- * Takes no `Db`, unlike `visibleSubmissionsWhere`: that one builds its
- * subqueries with the query builder, this one is a single raw expression and
- * a `db` parameter would only be there to look symmetrical.
+ * Takes a `Db` since D117: the team escape below reuses
+ * `actingParticipationWhere`, the sanctioned participation predicate (D113),
+ * which builds a `team_members` subquery with the query builder — the same
+ * reason `visibleSubmissionsWhere` takes one. Everything else here is still a
+ * single raw expression.
  */
-export function frozenSubmissionsWhere(actor: Actor | null, now: Date): SQL<boolean> {
+export function frozenSubmissionsWhere(db: Db, actor: Actor | null, now: Date): SQL<boolean> {
   // An admin is never masked, so the whole expression collapses rather than
   // being evaluated and then ignored — the same shape `visibleSubmissionsWhere`
   // uses for the clause that makes its own predicate trivially true.
@@ -216,6 +232,18 @@ export function frozenSubmissionsWhere(actor: Actor | null, now: Date): SQL<bool
   const notMine = actor === null ? sql`true` : sql`${submissions.userId} <> ${actor.userId}`;
   const notMyContest =
     actor === null ? sql`true` : sql`${contests.createdBy} <> ${actor.userId}`;
+  // D117: a member's own team's submissions are never frozen from them. The
+  // conjunct is `(<acting predicate>) IS NOT TRUE`, deliberately not
+  // `NOT (<acting predicate>)`: the predicate is `user_id = me OR team_id IN
+  // (my teams)`, and for someone ELSE's individual entry `team_id` is NULL, so
+  // once the viewer holds any team membership the `IN` is `NULL` and the whole
+  // OR is `NULL` — `NOT NULL` is `NULL`, which would drop the conjunct and
+  // unfreeze every stranger's late verdict. `IS NOT TRUE` maps that `NULL`
+  // (and `FALSE`) to `TRUE`, so only a genuine team match (predicate `TRUE`)
+  // stands the freeze down. Reuses `actingParticipationWhere` (D113); the
+  // `contest_participations` row it references is in scope inside the EXISTS.
+  const notMyTeam =
+    actor === null ? sql`true` : sql`(${actingParticipationWhere(db, actor.userId)}) is not true`;
 
   const predicate = sql`(
     ${notMine}
@@ -228,6 +256,7 @@ export function frozenSubmissionsWhere(actor: Actor | null, now: Date): SQL<bool
       where ${contestSubmissions.submissionId} = ${submissions.id}
         and ${contests.frozenLastMinutes} > 0
         and ${notMyContest}
+        and ${notMyTeam}
         and ${at} >= ${freezeAt}
         and ${at} < (${endsAt})
         and ${submissions.createdAt} >= ${freezeAt}
@@ -248,33 +277,56 @@ export function frozenSubmissionsWhere(actor: Actor | null, now: Date): SQL<bool
 /**
  * The facts for one submission, or `null` when it belongs to no contest.
  *
- * One indexed lookup: `contest_submissions.submission_id` is unique, so this
- * is a probe, and the two joins it hangs off are both primary keys.
+ * Two indexed lookups, run in parallel: the window facts (one probe —
+ * `contest_submissions.submission_id` is unique and the two joins are primary
+ * keys) and the D117 team check (the same unique probe, filtered by the
+ * sanctioned participation predicate).
  */
 export async function loadSubmissionFreezeContext(
   db: Db,
+  actor: Actor,
   submissionId: number,
 ): Promise<SubmissionFreezeContext | null> {
-  const [row] = await db
-    .select({
-      contestId: contests.id,
-      contestKey: contests.key,
-      startTime: contests.startTime,
-      endTime: contests.endTime,
-      timeLimitSeconds: contests.timeLimitSeconds,
-      frozenLastMinutes: contests.frozenLastMinutes,
-      createdBy: contests.createdBy,
-      virtual: contestParticipations.virtual,
-      participationStart: contestParticipations.startTime,
-    })
-    .from(contestSubmissions)
-    .innerJoin(
-      contestParticipations,
-      eq(contestParticipations.id, contestSubmissions.participationId),
-    )
-    .innerJoin(contests, eq(contests.id, contestParticipations.contestId))
-    .where(eq(contestSubmissions.submissionId, submissionId))
-    .limit(1);
+  const [[row], teamRows] = await Promise.all([
+    db
+      .select({
+        contestId: contests.id,
+        contestKey: contests.key,
+        startTime: contests.startTime,
+        endTime: contests.endTime,
+        timeLimitSeconds: contests.timeLimitSeconds,
+        frozenLastMinutes: contests.frozenLastMinutes,
+        createdBy: contests.createdBy,
+        virtual: contestParticipations.virtual,
+        participationStart: contestParticipations.startTime,
+      })
+      .from(contestSubmissions)
+      .innerJoin(
+        contestParticipations,
+        eq(contestParticipations.id, contestSubmissions.participationId),
+      )
+      .innerJoin(contests, eq(contests.id, contestParticipations.contestId))
+      .where(eq(contestSubmissions.submissionId, submissionId))
+      .limit(1),
+    // D117: is this submission one the viewer's team made? Same sanctioned
+    // `actingParticipationWhere` predicate the visibility gate uses, bounded
+    // to this one submission — the positive form is NULL-safe (a stranger's
+    // NULL-team row simply fails to match and is excluded by the WHERE).
+    db
+      .select({ id: contestSubmissions.submissionId })
+      .from(contestSubmissions)
+      .innerJoin(
+        contestParticipations,
+        eq(contestParticipations.id, contestSubmissions.participationId),
+      )
+      .where(
+        and(
+          eq(contestSubmissions.submissionId, submissionId),
+          actingParticipationWhere(db, actor.userId),
+        ),
+      )
+      .limit(1),
+  ]);
   if (!row) return null;
 
   // `participationWindow` — the shared derivation, never a fourth copy of it.
@@ -292,6 +344,7 @@ export async function loadSubmissionFreezeContext(
     contestCreatedBy: row.createdBy,
     frozenLastMinutes: row.frozenLastMinutes,
     participationEndMs: endMs,
+    viewerOwnsViaTeam: teamRows.length > 0,
   };
 }
 
@@ -353,6 +406,9 @@ export function isContestSourceHidden(
 ): boolean {
   if (ctx === null) return false;
   if (submission.userId === actor.userId) return false;
+  // A teammate reads the SOURCE of their team's contest submissions live
+  // (D117 extends D27's own-source rule to the team): one team is one entity.
+  if (ctx.viewerOwnsViaTeam) return false;
   if (isAdmin(actor)) return false;
   if (ctx.contestCreatedBy === actor.userId) return false;
   // Open-ended at the start and closed at the end, matching

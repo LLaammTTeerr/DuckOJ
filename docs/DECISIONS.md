@@ -5263,3 +5263,51 @@ uses `role="group"` + `aria-pressed` (not colour), and is translated vi/en.
 *Ruled by the implementer during the 2026-08-31 f28 loop, no human available
 to consult. No migration: a stylesheet and a browser-local preference.*
 
+
+## D117 — A team is one entity: members share visibility of their team's own contest submissions
+
+Standard ICPC — one team submits as one competitor. D99 gave a team one
+participation held by whichever member pressed Join; D101/D113 then made the
+whole roster ACT and READ that participation everywhere except one place, which
+loop-b22 recorded open in its own "Concerns": `visibleSubmissionsWhere` and the
+freeze escape keyed on `submissions.user_id` alone, so a teammate could not see
+another member's contest submission at all — not its verdict, not its source.
+This closes that, scoped strictly to the same team's same-contest submissions.
+
+**The rule.** A submission mapped (via `contest_submissions ⋈
+contest_participations`) to a participation whose `team_id` is one the viewer is
+a member of is visible to that viewer as if their own: they may LIST it, read
+its verdict/points, and — extending D27's own-source rule to teammates — read
+its SOURCE while the contest runs. It widens nobody else's visibility, and the
+freeze (D23) still hides other TEAMS' late verdicts from this team exactly as
+before.
+
+- **One predicate, reused — no fourth idiom.** Every team clause routes through
+  `actingParticipationWhere` (D113), the sanctioned participation-read
+  predicate: `visibleSubmissionsWhere` gains `submissions.id IN (submissions of
+  a participation I act on)`; the row twin `canViewSubmission` gains
+  `viewerOwnsViaTeam`, loaded the same way, so the list and the detail 404 gate
+  agree. The D113 source-scan guard stays green — the clause never writes
+  `contest_participations.user_id` outside the sanctioned module.
+- **The freeze escape is `IS NOT TRUE`, not `NOT (...)`.** A member's own team's
+  submissions are never frozen from them. In SQL the conjunct is
+  `(actingParticipationWhere) is not true`: the predicate is `user_id = me OR
+  team_id IN (my teams)`, and for a stranger's INDIVIDUAL entry `team_id` is
+  NULL, so once the viewer holds any team the `IN` is NULL, the OR is NULL, and
+  a plain `NOT NULL` (= NULL) would drop the conjunct and unfreeze every
+  stranger's late verdict. `IS NOT TRUE` maps NULL/FALSE to TRUE, so only a
+  genuine team match stands the freeze down. Pinned by the two-forms agreement
+  test and a discriminating case: a team member viewing an unrelated individual
+  entrant's inside-freeze row stays frozen.
+- **`GET /submissions?contest=` suffices; no `team=` filter added.** With the
+  team clause in `visibleSubmissionsWhere`, a member filtering by the contest
+  already sees the team's submissions. A separate `team=` param would be a
+  second way to ask the same question — kept small on purpose.
+- **The web names who submitted.** `SubmissionSummary` already carried
+  `username`; `SubmissionDetail` gains it (a submission page is no longer only
+  ever the viewer's own), and both gain `teamName`, so the list and the page
+  render "nộp bởi <member> (đội <team>)" and a teammate can open a team
+  submission.
+
+*Ruled by the implementer during the 2026-08-31 f29 loop, no human available to
+consult. No migration: two shared predicates widened, one display field added.*

@@ -511,7 +511,7 @@ describe('the two forms of the freeze predicate agree', () => {
       const actor = actorFor(viewer.id);
       const now = new Date();
       const sqlRows = await db
-        .select({ id: submissions.id, frozen: frozenSubmissionsWhere(actor, now) })
+        .select({ id: submissions.id, frozen: frozenSubmissionsWhere(db, actor, now) })
         .from(submissions);
       const bySql = new Map(sqlRows.map((row) => [row.id, row.frozen]));
 
@@ -521,7 +521,7 @@ describe('the two forms of the freeze predicate agree', () => {
           .select({ userId: submissions.userId, createdAt: submissions.createdAt })
           .from(submissions)
           .where(eq(submissions.id, id));
-        const ctx = await loadSubmissionFreezeContext(db, id);
+        const ctx = await loadSubmissionFreezeContext(db, actor, id);
         byTs.set(id, isSubmissionFrozen(actor, row!, ctx, now));
       }
 

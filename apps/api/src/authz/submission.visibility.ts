@@ -1,10 +1,21 @@
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import { problemMembers, problems, submissions } from '@duckoj/db/guarded';
+import {
+  contestParticipations,
+  contestSubmissions,
+  problemMembers,
+  problems,
+  submissions,
+} from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { isAdmin, type Actor } from './actor.js';
-import { canViewProblem, loadProblemContext, visibleProblemsWhere } from './problem.visibility.js';
+import {
+  actingParticipationWhere,
+  canViewProblem,
+  loadProblemContext,
+  visibleProblemsWhere,
+} from './problem.visibility.js';
 import type { ProblemRole, ProblemVisibility } from './problem.visibility.js';
 
 /** Mirrors the `problem_source_access` enum — see `guarded.ts` for why there is no `public`. */
@@ -49,6 +60,19 @@ export interface SubmissionViewContext {
    * one, which is the wrong direction for a pair of access controls.
    */
   viewerCanSeeProblem: boolean;
+  /**
+   * Whether this submission belongs to a contest participation the viewer
+   * ACTS on — their own row, or one held by a team they are on (D117, the
+   * standard ICPC "one team is one entity" rule). A teammate reads their
+   * team's contest submissions as if their own: the list and this detail
+   * gate must agree, so this is the row twin of the team clause
+   * `visibleSubmissionsWhere` adds in SQL.
+   *
+   * Resolved through `actingParticipationWhere` — the ONE sanctioned
+   * participation-read predicate (D113) — never a second team-membership
+   * idiom.
+   */
+  viewerOwnsViaTeam: boolean;
 }
 
 /**
@@ -79,6 +103,10 @@ export function canViewSubmission(actor: Actor, ownerId: number, ctx: Submission
   // membership revoked — is still yours to read.
   if (ownerId === actor.userId) return true;
   if (isAdmin(actor)) return true;
+  // A teammate's team submission is theirs to read (D117). Ordered beside
+  // ownership, before the problem-role and solver clauses: it is a form of
+  // ownership — the team made it — not a problem-level grant.
+  if (ctx.viewerOwnsViaTeam) return true;
   if (ctx.memberRoles.some((role) => (SUBMISSION_GRANTING_ROLES as readonly string[]).includes(role))) {
     return true;
   }
@@ -105,6 +133,7 @@ export function canViewSubmission(actor: Actor, ownerId: number, ctx: Submission
  * |-----------------------------------------|-----------------------------------------------|
  * | `ownerId === actor.userId`              | `submissions.user_id = :me`                   |
  * | `isAdmin(actor)`                        | `true` (the whole predicate collapses)        |
+ * | `ctx.viewerOwnsViaTeam`                 | `submissions.id IN (myTeamSubmissions)`       |
  * | `ctx.memberRoles` ∩ author/curator      | `problem_id IN (authoredOrCurated)`           |
  * | `ctx.sourceAccess === 'solved'`         | `problem_id IN (openToSolvers)`               |
  * | `ctx.viewerHasAc`                       | `problem_id IN (solvedByMe)`                  |
@@ -143,6 +172,25 @@ export function visibleSubmissionsWhere(db: Db, actor: Actor): SQL {
   // Fact 1: the problem's flag.
   const openToSolvers = db.select({ id: problems.id }).from(problems).where(eq(problems.sourceAccess, 'solved'));
 
+  // D117: submissions the viewer's TEAM made — one team is one entity, so a
+  // teammate reads the team's contest submissions as if their own. Keyed on
+  // `submissions.id`, uncorrelated like the others, so it is evaluated once
+  // for the page. `actingParticipationWhere` is the ONE sanctioned
+  // participation predicate (D113): the viewer's own participation OR one a
+  // team they are on holds. The own half is redundant with the
+  // `submissions.user_id = :me` clause below (an individual entrant's own
+  // rows), which is harmless — it can only re-admit rows already owned — but
+  // reusing the whole predicate keeps this off the fourth-idiom the D113
+  // guard forbids.
+  const myTeamSubmissions = db
+    .select({ id: contestSubmissions.submissionId })
+    .from(contestSubmissions)
+    .innerJoin(
+      contestParticipations,
+      eq(contestParticipations.id, contestSubmissions.participationId),
+    )
+    .where(actingParticipationWhere(db, actor.userId));
+
   // Fact 4: the problems this viewer may see at all, straight from the
   // problem predicate rather than restated here. `source_access` and
   // `visibility` are independent columns and must compose to the *narrower*
@@ -162,6 +210,7 @@ export function visibleSubmissionsWhere(db: Db, actor: Actor): SQL {
 
   return or(
     eq(submissions.userId, actor.userId),
+    inArray(submissions.id, myTeamSubmissions),
     inArray(submissions.problemId, authoredOrCurated),
     and(
       inArray(submissions.problemId, openToSolvers),
@@ -186,8 +235,9 @@ export async function loadSubmissionContext(
   db: Db,
   actor: Actor,
   problem: { id: number; visibility: ProblemVisibility; sourceAccess: SourceAccess },
+  submissionId: number,
 ): Promise<SubmissionViewContext> {
-  const [problemCtx, acs] = await Promise.all([
+  const [problemCtx, acs, teamRows] = await Promise.all([
     // The problem predicate's own loader, not a second copy of it. Its doc
     // comment anticipated this caller by name; taking it also removes the
     // duplicate `problem_members` query this function used to run.
@@ -203,11 +253,31 @@ export async function loadSubmissionContext(
         ),
       )
       .limit(1),
+    // D117: is this submission one the viewer's team made? The row twin of
+    // `visibleSubmissionsWhere`'s team clause, bounded to this one submission
+    // and resolved through the same sanctioned `actingParticipationWhere`
+    // predicate, so the list and this detail gate cannot disagree about which
+    // team submissions a viewer may open.
+    db
+      .select({ id: contestSubmissions.submissionId })
+      .from(contestSubmissions)
+      .innerJoin(
+        contestParticipations,
+        eq(contestParticipations.id, contestSubmissions.participationId),
+      )
+      .where(
+        and(
+          eq(contestSubmissions.submissionId, submissionId),
+          actingParticipationWhere(db, actor.userId),
+        ),
+      )
+      .limit(1),
   ]);
   return {
     sourceAccess: problem.sourceAccess,
     memberRoles: problemCtx.memberRoles,
     viewerHasAc: acs.length > 0,
     viewerCanSeeProblem: canViewProblem(actor, problem, problemCtx),
+    viewerOwnsViaTeam: teamRows.length > 0,
   };
 }

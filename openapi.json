@@ -14008,6 +14008,12 @@
                               "null"
                             ]
                           },
+                          "teamName": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
@@ -14027,6 +14033,7 @@
                           "maxPoints",
                           "contestKey",
                           "contestLabel",
+                          "teamName",
                           "createdAt",
                           "frozen"
                         ]
@@ -14146,7 +14153,7 @@
           "Submissions"
         ],
         "summary": "A submission visible to the caller",
-        "description": "During a contest freeze window (D23) a submission that is not the caller's own answers 200 with `frozen: true` and `verdict`, `points`, `timeMs`, `memoryKb`, `compileOutput` null and `cases` empty. The contest's creator and global admins are never masked, and everything is revealed once the submission's own participation has ended.",
+        "description": "During a contest freeze window (D23) a submission that is not the caller's own answers 200 with `frozen: true` and `verdict`, `points`, `timeMs`, `memoryKb`, `compileOutput` null and `cases` empty. The submitter, a member of the team that made it (D117), the contest's creator and global admins are never masked, and everything is revealed once the submission's own participation has ended. A member of the submitting team also reads its `source` during the contest, where a rival gets `sourceHidden: true` (D27).",
         "parameters": [
           {
             "schema": {
@@ -14171,6 +14178,9 @@
                       "type": "integer"
                     },
                     "problemCode": {
+                      "type": "string"
+                    },
+                    "username": {
                       "type": "string"
                     },
                     "languageKey": {
@@ -14316,6 +14326,12 @@
                         "null"
                       ]
                     },
+                    "teamName": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "createdAt": {
                       "type": "string",
                       "format": "date-time"
@@ -14337,6 +14353,7 @@
                   "required": [
                     "id",
                     "problemCode",
+                    "username",
                     "languageKey",
                     "source",
                     "state",
@@ -14349,6 +14366,7 @@
                     "cases",
                     "contestKey",
                     "contestLabel",
+                    "teamName",
                     "createdAt",
                     "judgedAt",
                     "frozen",

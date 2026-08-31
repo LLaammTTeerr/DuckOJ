@@ -9,6 +9,7 @@ import {
   problemRevisions,
   submissionCases,
   submissions,
+  teams,
 } from '@duckoj/db/guarded';
 import { noteContestSubmissionCreated, schema, type Db } from '@duckoj/db';
 import type {
@@ -60,6 +61,14 @@ import {
 const contestLink = alias(contestSubmissions, 'link_contest_submissions');
 const contestLinkParticipation = alias(contestParticipations, 'link_contest_participations');
 const contestLinkContest = alias(contests, 'link_contests');
+/**
+ * The team that made a contest submission (D117), reached off the same
+ * participation the contest key rides on: `null` for a practice submission or
+ * an individual entry. Its name is a display label — "nộp bởi <member> (đội
+ * <team>)" — and carries no visibility of its own, exactly as the contest key
+ * does; a caller who may see the row may see whose team made it.
+ */
+const contestLinkTeam = alias(teams, 'link_teams');
 
 /**
  * The submission meter (D80). Two windows, checked together, counted under
@@ -383,7 +392,7 @@ export class SubmissionAccessService {
     // One clock for the whole page: two rows of the same contest must not land
     // on opposite sides of a freeze instant that ticked past between them.
     const now = new Date();
-    const frozen = frozenSubmissionsWhere(actor, now);
+    const frozen = frozenSubmissionsWhere(this.db, actor, now);
     const conditions = [visibleSubmissionsWhere(this.db, actor)];
     if (filters.problem) {
       conditions.push(sql`lower(${problems.code}) = lower(${filters.problem})`);
@@ -435,6 +444,7 @@ export class SubmissionAccessService {
         maxPoints: submissions.maxPoints,
         contestKey: contestLinkContest.key,
         contestLabel: contestLinkContest.name,
+        teamName: contestLinkTeam.name,
         createdAt: submissions.createdAt,
         // The SQL form of the freeze predicate, as a computed column. The
         // list cannot use the row form: it would need this submission's
@@ -448,6 +458,7 @@ export class SubmissionAccessService {
       .leftJoin(contestLink, eq(contestLink.submissionId, submissions.id))
       .leftJoin(contestLinkParticipation, eq(contestLinkParticipation.id, contestLink.participationId))
       .leftJoin(contestLinkContest, eq(contestLinkContest.id, contestLinkParticipation.contestId))
+      .leftJoin(contestLinkTeam, eq(contestLinkTeam.id, contestLinkParticipation.teamId))
       .where(and(...conditions))
       .orderBy(desc(submissions.id))
       .limit(filters.limit + 1);
@@ -464,6 +475,7 @@ export class SubmissionAccessService {
         maxPoints: row.maxPoints,
         contestKey: row.contestKey,
         contestLabel: row.contestLabel,
+        teamName: row.teamName,
         createdAt: row.createdAt.toISOString(),
         frozen: false,
       };
@@ -497,6 +509,7 @@ export class SubmissionAccessService {
       .select({
         id: submissions.id,
         userId: submissions.userId,
+        username: schema.users.username,
         problemId: submissions.problemId,
         problemCode: problems.code,
         problemSourceAccess: problems.sourceAccess,
@@ -512,15 +525,18 @@ export class SubmissionAccessService {
         compileOutput: submissions.compileOutput,
         contestKey: contestLinkContest.key,
         contestLabel: contestLinkContest.name,
+        teamName: contestLinkTeam.name,
         createdAt: submissions.createdAt,
         judgedAt: submissions.judgedAt,
       })
       .from(submissions)
       .innerJoin(problems, eq(problems.id, submissions.problemId))
       .innerJoin(schema.languages, eq(schema.languages.id, submissions.languageId))
+      .innerJoin(schema.users, eq(schema.users.id, submissions.userId))
       .leftJoin(contestLink, eq(contestLink.submissionId, submissions.id))
       .leftJoin(contestLinkParticipation, eq(contestLinkParticipation.id, contestLink.participationId))
       .leftJoin(contestLinkContest, eq(contestLinkContest.id, contestLinkParticipation.contestId))
+      .leftJoin(contestLinkTeam, eq(contestLinkTeam.id, contestLinkParticipation.teamId))
       .where(eq(submissions.id, id))
       .limit(1);
 
@@ -538,11 +554,16 @@ export class SubmissionAccessService {
     // clauses live inside `canViewSubmission`; restating either here to skip
     // two indexed lookups would put half the rule in this file, which is the
     // one thing this predicate's whole shape exists to prevent.
-    const ctx = await loadSubmissionContext(this.db, actor, {
-      id: row.problemId,
-      visibility: row.problemVisibility,
-      sourceAccess: row.problemSourceAccess,
-    });
+    const ctx = await loadSubmissionContext(
+      this.db,
+      actor,
+      {
+        id: row.problemId,
+        visibility: row.problemVisibility,
+        sourceAccess: row.problemSourceAccess,
+      },
+      id,
+    );
     if (!canViewSubmission(actor, row.userId, ctx)) {
       throw new AppError(404, 'submission_not_found', 'No such submission.');
     }
@@ -592,6 +613,7 @@ export class SubmissionAccessService {
     const detail: SubmissionDetailDto = {
       id: row.id,
       problemCode: row.problemCode,
+      username: row.username,
       languageKey: row.languageKey,
       source: row.source,
       state: row.state,
@@ -603,6 +625,7 @@ export class SubmissionAccessService {
       compileOutput: row.compileOutput,
       contestKey: row.contestKey,
       contestLabel: row.contestLabel,
+      teamName: row.teamName,
       cases: cases.map((c) => ({
         groupIndex: c.groupIndex,
         caseIndex: c.caseIndex,
@@ -624,7 +647,7 @@ export class SubmissionAccessService {
     // Reading the clock twice could put the two masks on opposite sides of a
     // participation end that ticked between them.
     const now = new Date();
-    const freezeCtx = await loadSubmissionFreezeContext(this.db, id);
+    const freezeCtx = await loadSubmissionFreezeContext(this.db, actor, id);
     const shown = isContestSourceHidden(actor, row, freezeCtx, now)
       ? maskHiddenSource(detail)
       : detail;

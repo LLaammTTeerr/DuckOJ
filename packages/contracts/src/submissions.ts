@@ -61,11 +61,26 @@ const CONTEST_LINK = {
   contestKey: z.string().nullable(),
   /** The contest's display name — `null` exactly when `contestKey` is. */
   contestLabel: z.string().nullable(),
+  /**
+   * The team that made this submission (D117), for the "nộp bởi <member> (đội
+   * <team>)" label — `null` for a practice submission or an individual
+   * contest entry. Like `contestLabel`, a display name with no visibility of
+   * its own: it rides on a row the caller may already see, and names the team
+   * whose members share visibility of it.
+   */
+  teamName: z.string().nullable(),
 };
 
 export const SubmissionDetail = z.object({
   id: z.number().int(),
   problemCode: z.string(),
+  /**
+   * The username of the submitter. On `SubmissionSummary` since the list
+   * began; added here (D117) because a submission page is no longer only ever
+   * the viewer's own — a teammate may open their team's contest submission,
+   * and the page names who made it.
+   */
+  username: z.string(),
   languageKey: z.string(),
   /**
    * The code as submitted, or `null` when `sourceHidden` is true.
@@ -105,8 +120,9 @@ export const SubmissionDetail = z.object({
   /**
    * D27 — the contest clause on the source. `true` means `source` is `null`
    * because this submission belongs to a contest participation whose window
-   * is still open and the viewer is neither its submitter, nor the contest's
-   * creator, nor a global admin.
+   * is still open and the viewer is neither its submitter, nor a member of
+   * the team that made it (D117), nor the contest's creator, nor a global
+   * admin.
    *
    * Independent of `frozen`: it applies to a contest with no freeze at all,
    * and it applies for the whole window rather than its last minutes. Also
@@ -290,8 +306,10 @@ registry.registerPath({
   description:
     'During a contest freeze window (D23) a submission that is not the caller\'s own answers 200 with ' +
     '`frozen: true` and `verdict`, `points`, `timeMs`, `memoryKb`, `compileOutput` null and `cases` empty. ' +
-    "The contest's creator and global admins are never masked, and everything is revealed once the " +
-    "submission's own participation has ended.",
+    "The submitter, a member of the team that made it (D117), the contest's creator and global admins " +
+    "are never masked, and everything is revealed once the submission's own participation has ended. " +
+    'A member of the submitting team also reads its `source` during the contest, where a rival gets ' +
+    '`sourceHidden: true` (D27).',
   request: {
     params: z.object({ id: SubmissionIdParamSchema }),
   },
