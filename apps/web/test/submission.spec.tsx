@@ -5,6 +5,7 @@
  * links out, the source is shown verbatim, and a 404 stays an error.
  */
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -61,7 +62,11 @@ const DETAIL = {
   judgedAt: '2026-08-01T00:00:05Z',
 };
 
-afterEach(() => get.mockReset());
+afterEach(() => {
+  get.mockReset();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe('SubmissionPage', () => {
   it('shows verdict, cases and the source verbatim', async () => {
@@ -141,4 +146,84 @@ describe('SubmissionPage', () => {
       expect(get).not.toHaveBeenCalledWith('/submissions/{id}', expect.anything());
     });
   }
+
+  // D123 — the reader who may see the source gets two client-only tools next
+  // to it: copy it to the clipboard, and download it as a file. Both are a
+  // pure convenience over source already on screen; neither touches the API.
+  describe('source tools (D123)', () => {
+    it('copies the exact source to the clipboard and confirms it', async () => {
+      const writeText = vi.fn(async () => {});
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      get.mockResolvedValue({ data: DETAIL });
+      wrap(<SubmissionPage id={42} />);
+
+      await userEvent.click(await screen.findByRole('button', { name: /^Sao chép$/ }));
+
+      // The clipboard receives the source verbatim — not a trimmed or
+      // re-serialised copy.
+      expect(writeText).toHaveBeenCalledWith(DETAIL.source);
+      // A live region, so a screen-reader user who pressed Copy is told it
+      // worked (WCAG 4.1.3); it stays on screen rather than flashing away.
+      expect(await screen.findByText(/Đã sao chép/)).toHaveAttribute('role', 'status');
+    });
+
+    it('surfaces a rejected clipboard without claiming success', async () => {
+      const writeText = vi.fn(async () => {
+        throw new Error('denied');
+      });
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      get.mockResolvedValue({ data: DETAIL });
+      wrap(<SubmissionPage id={42} />);
+
+      await userEvent.click(await screen.findByRole('button', { name: /^Sao chép$/ }));
+
+      // A refused (or absent) clipboard is a graceful fallback message, never
+      // a false "copied". The source is on screen either way.
+      expect(await screen.findByRole('alert')).toHaveTextContent(/tự sao chép/i);
+      expect(screen.queryByText(/Đã sao chép/)).toBeNull();
+    });
+
+    for (const [languageKey, ext] of [
+      ['cpp17', 'cpp'],
+      ['py3', 'py'],
+      ['java', 'java'],
+      ['scratch', 'txt'],
+    ] as const) {
+      it(`downloads the source as submission-42.${ext} for ${languageKey}`, async () => {
+        const url = 'blob:duckoj/42';
+        const createObjectURL = vi.fn(() => url);
+        const revokeObjectURL = vi.fn();
+        vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+        const clicks: Array<{ href: string; download: string }> = [];
+        vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+          this: HTMLAnchorElement,
+        ) {
+          clicks.push({ href: this.href, download: this.download });
+        });
+        get.mockResolvedValue({ data: { ...DETAIL, languageKey } });
+        wrap(<SubmissionPage id={42} />);
+
+        await userEvent.click(await screen.findByRole('button', { name: /^Tải xuống$/ }));
+
+        // The extension follows the language, and the id names the file.
+        expect(clicks).toHaveLength(1);
+        expect(clicks[0]!.download).toBe(`submission-42.${ext}`);
+        // The object URL is created for the click and revoked after it — no
+        // leaked handle.
+        expect(createObjectURL).toHaveBeenCalledTimes(1);
+        expect(clicks[0]!.href).toBe(url);
+        expect(revokeObjectURL).toHaveBeenCalledWith(url);
+      });
+    }
+
+    it('offers no source tools when the source is withheld', async () => {
+      get.mockResolvedValue({ data: { ...DETAIL, source: null, sourceHidden: true } });
+      wrap(<SubmissionPage id={42} />);
+      await screen.findByRole('heading', { name: /Bài nộp #42/ });
+
+      // Masked source (D27) — nothing to copy or download.
+      expect(screen.queryByRole('button', { name: /^Sao chép$/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Tải xuống$/ })).toBeNull();
+    });
+  });
 });
