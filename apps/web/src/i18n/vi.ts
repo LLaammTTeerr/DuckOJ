@@ -178,6 +178,11 @@ export const vi = {
   'problems.difficultyFrom': 'Từ',
   'problems.difficultyTo': 'Đến',
   'problems.clearFilters': 'Xoá bộ lọc',
+  'problems.filterStatus': 'Trạng thái',
+  'problems.statusAny': 'Tất cả',
+  'problems.statusSolved': 'Đã giải',
+  'problems.statusAttempted': 'Đã thử',
+  'problems.statusUnsolved': 'Chưa giải',
 
   // ── one problem ───────────────────────────────────────────────────────
   'problem.notFound': 'Không có bài tập này.',

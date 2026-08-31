@@ -192,6 +192,11 @@ export const en = {
   'problems.difficultyFrom': 'From',
   'problems.difficultyTo': 'To',
   'problems.clearFilters': 'Clear filters',
+  'problems.filterStatus': 'Status',
+  'problems.statusAny': 'Any',
+  'problems.statusSolved': 'Solved',
+  'problems.statusAttempted': 'Attempted',
+  'problems.statusUnsolved': 'Unsolved',
 
   // ── one problem ───────────────────────────────────────────────────────
   'problem.notFound': 'No such problem.',

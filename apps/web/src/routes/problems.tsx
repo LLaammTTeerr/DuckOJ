@@ -36,10 +36,20 @@ export function formatMemoryMb(memoryKb: number | null): string {
  * transient act while the filters are the description of a practice set, and
  * pushing a URL on every keystroke would bury the back button.
  */
+/** The per-viewer status filter (D125) — authenticated only. */
+export type ProblemStatus = 'solved' | 'attempted' | 'unsolved';
+
 export interface ProblemFilterValues {
   tags: string[];
   difficultyMin?: number | undefined;
   difficultyMax?: number | undefined;
+  /**
+   * The viewer's own status (D125). Part of the URL like the topic and
+   * difficulty filters — a "give me the ones I haven't solved yet" link is
+   * exactly the kind of practice-set description this half of the URL exists
+   * to carry. `undefined` is "any status".
+   */
+  status?: ProblemStatus | undefined;
 }
 
 /**
@@ -116,7 +126,7 @@ export function ProblemsPage(props: {
     // different resource from the same page under another, and reusing the
     // cached entry across them is how a "load more" cursor from the old
     // list ends up appending rows the new filter excludes.
-    queryKey: ['problems', q, filters.tags, filters.difficultyMin, filters.difficultyMax],
+    queryKey: ['problems', q, filters.tags, filters.difficultyMin, filters.difficultyMax, filters.status],
     queryFn: async ({ pageParam }: { pageParam: string | undefined }) => {
       // `exactOptionalPropertyTypes` (tsconfig.base.json) forbids assigning
       // `undefined` to an optional property outright — an omitted key and a
@@ -129,12 +139,14 @@ export function ProblemsPage(props: {
         tag?: string[];
         difficultyMin?: number;
         difficultyMax?: number;
+        status?: ProblemStatus;
       } = {};
       if (q !== '') queryParams.q = q;
       if (pageParam !== undefined) queryParams.cursor = pageParam;
       if (filters.tags.length > 0) queryParams.tag = filters.tags;
       if (filters.difficultyMin !== undefined) queryParams.difficultyMin = filters.difficultyMin;
       if (filters.difficultyMax !== undefined) queryParams.difficultyMax = filters.difficultyMax;
+      if (filters.status !== undefined) queryParams.status = filters.status;
       const result = await api.GET('/problems', { params: { query: queryParams } });
       if (result.error || !result.data) {
         throw apiError(result, t('problems.loadError'));
@@ -210,6 +222,33 @@ export function ProblemsPage(props: {
         </button>
       </fieldset>
 
+      {/* The status filter is per-viewer and authenticated only (D125): the
+          API answers 422 for an anonymous caller, so the control is shown
+          only to a signed-in reader. A plain `<select>` — four options, not
+          a set to build up — so it needs no ARIA of its own and works on a
+          phone. */}
+      {me.data ? (
+        <fieldset>
+          <legend>{t('problems.filterStatus')}</legend>
+          <label htmlFor="status-filter">{t('problems.filterStatus')}</label>
+          <select
+            id="status-filter"
+            value={filters.status ?? ''}
+            onChange={(e) =>
+              applyFilters({
+                ...filters,
+                status: e.target.value === '' ? undefined : (e.target.value as ProblemStatus),
+              })
+            }
+          >
+            <option value="">{t('problems.statusAny')}</option>
+            <option value="solved">{t('problems.statusSolved')}</option>
+            <option value="attempted">{t('problems.statusAttempted')}</option>
+            <option value="unsolved">{t('problems.statusUnsolved')}</option>
+          </select>
+        </fieldset>
+      ) : null}
+
       {query.isLoading ? <p>{t('common.loading')}</p> : null}
       {query.isError ? <p role="alert">{t('problems.loadError')}</p> : null}
 
@@ -232,6 +271,23 @@ export function ProblemsPage(props: {
             {problems.map((p) => (
               <tr key={p.id}>
                 <td>
+                  {/* A per-row status marker (D125): a glyph, never colour
+                      alone (B-20/D77), each carrying its own aria-label so a
+                      screen reader announces "solved"/"attempted" rather than
+                      a bare tick. `null` (unsolved, or an anonymous viewer)
+                      renders nothing. `myStatus` is window-gated on the
+                      server, so the ✓ appears only once a contest AC is
+                      revealed — it can read "attempted" while `me` already
+                      shows `AC` mid-round, by design. */}
+                  {p.myStatus === 'solved' ? (
+                    <span className="status-mark" aria-label={t('problems.statusSolved')} title={t('problems.statusSolved')}>
+                      ✓
+                    </span>
+                  ) : p.myStatus === 'attempted' ? (
+                    <span className="status-mark muted" aria-label={t('problems.statusAttempted')} title={t('problems.statusAttempted')}>
+                      …
+                    </span>
+                  ) : null}{' '}
                   {/* This component is unit-tested by rendering it directly
                       (test/problems.spec.tsx), with no `RouterProvider`
                       above it by default — `<Link>` throws outside one — so

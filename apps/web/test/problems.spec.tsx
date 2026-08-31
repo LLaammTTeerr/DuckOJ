@@ -116,6 +116,7 @@ const PROBLEM_A = {
   memoryKb: 65536,
   testCount: 3,
   me: null,
+  myStatus: null,
   tags: [],
   difficulty: null,
   attemptedCount: 0,
@@ -132,6 +133,7 @@ const PROBLEM_B = {
   memoryKb: 131072,
   testCount: 12,
   me: null,
+  myStatus: null,
   tags: [],
   difficulty: null,
   attemptedCount: 0,
@@ -148,6 +150,7 @@ const PROBLEM_DRAFT_ONLY = {
   memoryKb: null,
   testCount: null,
   me: null,
+  myStatus: null,
   tags: [],
   difficulty: null,
   attemptedCount: 0,
@@ -278,6 +281,53 @@ describe('ProblemsPage', () => {
     // Exactly the one call to /problems — never /submissions.
     expect(mockedGet.mock.calls.filter((c) => c[0] === '/problems')).toHaveLength(1);
     expect(mockedGet).not.toHaveBeenCalledWith('/submissions', expect.anything());
+  });
+
+  it('marks each row with the viewer’s own status glyph and an aria-label (D125)', async () => {
+    mockApiGet({
+      '/auth/me': apiResponse({ username: 'kim', globalRole: 'user' }),
+      '/problems': apiResponse({
+        items: [
+          { ...PROBLEM_A, myStatus: 'solved' as const },
+          { ...PROBLEM_B, myStatus: 'attempted' as const },
+          PROBLEM_DRAFT_ONLY,
+        ],
+        nextCursor: null,
+      }),
+    });
+
+    renderWithClient(<ProblemsPage />);
+    await screen.findByText('aplusb');
+    const rows = screen.getAllByRole('row');
+    // A glyph, never colour alone, each with its own aria-label.
+    expect(within(rows[1]!).getByLabelText('Đã giải')).toHaveTextContent('✓');
+    expect(within(rows[2]!).getByLabelText('Đã thử')).toHaveTextContent('…');
+    // The unsolved row carries no marker at all.
+    expect(within(rows[3]!).queryByLabelText('Đã giải')).toBeNull();
+    expect(within(rows[3]!).queryByLabelText('Đã thử')).toBeNull();
+  });
+
+  it('shows the status selector only when signed in, and sends `status` on change (D125)', async () => {
+    mockApiGet({
+      '/auth/me': apiResponse({ username: 'kim', globalRole: 'user' }),
+      '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }),
+    });
+
+    renderWithClient(<ProblemsPage />);
+    await screen.findByText('aplusb');
+    await userEvent.selectOptions(screen.getByLabelText('Trạng thái'), 'unsolved');
+
+    await waitFor(() => {
+      const calls = mockedGet.mock.calls.filter((c) => c[0] === '/problems');
+      expect(calls.at(-1)?.[1]).toMatchObject({ params: { query: { status: 'unsolved' } } });
+    });
+  });
+
+  it('hides the status selector for a signed-out reader (authenticated only, D125)', async () => {
+    mockApiGet({ '/problems': apiResponse({ items: [PROBLEM_A], nextCursor: null }) });
+    renderWithClient(<ProblemsPage />);
+    await screen.findByText('aplusb');
+    expect(screen.queryByLabelText('Trạng thái')).toBeNull();
   });
 
   it('re-queries the API when the search box changes', async () => {

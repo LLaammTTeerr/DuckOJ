@@ -13,7 +13,7 @@ import {
 import { LoginForm, type LoginValues } from './routes/login.js';
 import { RegisterPage } from './routes/register.js';
 import { DEFAULT_PROBLEM_CODE, SubmitPage } from './routes/submit.js';
-import { ProblemsPage, type ProblemFilterValues } from './routes/problems.js';
+import { ProblemsPage, type ProblemFilterValues, type ProblemStatus } from './routes/problems.js';
 import { ProblemPage } from './routes/problem.js';
 import { ProblemEditPage } from './routes/problem-edit.js';
 import { ProblemRevisionsPage } from './routes/problem-revisions.js';
@@ -252,10 +252,11 @@ function ProblemsRouteComponent() {
     tags: search.tag ?? [],
     difficultyMin: search.difficultyMin,
     difficultyMax: search.difficultyMax,
+    status: search.status,
   };
   return (
     <ProblemsPage
-      key={`${filters.tags.join(',')}|${String(search.difficultyMin ?? '')}|${String(search.difficultyMax ?? '')}`}
+      key={`${filters.tags.join(',')}|${String(search.difficultyMin ?? '')}|${String(search.difficultyMax ?? '')}|${search.status ?? ''}`}
       initialFilters={filters}
       onFiltersChange={(next) => {
         void navigate({
@@ -267,6 +268,7 @@ function ProblemsRouteComponent() {
             ...(next.tags.length > 0 ? { tag: next.tags } : {}),
             ...(next.difficultyMin !== undefined ? { difficultyMin: next.difficultyMin } : {}),
             ...(next.difficultyMax !== undefined ? { difficultyMax: next.difficultyMax } : {}),
+            ...(next.status !== undefined ? { status: next.status } : {}),
           },
         });
       }}
@@ -353,7 +355,7 @@ const problemsRoute = createRoute({
   // break the page.
   validateSearch: (
     search: Record<string, unknown>,
-  ): { tag?: string[]; difficultyMin?: number; difficultyMax?: number } => {
+  ): { tag?: string[]; difficultyMin?: number; difficultyMax?: number; status?: ProblemStatus } => {
     const raw = search.tag;
     const tag = typeof raw === 'string' ? [raw] : Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
     const bound = (value: unknown): number | undefined => {
@@ -362,10 +364,19 @@ const problemsRoute = createRoute({
     };
     const min = bound(search.difficultyMin);
     const max = bound(search.difficultyMax);
+    // An unknown `status` is dropped, not passed on — the API answers 422 for
+    // it (and for any `status` from a signed-out reader), and a hand-edited
+    // URL should narrow to nothing rather than break the page, exactly as an
+    // out-of-range difficulty does.
+    const status =
+      search.status === 'solved' || search.status === 'attempted' || search.status === 'unsolved'
+        ? search.status
+        : undefined;
     return {
       ...(tag.length > 0 ? { tag } : {}),
       ...(min !== undefined ? { difficultyMin: min } : {}),
       ...(max !== undefined ? { difficultyMax: max } : {}),
+      ...(status !== undefined ? { status } : {}),
     };
   },
   component: ProblemsRouteComponent,
