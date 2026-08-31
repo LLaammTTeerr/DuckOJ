@@ -693,4 +693,31 @@ describe('ProblemDiscussion (D109)', () => {
     expect(await screen.findByText(/comment deleted|đã bị xóa/)).toBeInTheDocument();
     expect(screen.getByText('still here')).toBeInTheDocument();
   });
+
+  it('gives every comment textarea an accessible name (composer, reply, edit)', async () => {
+    mockApiGet({
+      '/auth/me': apiResponse({ username: 'alice', globalRole: 'user' }),
+      '/problems/{code}': apiResponse(PROBLEM_DETAIL),
+      '/problems/{code}/stats': apiResponse(null),
+      '/problems/{code}/comments': apiResponse({
+        items: [comment({ id: 9, body: 'mine', author: { username: 'alice' } })],
+        nextCursor: null,
+        hiddenDuringContest: false,
+      }),
+    });
+
+    renderWithClient(<ProblemPage code="aplusb" />);
+
+    // The composer the signed-in viewer types into: named, not placeholder-only.
+    expect(await screen.findByRole('textbox', { name: 'Bình luận mới' })).toBeInTheDocument();
+
+    // Open the reply box under the thread.
+    await userEvent.click(screen.getByRole('button', { name: 'Trả lời' }));
+    expect(screen.getByRole('textbox', { name: 'Phản hồi' })).toBeInTheDocument();
+
+    // Open the edit box on the viewer's own comment. Before the fix this
+    // textarea had no label, aria-label OR placeholder — a nameless field.
+    await userEvent.click(screen.getByRole('button', { name: 'Sửa' }));
+    expect(screen.getByRole('textbox', { name: 'Sửa bình luận' })).toBeInTheDocument();
+  });
 });

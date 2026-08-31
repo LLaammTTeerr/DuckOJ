@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 const { ThemeToggle, readStoredTheme, applyTheme, setTheme, THEME_STORAGE_KEY } = await import(
   '../src/theme.js'
 );
+const { LocaleProvider, useLocale } = await import('../src/i18n/index.js');
 
 function read(...candidates: string[]): string {
   const found = candidates
@@ -204,5 +205,63 @@ describe('the dark palette honours [data-theme="dark"]', () => {
     expect(tokens).toContain(":root:where([data-theme='dark'])");
     expect(tokens).toContain(":root:where(:not([data-theme='light']))");
     expect(tokens).not.toMatch(/:root\[data-theme='dark'\]\s*\{/);
+  });
+});
+
+/**
+ * `<html lang>` (D57/i18n) and `<html data-theme>` (D116) are set by two
+ * independent effects, and the B-27 brief asks that both stay correct after a
+ * locale AND a theme change in either order — a display choice must not
+ * disturb the screen reader's language, nor a language choice the theme.
+ */
+describe('lang and data-theme are orthogonal', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('lang');
+    localStorage.removeItem(THEME_STORAGE_KEY);
+  });
+
+  function Harness(): React.ReactNode {
+    const { setLocale } = useLocale();
+    return (
+      <>
+        <ThemeToggle />
+        <button type="button" onClick={() => setLocale('en')}>
+          to-en
+        </button>
+        <button type="button" onClick={() => setLocale('vi')}>
+          to-vi
+        </button>
+      </>
+    );
+  }
+
+  it('keeps both attributes after theme-then-locale and locale-then-theme', async () => {
+    const user = userEvent.setup();
+    render(
+      <LocaleProvider initialLocale="vi">
+        <Harness />
+      </LocaleProvider>,
+    );
+    const root = document.documentElement;
+    // The provider's effect stamps the initial lang.
+    expect(root.lang).toBe('vi');
+
+    // Theme first, then locale: data-theme survives the locale change.
+    await user.click(screen.getByRole('button', { name: 'Tối' }));
+    expect(root.getAttribute('data-theme')).toBe('dark');
+    await user.click(screen.getByRole('button', { name: 'to-en' }));
+    expect(root.lang).toBe('en');
+    expect(root.getAttribute('data-theme')).toBe('dark');
+
+    // Locale first, then theme: lang survives the theme change; System clears
+    // the attribute without touching lang.
+    await user.click(screen.getByRole('button', { name: 'to-vi' }));
+    await user.click(screen.getByRole('button', { name: 'Sáng' }));
+    expect(root.lang).toBe('vi');
+    expect(root.getAttribute('data-theme')).toBe('light');
+    await user.click(screen.getByRole('button', { name: 'Hệ thống' }));
+    expect(root.hasAttribute('data-theme')).toBe(false);
+    expect(root.lang).toBe('vi');
   });
 });

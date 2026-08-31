@@ -560,6 +560,7 @@ function ProblemDiscussion({ code }: { code: string }) {
               <textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
+                aria-label={t('discussion.composerLabel')}
                 placeholder={t('discussion.composerPlaceholder')}
                 rows={3}
                 maxLength={4000}
@@ -633,6 +634,7 @@ function ProblemDiscussion({ code }: { code: string }) {
                     <textarea
                       value={replyBody}
                       onChange={(e) => setReplyBody(e.target.value)}
+                      aria-label={t('discussion.replyLabel')}
                       placeholder={t('discussion.replyPlaceholder')}
                       rows={2}
                       maxLength={4000}
@@ -711,6 +713,7 @@ function CommentBody(props: {
           <textarea
             value={props.editBody}
             onChange={(e) => props.setEditBody(e.target.value)}
+            aria-label={t('discussion.editLabel')}
             rows={3}
             maxLength={4000}
           />

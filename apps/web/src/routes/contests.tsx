@@ -204,10 +204,10 @@ export function ContestCountdown({ startTime, endTime }: { startTime: string; en
   const start = Date.parse(startTime);
   const end = Date.parse(endTime);
   if (now < start) {
-    return <p role="timer">{t('contest.startsIn', { d: formatCountdown(start - now) })}</p>;
+    return <p className="countdown" role="timer">{t('contest.startsIn', { d: formatCountdown(start - now) })}</p>;
   }
   if (now <= end) {
-    return <p role="timer">{t('contest.endsIn', { d: formatCountdown(end - now) })}</p>;
+    return <p className="countdown" role="timer">{t('contest.endsIn', { d: formatCountdown(end - now) })}</p>;
   }
   return null;
 }
