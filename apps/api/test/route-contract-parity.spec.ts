@@ -67,7 +67,7 @@ function runtimeRoutes(discovery: DiscoveryService, scanner: MetadataScanner): s
     if (prefix === 'internal' || prefix.startsWith('internal/')) continue;
     const prototype = wrapper.instance ? Object.getPrototypeOf(wrapper.instance) : controller.prototype;
     for (const methodName of scanner.getAllMethodNames(prototype)) {
-      const handler = (prototype as Record<string, unknown>)[methodName];
+      const handler = (prototype as Record<string, (...args: unknown[]) => unknown>)[methodName]!;
       const methodMeta = Reflect.getMetadata(METHOD_METADATA, handler) as number | undefined;
       if (methodMeta === undefined) continue;
       const handlerPathRaw = Reflect.getMetadata(PATH_METADATA, handler) as string | string[] | undefined;
