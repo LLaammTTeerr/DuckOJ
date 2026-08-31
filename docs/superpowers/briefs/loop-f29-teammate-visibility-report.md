@@ -13,44 +13,38 @@ Scoped strictly to the same team's same-contest rows; other teams stay frozen
 (D23) and source-hidden (D27) exactly as before.
 
 ## Files
-- `authz/submission.visibility.ts` — `visibleSubmissionsWhere` gains
-  `submissions.id IN (my acting participations' submissions)`; row twin
-  `canViewSubmission`/`loadSubmissionContext` gain `viewerOwnsViaTeam`. Both via
-  `actingParticipationWhere` (D113) — no fourth idiom; guard stays green.
-- `authz/submission.freeze.ts` — `isSubmissionFrozen`/`isContestSourceHidden`
-  gain the team escape; `frozenSubmissionsWhere(db, actor, now)` gains
-  `(actingParticipationWhere) IS NOT TRUE` (NULL-safe: `NOT (...)` would
-  unfreeze every stranger's individual row once the viewer holds any team);
-  `loadSubmissionFreezeContext(db, actor, id)` loads the fact.
+- `authz/submission.visibility.ts` — team clause on `visibleSubmissionsWhere` +
+  row twin `viewerOwnsViaTeam` (`canViewSubmission`/`loadSubmissionContext`).
+- `authz/submission.freeze.ts` — team escape on `isSubmissionFrozen` /
+  `isContestSourceHidden`; `frozenSubmissionsWhere(db,actor,now)` gains
+  `(actingParticipationWhere) IS NOT TRUE` (NULL-safe); freeze ctx loads it.
 - `authz/submission.access.ts` / `user.access.ts` — thread `db`/`actor`/`id`;
-  join `teams` for `teamName`, `users` for detail `username`.
-- `contracts/submissions.ts` (+ openapi/sdk regen) — `teamName` on both, detail
-  `username`; D27 prose extended.
-- web `submission.tsx` / `submissions.tsx` (+ vi/en) — "nộp bởi <member> (đội
-  <team>)"; a teammate can open a team submission.
+  join `teams`→`teamName`, `users`→ detail `username`.
+- `contracts/submissions.ts` (+ openapi/sdk regen) — `teamName`, detail `username`.
+- web `submission.tsx` / `submissions.tsx` (+ vi/en) — "nộp bởi <member> (đội <team>)".
+- All team clauses route through the sanctioned `actingParticipationWhere` (D113) — no fourth idiom; the D113 invariant guard stays green.
 
 ## Tests — red→green, mutation-checked
-`test/submission-teammate-visibility.spec.ts` (7, integration on testDbUrl):
-teammate reads team row + verdict + source; captain reads member's; member
-lists the team's `?contest=` rows; non-teammate still 404 + unlisted; another
-team's row stays frozen+source-hidden; **unrelated individual entrant stays
-frozen (the SQL NULL trap)**; SQL/row freeze forms agree for a team viewer. Five
-mutations each reddened the right test (visibility list clause, canViewSubmission
-clause, freeze escape, source escape, `IS NOT TRUE`→`NOT`). Web: team-label
-tests on both screens. D113 invariant guard green.
+`test/submission-teammate-visibility.spec.ts` (7, testDbUrl): teammate reads
+row+verdict+source; member lists team's `?contest=` rows; non-teammate 404 +
+unlisted; another team's AND an unrelated individual's frozen verdict stay
+hidden (the SQL NULL trap); SQL/row freeze forms agree for a team viewer. Five
+mutations each reddened the right test (list clause, canViewSubmission clause,
+freeze escape, source escape, `IS NOT TRUE`→`NOT` — caught by the agreement
+test). Web: team-label tests on both screens.
 
 ## Rulings made
-- Reused `?contest=` rather than adding a `team=` filter (the widened
-  `visibleSubmissionsWhere` already returns the team's rows) — kept small.
-- `actingParticipationWhere` (own OR team) reused wholesale; the own half is
+- Reused `?contest=` rather than adding a `team=` filter — the widened
+  `visibleSubmissionsWhere` already returns the team's rows. Kept small.
+- Reused `actingParticipationWhere` (own OR team) wholesale; the own half is
   redundant with `user_id = :me` but keeps the D113 guard green.
 
 ## Verify (all green)
 `-r typecheck`; `typecheck:scripts`; `-r lint`; `lint:scripts`; contracts+SDK
-regen idempotent; `vite build`; non-api workspaces pass; api serial **127
-files / 1110 tests**. `graphify update .` run.
+regen idempotent; `vite build`; non-api workspaces pass; api serial **127 files
+/ 1110 tests**. `graphify update .` run.
 
 ## Concerns
 None blocking. `user.access.ts` stats now count a teammate's own-team rows as
-unfrozen for a member viewing their profile — consistent with the ruling (they
-may already see those verdicts), noted in case it surprises.
+unfrozen for a member viewing their profile — consistent with the ruling, noted
+in case it surprises.
