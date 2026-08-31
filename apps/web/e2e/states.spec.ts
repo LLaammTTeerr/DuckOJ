@@ -77,6 +77,72 @@ test.describe('a read that failed', () => {
     await page.getByRole('button', { name: 'Thử lại' }).click();
     await expect.poll(() => asked).toBeGreaterThan(before);
   });
+
+  test('the retry that works puts the round on screen and takes the failure off it', async ({
+    page,
+  }) => {
+    // The half `the retry button actually re-asks` does not reach: it counts
+    // requests, which proves the button is wired and nothing about what the
+    // reader ends up looking at. A retry that re-asks and then leaves the
+    // alert standing over a blank page is the same dead end with an extra
+    // click in it — and this is the screen a competitor is on at the bell.
+    await signedIn(page);
+    // Failing exactly ONE attempt would prove nothing: `retryTransientOnly`
+    // already retries a 5xx three times on its own, so the page would recover
+    // before the reader ever saw a button. The mock stays broken until the
+    // click, which is what makes the click the thing under test.
+    let mended = false;
+    await page.route('**/api/v1/contests/probe-cup', async (route) => {
+      if (mended) return route.continue();
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/problem+json',
+        body: SERVER_ERROR,
+      });
+    });
+    await page.goto('/contests/probe-cup');
+
+    const retry = page.getByRole('button', { name: 'Thử lại' });
+    await expect(retry).toBeVisible();
+    mended = true;
+    await retry.click();
+
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('the server speaks English; the reader is told in Vietnamese, and the English is demoted', async ({
+    page,
+  }) => {
+    // D18 and D145 together. `problem.filter.ts` writes an English `detail`
+    // on every failure, and printing it as THE message — which is what
+    // `failure.detail ?? failure.code` did across this app — puts an English
+    // sentence in a Vietnamese page as the only thing a pupil is told. The
+    // rule is that the translated sentence LEADS and the server's own wording
+    // survives underneath it, muted, so a teacher on the phone to an operator
+    // can still read out what the server actually said.
+    await signedIn(page);
+    const ENGLISH = 'The upstream grader is not answering right now.';
+    await page.route('**/api/v1/contests/**', (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/problem+json',
+        body: JSON.stringify({ ...JSON.parse(SERVER_ERROR), detail: ENGLISH }),
+      }),
+    );
+    await page.goto('/contests/probe-cup');
+
+    const alert = page.getByRole('alert');
+    // The headline — the FIRST span, which is what the eye reads — is the
+    // translated one, and it is not the English the server sent.
+    await expect(alert.locator('span').first()).toHaveText(/^Máy chủ đang gặp sự cố/);
+    // The English is present, but only as the muted second line, and named
+    // as the server's words rather than the app's.
+    await expect(alert.locator('span.muted').filter({ hasText: ENGLISH })).toHaveText(
+      `Máy chủ báo: ${ENGLISH}`,
+    );
+    await expect(page.getByRole('button', { name: 'Thử lại' })).toBeVisible();
+  });
 });
 
 test.describe('a read that is still loading', () => {
