@@ -5649,3 +5649,70 @@ never anyone else's — so the freeze (D23) has nothing of theirs to mask.
 to consult. No migration: two DTO fields, one query param, two SQL laterals
 reusing existing predicates, and the web wiring.*
 
+
+## D129 — Seat slips are printed before the gun, one card per competitor, and carry no password
+
+A province-scale contest is sat in rooms full of borrowed machines, and the
+teacher walking the aisle needs a piece of paper per desk: who sits here, what
+their account is, when the contest runs, where to sign in, and a blank for the
+room and seat number. `GET /contests/{key}/seats.pdf` prints them — eight cards
+to an A4 portrait sheet, on dashed cut lines — reusing D71's document path
+exactly: a typst source built with `escapeText` over every string a person
+typed, the same `canRunContest` gate, the same 60 s content-addressed cache, and
+the same honest 501 on a server with no typst.
+
+- **No password on a slip, and none is possible.** D61 mints a school's
+  accounts in one all-or-nothing import and returns their credentials
+  **once** — the web shows the printable table then and there — after which
+  only hashes remain. There is nothing re-derivable for this route to print,
+  so the slip is an identity card and the credential travels on D61's own
+  table. Stated here because "add the password to the slip" is the obvious
+  next request, and the answer is not "we decided not to" but "the plaintext
+  no longer exists".
+- **Offered from the moment the contest exists, on the web as well as the
+  API.** D71's three exports are linked only once `phase === 'finished'`,
+  because printing a board that is still moving invites the wrong sheet. A
+  seat slip is the opposite artefact — it is cut up the night before — so its
+  link is gated on `canEdit` alone. The API never had a clock in this gate to
+  begin with (`canRunContest`, D71's ruling), and the pre-start scoreboard
+  fold that feeds it is already open to the people who run the contest.
+- **Virtual replays are dropped; a disqualified row is kept.** A replay is
+  somebody re-running a finished contest at home and has no desk in the hall.
+  A disqualification, by contrast, happens during or after the contest, so at
+  print time there are none — and a row that has one is a person whose seat was
+  still allocated. Dropping the card would leave an unexplained empty desk in
+  the seating plan. `[DQ]` is a results-sheet mark (D37), not a seating one.
+- **A team is one card, naming its members (D99).** The team's name is the
+  heading and every member's username is listed under it, in place of the
+  single account line an individual card carries — `username` IS the team's
+  name on such a row, so an account line there would print the same string
+  twice. The certificate already reads this way.
+- **The window is dated in the CALLER's zone (D57/D64), and that is exactly
+  the organiser's.** D64 rules the booklet's cover into `users.timezone` for
+  whoever downloaded it, and records as a residual that a *shared* printed
+  artefact then carries the organiser's clock rather than each pupil's. Here
+  that residual is the requirement: `canRunContest` has already refused
+  everybody who does not run the contest, so the only caller who can reach
+  this route IS the organiser. The offset is derived from the zone at the
+  contest's START, never written down, and an unresolvable zone prints ICT
+  rather than 500ing — D64's rules, reused rather than re-argued
+  (`resolveZone` and `offsetLabel` are exported for it).
+- **The cards are ordered by display name, in Vietnamese collation.** Not the
+  board's order, which is what the shared `buildResults` hands over: before
+  the gun every score is zero, so that order is whatever the database
+  returned. A document that reorders itself between two requests hashes to a
+  fresh cache key every time and never hits — and alphabetical is the order a
+  room is called in anyway.
+- **Fixed-height cells, not `auto`.** A grid of cards that grew with its
+  content would put five short cards on one sheet and three tall ones on the
+  next, and a stack cut on those lines no longer lines up. 6.4 cm × 4 rows
+  fits inside A4 portrait's 27.7 cm with the heading's centimetre to spare, so
+  typst breaks after the fourth row on every page — eight cards, every sheet.
+- **Nothing else goes on the card**, and the omission is deliberate: no
+  school, no rank, no score. `buildResults` offers all three; a slip handed
+  out before anybody has a score has nowhere to put one, and the organisation
+  column belongs to the results sheet.
+
+*Ruled by the implementer during the 2026-08-31 f35 loop, no human available
+to consult. No migration: one route, one typst builder, one cache namespace
+and the web link beside D71's.*
