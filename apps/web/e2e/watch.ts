@@ -28,6 +28,7 @@ function matches(url: string, pattern: string | RegExp): boolean {
 export function watchForBrokenRequests(
   page: Page,
   allowed: readonly Allowance[] = [],
+  allowedConsole: readonly (string | RegExp)[] = [],
 ): { errors: string[] } {
   const errors: string[] = [];
   page.on('console', (msg) => {
@@ -38,6 +39,11 @@ export function watchForBrokenRequests(
     // three page tests failed on it while every real assertion passed.
     if (msg.type() !== 'error') return;
     if (msg.text().startsWith('Failed to load resource')) return;
+    // A caller may name console errors it expects — a known message a not-yet
+    // redeployed edge still emits, say — the console twin of `allowed` for
+    // subresource statuses. Scoped to the exact text, so a different error on
+    // the same page still fails the test.
+    if (allowedConsole.some((pattern) => matches(msg.text(), pattern))) return;
     errors.push(`console: ${msg.text()}`);
   });
   page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
