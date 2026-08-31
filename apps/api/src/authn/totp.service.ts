@@ -146,11 +146,16 @@ export class TotpService {
     // is the only guess that matters.
     const key = String(userId);
     if (!(await this.limiter.allow(CONFIRM_PURPOSE, key, CONFIRM_LIMIT, CONFIRM_WINDOW_MS))) {
+      // `mark: false` — `allow` above already wrote this request's refusal
+      // marker (D47); this call only reads the wait. Same purpose, same key,
+      // same request, so marking again would count one refusal twice in the
+      // number an operator reads during an incident.
       const retryAfter = await this.limiter.retryAfterSeconds(
         CONFIRM_PURPOSE,
         key,
         CONFIRM_LIMIT,
         CONFIRM_WINDOW_MS,
+        { mark: false },
       );
       throw new AppError(
         429,

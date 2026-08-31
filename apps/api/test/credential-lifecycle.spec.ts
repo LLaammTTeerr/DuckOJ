@@ -14,6 +14,7 @@ import { schema, type Db } from '@duckoj/db';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import { MAILER, type LogMailer } from '../src/mail/mailer.js';
+import { refusalPurpose } from '../src/common/rate-limiter.js';
 
 const PASSWORD = 'a-long-enough-password';
 const CHOSEN = 'the-password-they-chose';
@@ -236,4 +237,77 @@ describe('changing a password invalidates outstanding reset links (D141)', () =>
       }
     });
   }, 120_000);
+});
+
+/**
+ * One refused request is one refusal (D47).
+ *
+ * `allow` marks the refusal itself, and both of its callers then asked
+ * `retryAfterSeconds` for the `Retry-After` — which marks again, same purpose,
+ * same key, same request. So the number D47 exists to give an operator, and
+ * D95's monitor shows an organiser mid-contest, was double for exactly the two
+ * meters that guard a credential. D80's submission meter already passes
+ * `mark: false` for this reason and says so in `retryAfterSeconds`' own doc
+ * comment; these two predate it.
+ */
+describe('a refused credential check is counted once (D47)', () => {
+  async function refusalRows(db: Db, purpose: string): Promise<number> {
+    const rows = await db
+      .select({ id: schema.rateEvents.id })
+      .from(schema.rateEvents)
+      .where(eq(schema.rateEvents.purpose, refusalPurpose(purpose)));
+    return rows.length;
+  }
+
+  it('marks one row for the eleventh wrong password on /auth/password/change (D73)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = await registerAndLogin(app, 'bh34meter');
+        // Ten wrong guesses fit in the window; the eleventh is the refusal.
+        for (let attempt = 0; attempt < 10; attempt++) {
+          const wrong = await agent
+            .post('/api/v1/auth/password/change')
+            .send({ currentPassword: 'not-the-password', newPassword: CHOSEN });
+          expect(wrong.status).toBe(401);
+        }
+        expect(await refusalRows(db, 'password_check')).toBe(0);
+
+        const refused = await agent
+          .post('/api/v1/auth/password/change')
+          .send({ currentPassword: 'not-the-password', newPassword: CHOSEN });
+        expect(refused.status).toBe(429);
+        expect(refused.body.code).toBe('password_check_rate_limited');
+        expect(refused.headers['retry-after']).toBeDefined();
+
+        expect(await refusalRows(db, 'password_check')).toBe(1);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('marks one row for the eleventh wrong code on /auth/totp/confirm (D72)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = await registerAndLogin(app, 'bh34confirm');
+        expect((await agent.post('/api/v1/auth/totp/begin')).status).toBe(200);
+        for (let attempt = 0; attempt < 10; attempt++) {
+          const wrong = await agent.post('/api/v1/auth/totp/confirm').send({ code: '000000' });
+          expect(wrong.status).toBe(422);
+        }
+        expect(await refusalRows(db, 'totp_confirm')).toBe(0);
+
+        const refused = await agent.post('/api/v1/auth/totp/confirm').send({ code: '000000' });
+        expect(refused.status).toBe(429);
+        expect(refused.body.code).toBe('totp_confirm_rate_limited');
+        expect(refused.headers['retry-after']).toBeDefined();
+
+        expect(await refusalRows(db, 'totp_confirm')).toBe(1);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
 });
