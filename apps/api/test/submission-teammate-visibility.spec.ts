@@ -250,15 +250,14 @@ describe('D117 — teammates share their team submissions', () => {
     });
   }, 120_000);
 
-  it('the captain reads a member’s team submission too (the user_id arm)', async () => {
+  it('the ownership baseline still holds: the submitter reads their own row unmasked', async () => {
     await withTestDb(async (db) => {
       const w = await seedWorld(db);
       const service = new SubmissionAccessService(db);
-      // captainA holds the team row; the escape must also fire when the row is
-      // on the viewer's OWN account and a teammate made the submission — here
-      // the roles are reversed by asking about the row memberB would submit,
-      // so re-seed one under memberB is unnecessary: captainA reading X's own
-      // row is the baseline, and memberB reading it (above) is the widening.
+      // captainA SUBMITTED xSubmission, so this exercises the plain
+      // `submission.userId === actor.userId` escape, not the team arm — the
+      // control that the widening above did not disturb ownership. (The team
+      // arm proper is the memberB-reads-captainA's-row case above.)
       const detail = await service.getVisible(actorFor(w.ids.captainA.id), w.xSubmission);
       expect(detail.frozen).toBe(false);
       expect(detail.source).not.toBeNull();
@@ -319,7 +318,10 @@ describe('D117 — teammates share their team submissions', () => {
       // entrantD's participation has team_id = NULL. Phrased as
       // `NOT (predicate)`, `NULL IN (E's teams)` would make the OR NULL and
       // NOT NULL null, unfreezing D's row for anyone holding a team. `IS NOT
-      // TRUE` is what keeps it frozen — this is the test that catches the leak.
+      // TRUE` is what keeps it frozen. This case pins the ROW form
+      // (`getVisible` → `isSubmissionFrozen`, a clean boolean); the SQL form
+      // where the NULL trap actually lives is pinned by the agreement test
+      // below (flipping `is not true` → `not (...)` reddens THAT one).
       const detail = await service.getVisible(actorFor(w.ids.curatorE.id), w.dSubmission);
       expect(detail.frozen).toBe(true);
       expect(detail.verdict).toBeNull();
