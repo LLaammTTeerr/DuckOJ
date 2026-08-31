@@ -109,6 +109,7 @@ export class ProblemsController {
         tags: query.tag,
         difficultyMin: query.difficultyMin,
         difficultyMax: query.difficultyMax,
+        status: query.status,
       },
     );
   }

@@ -25,6 +25,7 @@ import {
   type EditorialResponseDto,
   type ProblemDetailDto,
   type ProblemMeDto,
+  type ProblemMyStatusDto,
   type ProblemMemberDto,
   type ProblemSampleDto,
   type ProblemPageDto,
@@ -125,6 +126,12 @@ export interface ProblemFilters {
   tags?: string[] | undefined;
   difficultyMin?: number | undefined;
   difficultyMax?: number | undefined;
+  /**
+   * A per-viewer status filter (D125), authenticated only — an anonymous
+   * caller who sends it is answered 422 by `listVisible`, never silently
+   * ignored. Composes with the three filters above by AND.
+   */
+  status?: 'solved' | 'attempted' | 'unsolved' | undefined;
 }
 
 /**
@@ -210,6 +217,40 @@ export class ProblemAccessService {
       .as('me_best');
   }
 
+  /**
+   * A `LEFT JOIN LATERAL`-ready subquery answering one boolean, correlated
+   * against the outer `problems` row: does `userId` hold an `AC` on it whose
+   * contest window has CLOSED? — the window-gated "solved" of D125's status
+   * marker and `?status=` filter. `solved` is `1` when such an `AC` exists
+   * and the lateral matches no row (so the outer column reads `null`) when it
+   * does not.
+   *
+   * Separate from `bestSubmissionLateral`, and it must be: "best" is one row
+   * by points, but a viewer can hold an in-window `AC` (which is the best row
+   * yet does NOT count as solved yet) alongside no closed `AC` at all — so
+   * the solved signal cannot be read off the best row and needs its own
+   * existence probe. The `not contestWindowOpenWhere(now)` conjunct is the
+   * SAME D49 predicate `computeCounts` filters `solvedCount` by, reused rather
+   * than restated, so the marker and the counter flip at one instant. It
+   * mentions no `contest_participations.user_id`, so the D113 source-scan
+   * guard stays green.
+   */
+  private meSolvedLateral(userId: number, now: Date) {
+    return this.db
+      .select({ solved: sql<number>`1`.as('solved') })
+      .from(submissions)
+      .where(
+        and(
+          eq(submissions.problemId, problems.id),
+          eq(submissions.userId, userId),
+          eq(submissions.verdict, 'AC'),
+          sql`not ${contestWindowOpenWhere(now)}`,
+        ),
+      )
+      .limit(1)
+      .as('me_solved');
+  }
+
   async listVisible(
     actor: Actor | null,
     // `cursor?: string | undefined` rather than `cursor?: string`: the
@@ -219,6 +260,24 @@ export class ProblemAccessService {
     filters: ProblemFilters = {},
   ): Promise<ProblemPageDto> {
     const after = parseCursor(page.cursor);
+    // ONE clock for the whole call, for `computeCounts`'s reason: the
+    // window-gated `status` filter and its marker must agree with each other
+    // about when "now" is, at a contest boundary.
+    const now = new Date();
+    // Both laterals built ONCE here, for the anonymous caller not at all: the
+    // `status` conditions below and the select list further down must
+    // reference the very objects that get joined in, never fresh copies that
+    // would alias-collide or attach unjoined (see `bestSubmissionLateral`).
+    const me = actor
+      ? { best: this.bestSubmissionLateral(actor.userId), solved: this.meSolvedLateral(actor.userId, now) }
+      : null;
+    // `status` is per-viewer and authenticated only (D125): an anonymous
+    // caller who sends it is refused, never silently served an unfiltered
+    // page dressed up as a filtered one — `?status=solved` answered with
+    // problems they have not solved would be a wrong 200, not a harmless one.
+    if (filters.status !== undefined && me === null) {
+      throw new AppError(422, 'status_requires_auth', 'Sign in to filter problems by your own status.');
+    }
     const conditions = [visibleProblemsWhere(this.db, actor), gt(problems.id, after)];
     if (filters.q) {
       const pattern = `%${likeEscape(filters.q.toLowerCase())}%`;
@@ -256,7 +315,30 @@ export class ProblemAccessService {
     if (filters.difficultyMin !== undefined) conditions.push(gte(problems.difficulty, filters.difficultyMin));
     if (filters.difficultyMax !== undefined) conditions.push(lte(problems.difficulty, filters.difficultyMax));
 
+    // The `status` filter reads the SAME two laterals the select list does
+    // below (`me` is non-null here — an anonymous caller was already refused).
+    // "solved" is a closed-window `AC` (`me.solved`); "attempted" is any
+    // graded submission (`me.best.verdict`) that is not yet a closed-window
+    // `AC`, so an in-contest `AC` lands here until the round ends; "unsolved"
+    // is no graded submission at all. Referenced through raw `sql` on the
+    // aliased subquery columns, matching how they are selected.
+    if (filters.status !== undefined && me !== null) {
+      if (filters.status === 'solved') {
+        conditions.push(sql`${me.solved.solved} is not null`);
+      } else if (filters.status === 'attempted') {
+        conditions.push(sql`(${me.best.verdict} is not null and ${me.solved.solved} is null)`);
+      } else {
+        conditions.push(sql`${me.best.verdict} is null`);
+      }
+    }
+
     const hidden = await this.contestHiddenProblemIds(actor);
+    // Deliberately NOT widened by `filters.status`. That flag drops a
+    // D35-hidden problem from a filtered page because `tag`/`difficulty`
+    // filter over the MASKED hint and would otherwise be an oracle for it.
+    // `status` reads the viewer's OWN submissions, which D35 never masks, so
+    // a status-only filter must keep listing a hidden problem (blanked), the
+    // same as an unfiltered page does.
     const filtering =
       tagSlugs.length > 0 || filters.difficultyMin !== undefined || filters.difficultyMax !== undefined;
     // The filter runs over the MASKED view, not under it. Blanking `tags` on
@@ -277,11 +359,12 @@ export class ProblemAccessService {
     const revisionJoin = and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published'));
 
     // Two full query shapes rather than one query with a conditionally
-    // built select list: for an anonymous caller the lateral is omitted
-    // entirely (spec §5) rather than joined against a null user id — a
-    // query that filters on `user_id = NULL` returns no rows but still
+    // built select list: for an anonymous caller both `me` laterals are
+    // omitted entirely (spec §5) rather than joined against a null user id —
+    // a query that filters on `user_id = NULL` returns no rows but still
     // costs the join. Either way this is ONE statement to Postgres; the
-    // branch only decides whether that one statement carries a third join.
+    // branch only decides whether that one statement carries the two `me`
+    // laterals (best verdict + window-gated solved).
     let rows: Array<{
       id: number;
       code: string;
@@ -295,14 +378,9 @@ export class ProblemAccessService {
       meVerdict?: string | null;
       mePoints?: number | null;
       meMaxPoints?: number | null;
+      meSolved?: number | null;
     }>;
-    if (actor) {
-      // Built once, not once per referencing column below: each call to
-      // `bestSubmissionLateral` constructs a fresh subquery aliased
-      // `me_best`, so calling it more than once here would either
-      // alias-collide or attach unjoined copies instead of referencing the
-      // one that is actually joined in.
-      const meBest = this.bestSubmissionLateral(actor.userId);
+    if (me !== null) {
       rows = await this.db
         .select({
           id: problems.id,
@@ -314,13 +392,17 @@ export class ProblemAccessService {
           timeMs: problemRevisions.timeMs,
           memoryKb: problemRevisions.memoryKb,
           testCount: problemRevisions.testCount,
-          meVerdict: meBest.verdict,
-          mePoints: meBest.points,
-          meMaxPoints: meBest.maxPoints,
+          meVerdict: me.best.verdict,
+          mePoints: me.best.points,
+          meMaxPoints: me.best.maxPoints,
+          // `1`/`null` — the window-gated "solved" signal `toSummary` folds
+          // into `myStatus`, and the same column the `status` filter reads.
+          meSolved: me.solved.solved,
         })
         .from(problems)
         .leftJoin(problemRevisions, revisionJoin)
-        .leftJoinLateral(meBest, sql`true`)
+        .leftJoinLateral(me.best, sql`true`)
+        .leftJoinLateral(me.solved, sql`true`)
         .where(and(...conditions))
         .orderBy(asc(problems.id))
         .limit(page.limit + 1);
@@ -409,10 +491,16 @@ export class ProblemAccessService {
           meVerdict?: string | null;
           mePoints?: number | null;
           meMaxPoints?: number | null;
+          meSolved?: number | null;
         }
       | undefined;
     if (actor) {
       const meBest = this.bestSubmissionLateral(actor.userId);
+      // Same window-gated solved signal the list carries (D125), so a
+      // problem's own page and its catalogue row agree on the ✓ marker — a
+      // detail that read `myStatus` off `meBest` alone would show 'attempted'
+      // for an already-revealed AC.
+      const meSolved = this.meSolvedLateral(actor.userId, new Date());
       row = (
         await this.db
           .select({
@@ -437,10 +525,12 @@ export class ProblemAccessService {
             meVerdict: meBest.verdict,
             mePoints: meBest.points,
             meMaxPoints: meBest.maxPoints,
+            meSolved: meSolved.solved,
           })
           .from(problems)
           .leftJoin(problemRevisions, revisionJoin)
           .leftJoinLateral(meBest, sql`true`)
+          .leftJoinLateral(meSolved, sql`true`)
           .where(sql`lower(${problems.code}) = lower(${code})`)
           .limit(1)
       )[0];
@@ -1508,9 +1598,13 @@ export class ProblemAccessService {
       meVerdict?: string | null;
       mePoints?: number | null;
       meMaxPoints?: number | null;
+      meSolved?: number | null;
     };
     if (actor) {
       const meBest = this.bestSubmissionLateral(actor.userId);
+      // The window-gated solved signal (D125), as `loadVisible` carries it,
+      // so a just-PATCHed problem echoes the author's own `myStatus`.
+      const meSolved = this.meSolvedLateral(actor.userId, new Date());
       row = (
         await this.db
           .select({
@@ -1535,10 +1629,12 @@ export class ProblemAccessService {
             meVerdict: meBest.verdict,
             mePoints: meBest.points,
             meMaxPoints: meBest.maxPoints,
+            meSolved: meSolved.solved,
           })
           .from(problems)
           .leftJoin(problemRevisions, revisionJoin)
           .leftJoinLateral(meBest, sql`true`)
+          .leftJoinLateral(meSolved, sql`true`)
           .where(eq(problems.id, id))
           .limit(1)
       )[0]!;
@@ -2071,6 +2167,9 @@ function toSummary(row: {
   meVerdict?: string | null;
   mePoints?: number | null;
   meMaxPoints?: number | null;
+  // The window-gated solved signal (D125): `1` when the viewer holds a
+  // closed-window `AC`, absent/null otherwise (anonymous, or no such `AC`).
+  meSolved?: number | null;
 }, hint: ProblemHint, counts: ProblemCounts): ProblemSummaryDto {
   return {
     id: row.id,
@@ -2086,6 +2185,7 @@ function toSummary(row: {
     // revision-derived field must read null rather than a stale value.
     testCount: row.revisionId === null ? null : row.testCount,
     me: toBestMe(row),
+    myStatus: toMyStatus(row),
     // Not revision-derived, so unlike the three fields above these are never
     // nulled out on a draft-only problem — a problem is tagged and rated
     // before it has anything published, and that is exactly when a curator
@@ -2124,6 +2224,22 @@ function toBestMe(row: {
     points: row.mePoints ?? null,
     maxPoints: row.meMaxPoints ?? null,
   };
+}
+
+/**
+ * The viewer's catalogue status (D125), folded from the two `me` laterals:
+ * `'solved'` when a closed-window `AC` exists (`meSolved`), else
+ * `'attempted'` when any GRADED submission exists (`meVerdict`, which is the
+ * best-verdict lateral and so `null` for an ungraded-only or anonymous
+ * viewer), else `null` for unsolved. Order matters — an in-contest `AC` sets
+ * `meVerdict` to `'AC'` but not `meSolved`, and must read `'attempted'`, so
+ * the solved check comes first. Mirrors `me`'s graded-only rule: an in-flight
+ * submission is not yet a status, exactly as it is not yet a `me`.
+ */
+function toMyStatus(row: { meVerdict?: string | null; meSolved?: number | null }): ProblemMyStatusDto {
+  if (row.meSolved != null) return 'solved';
+  if (row.meVerdict != null) return 'attempted';
+  return null;
 }
 
 /**
