@@ -38,10 +38,20 @@ export type TokenSummaryDto = z.infer<typeof TokenSummary>;
 // number schema as `{"type": ["integer","null"], "required": false}`, which
 // OpenAPI 3.1 forbids for an `in: "path"` parameter (path parameters must be
 // `required: true`, and a nullable id is meaningless anyway) — see
-// `submissions.ts`'s `SubmissionIdParamSchema` for the same fix. The runtime
-// route still uses Nest's own `ParseIntPipe`, which is untouched by this;
-// this schema exists purely to document the shape.
+// `submissions.ts`'s `SubmissionIdParamSchema` for the same fix. This schema
+// documents the shape; the runtime pipe is `RevokeTokenIdParam` below.
 const TokenIdParam = z.object({ id: z.number().int() });
+
+// The runtime pipe for `DELETE /auth/tokens/:id`. Nest hands `@Param('id')` a
+// raw route-segment string, so this coerces and validates it. `.int()` is
+// `Number.isSafeInteger` in zod v4, which bounds the value to the range a
+// `bigint` column accepts — without that bound Nest's own `ParseIntPipe`
+// accepted `1e20` (from an id like `99999999999999999999`), bound it against
+// the `access_tokens.id` column, and Postgres answered `22003
+// numeric_value_out_of_range`, which surfaced as a `500 internal_error`
+// rather than the `422` a client can act on.
+export const RevokeTokenIdParam = z.coerce.number().pipe(z.number().int().positive());
+export type RevokeTokenIdParamDto = z.infer<typeof RevokeTokenIdParam>;
 
 // Every route on this controller requires an interactive session — see
 // `TokensController`'s class-level `@UseGuards(SessionOnlyGuard)` — because

@@ -224,7 +224,12 @@ export class OrgsController {
 /** `:id` is a path segment, so it arrives as a string and must be a positive integer. */
 function parseId(raw: string): number {
   const id = Number(raw);
-  if (!Number.isInteger(id) || id <= 0) {
+  // `isSafeInteger`, not `isInteger`: `Number.isInteger(1e20)` is `true`, so an
+  // id like `99999999999999999999` passed this guard, was bound against the
+  // `bigint` join-request column, and Postgres answered `22003
+  // numeric_value_out_of_range` — a 500 where a 400 belongs. The safe-integer
+  // range is exactly the range that column accepts.
+  if (!Number.isSafeInteger(id) || id <= 0) {
     throw new AppError(400, 'bad_request', 'Malformed request id.');
   }
   return id;
