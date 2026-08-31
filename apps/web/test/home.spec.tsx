@@ -11,6 +11,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api.js';
 import { HomePage, pickContest } from '../src/routes/home.js';
+import { SubmissionsPage } from '../src/routes/submissions.js';
 
 // `HomePage` reaches the network only through `api`, exactly like
 // `submissions.spec.tsx` — mocking the module is the whole of the fixture.
@@ -23,6 +24,8 @@ const mockedGet = vi.mocked(api.GET);
 const testRootRoute = createRootRoute();
 const children = [
   '/problems',
+  '/submissions/$id',
+  '/users/$username',
   '/problems/$code',
   '/problems/new',
   '/contests',
@@ -154,6 +157,42 @@ describe('the signed-in home', () => {
       'href',
       '/problems',
     );
+  });
+
+  /**
+   * The bug this test was written for: `RecentPanel` asked
+   * `GET /submissions?user=me` under the key
+   * `['submissions', '', username, '', undefined]` — which is EXACTLY the key
+   * `SubmissionsPage` builds for `/submissions?user=me`, the link the home
+   * page itself offers and the one the problem page's "my submissions" points
+   * at. Same key, two different shapes: a plain `{ items }` from here, a
+   * `{ pages: [...] }` from `useInfiniteQuery` there. Whichever screen was
+   * visited second read the other's answer, and `data.pages.flatMap` on a
+   * plain object throws.
+   *
+   * One QueryClient across both renders is the whole fixture — that is what a
+   * reader's session is.
+   */
+  it('does not collide with the submissions list’s own cache entry', async () => {
+    serve([], [SUBMISSION]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrap = (ui: ReactElement) => (
+      <QueryClientProvider client={client}>
+        <RouterContextProvider router={testRouter}>{ui}</RouterContextProvider>
+      </QueryClientProvider>
+    );
+
+    const home = render(wrap(<HomePage me={ME} />));
+    await screen.findByText('AC');
+    home.unmount();
+
+    // The same reader, the same session, following the link the panel offers.
+    render(wrap(<SubmissionsPage initialUser={ME.username} />));
+    expect(await screen.findByRole('link', { name: 'aplusb' })).toBeInTheDocument();
+
+    // And the two entries are genuinely distinct in the cache.
+    const keys = client.getQueryCache().getAll().map((q) => JSON.stringify(q.queryKey));
+    expect(new Set(keys).size, `two screens share a cache key: ${keys.join(' | ')}`).toBe(keys.length);
   });
 
   it('asks a visitor’s browser for nothing', () => {

@@ -17,9 +17,11 @@
  * one to start), carrying the live countdown and the phase chip the contest
  * list already uses, and then the reader's own last five verdicts as badges.
  * NO NEW ENDPOINT: this is `GET /contests` and `GET /submissions?user=…`,
- * both of which the app already calls elsewhere, both cached under the same
- * query keys — so opening the home page warms the contest list rather than
- * duplicating it.
+ * both of which the app already calls elsewhere. The contest panel shares
+ * `contests.tsx`'s `['contests']` key, so opening the home page warms the
+ * contest list rather than duplicating it; the recent-verdicts panel
+ * deliberately does NOT share the submissions list's key, because that screen
+ * caches an INFINITE query and the two shapes are not interchangeable.
  *
  * A VISITOR sees none of it and the page is byte-identical to what it was:
  * both queries are `enabled` only when there is a viewer, `/submissions` 401s
@@ -132,7 +134,13 @@ function RecentPanel({ username, enabled }: { username: string; enabled: boolean
   const t = useT();
   const { locale, timeZone } = useLocale();
   const query = useQuery({
-    queryKey: ['submissions', '', username, '', undefined],
+    // Its OWN key, never the submissions list's. `SubmissionsPage` builds
+    // `['submissions', problem, user, contest, verdict]`, which for the link
+    // this very panel offers — `/submissions?user=me` — is byte-identical to
+    // what this used to ask under. Two shapes, one entry: whichever screen
+    // was visited second read the other's answer, and `useInfiniteQuery`'s
+    // `data.pages.flatMap` on a plain `{ items }` throws.
+    queryKey: ['home-recent', username],
     queryFn: async () => {
       const result = await api.GET('/submissions', { params: { query: { user: username } } });
       if (result.error || !result.data) throw new Error(t('submissions.loadError'));

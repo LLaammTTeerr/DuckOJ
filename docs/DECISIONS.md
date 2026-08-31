@@ -6094,10 +6094,16 @@ and both answers were three taps away behind a nav.
   contest screens use, so the front page can never drift out of step with them.
 - **The reader's own last five verdicts**, verdict first, through the one shared
   `.badge` glyph+colour system — never a second verdict renderer.
-- **No new endpoint, and no new query key.** `GET /contests` and
-  `GET /submissions?user=…`, cached under the keys `contests.tsx` and
-  `submissions.tsx` already use, so opening the home page warms the contest list
-  rather than duplicating it.
+- **No new endpoint.** `GET /contests` and `GET /submissions?user=…`. The
+  contest panel shares `contests.tsx`'s `['contests']` key, so opening the home
+  page warms the contest list rather than duplicating it. The verdicts panel
+  keeps its OWN key: the submissions list caches an *infinite* query, and
+  `['submissions', '', me, '', undefined]` — the key it builds for
+  `/submissions?user=me`, which is the very link this panel offers — would then
+  hold a plain `{ items }` from here and a `{ pages: [...] }` from there in one
+  entry. Whichever screen was visited second read the other's answer and
+  `data.pages.flatMap` threw. Two shapes are never one key, however tempting the
+  cache sharing looks.
 - **A visitor's browser is asked for nothing.** Both panels are `enabled` on a
   viewer; `/submissions` 401s signed out, and a landing page firing two doomed
   requests at every visitor is load with nothing to show for it. The signed-out page
