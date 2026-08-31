@@ -1261,6 +1261,39 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: 'get',
+  path: '/contests/{key}/seats.pdf',
+  tags: ['Contests'],
+  summary: 'Printable seat slips, one card per competitor — the organisers only',
+  description:
+    'An A4 portrait sheet of eight cards on dashed cut lines (D129). Each card carries the ' +
+    'contest’s name, the competitor’s display name, their account — for a team, every ' +
+    'member’s username instead (D99) — the contest window in the caller’s own timezone ' +
+    '(D57/D64, offset derived rather than hardcoded), the site’s address, and a blank rule ' +
+    'for the room and seat number. **No password appears on a slip and none can**: a roster ' +
+    'import returns its credentials exactly once and stores only hashes (D61), so there is ' +
+    'nothing re-derivable to print. Virtual replays are dropped — a replay has no desk — ' +
+    'and a disqualified row is kept, because a slip is a seat allocation and not an award. ' +
+    'Cards are ordered by display name, so two prints of one room are the same sheet. ' +
+    'Available at any hour, before the contest as much as after: the whole point is the ' +
+    'stack you cut up the night before. Cached for 60 s on a hash of the document.',
+  request: { params: ContestKeyParam },
+  responses: {
+    200: {
+      description: 'The rendered seat slips',
+      content: { 'application/pdf': { schema: z.string() } },
+    },
+    401: NOT_SIGNED_IN,
+    403: RESULTS_FORBIDDEN,
+    404: CONTEST_NOT_FOUND,
+    501: {
+      description: 'This server has no typst binary configured (`statement_pdf_unavailable`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
 /**
  * Source-similarity reports — chống gian lận (D77).
  *

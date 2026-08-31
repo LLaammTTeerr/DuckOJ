@@ -413,8 +413,13 @@ export class ContestAccessService {
    * `null` for an anonymous downloader and for a token session with no user,
    * which `bookletToTypst` reads as D57's "not chosen" and prints in ICT.
    * One extra indexed read on a route that is about to fork a typesetter.
+   *
+   * Public rather than private since D129: the seat slips date their window
+   * the same way, and they are built in `ContestResultsService`. One query,
+   * not two — the fallback rule is a product ruling and a second copy is a
+   * second place to get it wrong.
    */
-  private async readerTimeZone(actor: Actor | null): Promise<string | null> {
+  async readerTimeZone(actor: Actor | null): Promise<string | null> {
     if (actor === null) return null;
     const [row] = await this.db
       .select({ timezone: schema.users.timezone })

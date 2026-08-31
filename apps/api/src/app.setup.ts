@@ -154,6 +154,7 @@ const EXPOSED_HEADERS = [
   'X-Booklet-Cache',
   'X-Results-Cache',
   'X-Certificates-Cache',
+  'X-Seats-Cache',
   'X-Request-Id',
 ];
 

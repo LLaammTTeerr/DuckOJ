@@ -25,7 +25,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { inArray } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import type { FormatData, IcpcFormatData } from '@duckoj/contest-formats';
-import { DB } from '../config/config.module.js';
+import { APP_CONFIG, DB } from '../config/config.module.js';
+import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import type { Actor } from '../authz/actor.js';
 import { ContestAccessService, canRunContest } from '../authz/contest.access.js';
@@ -38,6 +39,7 @@ import {
   type ResultRow,
   type ResultsInput,
 } from '../statements/results.js';
+import { seatsToTypst } from '../statements/seats.js';
 import { resultsCsv } from './results-csv.js';
 
 /** Which certificates to print. Exactly one of the two is set (the contract). */
@@ -126,6 +128,7 @@ export class ContestResultsService {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(ContestAccessService) private readonly contests: ContestAccessService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   /** The results sheet as Excel opens it — BOM, CRLF, one row per ranking row. */
@@ -172,6 +175,56 @@ export class ContestResultsService {
         // two schools together is signed by both.
         issuer: orgs.length === 0 ? DEFAULT_ISSUER : orgs.map((org) => org.name).join(' · '),
         rows: this.selectCertified(input.rows, scope),
+      }),
+    };
+  }
+
+  /**
+   * The seat slips (D129): one card per competitor, for the desks.
+   *
+   * The same gate and the same board as the results exports — `buildResults`
+   * is what carries both — narrowed to the people who actually sit the
+   * contest:
+   *
+   * - **Virtual replays are dropped.** A replay is somebody re-running a
+   *   finished contest at home; there is no desk in the hall for it.
+   * - **A disqualified row is KEPT.** Slips are printed before the gun and a
+   *   disqualification happens during or after, so at print time there are
+   *   none; a row that has one is a person whose seat was still allocated,
+   *   and dropping the card would leave an unexplained empty desk in the plan.
+   *   `[DQ]` is a results-sheet mark (D37), not a seating one.
+   * - **No scores reach the card** — `buildResults` hands them over and the
+   *   slip's input has nowhere to put them, deliberately: a slip is handed out
+   *   before anybody has one.
+   *
+   * The window is dated in the CALLER's zone (D57/D64). Unlike the booklet
+   * that is not a compromise between reader and organiser: `canRunContest`
+   * has already refused everybody who is not running this contest, so the
+   * caller IS the organiser whose clock the room runs on.
+   */
+  async seatsDocument(
+    actor: Actor,
+    key: string,
+  ): Promise<{ contestId: number; contestKey: string; document: string }> {
+    const { contestId, input } = await this.buildResults(actor, key);
+    return {
+      contestId,
+      contestKey: input.contestKey,
+      document: seatsToTypst({
+        contestName: input.contestName,
+        startTime: input.startTime,
+        endTime: input.endTime,
+        timeZone: await this.contests.readerTimeZone(actor),
+        // Where the competitor signs in, and the one thing on the card that
+        // comes from the deploy rather than from the contest.
+        siteUrl: this.config.publicOrigin,
+        rows: input.rows
+          .filter((row) => row.virtual === 0)
+          .map((row) => ({
+            displayName: row.displayName,
+            username: row.username,
+            members: row.members,
+          })),
       }),
     };
   }

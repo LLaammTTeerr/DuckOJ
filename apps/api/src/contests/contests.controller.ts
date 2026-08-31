@@ -69,6 +69,7 @@ import {
   RESULTS_CACHE_TTL_MS,
   certificatesCacheKey,
   resultsCacheKey,
+  seatsCacheKey,
 } from '../statements/results.cache.js';
 import { ContestResultsService } from './results.service.js';
 
@@ -271,6 +272,42 @@ export class ContestsController {
     res.setHeader('X-Certificates-Cache', cache);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${contestKey}-certificates.pdf"`);
+    return new StreamableFile(Buffer.from(value.pdf, 'base64'));
+  }
+
+  /**
+   * One printable seat slip per competitor (D129).
+   *
+   * The pre-contest twin of `certificates.pdf`: the same gate
+   * (`canRunContest`), the same 60 s content-addressed cache, and the same
+   * authorization-before-capability order — a caller who does not run the
+   * contest is refused BEFORE the renderer is asked, so a server with no
+   * typst cannot answer 501 to somebody who was never entitled to the
+   * document.
+   *
+   * **No `?lang=`**, matching `results.pdf`: a slip is a name, an account and
+   * a clock, and its few labels are Vietnamese with the English beside them.
+   *
+   * **No passwords on it, ever (D61).** A roster import returns its
+   * credentials once and stores only hashes, so there is nothing for this
+   * route to print even if printing one were wanted.
+   */
+  @Get(':key/seats.pdf')
+  @RequireScope('contests:read')
+  async seatsPdf(
+    @CurrentActor() actor: Actor,
+    @Param('key') key: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { contestId, contestKey, document } = await this.results.seatsDocument(actor, key);
+    const { value, cache } = await this.cache.through(
+      seatsCacheKey(contestId, document),
+      async () => ({ pdf: (await this.statements.renderDocument(document)).toString('base64') }),
+      RESULTS_CACHE_TTL_MS,
+    );
+    res.setHeader('X-Seats-Cache', cache);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${contestKey}-seats.pdf"`);
     return new StreamableFile(Buffer.from(value.pdf, 'base64'));
   }
 

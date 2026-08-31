@@ -2738,6 +2738,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/contests/{key}/seats.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Printable seat slips, one card per competitor — the organisers only
+         * @description An A4 portrait sheet of eight cards on dashed cut lines (D129). Each card carries the contest’s name, the competitor’s display name, their account — for a team, every member’s username instead (D99) — the contest window in the caller’s own timezone (D57/D64, offset derived rather than hardcoded), the site’s address, and a blank rule for the room and seat number. **No password appears on a slip and none can**: a roster import returns its credentials exactly once and stores only hashes (D61), so there is nothing re-derivable to print. Virtual replays are dropped — a replay has no desk — and a disqualified row is kept, because a slip is a seat allocation and not an award. Cards are ordered by display name, so two prints of one room are the same sheet. Available at any hour, before the contest as much as after: the whole point is the stack you cut up the night before. Cached for 60 s on a hash of the document.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The rendered seat slips */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/pdf": string;
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The caller can see this contest but does not run it (`contest_forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such contest, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description This server has no typst binary configured (`statement_pdf_unavailable`) */
+                501: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/contests/{key}/similarity": {
         parameters: {
             query?: never;
