@@ -6151,3 +6151,110 @@ regrouping fits that, only removing something from the row does.
 component and one CSS block; the links move back onto the bar by deleting a
 wrapper.*
 
+
+## D140 — Loading reserves the space the answer will need
+
+Every data screen in this app answered `if (query.isPending) return <p>Đang tải…</p>`:
+the whole page thrown away and one grey line painted at the top of an empty sheet.
+Measured in Chromium against a 3 s-delayed route, `/contests/:key/scoreboard` was
+720px of nothing and then, in one frame, a full board — heading, back link, freeze
+banner and all. On contest day that screen is reloaded constantly on a connection
+that is doing badly, so it is the load this app's readers see most.
+
+- **The page chrome stays.** Heading, back link, filter bar, table head and the
+  controls below the table are drawn immediately; only the rows are placeholders.
+  `e2e/states.spec.ts` measures the consequence rather than asserting the cause: the
+  `<h1>`'s `boundingBox().y` while the route is held open is the same number it has
+  once the rows land.
+- **Skeleton rows, in the real `<tbody>`, with the real column count** — four for a
+  scoreboard (rank / participant / score / time, the four every format has), nine for
+  the problem list, five for the contest list. Widths vary per column because a stack
+  of identical full-width bars reads as a rendered table with no text in it.
+- **`aria-hidden` on every skeleton row.** They exist for layout. What a screen
+  reader is told is the caller's own one line, said once, not eight empty rows.
+- **Neutral greys from existing tokens** (`--sel`, `--line`), which is what makes the
+  dark theme free: tokens.css already aliases both under BOTH triggers (D116), so
+  there is no second palette to keep in step. No verdict or rank hue, ever (D46/D77).
+  `prefers-reduced-motion` drops the sweep and keeps the reserved space.
+- **Applied to the contest-day screens only** — problems, contests, scoreboard, the
+  problem statement. The other two dozen routes keep their loading line: a skeleton
+  for a form nobody is waiting on is decoration.
+
+*Ruled by the implementer during the 2026-08-31 fe3 states loop. Cost if wrong: one
+component and one CSS block; the old line comes back by reverting five call sites.*
+
+## D141 — The app says when the connection is gone, and when a poll has stopped
+
+`navigator.onLine` appeared nowhere in `src/`. A dead access point in a school hall
+looked exactly like a working one: the numbers on screen simply stopped changing, and
+the page went on presenting them with the same authority it had a second earlier.
+
+- **One banner, in the shell, on every screen.** `role="status"` and not `alert` — it
+  is a standing fact about the page, not an interruption, and a contestant
+  mid-keystroke must not have the reading order disturbed. It says what is true and
+  what follows from it: the connection is gone, and what is below is the last thing
+  that loaded. Above `<main>`, so the reader meets it before the stale numbers.
+- **`navigator.onLine` is optimistic** — a captive portal reports `true` — so this is
+  not a promise that requests will succeed. It is the one signal that is instant and
+  free, and the case it gets right is the one this judge is deployed into.
+- **A vintage line where a screen polls**: the monitor (5 s) and the contest's
+  clarification feed (30 s), which is the announcement channel a contestant depends
+  on. Quiet while healthy, a live region once the poll is more than three intervals
+  late — a stamp that says "updated at 09:41:07" is not news, and announcing it every
+  five seconds would make the monitor unusable with a screen reader. It is worded
+  differently when stale as well as ruled differently, because colour alone must not
+  carry a state.
+- **This matters most exactly where it is least visible.** TanStack Query's default
+  `networkMode: 'online'` PAUSES refetches while the browser reports offline. The
+  poll does not fail; it silently does not happen. Without a line saying so there is
+  no signal of any kind.
+
+*Ruled by the implementer during the 2026-08-31 fe3 states loop. Cost if wrong: one
+banner and one line; both delete cleanly.*
+
+## D142 — A failure is named by its STATUS, and it always offers the next move
+
+`apiError(result, fallback)` takes ONE fallback for every status, and the fallback a
+detail screen naturally chooses is its not-found sentence. So a 500 on
+`/contests/probe-cup` painted **"Không có kỳ thi này."** — the app telling a
+competitor at the bell that their round does not exist. Measured, in Chromium, on the
+contest page, the problem page, the org page and the submission page. Not one failing
+screen in the app offered a way to ask again.
+
+- **`LoadError` chooses the headline from the status**: no response at all →
+  "check your connection"; 5xx → "the server had a problem, not you"; 401 → sign in;
+  403 → you may not see this; **4xx otherwise → the caller's own sentence**, because
+  for a 404 that sentence is the answer.
+- **`Thử lại` appears only where a retry could work** — status 0 or 5xx, which is
+  `src/query.ts`'s own rule said again for a human. Offering it on a 404 is offering
+  to re-ask a question already answered.
+- **The server's wording is kept, and stops leading.** `api-error.ts` rules that the
+  RFC 7807 `detail` is shown rather than translated (D18), and it still is — one
+  muted line under the headline. What changed is that a Vietnamese pupil no longer
+  meets "You must be signed in." as the whole message. This needed `ApiError.detail`
+  as a field of its own: `message` is `detail ?? the caller's fallback`, so printing
+  it as "the server said" reprinted this app's own invention.
+- **`what` names the panel** on a screen that shows six at once (the admin dashboard,
+  the problem list): "Không tải được bảng vận hành." leads and the status sentence
+  follows it. On a detail screen the panel is the page and naming it repeats the
+  heading.
+- **A polling query forgets that it failed.** TanStack's `fetchState()` resets `error`
+  to null and `status` to `'pending'` whenever a fetch starts with `data ===
+  undefined` — so `/contests/:key/monitor` answered 500 to seven requests over sixteen
+  seconds and said "Đang tải…" for every one of them. `isError` has the same hole.
+  `useLastError` keeps the fact outside the query and drops it when a poll succeeds.
+- **The error `code` is not a sentence.** Six authoring call sites rendered
+  `error.code` AS the message (`package_not_found`, `contest_key_taken`). `CodeAlert`
+  gives the setter a translated sentence and the identifier they can paste into a
+  search — which is what app.css's `[role="alert"] code` rule was written for and
+  what no call site had ever actually emitted.
+- **An empty list says WHICH emptiness and one way out.** `/problems` conflated "no
+  problem matches these filters" with "nothing has been published", the way
+  `/submissions` did before FE-1; the notification inbox said "Chưa có gì."
+  `/orgs` is left alone deliberately — a pupil looking at an empty school list has no
+  next action this app can offer, and a link to the guide would be furniture.
+- One more of B-8's swallows, found by the same sweep: `problem-sets.tsx` read
+  `data?.items ?? []`, so a 500 told a pupil their teacher had assigned them nothing.
+
+*Ruled by the implementer during the 2026-08-31 fe3 states loop. Cost if wrong: one
+component; every call site reverts to its own `<p role="alert">` independently.*
