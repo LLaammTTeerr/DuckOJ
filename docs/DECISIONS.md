@@ -5171,3 +5171,52 @@ one.
 *Ruled by the implementer during the 2026-08-31 b21 loop, no human available
 to consult. No migration; a bugfix plus a recorded bound.*
 
+
+## D113 — "Is this person in this contest?" has one predicate, and a source-scan guard keeps it that way
+
+The same bug was found three times. A read keys a `contest_participations` row
+on `user_id = you` to answer "is this person IN this contest, what may they
+see, count them" — and in a TEAM contest (D99) that row belongs only to the
+captain, the member who pressed Join. Every other member competes on the SAME
+row, so keyed on `user_id` the read silently excludes two thirds of every
+team: B-18 was a 404 on the round's private problems for non-captains, B-19 a
+monitor that named the captain, B-21 a spoiler thread and a broadcast that
+reached captains alone. B-21 introduced `actingParticipationWhere` as the
+correct clause — the actor's own row, OR one a team they are on holds.
+
+- **One sanctioned predicate, exported.** `actingParticipationWhere`
+  (`apps/api/src/authz/problem.visibility.ts`) is now the single "does this
+  person compete here?" READ clause. It is deliberately NOT narrowed to
+  current membership (unlike `actingParticipations`, the ACT-now resolver in
+  `participation.ts`): a removed member may still re-read, and see on their
+  own pages, the round they competed in. `apps/api/src/authz/progress.access.ts`
+  `upcomingContests` — the last surviving `user_id` read of this family — now
+  routes through it, so a non-captain's My-progress page lists the round they
+  are sitting.
+- **A source-scan guard, in the shape of `route-marker-coverage.spec.ts`.**
+  `apps/api/test/team-participation-invariant.spec.ts` scans every non-spec
+  source file for `contestParticipations.userId` and raw-SQL `part.user_id`
+  participation reads. Each must be in the sanctioned module
+  (`problem.visibility.ts` / `participation.ts`) or in the test's ALLOWLIST,
+  keyed by `file::function` with the reason it is team-correct or genuinely
+  individual-only. A NEW un-audited read fails the test and is told the two
+  legal moves (route through the predicate, or add an audited entry); a
+  removed one fails as a stale entry, so the allowlist stays an honest census
+  of the seam. The class cannot silently return.
+- **The allowlist is the census.** Team-aware already (`computeScoreboard`,
+  `assertMembersFree`/`assertAddedMembersFree`, `broadcastRecipientsQuery`,
+  `participantsOnline`, similarity `loadCandidates`, the team-join paths).
+  Genuinely individual-only, correct as-is: `setDisqualified` (DQ of a named
+  person, D37), `rankedFieldFor` (per-user Glicko-2; a team has no rating),
+  `loadParticipantOrgs` (skipped for team contests), similarity
+  `countParticipants` and `contest-stats` solver counts (one per participation
+  = one per team, which is the unit). The submission FREEZE escape
+  (`frozenSubmissionsWhere`) keys on `submissions.user_id` and stays
+  individual: a teammate cannot read another member's contest submission at
+  all today (`visibleSubmissionsWhere` has no team clause), so widening the
+  freeze escape would be unobservable without first deciding whether teammates
+  see each other's submissions mid-round — a product question, left open.
+
+*Ruled by the implementer during the 2026-08-31 b22 team-seam loop, no human
+available to consult. No migration; one bugfix, one exported predicate, one
+guard test.*
