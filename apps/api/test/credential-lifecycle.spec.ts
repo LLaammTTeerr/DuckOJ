@@ -130,3 +130,110 @@ describe('a mailed password reset clears must_change_password (D140)', () => {
     });
   }, 120_000);
 });
+
+/**
+ * D141 — a password that changes takes every outstanding reset link with it.
+ *
+ * `redeem` marks the ONE row it was handed used; every other live
+ * `password_reset` row for that account stayed redeemable for the rest of its
+ * hour, and `AuthService.changePassword` never looked at the table at all. So
+ * the rescue D32 exists to perform — "somebody else may be in my account, end
+ * every credential they could be holding" — was reachable around by a link
+ * that was already in flight.
+ */
+describe('changing a password invalidates outstanding reset links (D141)', () => {
+  /** Asks for a reset and returns the token out of the mail. */
+  async function requestReset(app: INestApplication, username: string): Promise<string> {
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/password/forgot')
+      .send({ email: `${username}@example.com` });
+    return tokenFromLastMail(app);
+  }
+
+  it('kills a second live link when the first one is redeemed', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await registerAndLogin(app, 'bh34twolinks');
+        // Two links in flight at once: a user who clicked "forgot password"
+        // twice because the first mail was slow, or an intruder who asked for
+        // one of their own while reading the victim's inbox.
+        const stale = await requestReset(app, 'bh34twolinks');
+        const fresh = await requestReset(app, 'bh34twolinks');
+        expect(stale).not.toBe(fresh);
+
+        const used = await request(app.getHttpServer())
+          .post('/api/v1/auth/password/reset')
+          .send({ token: fresh, password: CHOSEN });
+        expect(used.status).toBe(200);
+
+        const replayed = await request(app.getHttpServer())
+          .post('/api/v1/auth/password/reset')
+          .send({ token: stale, password: 'the-intruders-own-password' });
+        expect(replayed.status).toBe(400);
+        expect(replayed.body.code).toBe('invalid_token');
+
+        // And the account still holds the password its owner chose.
+        const signedIn = await request(app.getHttpServer())
+          .post('/api/v1/auth/login')
+          .send({ usernameOrEmail: 'bh34twolinks', password: CHOSEN });
+        expect(signedIn.status).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('kills a link that was in flight when the owner changed their password', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = await registerAndLogin(app, 'bh34inflight');
+        const inFlight = await requestReset(app, 'bh34inflight');
+
+        const changed = await agent
+          .post('/api/v1/auth/password/change')
+          .send({ currentPassword: PASSWORD, newPassword: CHOSEN });
+        expect(changed.status).toBe(204);
+
+        const replayed = await request(app.getHttpServer())
+          .post('/api/v1/auth/password/reset')
+          .send({ token: inFlight, password: 'the-intruders-own-password' });
+        expect(replayed.status).toBe(400);
+        expect(replayed.body.code).toBe('invalid_token');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('leaves the address-verification link alone', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        // Registration mails a verification link; the change must not sweep it
+        // away with the password tokens — one table, two purposes, and only
+        // one of them is a credential for the password.
+        const agent = await registerAndLogin(app, 'bh34verify');
+        const verification = tokenFromLastMail(app);
+
+        const changed = await agent
+          .post('/api/v1/auth/password/change')
+          .send({ currentPassword: PASSWORD, newPassword: CHOSEN });
+        expect(changed.status).toBe(204);
+
+        const verified = await request(app.getHttpServer())
+          .post('/api/v1/auth/email/verify')
+          .send({ token: verification });
+        expect(verified.status).toBe(200);
+        const [row] = await db
+          .select({ verifiedAt: schema.users.emailVerifiedAt })
+          .from(schema.users)
+          .where(eq(schema.users.username, 'bh34verify'));
+        expect(row?.verifiedAt).not.toBeNull();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});

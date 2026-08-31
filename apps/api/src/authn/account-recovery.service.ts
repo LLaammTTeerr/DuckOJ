@@ -43,6 +43,45 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/**
+ * D141 — ends every reset link the account has in flight.
+ *
+ * `redeem` below marks the ONE row it was handed used, which is right for
+ * single use and says nothing about the account's other live links. There is
+ * normally more than one: a person who clicks "forgot password" twice because
+ * the first mail was slow has two, and so does an intruder who asked for a
+ * link of their own out of a mailbox they can read. Each of those is a
+ * standing licence to take the account over, and until this ran they outlived
+ * the very credential change made to stop them — D32's own sentence ("no
+ * instant at which the new password is live and an old credential still is")
+ * with `one_time_tokens` left out of the sweep.
+ *
+ * Marks `used_at` rather than deleting, so a dead link is dead in exactly the
+ * one way `redeem` already tests for and there is no second definition of
+ * "spent" to keep in step. Only LIVE rows, so nothing relabels history an
+ * expiry already settled, and only `password_reset` — an address-verification
+ * link proves nothing about a password and is none of this rule's business.
+ *
+ * Takes the caller's transaction: the invalidation and the new password land
+ * together or not at all.
+ */
+export async function invalidateOutstandingPasswordResets(
+  tx: Db,
+  userId: number,
+): Promise<void> {
+  await tx
+    .update(schema.oneTimeTokens)
+    .set({ usedAt: new Date() })
+    .where(
+      and(
+        eq(schema.oneTimeTokens.userId, userId),
+        eq(schema.oneTimeTokens.purpose, 'password_reset'),
+        isNull(schema.oneTimeTokens.usedAt),
+        gt(schema.oneTimeTokens.expiresAt, new Date()),
+      ),
+    );
+}
+
 @Injectable()
 export class AccountRecoveryService {
   constructor(
@@ -125,6 +164,10 @@ export class AccountRecoveryService {
         .where(eq(schema.users.id, row.userId));
       await tx.delete(schema.sessions).where(eq(schema.sessions.userId, row.userId));
       await tx.delete(schema.accessTokens).where(eq(schema.accessTokens.userId, row.userId));
+      // D141 — the OTHER links, which `redeem` never sees. A reset that left
+      // a sibling live would leave the takeover it exists to end one click
+      // away for the rest of the hour.
+      await invalidateOutstandingPasswordResets(tx, row.userId);
     });
   }
 
