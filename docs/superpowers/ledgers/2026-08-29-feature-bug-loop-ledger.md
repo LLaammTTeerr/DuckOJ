@@ -139,3 +139,4 @@
 - F-34 DONE (52fe1dd..fefabf3, main): problem status filter solved/attempted/unsolved + myStatus glyph (D125, window-gated, D113 guard green); api 1120, web 601; deployed via deploy.sh; pushed.
 - B-29 DONE, merged (f6b280c): api/judged Dockerfiles --ignore-scripts + prune ssh2/cpu-features chain (D124) — deploy build flake CLASS CLOSED (ssh2 grep-c 0 in live api). F-34 status filter deployed with it; problems 200. web rebuilt. Pushed.
 - F-34 status filter + B-29 image hardening live. Dispatched B-30 whole-API-surface fuzz + marker/scope/rate/pagination sweep (worktree, D126–D128). e2e confirming deploy.
+- e2e after F-34/B-29 deploy: 44/44 on live.
