@@ -85,8 +85,8 @@ const BAD_PARAMS: Record<string, string> = {
   version: 'x',
 };
 
-function fuzzPath(path: string): string {
-  return path.replace(/\{(\w+)\}/g, (_match, name: string) => BAD_PARAMS[name] ?? 'nope');
+function fuzzPath(path: string, overrides: Record<string, string> = {}): string {
+  return path.replace(/\{(\w+)\}/g, (_match, name: string) => overrides[name] ?? BAD_PARAMS[name] ?? 'nope');
 }
 
 /**
@@ -104,6 +104,14 @@ function fuzzPath(path: string): string {
 const AMBIENT = new Set([400, 401, 403, 404, 422, 429]);
 
 /**
+ * The allowed browser `Origin` (D82). Every cookie-authenticated write must
+ * name it or `CsrfOriginGuard` 403s before the handler — so the session pass
+ * sets it on every request, which is what lets malformed bodies actually
+ * reach write handlers rather than dying at the origin gate.
+ */
+const BROWSER_ORIGIN = TEST_CONFIG.publicOrigin;
+
+/**
  * Each pass is one *shape* of malformed request, not one bad value. The shape
  * is what matters: a handler that survives `limit=abc` can still fall over on
  * `limit=1&limit=2`, because express parses a repeated key into an **array**,
@@ -116,6 +124,8 @@ interface Pass {
   /** Raw body plus its content-type, for the shapes JSON cannot express. */
   raw?: { type: string; body: string };
   body?: unknown;
+  /** Per-pass path-parameter overrides merged over `BAD_PARAMS`. */
+  params?: Record<string, string>;
 }
 
 const PASSES: Pass[] = [
@@ -152,6 +162,20 @@ const PASSES: Pass[] = [
     query: { limit: 'x'.repeat(4096), cursor: '\u0000\u{1F600}', q: '%' },
     body: { name: 'x'.repeat(50_000), emoji: '\u{1F4A5}'.repeat(100) },
   },
+  {
+    // Numeric edges, path ids included. `99999999999999999999` parses to
+    // `1e20` — larger than a `bigint`, yet `Number.isInteger` and
+    // `ParseIntPipe` accept it and it is positive — so an id param validated
+    // with anything short of `Number.isSafeInteger` bound it against the
+    // column and answered `500 numeric_value_out_of_range`. B-30 fixed three
+    // such params (`token` / `clarification` / `org-request` ids); this vector
+    // is the net that keeps a fourth from shipping. `Infinity`/`NaN` and a
+    // negative round out the numeric edges a coercing validator trips on.
+    name: 'numeric-edge params and body',
+    params: { id: '99999999999999999999', version: '1e309' },
+    query: { limit: '-1', cursor: '1e309', page: 'Infinity', id: '9007199254740993' },
+    body: { limit: Number.POSITIVE_INFINITY, count: -1, size: Number.MAX_SAFE_INTEGER + 2, ratio: Number.NaN },
+  },
 ];
 
 describe('every documented route, fuzzed', () => {
@@ -185,6 +209,16 @@ describe('every documented route, fuzzed', () => {
           .send({ usernameOrEmail: username, password: 'a-long-enough-password' });
         expect(login.status, 'the fuzzer could not sign in').toBe(200);
 
+        // A scopeless token, minted by the same session. `POST /auth/tokens`
+        // is a cookie write, so it needs the `Origin` D82 demands — the same
+        // header the session pass below sets on every request.
+        const minted = await agent
+          .post('/api/v1/auth/tokens')
+          .set('Origin', BROWSER_ORIGIN)
+          .send({ name: 'fuzz', scopes: [] });
+        expect(minted.status, 'the fuzzer could not mint a token').toBe(201);
+        const token = (minted.body as { token: string }).token;
+
         const serverErrors: string[] = [];
         const undocumented: string[] = [];
         const notProblemJson: string[] = [];
@@ -195,42 +229,77 @@ describe('every documented route, fuzzed', () => {
          * handler — this is the guard against that.
          */
         const seen = new Map<number, number>();
+        /**
+         * Session-pass writes (POST/PATCH/PUT/DELETE) that reached validation
+         * (a 422). Before B-30 this spec sent no `Origin`, so every cookie
+         * write stopped at D82's origin gate with a 403 and no malformed body
+         * ever reached a write handler — the fuzz silently covered reads only.
+         * Asserting at least one write 422s is the guard that keeps that
+         * regression from returning: a 422 can only come from the validation
+         * pipe, which sits *past* the guards.
+         */
+        let writeReachedValidation = 0;
+        const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-        for (const pass of PASSES) {
-          for (const operation of operations()) {
-            const url = `/api/v1${fuzzPath(operation.path)}`;
-            let call = agent[operation.method.toLowerCase() as 'get'](url);
-            if (pass.query) call = call.query(pass.query);
-            if (pass.raw) {
-              call = call.set('Content-Type', pass.raw.type).send(pass.raw.body as never);
-            } else if (pass.body !== undefined && operation.method !== 'GET' && operation.method !== 'DELETE') {
-              call = call.send(pass.body as never);
-            }
-            const res = await call;
-            seen.set(res.status, (seen.get(res.status) ?? 0) + 1);
-            const where = `[${pass.name}] ${operation.method} ${operation.path} -> ${String(res.status)}`;
+        /**
+         * Two credential shapes, because they travel different middleware. A
+         * cookie session (with the `Origin` D82 requires) reaches write
+         * handlers; a bearer token skips the origin gate but must be stopped
+         * by `ScopeGuard` on any `@RequireScope` write it lacks the scope for
+         * — so the token pass is also the standing proof that a scopeless
+         * token cannot write, on every route at once.
+         */
+        const modes = [
+          { label: 'session', bearer: undefined as string | undefined },
+          { label: 'token', bearer: token },
+        ];
 
-            if (res.status >= 500) {
-              serverErrors.push(`${where} ${JSON.stringify(res.body).slice(0, 200)}`);
-              continue;
-            }
-            if (!operation.documented.includes(res.status) && !AMBIENT.has(res.status)) {
-              undocumented.push(`${where} (documented: ${operation.documented.join(',')})`);
-            }
+        for (const mode of modes) {
+          for (const pass of PASSES) {
+            for (const operation of operations()) {
+              // Logout would end the very session the rest of the pass rides
+              // on; skipping it costs no coverage (it takes no input).
+              if (operation.path === '/auth/logout') continue;
+              const url = `/api/v1${fuzzPath(operation.path, pass.params)}`;
+              let call = agent[operation.method.toLowerCase() as 'get'](url);
+              call = mode.bearer
+                ? call.set('Authorization', `Bearer ${mode.bearer}`)
+                : call.set('Origin', BROWSER_ORIGIN);
+              if (pass.query) call = call.query(pass.query);
+              if (pass.raw) {
+                call = call.set('Content-Type', pass.raw.type).send(pass.raw.body as never);
+              } else if (pass.body !== undefined && operation.method !== 'GET' && operation.method !== 'DELETE') {
+                call = call.send(pass.body as never);
+              }
+              const res = await call;
+              seen.set(res.status, (seen.get(res.status) ?? 0) + 1);
+              if (mode.label === 'session' && WRITE_METHODS.has(operation.method) && res.status === 422) {
+                writeReachedValidation++;
+              }
+              const where = `[${mode.label}/${pass.name}] ${operation.method} ${operation.path} -> ${String(res.status)}`;
 
-            // Every refusal is RFC 9457, whoever produced it. This is the
-            // generalisation of B3's finding: an error raised ABOVE the
-            // handler (the body parser's 400/413, a guard's 401) travels a
-            // different path from an `AppError` a service threw, and only
-            // `ProblemFilter` makes the two look alike on the wire. A client
-            // parsing `code` must never be handed express's default HTML
-            // error page instead.
-            if (res.status >= 400) {
-              const type = String(res.headers['content-type'] ?? '');
-              if (!type.includes('application/problem+json')) {
-                notProblemJson.push(`${where} content-type: ${type || '(none)'}`);
-              } else if (typeof res.body?.status !== 'number' || typeof res.body?.code !== 'string') {
-                notProblemJson.push(`${where} body: ${JSON.stringify(res.body).slice(0, 120)}`);
+              if (res.status >= 500) {
+                serverErrors.push(`${where} ${JSON.stringify(res.body).slice(0, 200)}`);
+                continue;
+              }
+              if (!operation.documented.includes(res.status) && !AMBIENT.has(res.status)) {
+                undocumented.push(`${where} (documented: ${operation.documented.join(',')})`);
+              }
+
+              // Every refusal is RFC 9457, whoever produced it. This is the
+              // generalisation of B3's finding: an error raised ABOVE the
+              // handler (the body parser's 400/413, a guard's 401) travels a
+              // different path from an `AppError` a service threw, and only
+              // `ProblemFilter` makes the two look alike on the wire. A client
+              // parsing `code` must never be handed express's default HTML
+              // error page instead.
+              if (res.status >= 400) {
+                const type = String(res.headers['content-type'] ?? '');
+                if (!type.includes('application/problem+json')) {
+                  notProblemJson.push(`${where} content-type: ${type || '(none)'}`);
+                } else if (typeof res.body?.status !== 'number' || typeof res.body?.code !== 'string') {
+                  notProblemJson.push(`${where} body: ${JSON.stringify(res.body).slice(0, 120)}`);
+                }
               }
             }
           }
@@ -249,6 +318,10 @@ describe('every documented route, fuzzed', () => {
         );
         // And the session held: an expired one would make every line a 401.
         expect(seen.get(401) ?? 0).toBeLessThan(total / 2);
+        // Write bodies reached a validation pipe, not just a guard — see the
+        // comment on `writeReachedValidation`. Without the `Origin` header the
+        // session pass sets, this is 0.
+        expect(writeReachedValidation, 'no write route reached its validation pipe').toBeGreaterThan(0);
       } finally {
         await app.close();
       }

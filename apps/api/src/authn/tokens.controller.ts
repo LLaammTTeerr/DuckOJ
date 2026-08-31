@@ -1,18 +1,9 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  Inject,
-  Param,
-  ParseIntPipe,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post } from '@nestjs/common';
 import {
   CreateTokenRequest,
   type CreateTokenRequestDto,
   type CreateTokenResponseDto,
+  RevokeTokenIdParam,
   type TokenSummaryDto,
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
@@ -51,7 +42,10 @@ export class TokensController {
 
   @Delete(':id')
   @HttpCode(204)
-  revoke(@CurrentActor() actor: Actor, @Param('id', ParseIntPipe) id: number): Promise<void> {
+  revoke(
+    @CurrentActor() actor: Actor,
+    @Param('id', new ZodValidationPipe(RevokeTokenIdParam)) id: number,
+  ): Promise<void> {
     return this.tokens.revoke(actor.userId, id);
   }
 }

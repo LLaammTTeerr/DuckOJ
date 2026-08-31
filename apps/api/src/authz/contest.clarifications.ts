@@ -286,8 +286,11 @@ export class ContestClarificationsService {
     // reaches Postgres as `NaN`, which it refuses as a bigint with a 500. Refused
     // here as 404 rather than `orgs.controller.ts`'s 400 `bad_request`, because
     // 404 is what this route already declares and "no such clarification" is
-    // exactly true of an id that cannot name one.
-    if (!Number.isInteger(id) || id <= 0) throw NOT_FOUND;
+    // exactly true of an id that cannot name one. `isSafeInteger`, not
+    // `isInteger`: `Number.isInteger(1e20)` is `true`, so an id like
+    // `99999999999999999999` slipped past and overflowed the `bigint` column
+    // (`22003`, a 500) — the safe-integer bound is the range that column accepts.
+    if (!Number.isSafeInteger(id) || id <= 0) throw NOT_FOUND;
 
     return this.db.transaction(async (tx) => {
       // Read INSIDE the transaction, and locked.
