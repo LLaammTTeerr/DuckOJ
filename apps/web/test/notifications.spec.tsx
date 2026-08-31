@@ -180,6 +180,63 @@ describe('NotificationsPage', () => {
     wrap(<NotificationsPage />);
     expect(await screen.findByText(/Đăng nhập để xem thông báo/)).toBeInTheDocument();
   });
+
+  /**
+   * The census. `line`'s fallback — render the kind's own name — is right for
+   * a kind the server grew yesterday and a bug for one this app ships with:
+   * it puts an untranslated `snake_case` identifier in front of a student, on
+   * the one screen that exists to be read in Vietnamese.
+   *
+   * Every kind the API can write, `git grep -E "notify\\(|notifyMany\\(|kind:"`
+   * over `apps/api/src`. A kind added there and not here is a new row of raw
+   * English in the feed, which is exactly what this list is for.
+   */
+  const SERVER_KINDS = [
+    'org_join_requested',
+    'org_join_decided',
+    'org_members_imported',
+    'role_granted',
+    'totp_reset',
+    'totp_recovery_codes_exhausted',
+    'clarification_answered',
+    'clarification_answered_team',
+    'clarification_published',
+    'contest_announcement',
+    'problem_comment_reply',
+  ];
+
+  it('renders every kind the server can send as a sentence, never as its raw name', async () => {
+    get.mockResolvedValue({
+      data: {
+        unreadCount: SERVER_KINDS.length,
+        items: SERVER_KINDS.map((kind, i) => ({
+          id: 100 + i,
+          kind,
+          payload: {
+            orgSlug: 'hanoi',
+            approved: true,
+            globalRole: 'setter',
+            username: 'mai',
+            count: 40,
+            by: 'op',
+            contestKey: 'spring',
+            contestName: 'Spring Open',
+            clarificationId: 7,
+            problemCode: 'aplusb',
+            problemName: 'A+B',
+          },
+          readAt: null,
+          createdAt: '2026-08-01T00:00:00Z',
+        })),
+      },
+    });
+    wrap(<NotificationsPage />);
+
+    await screen.findByRole('table');
+    for (const kind of SERVER_KINDS) {
+      expect(screen.queryByText(kind)).toBeNull();
+    }
+  });
 });
 
 /**

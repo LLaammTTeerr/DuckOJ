@@ -72,6 +72,28 @@ function line(t: TFunction, item: Item): React.ReactNode {
             : t('notifications.joinDecidedDeclined')}
         </>
       );
+    // `scripts/org-import.ts` tells an org's owners that a roster landed
+    // (D14, in the import's own transaction). It was the one kind the server
+    // ships that this switch had never learned, so it fell through to the
+    // fallback and printed `org_members_imported` — an untranslated
+    // snake_case identifier, in front of a teacher, on the one screen whose
+    // whole job is to be read in Vietnamese.
+    //
+    // The payload's `by` is a user ID, not a username, so it is deliberately
+    // not in the sentence: a bare number names nobody, and resolving it would
+    // be a second request for a line that already says what happened.
+    case 'org_members_imported':
+      return (
+        <>
+          {t('notifications.membersImportedPrefix', {
+            count: typeof p.count === 'number' ? p.count : 0,
+          })}
+          <Link to="/orgs/$slug" params={{ slug }}>
+            {slug}
+          </Link>
+          {t('notifications.membersImportedSuffix')}
+        </>
+      );
     case 'role_granted':
       return (
         <>

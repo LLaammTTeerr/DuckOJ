@@ -652,6 +652,8 @@ export const vi = {
   'notifications.joinDecidedApproved': ' của bạn đã được duyệt.',
   'notifications.joinDecidedDeclined': ' của bạn đã bị từ chối.',
   'notifications.roleGranted': 'Bạn hiện có quyền {role}.',
+  'notifications.membersImportedPrefix': '{count} thành viên vừa được nhập vào ',
+  'notifications.membersImportedSuffix': '.',
   'notifications.clarificationAnsweredPrefix': 'Câu hỏi của bạn ở ',
   'notifications.clarificationAnsweredSuffix': ' đã được trả lời.',
   'notifications.clarificationAnsweredTeamPrefix': 'Câu hỏi của đội bạn ở ',
