@@ -6267,6 +6267,133 @@ that is doing badly, so it is the load this app's readers see most.
 *Ruled by the implementer during the 2026-08-31 fe3 states loop. Cost if wrong: one
 component and one CSS block; the old line comes back by reverting five call sites.*
 
+## D143 — A container-backed spec inherits its timeout from the package, and a guard says so
+
+Twenty hunt reports carry the same sentence — "X.spec.ts failed under the full
+parallel run, passes in isolation — container contention" (B-10, B-13, B-19,
+B-21, B-24, F-9, F-11, F-12, F-15, F-30, F-33, B-30, B-33, B-34). B-34 was the
+first to open one instead of retrying it: `problem-comments.spec.ts` ran
+thirteen cases that start a Postgres container and run the whole migration
+chain on vitest's **default `testTimeout` of 5 s**, while every sibling passed
+`120_000` by hand. Not contention. A defect wearing a flake's clothes.
+
+The B-35 audit found the hole in **thirty-eight more spec files** — `app.smoke`,
+`route-marker-coverage`, `route-contract-parity`, `id-param-overflow`,
+`authz-default`, and `org-member-import`'s twenty-one cases among them — plus
+**forty-one cases and hooks that opted DOWN** to `60_000` or `30_000`. Nothing
+distinguished a file that had been thought about from one that had not, because
+the budget lived in eight hundred hand-written arguments.
+
+**The rule.** Every workspace package whose tests start a container declares
+`testTimeout: 120_000` and `hookTimeout: 120_000` in its own `vitest.config.ts`
+(`apps/api`, `apps/judged`, `packages/db`). A spec inherits the floor by
+existing; nothing new is required to remember anything.
+
+- **`hookTimeout` too.** `beforeAll` is where the container actually starts,
+  and vitest's hook default of 10 s is not a container budget either.
+- **The floor is a floor, not a ceiling.** `180_000` and `300_000` stay on the
+  genuinely slow files. Below the floor is what is forbidden — that is opting
+  back out one case at a time, which is how this spread.
+- **The ~800 redundant `120_000` arguments stay.** They are at the floor, so
+  they change nothing, and rewriting them would be churn against a live
+  campaign. Nothing NEW needs one.
+- **`afterAll`/`afterEach` are exempt.** Both harnesses stop their container
+  under an explicit 30 s with a bounded retry, deliberately: a wedged `stop`
+  must not hold every spec file for two minutes.
+- **The cost is accepted.** A genuinely hung test now reports in two minutes
+  instead of five seconds. A slow red is worth more than an intermittent one
+  nobody can reproduce — which is what the last twenty reports were paying for.
+
+**The guard.** `apps/api/test/db-spec-timeout-policy.spec.ts`, a source scan in
+the shape of `route-marker-coverage.spec.ts` and
+`team-participation-invariant.spec.ts`, over the whole workspace rather than
+one package: it fails if a package with container specs has no config declaring
+both floors, and if any container-backed `it`/`test`/`beforeAll`/`beforeEach`
+carries an argument below the floor. The failure message names both legal
+moves.
+
+**Corollary, same ruling.** `redis-db-assignments.spec.ts` (the D-less B-8
+guard) could only see specs that DECLARE `const REDIS_DB = <n>;`.
+`problem-stats.spec.ts` wiped Redis through an inline `ensureRedisUrl(2)` and
+was invisible to it, so a second spec claiming 2 would have collided in
+silence. A spec that wipes Redis must now NAME its database, and `flushall` is
+banned outright.
+
+*Ruled by the implementer during the 2026-08-31 B-35 test-hygiene loop, no
+human available to consult. No migration, no contract change.*
+
+### D143, second corollary — the web suite's floor is Testing Library's, not vitest's
+
+`findBy*` and `waitFor` do NOT run on `testTimeout`. Testing Library keeps its
+own budget and it defaults to **one second**, which is ample when
+`apps/web` runs alone and much too little when `pnpm -r test` starts every
+package at once: sixty jsdom files render React while `apps/api`,
+`apps/judged` and `packages/db` churn through a hundred and thirty Postgres
+containers on the same machine. `submission-diff.spec.tsx` went red there —
+"Unable to find role=button" for a toggle that renders after two react-query
+fetches — and passed alone: the same sentence, one runner further out.
+
+`apps/web/test/setup.ts` now calls `configure({ asyncUtilTimeout: 5_000 })`
+once for the package, and `apps/web/vite.config.ts` raises vitest's own
+`testTimeout`/`hookTimeout` to `30_000` so a case that spends five seconds
+inside one `findBy` does not then die on a five-second case budget. **Not the
+api package's 120 s**: nothing here starts a container, and a jsdom render
+that takes half a minute is a bug, not a slow machine.
+
+`db-spec-timeout-policy.spec.ts` does NOT police this one — its subject is
+packages that start containers, and `apps/web` starts none. Deleting the
+`configure` call would fail nothing until the next loaded `pnpm -r test`.
+Left deliberately: a guard that scanned for a setup-file call would be
+asserting the shape of one line in one file, which is a worse trade than the
+one paragraph of prose it replaces.
+
+### D143, third corollary — a cache test asserts the KEY, never the wall clock
+
+`SCOREBOARD_CACHE_TTL_MS` is 2 s; the booklet's is 60 s; the statistics' is
+30 s. Five specs assert "read twice, the second is a `hit`", which is true
+only if two HTTP round trips fit inside that expiry. Under `pnpm -r test` —
+twenty packages at once, `apps/api` folding 134 spec files through a hundred
+and thirty Postgres containers — they sometimes do not:
+`contest-scoreboard-cache` and `contest-booklet` each went red once in seven
+whole-workspace runs (`expected 'miss' to be 'hit'`), and never in six runs of
+`apps/api` alone.
+
+**That is not D143's defect and no timeout repairs it.** The case did not run
+out of time; the DATA expired. B-8's Redis numbering and B-35's timeout floor
+both leave it standing.
+
+`cache.harness.ts`'s `longLivedCacheStore` is the mechanism: the REAL
+`RedisScoreboardCacheStore`, against the real container, built through the
+`connect` seam its constructor already offers the flapping-connection tests,
+with the `PX` argument floored at ten minutes. Same `get`, same `set`, same
+`del`. The TTL numbers stay pinned where they are defined; these specs go back
+to being about keying, coalescing and invalidation.
+
+It also makes two assertions HONEST that were not. "Drops the cached board
+when the contest is edited" asserted a `miss` that a mere expiry could have
+produced — a false green. With the floor, that `miss` can only come from
+`del`: stubbing `del` to a no-op now reds both invalidation cases, and did not
+have to before.
+
+**Amendment (same loop): the package default is 180 s, the FLOOR is 120 s.**
+120 000 was the first number, and it held for six full api runs before losing
+one: `org-writes.spec.ts`'s first case — the one that pays for the container
+start and the migration chain — timed out at exactly 120 000 ms during a
+parallel run that took 279 s of wall clock against a nominal 170 s, because
+something else had the machine. The three configs now declare `180_000`, which
+the slowest files in the suite already declared by hand. The guard's floor
+stays 120 000: it is the least any single declaration may be, not what a
+package should default to, and moving it would red the ~800 arguments sitting
+exactly on it.
+
+**Postscript.** That 279 s run was the parallel form, which this machine no
+longer runs at all: `vitest` with file parallelism put ~17 Testcontainers
+Postgres instances on one laptop and took it to 93 °C at load 18. D106 already
+had CI on `test:ci` (`--workspace-concurrency=1 … --no-file-parallelism`, one
+container at any instant) for correctness reasons; it is now also the thermal
+rule for developers, and every measurement below D143 is serial. The extra
+minute stays as insurance, not as a fix for a form nobody may run.
+
 ## D144 — The app says when the connection is gone, and when a poll has stopped
 
 `navigator.onLine` appeared nowhere in `src/`. A dead access point in a school hall
@@ -6490,3 +6617,4 @@ would throw the reader out of the box they had just tabbed into, every time.
 
 *Ruled by the implementer during the fe4 forms loop, no human available to
 consult. `apps/web` only; no migration.*
+

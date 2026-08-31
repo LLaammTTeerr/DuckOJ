@@ -17,7 +17,9 @@ import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { contestParticipations, contestProblems, contests } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
+import { SCOREBOARD_CACHE_STORE } from '../src/authz/scoreboard.cache.js';
 import { buildApp } from './app.harness.js';
+import { longLivedCacheStore } from './cache.harness.js';
 import { withTestDb } from './db.harness.js';
 import { ensureRedisUrl } from './redis.harness.js';
 import {
@@ -92,7 +94,16 @@ async function withCachingApp(
   db: Db,
   body: (app: INestApplication) => Promise<void>,
 ): Promise<void> {
-  const app = await buildApp(db, { configOverrides: { redisUrl: await freshRedis() } });
+  const url = await freshRedis();
+  const app = await buildApp(db, {
+    configOverrides: { redisUrl: url },
+    // The real store, with the 2 s expiry raised off the wall clock — see
+    // `cache.harness.ts`. Everything this file asserts (the key, the
+    // coalescing, the `del` on an edit) is unaffected; what it stops
+    // asserting is that two HTTP round trips finish inside two seconds on a
+    // machine running the whole workspace's tests at once (B-35).
+    overrides: [{ provide: SCOREBOARD_CACHE_STORE, useValue: longLivedCacheStore(url) }],
+  });
   try {
     await body(app);
   } finally {

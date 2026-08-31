@@ -328,7 +328,7 @@ describe('referential integrity', () => {
       const actual = Object.fromEntries(rows.map((row) => [row.key, row.rule]));
       expect(actual).toEqual(FOREIGN_KEYS);
     });
-  }, 60_000);
+  });
 
   it('every uniqueness rule the product assumes exists as an index', async () => {
     await withTestDb(async (db) => {
@@ -345,7 +345,7 @@ describe('referential integrity', () => {
         expect(byName.get(name), `missing unique index ${name}`).toBe(definition);
       }
     });
-  }, 60_000);
+  });
 
   it('refuses to delete a contest anybody entered, so a scoreboard cannot vanish', async () => {
     await withTestDb(async (db) => {
@@ -362,7 +362,7 @@ describe('referential integrity', () => {
         .from(contestSubmissions);
       expect(remaining!.n).toBe(1);
     });
-  }, 60_000);
+  });
 
   it('still deletes a contest nobody entered', async () => {
     await withTestDb(async (db) => {
@@ -385,7 +385,7 @@ describe('referential integrity', () => {
         .where(eq(contests.id, empty!.id));
       expect(row!.n).toBe(0);
     });
-  }, 60_000);
+  });
 
   it('refuses to point a problem at another problem’s revision', async () => {
     await withTestDb(async (db) => {
@@ -419,7 +419,7 @@ describe('referential integrity', () => {
           .where(eq(problems.id, fixture.problemId)),
       );
     });
-  }, 60_000);
+  });
 
   it('leaves an unpublished problem’s null current revision alone', async () => {
     await withTestDb(async (db) => {
@@ -434,7 +434,7 @@ describe('referential integrity', () => {
         .where(eq(problems.id, fixture.problemId));
       expect(row!.current).toBeNull();
     });
-  }, 60_000);
+  });
 
   it('refuses to delete a contest problem that has been submitted to (migration 0016)', async () => {
     await withTestDb(async (db) => {
@@ -443,7 +443,7 @@ describe('referential integrity', () => {
         tx.delete(contestProblems).where(eq(contestProblems.id, fixture.contestProblemId)),
       );
     });
-  }, 60_000);
+  });
 
   it('refuses to disband a team that has competed, and cascades its roster otherwise', async () => {
     await withTestDb(async (db) => {
@@ -481,7 +481,7 @@ describe('referential integrity', () => {
       // results. `TeamAccessService.remove` turns this into a 409.
       await expectRefused(db, (tx) => tx.delete(teams).where(eq(teams.id, competed!.id)));
     });
-  }, 60_000);
+  });
 
   it('takes a seat with the participation it names, and never the other way round (D104)', async () => {
     await withTestDb(async (db) => {
@@ -493,7 +493,7 @@ describe('referential integrity', () => {
       const [seats] = await db.select({ n: sql<number>`count(*)::int` }).from(contestSeats);
       expect(seats!.n).toBe(0);
     });
-  }, 60_000);
+  });
 
   it('keeps grading history when a judge node is retired (D68)', async () => {
     await withTestDb(async (db) => {
@@ -519,5 +519,5 @@ describe('referential integrity', () => {
         .where(eq(schema.gradingJobs.id, job!.id));
       expect(row!.judgeNodeId).toBeNull();
     });
-  }, 60_000);
+  });
 });

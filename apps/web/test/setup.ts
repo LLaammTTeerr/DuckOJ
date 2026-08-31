@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { LOCALE_STORAGE_KEY, resetFallbackLocale } from '../src/i18n/index.js';
 import { THEME_STORAGE_KEY } from '../src/theme.js';
 
@@ -11,6 +11,31 @@ import { THEME_STORAGE_KEY } from '../src/theme.js';
 // turns "one element" queries into "multiple elements found" failures in any
 // spec file with more than one `render()` call.
 afterEach(cleanup);
+
+/**
+ * D143's rule, in the shape this package needs.
+ *
+ * `findBy*` and `waitFor` do NOT run on vitest's `testTimeout`; Testing
+ * Library keeps its own budget, and it defaults to **one second**. That is
+ * ample when the web suite runs alone and much too little when it does not:
+ * `pnpm -r test` starts every package at once, so sixty jsdom files render
+ * React while `apps/api`, `apps/judged` and `packages/db` are churning
+ * through a hundred and thirty Postgres containers on the same machine.
+ * `submission-diff.spec.tsx` went red on exactly that — "Unable to find
+ * role=button" for a toggle that renders after two react-query fetches — and
+ * passed alone, the same sentence twenty hunt reports have filed under
+ * "container contention".
+ *
+ * Five seconds is far outside any honest render and still fails a genuinely
+ * missing element quickly. It is set HERE, once, for the same reason the api
+ * floor lives in a vitest config: a per-call `{ timeout }` argument is a
+ * thing every future spec has to remember.
+ *
+ * `vite.config.ts` raises vitest's own `testTimeout` to match — a case that
+ * spends five seconds inside one `findBy` must not then die on a five-second
+ * case budget.
+ */
+configure({ asyncUtilTimeout: 5_000 });
 
 // jsdom's `documentElement` and `localStorage` persist across the tests in a
 // file. The theme control (D116) writes both, so a test that leaves a

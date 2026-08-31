@@ -79,7 +79,7 @@ describe('the probes under an unresponsive database', () => {
     // never completes, and the failure is the runner's own timeout with no
     // useful message attached.
     expect(elapsed).toBeLessThan(READY_TIMEOUT_MS * 3);
-  }, 60_000);
+  });
 
   it('healthz still reports liveness while the database hangs', async () => {
     // The split is the point, and the Compose healthcheck probes exactly this
@@ -92,7 +92,7 @@ describe('the probes under an unresponsive database', () => {
     // D86 added the live worker count to this body; it is still computed
     // without touching anything, which is what this test is about.
     expect(res.body).toEqual({ status: 'ok', workers: 1 });
-  }, 30_000);
+  });
 
   it('the deadline is short enough to be useful to a probe interval', () => {
     // A readiness deadline longer than the interval an orchestrator probes on
