@@ -1,12 +1,13 @@
 import { WebSocket } from 'ws';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildApp, buildAppWithRealtime } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import { clearSubmissionMeter, registerAndLogin, seedProblemAndLanguage } from './submissions.fixtures.js';
 import { SessionService } from '../src/authn/session.service.js';
 import { SubmissionAccessService } from '../src/authz/submission.access.js';
-import { MAX_SUBSCRIPTIONS } from '../src/realtime/submissions.gateway.js';
+import { ContestMonitorService } from '../src/authz/contest.monitor.js';
+import { MAX_CONTEST_WATCHES, MAX_SUBSCRIPTIONS } from '../src/realtime/submissions.gateway.js';
 import { eq } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 
@@ -584,6 +585,156 @@ describe('submission realtime — the subscription set is bounded and releasable
           socket.send(JSON.stringify({ type: 'subscribe', submissionId: bad }));
         }
         await subscribeAcked(socket, ids[0]!);
+        socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+});
+
+/**
+ * The caps must hold against a BURST, not only against a client polite enough
+ * to wait for each ack.
+ *
+ * `subscribe` reads `subscriptions.size` synchronously and adds to the set
+ * only after `await getVisible` — three queries, the source, the whole case
+ * grid. `ws` emits every frame that arrived in one read synchronously, and
+ * each handler is launched as `void this.onMessage(...)`, so N frames sent
+ * back to back all run the cap check while the set is still empty, all pass
+ * it, and all reach the database. That is exactly the flood the cap was
+ * written to make free — "past the cap a flood must cost this process nothing
+ * at all" — and the set itself lands above its own bound. `watch-contest` has
+ * the same shape and the same hole.
+ *
+ * The authorization is held on a gate rather than left to however fast
+ * Postgres answers: the window between the check and the `add` is then this
+ * test's to open and close, so the assertion is about the ordering and never
+ * about timing.
+ */
+describe('submission realtime — the caps hold under a burst', () => {
+  it('never runs more authorizations than the subscription cap admits', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { app, url } = await buildAppWithRealtime(db, {
+        overrides: [{ provide: MAX_SUBSCRIPTIONS, useValue: 2 }],
+      });
+      try {
+        const agent = request.agent(app.getHttpServer());
+        const cookie = await registerAndLogin(agent, 'burster');
+        const ids: number[] = [];
+        for (let i = 0; i < 5; i += 1) {
+          await clearSubmissionMeter(db);
+          const created = await agent
+            .post('/api/v1/submissions')
+            .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: `int main(){}//${String(i)}` });
+          ids.push(created.body.id as number);
+        }
+
+        const access = app.get(SubmissionAccessService);
+        const real = access.getVisible.bind(access);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const authorized: number[] = [];
+        vi.spyOn(access, 'getVisible').mockImplementation(async (actor, id) => {
+          authorized.push(id);
+          await gate;
+          return real(actor, id);
+        });
+
+        const socket = await open(`${url}/ws`, { cookie });
+        const seen: { type?: string; code?: string }[] = [];
+        socket.on('message', (d) => seen.push(JSON.parse(String(d)) as { type?: string }));
+        for (const id of ids) socket.send(JSON.stringify({ type: 'subscribe', submissionId: id }));
+
+        // Every frame has now been handled as far as its `await`; a refusal is
+        // sent synchronously, so the three of them are already on the wire.
+        await new Promise((r) => setTimeout(r, 200));
+        expect(authorized).toHaveLength(2);
+        expect(seen.filter((m) => m.code === 'subscription_limit')).toHaveLength(3);
+
+        release();
+        await new Promise((r) => setTimeout(r, 200));
+        expect(seen.filter((m) => m.type === 'subscribed')).toHaveLength(2);
+        socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('frees the reserved slot when the authorization refuses, so a burst of unseeable ids does not brick the socket', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { app, url } = await buildAppWithRealtime(db, {
+        overrides: [{ provide: MAX_SUBSCRIPTIONS, useValue: 2 }],
+      });
+      try {
+        const agent = request.agent(app.getHttpServer());
+        const cookie = await registerAndLogin(agent, 'refused');
+        await clearSubmissionMeter(db);
+        const created = await agent
+          .post('/api/v1/submissions')
+          .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}' });
+
+        const socket = await open(`${url}/ws`, { cookie });
+        const seen: { type?: string; code?: string }[] = [];
+        socket.on('message', (d) => seen.push(JSON.parse(String(d)) as { type?: string }));
+        // Four ids nobody may see. A reservation that is not released on the
+        // refusal would spend the cap on them and leave the socket unable to
+        // subscribe to anything ever again.
+        for (const id of [900001, 900002, 900003, 900004]) {
+          socket.send(JSON.stringify({ type: 'subscribe', submissionId: id }));
+        }
+        await new Promise((r) => setTimeout(r, 300));
+        expect(seen.filter((m) => m.code === 'submission_not_found').length).toBeGreaterThan(0);
+
+        await subscribeAcked(socket, created.body.id);
+        socket.close();
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
+  it('never runs more contest authorizations than the watch cap admits', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const { app, url } = await buildAppWithRealtime(db, {
+        overrides: [{ provide: MAX_CONTEST_WATCHES, useValue: 1 }],
+      });
+      try {
+        const agent = request.agent(app.getHttpServer());
+        const cookie = await registerAndLogin(agent, 'watchburst');
+
+        const monitor = app.get(ContestMonitorService);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const asked: string[] = [];
+        vi.spyOn(monitor, 'assertMayWatch').mockImplementation(async (_actor, key) => {
+          asked.push(key);
+          await gate;
+          return key.toLowerCase();
+        });
+
+        const socket = await open(`${url}/ws`, { cookie });
+        const seen: { type?: string; code?: string }[] = [];
+        socket.on('message', (d) => seen.push(JSON.parse(String(d)) as { type?: string }));
+        for (const key of ['ct-a', 'ct-b', 'ct-c']) {
+          socket.send(JSON.stringify({ type: 'watch-contest', key }));
+        }
+
+        await new Promise((r) => setTimeout(r, 200));
+        expect(asked).toHaveLength(1);
+        expect(seen.filter((m) => m.code === 'contest_watch_limit')).toHaveLength(2);
+
+        release();
+        await new Promise((r) => setTimeout(r, 200));
+        expect(seen.filter((m) => m.type === 'contest-watched')).toHaveLength(1);
         socket.close();
       } finally {
         await app.close();
