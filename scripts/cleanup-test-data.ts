@@ -4,6 +4,7 @@
  *
  *   corepack pnpm tsx scripts/cleanup-test-data.ts               # dry run, live
  *   corepack pnpm tsx scripts/cleanup-test-data.ts --url postgres://...
+ *   corepack pnpm tsx scripts/cleanup-test-data.ts --print-plan  # the SQL, no connection
  *   CONFIRM=yes corepack pnpm tsx scripts/cleanup-test-data.ts --apply
  *
  * ## Why this script is shaped the way it is
@@ -1021,6 +1022,8 @@ export function parseNotices(stderr: string): Notice[] {
 
 interface Options {
   readonly apply: boolean;
+  /** Write the SQL to stdout and touch no database at all. */
+  readonly printPlan: boolean;
   readonly live: boolean;
   readonly url: string | undefined;
   readonly container: string;
@@ -1030,6 +1033,7 @@ interface Options {
 
 function parseArgs(argv: readonly string[]): Options {
   let apply = false;
+  let printPlan = false;
   let live = false;
   let url: string | undefined;
   let container = 'duckoj_postgres_1';
@@ -1038,6 +1042,7 @@ function parseArgs(argv: readonly string[]): Options {
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === '--apply') apply = true;
+    else if (arg === '--print-plan') printPlan = true;
     else if (arg === '--live') live = true;
     else if (arg === '--url') url = argv[++index];
     else if (arg === '--container') container = argv[++index] ?? container;
@@ -1055,7 +1060,7 @@ function parseArgs(argv: readonly string[]): Options {
   // the `postgres` service no `ports:`), so the container is the default and
   // `--url` is for a database something on this host can actually dial.
   if (!live && url === undefined) live = true;
-  return { apply, live, url, container, database, user: dbUser };
+  return { apply, printPlan, live, url, container, database, user: dbUser };
 }
 
 async function execute(options: Options, script: string): Promise<string> {
@@ -1090,6 +1095,12 @@ function pad(value: string, width: number): string {
 
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2));
+  // `--print-plan` is the operator's read-before-you-run, and the only mode
+  // that opens no connection — so it is answered before CONFIRM is consulted.
+  if (options.printPlan) {
+    process.stdout.write(buildScript({ apply: options.apply }));
+    return 0;
+  }
   if (options.apply && process.env.CONFIRM !== 'yes') {
     console.error('cleanup-test-data: --apply needs CONFIRM=yes as well. Nothing was touched.');
     return 2;
