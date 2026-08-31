@@ -280,6 +280,15 @@ test('journey 2 — a frozen ICPC team round renders team names, the monitor, an
   await expect(page.getByRole('heading', { name: 'Bảng điểm' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Team Alpha', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Team Bravo', exact: true })).toBeVisible();
+  // The print stylesheet (D121): under print media the floating glass nav is
+  // gone, so a Ctrl-P scoreboard is clean paper. jsdom never matches
+  // `@media print`; only a real browser proves the block applied. Restore the
+  // medium immediately so the rest of this test runs on screen.
+  await page.emulateMedia({ media: 'print' });
+  await expect
+    .poll(() => page.locator('nav.shell-nav').evaluate((el) => getComputedStyle(el).display))
+    .toBe('none');
+  await page.emulateMedia({ media: null });
   // No freeze banner here on purpose: the organiser's board is UNFROZEN
   // (D22/D23). The banner is asserted below on the rival's view, where it is.
 

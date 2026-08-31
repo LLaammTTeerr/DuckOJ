@@ -5341,3 +5341,52 @@ in their head, once a second. The header now counts down.
 
 *Ruled by the implementer during the 2026-08-31 f30 loop, no human available to
 consult. Web-only: one leaf component, one display helper, two i18n keys.*
+
+## D121 — A print stylesheet turns the scoreboard, a problem and the submissions list into clean paper
+
+A teacher prints from the browser: a finished contest's standings pinned to a
+wall, a problem statement handed to a room, a submissions list checked off.
+This is NOT D71 (results/certificates are server-rendered PDFs the organiser
+downloads) — this is Ctrl-P on the on-screen page, which until now printed the
+floating glass chrome, the theme's dark ground and half-clipped tables.
+
+- **One `@media print` block, extended from D61's.** The credential sheet
+  already had a print block; D121 widens it rather than adding a second. It
+  hides the shell (`.shell-nav`, `.nav-sheet-layer`), the escape-hatch
+  `.no-print`, and every interactive control (`form`, `.field`, `label`,
+  `button`, `input`, `select`, `textarea`) — `summary`/`details` stay, so an
+  opened editorial prints.
+- **A LIGHT palette is forced by redefining the colour/material tokens on
+  `:root` inside the print block**, not by an !important per element: the block
+  is last in the file and `:root` is (0,1,0), so it beats both dark-theme
+  triggers by source order. A dark-mode teacher gets ink on white, not white
+  on white. Only tokens `tokens.css` already declares are named
+  (`test/app-css.spec.ts` fails on any other).
+- **Tables survive a page break**: `thead { display: table-header-group }`
+  repeats the header atop each page and `tr { break-inside: avoid }` stops a
+  row splitting. The phone rule (`@media max-width:700px`) turns a `<table>`
+  into a block scroll-container and FIRES in print — an A4 page minus margins
+  is ~680px, under the 700px breakpoint — so it is undone with
+  `table { display: table !important; overflow: visible !important }`, without
+  which columns clip off the right edge.
+- **A print-only header names the page** (`.print-only`, shown on paper only):
+  the contest/problem name plus the date, so a stack of scoreboards is not
+  anonymous — the scoreboard's own h1 is the generic "Bảng điểm". One i18n key
+  (`print.printedOn`, in both catalogues). The date is the render-time value,
+  not a print-time one — no JS behaviour change.
+- **Rulings.** Verdict badges print black (`.badge { color:#000 }`) — D67
+  guarantees a glyph beside every hue, so a monochrome badge still reads.
+  Link URLs are suppressed, not printed after the text (every entity is a
+  hyperlink; a scoreboard of printed URLs is noise). Consequences: the
+  submissions list prints only the rows already loaded ("Load more" is a
+  hidden button), and the scoreboard's organiser DQ column prints as an empty
+  cell. `@page { margin: 12mm }` sets A4-friendly margins WITHOUT `size`, so
+  the reader's own paper choice stands.
+- **The e2e proof is on the scoreboard** (`e2e/contest-day.spec.ts`):
+  `emulateMedia({media:'print'})`, assert `nav.shell-nav` computes
+  `display:none`, restore. jsdom never matches `@media print`, so the vitest
+  assertions read the block as text — only a real browser proves it applied.
+
+*Ruled by the implementer during the 2026-08-31 f31 loop, no human available to
+consult. Web-only: one CSS block, three print-only headers, one i18n key. No
+migration — nothing persists a stylesheet.*
