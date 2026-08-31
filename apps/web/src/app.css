@@ -64,7 +64,9 @@
  *     files, and a design that lands entirely in CSS does not collide with it.
  *   - `.stats`/`.stat` — the admin dashboard's tiles.
  *   - `.rank` (+ the band key), `.dq`, `.tag`, `.no-print`,
- *     `.print-credentials` — one each, documented at their rules.
+ *     `.print-credentials`, `.print-only` — one each, documented at their
+ *     rules. `.no-print` hides on paper only; `.print-only` shows on paper
+ *     only (the printed contest/problem header, D121).
  * No other class is added beyond these.
  */
 
@@ -2084,11 +2086,86 @@ fieldset label {
   /* Nothing on screen — this class only means something to a printer. */
 }
 
+/* The printed header (D121) — a contest/problem name and the date, shown ONLY
+   on paper. Off-screen it is nothing; the `@media print` block below reveals
+   it. This is the escape hatch's twin: `.no-print` removes screen chrome from
+   paper, `.print-only` adds the one thing paper needs that a screen does not
+   (a teacher's stack of scoreboards is unidentifiable without a title on it). */
+.print-only {
+  display: none;
+}
+
+/* A4-friendly margins for every printed page (D121). At top level, not inside
+   the media block, because `@page` only ever applies to print anyway; margins
+   ALONE — no `size` — so the reader's own paper choice stands. */
+@page {
+  margin: 12mm;
+}
+
+/* The print stylesheet (D61 credential sheet, widened by D121 to the
+ * scoreboard, a problem statement and the submissions list).
+ *
+ * Ctrl-P on any of those must yield clean ink on white: the floating glass
+ * nav, the overflow sheet and every interactive control are removed, the
+ * material is stripped (a printer cannot composite a backdrop filter, and a
+ * translucent tint over white is a grey box), and a LIGHT palette is forced
+ * regardless of the reader's theme so a dark-mode teacher does not print
+ * white text onto white paper.
+ *
+ * The palette is forced by redefining the colour/material tokens on `:root`
+ * here rather than by an !important per element: this block is last in the
+ * file and `:root` is (0,1,0), so it beats both dark-theme triggers (which
+ * `:where()` also holds at (0,1,0)) by source order. Only tokens `tokens.css`
+ * already declares are named — a new one would be a silent no-op that
+ * `test/app-css.spec.ts` fails on. */
 @media print {
+  :root {
+    --bg: #fff;
+    --fg: #000;
+    --dim: #333;
+    --faint: #555;
+    --line: #999;
+    --sel: #fff;
+    --panel: #fff;
+    --scrim: transparent;
+    --mark: #eee;
+    --wash-1: transparent;
+    --wash-2: transparent;
+    --glass-bar: #fff;
+    --glass-sheet: #fff;
+    --glass-raised: #fff;
+    --glass-inset: #fff;
+    --glass-stroke: #999;
+    --glass-edge: transparent;
+    --blur-bar: 0px;
+    --blur-sheet: 0px;
+    --blur-chip: 0px;
+  }
+  /* Chrome and interactive controls have no place on paper. A scoreboard the
+     teacher prints wants the standings, not a Join button, a theme toggle, a
+     filter box or a "load more". `summary`/`details` are deliberately NOT
+     hidden — an editorial a reader opened should print. */
   .shell-nav,
   .nav-sheet-layer,
-  .no-print {
+  .no-print,
+  form,
+  .field,
+  label,
+  button,
+  input,
+  select,
+  textarea {
     display: none !important;
+  }
+  .print-only {
+    display: block;
+  }
+  /* No backdrop the printer would only turn to grey, and no shadow. */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
   body {
     background: #fff;
@@ -2106,14 +2183,45 @@ fieldset label {
   .tag {
     background: #fff !important;
     background-image: none !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
   }
   .panel {
     border: none;
-    box-shadow: none;
     padding: 0;
+  }
+  /* A verdict is black ink on paper. D67 guarantees every verdict carries a
+     GLYPH as well as its hue, so a monochrome badge still reads — and a
+     bright dark-mode green on white is exactly the low-contrast the light
+     palette above exists to prevent. */
+  .badge {
+    color: #000 !important;
+    border-color: #999 !important;
+  }
+  /* The printed header: name on the left, a hairline under it. */
+  .print-only {
+    margin: 0 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #000;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  /* Tables must survive a page break: the header row repeats atop each page
+     and no row is split across two. Colour is not the cue — a solid inset
+     hairline is. */
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    break-inside: avoid;
+  }
+  /* The phone rule (`@media (max-width: 700px)`) turns a <table> into a block
+     scroll-container, and it FIRES in print — an A4 page minus margins is
+     ~680px wide, under the 700px breakpoint — which would clip columns off
+     the right edge and defeat the repeating header above. Undo it on paper:
+     a printed table lays out as a table and spills to a second page, it does
+     not scroll. */
+  table {
+    display: table !important;
+    overflow: visible !important;
   }
   .print-credentials {
     width: 100%;

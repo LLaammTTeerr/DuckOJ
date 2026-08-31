@@ -105,6 +105,36 @@ describe('app.css', () => {
     expect(block).toContain('display: table-header-group');
   });
 
+  /**
+   * The print stylesheet widened to the scoreboard, a problem statement and
+   * the submissions list (D121). Same medium caveat as the credential test:
+   * jsdom never matches `@media print`, so this reads the block as TEXT. The
+   * regex captures the FIRST (and only) `@media print` block, which is the one
+   * D121 extended — so both this and the credential test read one block.
+   */
+  it('prints clean ink on white on any page: hides the nav, forces a light ground, keeps tables whole', () => {
+    const block = /@media print\s*\{([\s\S]*?)\n\}/.exec(CSS)?.[1];
+    expect(block).toBeDefined();
+    // The floating glass nav and the overflow sheet are gone from paper.
+    expect(block).toContain('.shell-nav');
+    expect(block).toContain('.nav-sheet-layer');
+    expect(block).toContain('display: none !important');
+    // A LIGHT ground regardless of theme: the core colour tokens are forced
+    // to ink-on-white so a dark-mode reader does not print white on white.
+    expect(block).toContain('--fg: #000');
+    expect(block).toContain('--bg: #fff');
+    // The printed header shows on paper only.
+    expect(block).toContain('.print-only');
+    // Tables survive a page break: the header row repeats and no row splits.
+    expect(block).toContain('display: table-header-group');
+    expect(block).toContain('break-inside: avoid');
+    // The phone rule turns a <table> into a block scroller and fires at A4
+    // width; it must be undone on paper or columns clip off the right edge.
+    expect(block).toContain('display: table !important');
+    // Off screen, `.print-only` is nothing (revealed only inside the block).
+    expect(CSS).toMatch(/\.print-only\s*\{\s*display:\s*none;/);
+  });
+
   it('names no custom property that the stylesheets never define', () => {
     // `.dq td { color: var(--muted, inherit) }` shipped naming a variable
     // that does not exist — the fallback always won, so the disqualified-row
