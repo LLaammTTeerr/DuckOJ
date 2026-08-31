@@ -116,3 +116,4 @@
 - F-28 DONE, merged (071a9e3): three-way theme toggle (data-theme, pre-paint no-flash, dark palette single-sourced, D116); web rebuilt (Caddy bind-mount serves it), pushed. B-22 still running.
 - B-22 DONE, merged (ae3b85e): 21 participation reads audited (1 fixed: progress upcomingContests; 6 individual-only; rest team-aware), source-scan guard test blocks the captain-only class returning (D113). Deployed; pushed. Open product Q (no D): do teammates see each other's mid-round submissions? (freeze escape stays individual until decided).
 - F-28 merged/deployed (theme toggle). Dispatched F-29 teammate submission visibility (main, D117 — resolves B-22's open Q the ICPC way) and B-23 whole-diff review III (worktree, D118–D120).
+- B-23 DONE, merged (8c8e6c7): MAJOR team-slug collision resolved to caller's own team; else cleared; api 1104/1104, fresh-DB 34 migrations clean. Deployed; pushed. Minor residuals (TeamPage tz, picker same-slug disambiguation) → next sweep.
