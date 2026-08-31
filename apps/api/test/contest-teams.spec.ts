@@ -304,6 +304,60 @@ describe('entering a team contest', () => {
     });
   }, 180_000);
 
+  // A slug is unique only per organization (D99), and a team contest can name
+  // several schools — so two of them each holding a `doi-1` is a real state.
+  // `resolveContestTeam`'s own contract is that the collision is "resolved by
+  // the caller's own membership": a pupil on only the SECOND school's `doi-1`
+  // must enter on THAT team, not be refused because the lowest-id `doi-1`
+  // (another school's, which they are not on) was chosen first.
+  it('resolves a cross-org slug collision to the team the caller is actually on (D99)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedProblemAndLanguage(db);
+        // schoolx is created first, so its `doi-1` gets the lower team id —
+        // the one the buggy resolver would pick regardless of membership.
+        const schoolX = await makeSchool(app, db, 'schoolx', ['anh']);
+        const madeX = await schoolX.teacher
+          .post('/api/v1/orgs/schoolx/teams')
+          .send({ slug: 'doi-1', name: 'X-1', members: ['anh'] });
+        expect(madeX.status, JSON.stringify(madeX.body)).toBe(201);
+
+        // schooly is created second; zed is on schooly's `doi-1` and no other.
+        const schoolY = await makeSchool(app, db, 'schooly', ['zed']);
+        const madeY = await schoolY.teacher
+          .post('/api/v1/orgs/schooly/teams')
+          .send({ slug: 'doi-1', name: 'Y-1', members: ['zed'] });
+        expect(madeY.status, JSON.stringify(madeY.body)).toBe(201);
+
+        // A team contest naming BOTH schools, so both `doi-1` teams are
+        // candidates when a join names the slug.
+        const { contestId } = await seedContest(db, {
+          key: 'team-x',
+          problemId: await problemId(db),
+          orgSlug: 'schoolx',
+        });
+        const [orgY] = await db
+          .select({ id: organizations.id })
+          .from(organizations)
+          .where(eq(organizations.slug, 'schooly'));
+        await db.insert(contestOrgs).values({ contestId, orgId: orgY!.id });
+
+        // zed is on schooly's `doi-1` (the higher id) and no other team.
+        // Joining with slug `doi-1` must enter zed on THEIR team, not 422.
+        const joined = await schoolY.pupils
+          .get('zed')!
+          .post('/api/v1/contests/team-x/join')
+          .send({ teamSlug: 'doi-1' });
+        expect(joined.status, JSON.stringify(joined.body)).toBe(201);
+        expect(joined.body.team).toMatchObject({ slug: 'doi-1', name: 'Y-1', orgSlug: 'schooly' });
+        expect(joined.body.team.members).toEqual(['zed']);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
   it('requires a team in team mode and refuses one in individual mode', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
