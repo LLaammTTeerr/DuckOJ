@@ -269,7 +269,7 @@ describe('TypstStatementRenderer subprocess bound', () => {
     expect(Date.now() - started).toBeLessThan(10_000);
     const second = new TypstStatementRenderer(bin, { timeoutMs: 300 });
     await expect(second.render('P', 'x')).rejects.toThrow(/timed out/i);
-  }, 60_000);
+  });
 
   it('kills the whole process GROUP, not just the child it spawned', async () => {
     // `typst` is one shell away from being a process tree, and `child.kill()`
@@ -281,7 +281,7 @@ describe('TypstStatementRenderer subprocess bound', () => {
     await expect(renderer.render('P', 'x')).rejects.toMatchObject({ code: 'statement_pdf_failed' });
     await new Promise((resolve) => setTimeout(resolve, 3_000));
     expect(existsSync(marker)).toBe(false);
-  }, 60_000);
+  });
 
   it('refuses a render whose output outgrows the cap', async () => {
     // 8 MiB of zeroes against a 64 KiB cap: refused while it is still being
@@ -299,13 +299,13 @@ describe('TypstStatementRenderer subprocess bound', () => {
     expect(Date.now() - started).toBeLessThan(10_000);
     const second = new TypstStatementRenderer(bin, { maxOutputBytes: 64 * 1024, timeoutMs: 30_000 });
     await expect(second.render('P', 'x')).rejects.toThrow(/output/i);
-  }, 60_000);
+  });
 
   it('still returns the document a bounded render produces', async () => {
     const bin = await fakeBin('ok.sh', 'cat > /dev/null; printf "%%PDF-1.7 ok"');
     const renderer = new TypstStatementRenderer(bin, { timeoutMs: 10_000, maxOutputBytes: 1024 });
     await expect(renderer.render('P', 'x')).resolves.toEqual(Buffer.from('%PDF-1.7 ok'));
-  }, 60_000);
+  });
 
   it.skipIf(TYPST_BIN === null)('bounds a pathological document against the real binary', async () => {
     const renderer = new TypstStatementRenderer(TYPST_BIN!, { timeoutMs: 2_000 });

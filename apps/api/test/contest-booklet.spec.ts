@@ -23,7 +23,9 @@ import {
   problems,
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
+import { SCOREBOARD_CACHE_STORE } from '../src/authz/scoreboard.cache.js';
 import { buildApp } from './app.harness.js';
+import { longLivedCacheStore } from './cache.harness.js';
 import { withTestDb } from './db.harness.js';
 import { ensureRedisUrl } from './redis.harness.js';
 import { insertUser, registerAndLogin } from './submissions.fixtures.js';
@@ -705,9 +707,19 @@ describe('GET /contests/{key}/booklet.pdf', () => {
     await withTestDb(async (db) => {
       const renderer = fakeRenderer();
       const spy = vi.spyOn(renderer, 'renderDocument');
+      const url = await freshRedis();
       const app = await buildApp(db, {
-        configOverrides: { redisUrl: await freshRedis() },
-        overrides: [{ provide: STATEMENT_RENDERER, useValue: renderer }],
+        configOverrides: { redisUrl: url },
+        overrides: [
+          { provide: STATEMENT_RENDERER, useValue: renderer },
+          // The real store with the expiry raised off the wall clock — see
+          // `cache.harness.ts`. The minute in this test's name is the
+          // CONSTANT's, pinned where it is defined; what this case is about
+          // is the key (a statement edit rehashes it) and the hit, neither of
+          // which should depend on two PDF requests finishing inside sixty
+          // seconds on a machine running the whole workspace at once (B-35).
+          { provide: SCOREBOARD_CACHE_STORE, useValue: longLivedCacheStore(url) },
+        ],
       });
       try {
         await seedContest(db, { key: 'cached', visibility: 'public', startsInMs: -MINUTE });

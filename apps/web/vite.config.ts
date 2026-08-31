@@ -20,7 +20,7 @@ const proxy = { '/api': { target: apiOrigin, changeOrigin: false } };
 
 /**
  * The preview port is PINNED, and pinned here rather than passed on a command
- * line, because it is half of a contract with the API (D149).
+ * line, because it is half of a contract with the API (D150).
  *
  * D82 refuses every cookie-authenticated state change whose `Origin` is not
  * on the API's allow-list, so a bundle served by `vite preview` could not sign
@@ -47,5 +47,12 @@ export default defineConfig({
     globals: false,
     setupFiles: ['./test/setup.ts'],
     exclude: ['node_modules/**', 'dist/**', 'e2e/**'],
+    // D149. No container starts here, so this is not the api package's
+    // 120 s floor — it is headroom over `test/setup.ts`'s 5 s
+    // `asyncUtilTimeout`, which a case may spend more than once while
+    // `pnpm -r test` has every other package running beside it. Vitest's
+    // 5 s default would kill such a case before its own `findBy` gave up.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });

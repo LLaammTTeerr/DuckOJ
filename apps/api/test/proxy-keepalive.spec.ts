@@ -76,7 +76,7 @@ describe('reverse-proxy keep-alive', () => {
     // the server closes it early, reintroducing the same race by another
     // door. Node warns about this at runtime and nothing reads the warning.
     expect(server.headersTimeout).toBeGreaterThan(server.keepAliveTimeout);
-  }, 60_000);
+  });
 
   it('tells Caddy an explicit upstream idle shorter than the server keeps', async () => {
     const caddyfile = readFileSync(join(repoRoot, 'Caddyfile'), 'utf8');

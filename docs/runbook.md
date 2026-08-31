@@ -84,7 +84,7 @@ if its `Origin` (or `Referer`) is not on the list, or if it sends neither. So:
   `http://localhost:8080`, which is what `WS_EXTRA_ORIGINS` is set to).
 - Anything using a **bearer token** — `oj`, the judge agent, CI — is
   unaffected and needs no origin.
-- **Vetting a candidate bundle before you deploy it** (D149). Caddy serves
+- **Vetting a candidate bundle before you deploy it** (D150). Caddy serves
   `apps/web/dist` by bind mount, so a `vite build` in the main clone IS the
   deploy; the way to run the browser suites against code you have not shipped
   is `vite preview`, which serves the candidate on `:4321` and proxies `/api`

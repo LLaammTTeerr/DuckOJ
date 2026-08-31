@@ -60,7 +60,7 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
         await app.close();
       }
     });
-  }, 60_000);
+  });
 
   it('a second address keeps its own window', async () => {
     await withTestDb(async (db) => {
@@ -82,7 +82,7 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
         await app.close();
       }
     });
-  }, 60_000);
+  });
 
   it('an exhausted window reopens once its rows age out', async () => {
     await withTestDb(async (db) => {
@@ -113,7 +113,7 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
         await app.close();
       }
     });
-  }, 60_000);
+  });
 
   it('probing an address that does not exist burns a window too', async () => {
     await withTestDb(async (db) => {
@@ -126,7 +126,7 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
         await app.close();
       }
     });
-  }, 60_000);
+  });
 
   it('two purposes sharing one key hold separate windows', async () => {
     // Directly on the limiter: the HTTP suites cannot discriminate here
@@ -139,7 +139,7 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
       expect(await limiter.allow('a', 'shared-key', 1, 60_000)).toBe(false);
       expect(await limiter.allow('b', 'shared-key', 1, 60_000)).toBe(true);
     });
-  }, 60_000);
+  });
 
   it('consumeOnce admits exactly one of three CONCURRENT callers (D34)', async () => {
     // `allow(purpose, key, 1, window)` counts and then inserts with no lock,
@@ -172,7 +172,7 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
         .where(eq(schema.rateEvents.purpose, 'totp_used'));
       await Promise.all(connections.map((c) => c.close()));
     }
-  }, 60_000);
+  });
 
   it('verification resends share the same discipline', async () => {
     await withTestDb(async (db) => {
@@ -191,7 +191,7 @@ describe('rate limiting on outbound recovery mail (D13)', () => {
         await app.close();
       }
     });
-  }, 60_000);
+  });
 });
 
 /**
@@ -226,7 +226,7 @@ describe('refusals are counted (D47)', () => {
       expect(await limiter.allow('mark_a', 'k', 2, 60_000)).toBe(false);
       expect(await refusalRows(db, 'mark_a')).toBe(2);
     });
-  }, 60_000);
+  });
 
   it('marks a `retryAfterSeconds` refusal, which is how login refuses', async () => {
     await withTestDb(async (db) => {
@@ -238,7 +238,7 @@ describe('refusals are counted (D47)', () => {
       expect(await limiter.retryAfterSeconds('mark_b', 'k', 1, 60_000)).not.toBeNull();
       expect(await refusalRows(db, 'mark_b')).toBe(1);
     });
-  }, 60_000);
+  });
 
   it('marks a `consumeOnce` refusal — the replayed credential', async () => {
     await withTestDb(async (db) => {
@@ -247,7 +247,7 @@ describe('refusals are counted (D47)', () => {
       expect(await limiter.consumeOnce('mark_c', 'k', 60_000)).toBe(false);
       expect(await refusalRows(db, 'mark_c')).toBe(1);
     });
-  }, 60_000);
+  });
 
   it('a marker never counts against the window it records', async () => {
     // The marker shares the key and differs only in purpose. If the prefix
@@ -263,5 +263,5 @@ describe('refusals are counted (D47)', () => {
       // Only the refusal marker is left; the real window is empty again.
       expect(await limiter.allow('mark_d', 'k', 1, 60_000)).toBe(true);
     });
-  }, 60_000);
+  });
 });

@@ -62,7 +62,7 @@ describe('CORS-exposed response headers', () => {
     app = moduleRef.createNestApplication();
     configureApp(app, TEST_CONFIG);
     await app.init();
-  }, 60_000);
+  });
 
   afterAll(async () => {
     await app.close();

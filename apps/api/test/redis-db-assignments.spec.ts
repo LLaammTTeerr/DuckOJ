@@ -24,14 +24,23 @@ import { describe, expect, it } from 'vitest';
 
 const TEST_DIR = new URL('.', import.meta.url).pathname;
 const ASSIGNMENT = /^const REDIS_DB = (\d+);$/m;
+/** A call, not a mention: the prose above and in `redis.harness.ts` says
+ *  "flushdb" a dozen times and none of those wipe anything. */
+const WIPE_CALL = /\.flush(?:db|all)\s*\(/;
+/** This file quotes both patterns; scanning itself would be circular. */
+const SELF = 'redis-db-assignments.spec.ts';
+
+function specs(): { file: string; source: string }[] {
+  return readdirSync(TEST_DIR)
+    .filter((name) => name.endsWith('.spec.ts') && name !== SELF)
+    .map((file) => ({ file, source: readFileSync(join(TEST_DIR, file), 'utf8') }));
+}
 
 function assignments(): { file: string; db: number }[] {
-  return readdirSync(TEST_DIR)
-    .filter((name) => name.endsWith('.spec.ts'))
-    .flatMap((file) => {
-      const match = ASSIGNMENT.exec(readFileSync(join(TEST_DIR, file), 'utf8'));
-      return match ? [{ file, db: Number(match[1]) }] : [];
-    });
+  return specs().flatMap(({ file, source }) => {
+    const match = ASSIGNMENT.exec(source);
+    return match ? [{ file, db: Number(match[1]) }] : [];
+  });
 }
 
 describe('logical Redis databases are owned, not shared', () => {
@@ -52,5 +61,30 @@ describe('logical Redis databases are owned, not shared', () => {
     // the one `buildAppWithRealtime` and any future unnumbered caller land
     // in. A spec that flushed it would wipe theirs.
     expect(owned.map(({ db }) => db).filter((db) => db === 0)).toEqual([]);
+  });
+
+  // The assertion above can only see specs that DECLARE the constant, which
+  // is the hole B-35 fell into: `problem-stats.spec.ts` wiped Redis through
+  // an inline `ensureRedisUrl(2)` and was invisible here, so a second spec
+  // claiming 2 would have collided in silence — the exact failure the guard
+  // exists to prevent, reintroduced by writing a number instead of a name.
+  it('names its database, so the assertion above can see it', () => {
+    const undeclared = specs()
+      .filter(({ source }) => WIPE_CALL.test(source) && !ASSIGNMENT.test(source))
+      .map(({ file }) => file);
+    expect(
+      undeclared,
+      'these specs wipe Redis without `const REDIS_DB = <n>;` — declare one (and pass it to `ensureRedisUrl`) so collisions are detectable',
+    ).toEqual([]);
+  });
+
+  // `flushall` ignores the SELECT and empties every logical database at once,
+  // which is precisely what the per-spec numbering exists to stop. Nothing in
+  // the suite has any use for it.
+  it('wipes its own database only, never the whole server', () => {
+    const global = specs()
+      .filter(({ source }) => /\.flushall\s*\(/.test(source))
+      .map(({ file }) => file);
+    expect(global, 'use `flushdb` on this spec’s own logical database').toEqual([]);
   });
 });

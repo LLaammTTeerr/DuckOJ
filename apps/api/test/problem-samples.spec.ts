@@ -105,13 +105,13 @@ describe('readPackageSamples', () => {
       { input: '2 3\n', output: '5\n', explanation: null, truncated: false },
       { input: '10 20\n', output: '30\n', explanation: null, truncated: false },
     ]);
-  }, 60_000);
+  });
 
   it('never reads a jury file: a zero-point member of a scored batch is not a sample', async () => {
     const { archive } = await archiveOf(await packageDir(TWO_SAMPLES_AND_A_SCORED_BATCH));
     const samples = await readPackageSamples(archive);
     expect(JSON.stringify(samples)).not.toContain('JURY');
-  }, 60_000);
+  });
 
   it("joins the manifest's explanation onto the sample it names", async () => {
     const { archive } = await archiveOf(
@@ -122,7 +122,7 @@ describe('readPackageSamples', () => {
     );
     const samples = await readPackageSamples(archive);
     expect(samples.map((s) => s.explanation)).toEqual([null, 'Cộng $10 + 20$.']);
-  }, 60_000);
+  });
 
   it('truncates a file past the cap and says so, without leaving a broken character behind', async () => {
     // A multi-byte character straddling the cut: the decoder must drop the
@@ -140,7 +140,7 @@ describe('readPackageSamples', () => {
     expect(Buffer.byteLength(sample!.input, 'utf8')).toBeLessThanOrEqual(SAMPLE_FILE_MAX_BYTES);
     // The other file was under the cap and is whole.
     expect(sample!.output).toBe('ok\n');
-  }, 60_000);
+  });
 
   it('carries at most MAX_SAMPLES, so a package that scores nothing anywhere cannot fill a response', async () => {
     const count = MAX_SAMPLES + 5;
@@ -154,7 +154,7 @@ describe('readPackageSamples', () => {
     }
     const { archive } = await archiveOf(await packageDir({ cases, files }));
     expect(await readPackageSamples(archive)).toHaveLength(MAX_SAMPLES);
-  }, 60_000);
+  });
 
   it('drops a sample whose answer file is not in the archive rather than showing an empty one', async () => {
     const { archive } = await archiveOf(
@@ -169,14 +169,14 @@ describe('readPackageSamples', () => {
     expect(await readPackageSamples(archive)).toEqual([
       { input: '1\n', output: '1\n', explanation: null, truncated: false },
     ]);
-  }, 60_000);
+  });
 
   it('answers nothing for a package with no manifest at all', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'samples-nomanifest-'));
     await writeFile(join(dir, 'readme.txt'), 'nothing here');
     const { archive } = await archiveOf(dir);
     expect(await readPackageSamples(archive)).toEqual([]);
-  }, 60_000);
+  });
 });
 
 async function newStore(): Promise<PackageStore> {
