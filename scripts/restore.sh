@@ -8,11 +8,15 @@
 # prints it — e.g. ~/duckoj-backups/duckoj-20260829-030000. Passing the
 # `.dump` file itself works too; the extension is stripped.
 #
-# This is destructive: `pg_restore --clean --if-exists` drops and recreates
-# every object the dump contains. It therefore refuses to run at all without
-# CONFIRM=yes in the environment — there is no interactive prompt, because
-# this has to be usable from a shell nobody is watching, and a script that
-# blocks on a prompt in that setting hangs instead of failing.
+# This is destructive, and MORE destructive than "restore the dump": the
+# target database's `public` and `drizzle` schemas are DROPPED before
+# pg_restore runs, so anything the dump does not carry does not survive. That
+# is deliberate and it is what makes an older backup loadable onto today's
+# schema at all — see the long comment above the reset, and the drill that
+# found it (docs/DECISIONS.md D130). It therefore refuses to run at all
+# without CONFIRM=yes in the environment — there is no interactive prompt,
+# because this has to be usable from a shell nobody is watching, and a script
+# that blocks on a prompt in that setting hangs instead of failing.
 #
 # Env overrides:
 #   CONFIRM=yes       required
@@ -51,7 +55,8 @@
 #   * Anything failing AFTER the writers were stopped brings them back, via a
 #     trap on EXIT, with a loud message — a failed volume import used to leave
 #     the site down with the database already fine (M5).
-#   * EXCEPT a failed `pg_restore` or a failed `migrate`: those leave the
+#   * EXCEPT a failed schema reset, a failed `pg_restore` or a failed
+#     `migrate`: those leave the
 #     database in a state the running code cannot be trusted against, so the
 #     writers are deliberately left STOPPED and the script says so, and says
 #     how to start them by hand. A half-restored schema that api and judged
@@ -63,7 +68,9 @@
 #     prevent, reintroduced through the restore path (M7).
 #
 # IDEMPOTENCE: running this twice with the same prefix leaves the same state.
-# The database half is a full --clean reload. The volume half is additive —
+# The database half is a schema reset followed by a full reload, so it is now
+# idempotent in the stronger sense: the result does not depend on what the
+# target happened to contain first. The volume half is additive —
 # `podman volume import` untars over whatever is already there without
 # clearing it — which is correct here and only here: package_store is
 # content-addressed, so a file's name IS its hash and re-importing it
@@ -180,14 +187,78 @@ else
   echo "==> SERVICES is empty: data path only, no compose command will be run"
 fi
 
+# B32. EMPTY THE TARGET FIRST — `pg_restore --clean` is not enough, and the
+# 2026-08-31 drill proved it against a real production dump.
+#
+# `--clean` emits `DROP TABLE IF EXISTS public.users;` — no CASCADE, because
+# pg_dump only knows the objects in its own archive. A running stack's
+# database is at TODAY's schema (compose-up.sh migrated it), and a backup is
+# by definition older, so the target holds tables the dump has never heard of.
+# On this host `contest_seats` and `problem_comments` (migrations 0038/0039)
+# were both created after the newest nightly dump, and their foreign keys
+# point at `users`, `problems`, `contests`, `contest_participations`. Every
+# DROP of those four failed, the old tables survived with their old primary
+# keys, and the dump's own CREATE/ADD CONSTRAINT then failed on top of them
+# ("multiple primary keys for table \"users\" are not allowed"). 32 ignored
+# errors, exit 1, and a database that is neither the backup nor what it was.
+#
+# That is the ONE scenario this script exists for — "restore last night's
+# backup onto the stack that is running" — and it did not work. It is not a
+# data problem and not a corrupt dump: it reproduces on an empty, freshly
+# migrated database with the newest good `~/duckoj-backups` dump.
+#
+# So the target is emptied to bare schemas before pg_restore reads a byte. A
+# restore MEANS "this database becomes that backup"; anything the dump does
+# not carry is not a survivor to be preserved, it is the drift that breaks the
+# reload. `public` has to be recreated by hand (pg_dump 15+ no longer emits
+# `CREATE SCHEMA public`); `drizzle` comes back from the dump, and when the
+# dump predates it the migrate step's own `CREATE SCHEMA IF NOT EXISTS` makes
+# it. `ON_ERROR_STOP=1`, because a half-dropped schema must not be restored
+# into.
+# B32, second half, and it is not optional. The reset below is destructive
+# BEFORE pg_restore has read a byte of the archive, so a truncated or corrupt
+# dump would empty a perfectly good database and only then discover that the
+# file it was going to replace it with is unusable. That trade did not exist
+# before the reset and must not be introduced by it.
+#
+# `pg_restore -l` reads the archive's table of contents and touches no
+# database at all. A file that cannot survive that cannot be restored, and the
+# failure now happens with every row still in place. Same D30 side as a failed
+# reload — the restore the operator asked for did not happen, so the writers
+# stay down and one command brings them back — but the data is intact.
+echo "==> Reading the archive's table of contents (nothing is dropped until this passes)"
+TOC_LOG=$(mktemp)
+chmod 600 "$TOC_LOG"
+toc_rc=0
+podman exec -i "$PG_CONTAINER" pg_restore -l >"$TOC_LOG" 2>&1 <"$PREFIX.dump" || toc_rc=$?
+if [ "$toc_rc" != "0" ]; then
+  echo "FATAL: pg_restore failed (exit $toc_rc) reading the table of contents of" >&2
+  echo "       $PREFIX.dump — the archive is unreadable and NOTHING has been" >&2
+  echo "       dropped. The database is exactly as it was." >&2
+  cat "$TOC_LOG" >&2
+  rm -f "$TOC_LOG"
+  RESTART_ON_EXIT=0
+  exit 1
+fi
+rm -f "$TOC_LOG"
+
+echo "==> Emptying '${PG_DB}' before the reload (the dump is the source of truth)"
+if ! podman exec -i "$PG_CONTAINER" \
+  psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 \
+  -c 'DROP SCHEMA IF EXISTS public CASCADE; DROP SCHEMA IF EXISTS drizzle CASCADE; CREATE SCHEMA public;'; then
+  echo "FATAL: could not empty '${PG_DB}' before the reload." >&2
+  echo "       The schema may be half-dropped; nothing has been restored into it." >&2
+  # Same side of D30 as a failed pg_restore: the database is unverified.
+  RESTART_ON_EXIT=0
+  exit 1
+fi
+
 echo "==> Restoring database '${PG_DB}' into ${PG_CONTAINER} from $PREFIX.dump"
-# --clean --if-exists: drop each object before recreating it, tolerating
-# objects the target does not have. `--exit-on-error` is still deliberately
-# NOT set — a --clean reload emits benign noise for objects the target never
-# had, and aborting on the first of those would make this script unusable for
-# its main job (a restore into a FRESH database). The output is judged AFTER
-# the fact instead (M6): a non-zero exit, or any error line that is not the
-# known-benign "already exists" class, aborts.
+# --clean --if-exists is KEPT even though the target was just emptied: it costs
+# nothing against an empty database and it is the second line of defence if the
+# emptying above is ever weakened. `--exit-on-error` is still deliberately NOT
+# set — the output is judged AFTER the fact instead (M6): a non-zero exit, or
+# any error line that is not the known-benign "already exists" class, aborts.
 RESTORE_LOG=$(mktemp)
 # The log holds pg_restore diagnostics, not secrets, but it lands in a shared
 # /tmp under the invoking umask; keep it to the owner anyway.

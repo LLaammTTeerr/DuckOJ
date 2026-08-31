@@ -5778,3 +5778,113 @@ the same honest 501 on a server with no typst.
 to consult. No migration: one route, one typst builder, one cache namespace
 and the web link beside D71's.*
 
+
+## D130 — A restore empties the target first, because the production backup did not restore without it
+
+The restore path had never been exercised end to end — `scripts/test/restore.test.sh`
+proved the data path against a stub compose binary, and both the runbook and F3's
+report said in as many words that the live `stop → restore → start` half had never
+run. The 2026-08-31 drill ran it, on a throwaway compose project (`b32drill`) built
+from the current images, and it found that **the one thing this script exists for did
+not work**: the newest nightly backup in `~/duckoj-backups` would not load onto a
+stack that was running.
+
+**The failure.** A running stack's database is at TODAY's schema — `compose-up.sh`
+migrated it. A backup is by definition older. So the target holds tables the dump has
+never heard of, and their foreign keys point at tables the dump *does* carry. On this
+host the 03:01 dump predates `contest_seats` and `problem_comments` (migrations
+0038/0039, applied later the same day), and both have foreign keys onto `users`,
+`problems`, `contests` and `contest_participations`. `pg_restore --clean` emits
+`DROP TABLE IF EXISTS public.users;` — no `CASCADE`, because pg_dump only knows the
+objects in its own archive — so every one of those drops failed, the old tables
+survived with their old primary keys, and the dump's own `CREATE`/`ADD CONSTRAINT`
+then failed on top of them (`multiple primary keys for table "users" are not
+allowed`). **32 ignored errors, exit 1, `api` and `judged` left down**, and a database
+that was neither the backup nor what it had been. It reproduces on an empty, freshly
+migrated database: it is not a data collision and not a corrupt dump.
+
+**The ruling: a restore MEANS "this database becomes that backup".** `restore.sh` now
+drops `public` and `drizzle` and recreates `public` before `pg_restore` reads a byte.
+Anything the dump does not carry is not a survivor worth preserving — it is precisely
+the drift that breaks the reload — and the `migrate` step that already runs afterwards
+(M7) is what puts today's schema back on top. With the reset the same production dump
+restores with **zero** `pg_restore` error lines.
+
+**And the archive is read before anything is dropped.** The reset is destructive
+*before* pg_restore has read the file, so a truncated dump would empty a good database
+and only then discover the replacement is unusable. That trade did not exist before
+and is not introduced by this: `pg_restore -l` reads the archive's table of contents,
+touches no database, and a file that cannot survive it cannot be restored. Drilled
+with a 10 kB truncation of a good dump: every row still in place afterwards, exit 1.
+It is on the same D30 side as a failed reload — the restore the operator asked for did
+not happen, so the writers stay down and one command brings them back — because the
+criterion "can the running code be trusted against this database" is not the only one;
+"did the operator get the restore they asked for" also has to answer yes before the
+site comes back. Moving that check ahead of the `stop` (so a corrupt dump costs no
+downtime at all) is a real improvement, deliberately **not** taken here: it would
+rewrite D30's enumerated failure list for a case that now destroys nothing.
+
+**What a production restore actually requires**, measured, not assumed:
+
+- A running stack (`postgres` up, `api`/`judged` present) and `CONFIRM=yes`. From
+  anywhere but the real checkout, `COMPOSE_PROJECT_NAME=duckoj`.
+- Both artefacts of one prefix. The `.dump` alone restores; the `.package_store.tar`
+  is what makes the problems servable.
+- **RTO 15 s** end to end for today's data (248 kB dump, 333 users, 714 submissions):
+  12 s of `restore.sh` — stop, TOC read, reset, `pg_restore`, `migrate`, volume
+  import, start — and 3 s more before a real route answered 200. Backup is under a
+  second (the nightly unit's own journal: start and finish in the same second).
+- **RPO is one night**, and on this host that is a lot: the 03:01 dump restored 228 of
+  the 333 users and 376 of the 714 submissions that existed twelve hours later.
+- **`migrate` after a restore returns you to PRODUCTION's schema, not to head.**
+  Drizzle applies only journal entries newer than the last one applied, so a migration
+  that production skipped stays skipped in the restored copy. The restored database is
+  a faithful copy of production *including production's drift* (D131). "Migrations are
+  at head" is not something a restore establishes; `select count(*) from
+  drizzle.__drizzle_migrations` against `packages/db/migrations` is how you check.
+
+Drilled on `b32drill` only. The live stack was read from and never written to; every
+drill container, volume and image tag was removed afterwards, which matters more than
+tidiness because the drill database held a real production dump — every `users` row,
+minors' addresses included (D17's file-mode reasoning, applied to a copy).
+
+*Ruled by the implementer during the 2026-08-31 b32 loop, no human available to
+consult. No migration. Test: `scripts/test/restore.test.sh` (49 cases, PASS) —
+the pre-fix script reds 12 of them.*
+
+## D131 — The live database is permanently missing migration 0025, and drizzle will never notice
+
+Found by the drill, not by looking for it: restoring the 03:01 production dump into a
+fresh throwaway stack and comparing journals showed **34 applied migrations on live
+against 35 on a database built from the same image**. The missing one is
+`0025_dashboard_bounds` — four indexes (`grading_jobs_active_idx`,
+`grading_jobs_submission_idx`, `submissions_failed_idx`, `submissions_judged_at_idx`).
+Confirmed absent from `pg_indexes` on the live database, and absent from
+`drizzle.__drizzle_migrations` by both hash and journal timestamp. Every other entry
+matches.
+
+**It will not heal.** Drizzle's migrator applies an entry only when its journal
+timestamp is newer than the newest one already applied. 0025's is `1788078255700`;
+live's newest is `1788160426802`. Every future `migrate` run skips it, silently,
+forever — which is why the stack is healthy, `migrate exited 0` is printed nightly,
+and nothing anywhere says a migration is missing. The journal file itself is
+monotonic, so this was not a bad generation: 0025 was merged after a later-stamped
+migration had already reached the live database, during the parallel-agent campaign.
+
+The cost is bounded — four indexes behind admin-dashboard panels, so slower queries
+and no wrong answers — but **there are now two schema populations**: a fresh install
+has these indexes, and the live database and anything restored from its backups do
+not. That divergence is the part worth writing down; the missing indexes are the
+smaller half.
+
+**Not fixed here, and that is a ruling.** The remedy is one idempotent migration
+(`CREATE INDEX IF NOT EXISTS` ×4), which is a no-op on every database that already has
+them and closes the gap on the one that does not. This loop was given no migration
+number, and migration numbering is coordinated through the briefs; inventing 0041
+against parallel agents is how two migrations end up with the same number. Whoever
+picks this up: an idempotent migration, not a re-stamp of 0025's journal entry — that
+would make drizzle re-run bare `CREATE INDEX` on every database that already has them
+and fail every one of those runs.
+
+*Ruled by the implementer during the 2026-08-31 b32 loop, no human available to
+consult. The live stack was not written to.*

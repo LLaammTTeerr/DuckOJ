@@ -992,13 +992,45 @@ The sequence, in order:
 1. `podman-compose stop api judged` — both hold connections, and `judged` is
    actively `UPDATE`ing `grading_jobs`. `postgres` stays up; it is what we are
    restoring into.
-2. `pg_restore --clean --if-exists --no-owner` from `<prefix>.dump`.
-3. **`podman-compose up --no-deps --force-recreate migrate`**, with the same
+2. `pg_restore -l` on the archive — the table of contents only, no database
+   touched. A truncated or corrupt dump fails here, with every row still in
+   place, instead of after step 3 has emptied the database.
+3. **`DROP SCHEMA public CASCADE; DROP SCHEMA drizzle CASCADE; CREATE SCHEMA
+   public;`** — the target is emptied before the reload. See "Step 3 is why an
+   old backup loads at all" below; without it the newest nightly backup did
+   not restore onto this stack (D130).
+4. `pg_restore --clean --if-exists --no-owner` from `<prefix>.dump`.
+5. **`podman-compose up --no-deps --force-recreate migrate`**, with the same
    exit-code check `scripts/compose-up.sh` does.
-4. `podman volume import` of `<prefix>.package_store.tar`, if it exists.
-5. `podman-compose start api judged`.
+6. `podman volume import` of `<prefix>.package_store.tar`, if it exists.
+7. `podman-compose start api judged`.
 
-**Step 3 is why a restore is not just a `pg_restore`.** The dump carries the
+**Measured RTO, 2026-08-31 drill (D130): 15 s** — 12 s of `restore.sh` plus 3 s
+before a real route answered 200, restoring the 03:01 nightly (248 kB dump, 333
+users, 714 submissions) into a stack built from the current images. The backup
+side is under a second; `journalctl --user -u duckoj-backup` shows the nightly
+starting and finishing in the same second. **RPO is one night, and on this host
+that is a lot**: that dump carried 228 of the 333 users and 376 of the 714
+submissions that existed twelve hours later.
+
+#### Step 3 is why an old backup loads at all
+
+`pg_restore --clean` emits `DROP TABLE IF EXISTS public.users;` — no `CASCADE`,
+because pg_dump only knows the objects in its own archive. The stack you are
+restoring into is at *today's* schema, and a backup is by definition older, so
+the target holds tables the dump has never heard of whose foreign keys point at
+tables the dump does carry. Every one of those drops fails, the old tables
+survive with their old primary keys, and the dump's own `CREATE`/`ADD
+CONSTRAINT` then fails on top of them. That is not a hypothetical: it is what
+the newest `~/duckoj-backups` dump did on 2026-08-31 — 32 ignored errors, exit
+1, writers left down — and it reproduces on an empty, freshly migrated
+database. Emptying the schemas first is what makes a restore mean "this
+database becomes that backup"; step 5 puts today's schema back on top.
+
+The cost, stated plainly: **a table the dump does not carry does not survive a
+restore.** Step 5 recreates it, empty (plus whatever that migration backfills).
+
+**Step 5 is why a restore is not just a `pg_restore`.** The dump carries the
 schema as of backup time, drizzle's migrations table included, and `--clean`
 replaces the live schema with it. Restore a two-week-old backup onto today's
 images without it and the database is behind the code: the stack comes up
@@ -1028,7 +1060,9 @@ against a throwaway container without going near a live stack
 (`scripts/test/restore.test.sh`), and it is not a mode to use on this host
 unless you are doing exactly that.
 
-It is idempotent. The database half is a full `--clean` reload. The volume
+It is idempotent, and since D130 in the stronger sense: the database half is a
+schema reset followed by a full reload, so the result does not depend on what
+the target happened to hold first. The volume
 half is *additive*: `podman volume import` untars over what is already there
 without clearing it. That is correct here and only here — `package_store` is
 content-addressed, so a filename IS its hash and re-importing writes
@@ -1045,6 +1079,12 @@ error line outside the known-benign `already exists` class, is a hard failure.
 
 Which failure it was decides what happens to `api` and `judged`:
 
+- **The archive would not read (step 2).** Nothing has been dropped and the
+  database is exactly as it was — but the restore the operator asked for did
+  not happen, so `api` and `judged` are still left stopped and the message says
+  so. Fix the file (an older prefix in `~/duckoj-backups` is right there) and
+  re-run; or `podman-compose start api judged` to put the site back up on the
+  data it already had.
 - **`pg_restore` failed, or `migrate` failed.** The database is in a state
   nobody has verified — half the tables restored, or the right tables at the
   wrong schema version. The script prints the full log, exits non-zero, and
@@ -1060,13 +1100,31 @@ Which failure it was decides what happens to `api` and `judged`:
 
 That split is D30.
 
-**The first real restore should be watched, not trusted.** The data path — the
-`pg_restore` round trip, the migrate step, the volume import, the `CONFIRM`
-gate, idempotence, and both failure paths above — is covered by
-`scripts/test/restore.test.sh` against a throwaway postgres and a stub
-compose binary, which is green. What has *never* run is `podman-compose stop
-api judged` → restore → `start` against this live stack. Do the first one with
-a terminal open on `journalctl`, not from a script.
+**The full path has now been drilled — on a throwaway stack, not this one.**
+On 2026-08-31 a `b32drill` compose project was built from the current images,
+seeded, backed up, destroyed (`DROP DATABASE` + an emptied package volume) and
+restored end to end: `podman-compose stop api judged` → reset → `pg_restore` →
+`migrate` → `podman volume import` → `start`, with the seeded rows back, the
+migrations counted against `packages/db/migrations`, and a real route
+answering 200. Both failure branches were fault-injected against the real
+containers, not a stub. **That drill is also what found the bug in the first
+paragraph of "Step 3" above** — until it ran, the newest production backup
+would not have restored. `scripts/test/restore.test.sh` (49 cases) still covers
+the data path against a throwaway postgres and a stub compose binary.
+
+What has *still* never run is a restore against **this live stack**. Do the
+first one with a terminal open on `journalctl`, not from a script — and note
+that a restore now empties the target's schemas before it reloads, so an
+aborted attempt is not a no-op unless it aborted at step 2.
+
+**Check the migrations after a restore; do not assume them.** `migrate` brings
+the restored database to the schema *production* had, not to head: drizzle
+applies only journal entries newer than the newest already applied, so a
+migration production skipped stays skipped in the copy (D131 is a live example
+— this database is missing `0025_dashboard_bounds` and always will be).
+Compare `select count(*) from drizzle.__drizzle_migrations` against
+`ls packages/db/migrations/*.sql | wc -l`; if they differ, the difference is
+real and predates the restore.
 
 ### Nightly, unattended
 
