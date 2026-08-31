@@ -207,6 +207,21 @@ describe('app.css', () => {
     expect(getComputedStyle(mark).textDecorationLine).toContain('underline');
   });
 
+  it('gives every contest phase its own glyph, not just its own weight (D134)', () => {
+    // The running chip is separated from the finished one by ink weight and
+    // elevation, which a monochrome print flattens and a low-vision reader
+    // may not resolve. The `::before` glyph is the cue that survives both, so
+    // each of the three states must HAVE one, and no two may share it (D77 —
+    // never signal by colour alone). jsdom does not resolve pseudo-element
+    // content, so this reads the rule out of the stylesheet source.
+    const glyphs = ['running', 'upcoming', 'finished'].map((phase) => {
+      const rule = new RegExp(`\\.phase\\.${phase}::before\\s*\\{[^}]*content:\\s*'([^']+)'`).exec(CSS);
+      expect(rule, `.phase.${phase}::before has no glyph`).not.toBeNull();
+      return rule![1];
+    });
+    expect(new Set(glyphs).size, `two phases share a glyph: ${glyphs.join(' ')}`).toBe(3);
+  });
+
   it('gives the live countdown tabular digits so it does not reflow each second (D118)', () => {
     // formatCountdown re-renders HH:MM:SS once a second; proportional digits
     // would change the line width every tick and jitter the header. jsdom's

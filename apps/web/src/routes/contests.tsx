@@ -6,7 +6,7 @@ import { API_PREFIX } from '@duckoj/api-prefix';
 import { api } from '../api.js';
 import { Avatar } from '../avatar.js';
 import { apiError, read } from '../api-error.js';
-import { formatCountdown, formatPoints } from '../format.js';
+import { formatCountdownParts, formatPoints } from '../format.js';
 import { meQueryOptions } from '../me.js';
 import { formatDateTime, formatTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
 
@@ -196,6 +196,25 @@ function phaseLabel(t: TFunction, phase: Phase): string {
 }
 
 /**
+ * The phase as a chip (D134).
+ *
+ * It used to be a word in the contest list's fifth column, in the same ink
+ * and the same weight as the format and the two instants — so the one round
+ * that was RUNNING read exactly like the two dozen that had finished, and at
+ * phone width the column was off the right edge entirely. The chip rides in
+ * the name cell instead: column one, on screen at every width, and weighted
+ * so "đang diễn ra" is the thing the eye lands on.
+ *
+ * The phase class is what gives each state its own `::before` glyph in
+ * `app.css`, so the distinction survives a colour-blind reader and a
+ * monochrome print (D46/D77 — never signal by colour alone).
+ */
+export function PhaseChip({ phase }: { phase: Phase }) {
+  const t = useT();
+  return <span className={`phase ${phase}`}>{phaseLabel(t, phase)}</span>;
+}
+
+/**
  * The live countdown in the contest header (D118): "bắt đầu sau …" while the
  * round is upcoming, "kết thúc sau …" while it runs, and NOTHING once it has
  * ended — a finished round has nothing to count down to.
@@ -218,11 +237,27 @@ export function ContestCountdown({ startTime, endTime }: { startTime: string; en
 
   const start = Date.parse(startTime);
   const end = Date.parse(endTime);
+  // D135: past 24 hours the clock alone stops being readable ("671:53:57"),
+  // so the whole days come off the front and get their own word. Under a day
+  // — contest day, every time — `days` is 0 and the line is byte-identical to
+  // what D118 shipped.
+  const line = (remaining: number, bare: MsgKey, withDays: MsgKey) => {
+    const { days, clock } = formatCountdownParts(remaining);
+    return days === 0 ? t(bare, { d: clock }) : t(withDays, { days: String(days), d: clock });
+  };
   if (now < start) {
-    return <p className="countdown" role="timer">{t('contest.startsIn', { d: formatCountdown(start - now) })}</p>;
+    return (
+      <p className="countdown" role="timer">
+        {line(start - now, 'contest.startsIn', 'contest.startsInDays')}
+      </p>
+    );
   }
   if (now <= end) {
-    return <p className="countdown" role="timer">{t('contest.endsIn', { d: formatCountdown(end - now) })}</p>;
+    return (
+      <p className="countdown" role="timer">
+        {line(end - now, 'contest.endsIn', 'contest.endsInDays')}
+      </p>
+    );
   }
   return null;
 }
@@ -264,7 +299,6 @@ export function ContestsPage() {
               <th>{t('contests.colFormat')}</th>
               <th>{t('contests.colStarts')}</th>
               <th>{t('contests.colEnds')}</th>
-              <th>{t('contests.colPhase')}</th>
               <th>{t('contests.colOrgs')}</th>
             </tr>
           </thead>
@@ -274,7 +308,8 @@ export function ContestsPage() {
                 <td>
                   <Link to="/contests/$key" params={{ key: contest.key }}>
                     {contest.name}
-                  </Link>
+                  </Link>{' '}
+                  <PhaseChip phase={phaseOf(contest)} />
                 </td>
                 {/* `format` is the registry's own key (`icpc`, `ioi16`) —
                     an identifier every setter types into the create form,
@@ -282,7 +317,6 @@ export function ContestsPage() {
                 <td>{contest.format}</td>
                 <td>{when(contest.startTime, locale, timeZone)}</td>
                 <td>{when(contest.endTime, locale, timeZone)}</td>
-                <td>{phaseLabel(t, phaseOf(contest))}</td>
                 <td>{contest.orgs.length === 0 ? '—' : <OrgBadges orgs={contest.orgs} />}</td>
               </tr>
             ))}
@@ -424,7 +458,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
       <h1>{contest.data.name}</h1>
       <p className="muted">
         {contest.data.format} · {when(contest.data.startTime, locale, timeZone)} →{' '}
-        {when(contest.data.endTime, locale, timeZone)} · {phaseLabel(t, phase)}
+        {when(contest.data.endTime, locale, timeZone)} <PhaseChip phase={phase} />
         {/* Said once, at the top: whether this is a team round decides what
             the Join button asks for and what the board will print (D99). */}
         {isTeamContest ? ` · ${t('contest.teamMode')}` : null}
@@ -1116,6 +1150,12 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
           {t('scoreboard.frozen', { time: freezeInstant(query.data.frozenAt, locale, timeZone) })}
         </p>
       ) : null}
+      {/* The board grows a column per problem, so it outruns any screen the
+          moment a round has more than a handful — and on contest day it is
+          read on a phone. The wrapper carries the sideways scroll (the page
+          must not) and is a tab stop, so the problem columns are reachable
+          without a mouse. */}
+      <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('scoreboard.tableLabel')}>
       <table>
         <thead>
           <tr>
@@ -1217,6 +1257,7 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
           ))}
         </tbody>
       </table>
+      </div>
       {dqError ? <p role="alert">{dqError}</p> : null}
       {ranking.length === 0 ? <p className="muted">{t('scoreboard.empty')}</p> : null}
     </section>

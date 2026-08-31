@@ -82,6 +82,16 @@ export function SubmissionsPage({
   });
 
   const submissions = query.data?.pages.flatMap((page) => page.items) ?? [];
+  // An empty list has two causes that want opposite actions: nothing has been
+  // submitted (go and solve something) or a filter matched nothing (drop it).
+  // One sentence for both told a reader neither.
+  const filtered = problem !== '' || user !== '' || contest !== '' || verdict !== undefined;
+  const clearFilters = () => {
+    setProblem('');
+    setUser('');
+    setContest('');
+    setVerdict(undefined);
+  };
 
   return (
     <section>
@@ -94,27 +104,27 @@ export function SubmissionsPage({
       <h1>{t('submissions.title')}</h1>
 
       <div className="field">
-        <span>#</span>
+        <label htmlFor="submissions-problem">{t('submissions.filterProblem')}</label>
         <input
-          aria-label={t('submissions.filterProblem')}
+          id="submissions-problem"
           placeholder={t('submissions.placeholderProblem')}
           value={problem}
           onChange={(e) => setProblem(e.target.value)}
         />
       </div>
       <div className="field">
-        <span>@</span>
+        <label htmlFor="submissions-user">{t('submissions.filterUser')}</label>
         <input
-          aria-label={t('submissions.filterUser')}
+          id="submissions-user"
           placeholder={t('submissions.placeholderUser')}
           value={user}
           onChange={(e) => setUser(e.target.value)}
         />
       </div>
       <div className="field">
-        <span>%</span>
+        <label htmlFor="submissions-contest">{t('submissions.filterContest')}</label>
         <input
-          aria-label={t('submissions.filterContest')}
+          id="submissions-contest"
           placeholder={t('submissions.placeholderContest')}
           value={contest}
           onChange={(e) => setContest(e.target.value)}
@@ -140,7 +150,11 @@ export function SubmissionsPage({
       {query.isLoading ? <p>{t('common.loading')}</p> : null}
       {query.isError ? <p role="alert">{t('submissions.loadError')}</p> : null}
 
+      {/* See the problem list: a wrapper that scrolls itself, and a tab stop
+          so the verdict and points columns are reachable by keyboard on a
+          phone. */}
       {submissions.length > 0 ? (
+        <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('submissions.tableLabel')}>
         <table>
           <thead>
             <tr>
@@ -221,8 +235,22 @@ export function SubmissionsPage({
             ))}
           </tbody>
         </table>
+        </div>
       ) : !query.isLoading && !query.isError ? (
-        <p>{t('submissions.empty')}</p>
+        // `role="status"`: the list re-runs as the reader types in a filter,
+        // so a query that filters everything away must be ANNOUNCED rather
+        // than silently swapping the table for a line — the same shape the
+        // problem list uses.
+        <div className="empty" role="status">
+          <p>{t(filtered ? 'submissions.emptyFiltered' : 'submissions.empty')}</p>
+          {filtered ? (
+            <button type="button" onClick={clearFilters}>
+              {t('submissions.clearFilters')}
+            </button>
+          ) : (
+            <Link to="/problems">{t('submissions.emptyAction')}</Link>
+          )}
+        </div>
       ) : null}
 
       {query.hasNextPage ? (

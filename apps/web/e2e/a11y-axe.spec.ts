@@ -104,4 +104,31 @@ test.describe('axe accessibility sweep', () => {
     await signIn(page, admin.username, admin.password);
     for (const path of AUTH_SCREENS) await checkScreen(page, path);
   });
+
+  /**
+   * The two screens B-20's list above never reached, and which the fe1 visual
+   * audit found violations on: a submission's DETAIL page (its source block
+   * overflows on a phone, and an overflowing `<pre>` is a scroll container
+   * that no keyboard can reach) and the admin dashboard (two of its tables
+   * scroll on a phone and contain no link or button, so the same rule bites).
+   *
+   * The submission is reached by CLICKING the first row of the list rather
+   * than by id: the ids on a live stack are whatever was submitted today.
+   */
+  test('no serious/critical violations on a submission detail page', async ({ page }) => {
+    const admin = adminCredentials();
+    await signIn(page, admin.username, admin.password);
+    await page.goto('/submissions', { waitUntil: 'networkidle' });
+    const first = page.locator('table tbody tr td a[href^="/submissions/"]').first();
+    await first.waitFor();
+    const href = await first.getAttribute('href');
+    expect(href, 'the submissions list has no rows to open').not.toBeNull();
+    await checkScreen(page, href!);
+  });
+
+  test('no serious/critical violations on the admin dashboard', async ({ page }) => {
+    const admin = adminCredentials();
+    await signIn(page, admin.username, admin.password);
+    await checkScreen(page, '/admin');
+  });
 });

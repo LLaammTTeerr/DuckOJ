@@ -495,12 +495,20 @@ function RosterImportPanel({ slug, onImported }: { slug: string; onImported: () 
       <h2>{t('import.title')}</h2>
       <p className="muted">{t('import.hint')}</p>
       <p>
-        <input
-          type="file"
-          accept=".csv,text/csv,text/plain"
-          aria-label={t('import.file')}
-          onChange={(e) => void readFile(e.target.files?.[0])}
-        />
+        {/* The app's own control, not the browser's: a bare file input is
+            painted by the OS ("Choose File | No file chosen", in English, in
+            the light chrome even on a dark page) and no token reaches it.
+            `.file-pick` makes the LABEL the button and leaves the input
+            focusable behind it — the same picker the submit editor uses. */}
+        <label className="file-pick">
+          <span>{t('import.file')}</span>
+          <input
+            type="file"
+            accept=".csv,text/csv,text/plain"
+            aria-label={t('import.file')}
+            onChange={(e) => void readFile(e.target.files?.[0])}
+          />
+        </label>
       </p>
       <p>
         <textarea

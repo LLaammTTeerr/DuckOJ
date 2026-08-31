@@ -8,6 +8,7 @@ import { Avatar } from '../avatar.js';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { renderStatement } from '../markdown.js';
 import { verdictToken } from './submit.js';
+import { formatMemoryMb } from './problems.js';
 import { formatDateTime, formatRelative, useLocale, useT, tagName, verdictName } from '../i18n/index.js';
 
 // The API deliberately returns the same 404 `problem_not_found` for a
@@ -100,10 +101,15 @@ export function ProblemPage(props: { code: string }) {
         {problem.name} <small>({problem.code})</small>
       </h1>
       <p>
-        {/* `ms`/`KB` are unit symbols, not words — untranslated on purpose. */}
+        {/* `ms`/`MB` are unit symbols, not words — untranslated on purpose.
+            The memory limit goes through `formatMemoryMb`, the SAME helper
+            the problem list renders: this page used to print the raw KB, so
+            a 256 MiB problem read "262144 KB" here and "256 MB" in the row
+            the reader clicked from. One value, two units, on two screens a
+            competitor moves between in one click. */}
         {t('problem.limits', {
           time: problem.timeMs !== null ? `${problem.timeMs} ms` : '—',
-          memory: problem.memoryKb !== null ? `${problem.memoryKb} KB` : '—',
+          memory: formatMemoryMb(problem.memoryKb),
         })}
       </p>
       {/* Topics and difficulty. Absent entirely — not an empty row — when

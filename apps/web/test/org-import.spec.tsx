@@ -92,6 +92,30 @@ describe('the roster import panel', () => {
     }
   });
 
+  it('offers the CSV picker as a labelled control, not a bare browser file box', async () => {
+    // A raw `<input type="file">` is painted by the browser, not by the
+    // stylesheet: it read "Choose File | No file chosen" in English, in the
+    // OS's own light chrome, which in dark mode is a white box in the middle
+    // of a dark page — the first thing a teacher meets on the import panel.
+    // The editor's picker already solved this (the LABEL is the button and
+    // the input is visually hidden but still focusable); the import panel
+    // uses the same one.
+    serve('owner');
+    wrap(<OrgPage slug="thpt-a" />);
+    await screen.findByRole('heading', { name: en['import.title'] });
+
+    const box = screen.getByLabelText(en['import.file']);
+    expect(box).toHaveAttribute('type', 'file');
+    // Its own caption, in the app's own words, is on screen…
+    const picker = box.closest('label');
+    expect(picker).not.toBeNull();
+    expect(picker).toHaveClass('file-pick');
+    expect(picker!.textContent).toContain(en['import.file']);
+    // …and the input is still a real, focusable control behind it.
+    box.focus();
+    expect(document.activeElement).toBe(box);
+  });
+
   it('checks before it creates, and cannot create a list that was never checked', async () => {
     serve('owner');
     post.mockResolvedValue({

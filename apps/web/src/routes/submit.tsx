@@ -191,7 +191,7 @@ export function SubmitForm(props: {
       </select>
       <label htmlFor="source">{t('submit.sourceCode')}</label>
       <div className="editor-tools">
-        <label className="editor-upload">
+        <label className="file-pick">
           <span>{t('submit.uploadFile')}</span>
           <input
             type="file"

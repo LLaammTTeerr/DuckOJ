@@ -5935,3 +5935,59 @@ deleting 0041's journal entry reds the repair case with `MigrationDriftError: �
 0025_dashboard_bounds (when=1788078255700)` (the production defect, reproduced); deleting
 only the ledger back-stamp from 0041 reds it too.*
 
+
+## D134 — A contest's phase is a chip beside its name, not a word in the fifth column
+
+The contest list carried `TRẠNG THÁI` as its fifth column: "đang diễn ra" set in the
+same ink, the same size and the same weight as the format beside it. Measured on the
+live stack, one round of twenty-five was running and it read exactly like the
+twenty-four that had ended — and at 390px, which is where a contestant looks on
+contest day, the column was off the right edge of the table entirely. The one
+question a contest list exists to answer was the one it did not answer.
+
+- **The phase moves into the NAME cell, as a chip.** Column one is on screen at every
+  width, and it is where the eye already is. The dedicated column is gone, which also
+  makes the table one column narrower on the screen that had least room for it.
+- **Weight and elevation carry the emphasis; a glyph carries the meaning.** The
+  running chip is the only one drawn in `--fg` on a raised surface, so it is found
+  without being read. Each phase also has its own `::before` glyph (● / ◔ / ✓), so the
+  three stay distinguishable in a monochrome print and to a colour-blind reader
+  (D77 — never signal by colour alone).
+- **No hue.** `--ac` green for "running" is the obvious pick and the wrong one: green
+  means Accepted (D46), and a running contest is not a verdict. Reusing a reserved
+  scale for a second meaning is how both stop meaning anything.
+- The same chip renders in the contest page's own header, so the list and the detail
+  page say the phase the same way rather than in two registers.
+
+*Ruled by the implementer during the 2026-08-31 fe1 visual-audit loop, no human
+available to consult; found by screenshotting the live list at 1280px and 390px. No
+migration: one component, one CSS block, one column removed.*
+
+## D135 — A countdown of a day or more counts in days; D118's uncapped hours were only ever right for contest day
+
+D118 ruled that the header countdown is `HH:MM:SS` with hours **not** capped at 24,
+so "an upcoming contest days away reads `72:00:15` rather than losing the days".
+That is exactly right for the twelve hours either side of the gun, which is what the
+rule was written for. It is wrong for the rest of the calendar. The live stack's
+month-long `thu-nghiem-1` renders **`Kết thúc sau 671:53:57`** — a number no teacher
+or student converts into "four weeks" without arithmetic, on the one line of the
+contest header whose entire job is to answer "when?".
+
+- **Whole days come off the front; the clock keeps its meaning.**
+  `formatCountdownParts` returns `{ days, clock }`, and the header picks a message
+  key by whether `days` is zero. `27 ngày 23:53:57` / `27d 23:53:57`.
+- **Contest day is untouched, to the pixel.** Under 24 hours `days` is 0, the bare
+  `contest.startsIn`/`contest.endsIn` keys render exactly what D118 shipped, and
+  `formatCountdown` itself is unchanged — so the tabular-figures rule, the
+  per-second tick and the `role="timer"` line all keep their existing behaviour and
+  their existing tests.
+- **The word is the caller's, not the formatter's.** `formatCountdownParts` stays
+  locale-neutral (a number and a clock) because "ngày" and "d" are not the same
+  token; the day phrase lives in `contest.startsInDays`/`contest.endsInDays` in both
+  catalogues. English uses the compact `{days}d` so the line needs no plural rule to
+  read correctly at 1 as well as at 27.
+
+*Ruled by the implementer during the 2026-08-31 fe1 visual-audit loop, no human
+available to consult; found by screenshotting the live contest header at 390px. No
+migration: two i18n keys and one pure function.*
+

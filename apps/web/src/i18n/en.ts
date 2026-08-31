@@ -177,6 +177,7 @@ export const en = {
   'tokens.loadError': 'Could not load your access tokens.',
   'org.requestsLoadError': 'Could not load the join requests.',
   'contest.participationLoadError': 'Could not check whether you have joined.',
+  'problems.tableLabel': 'Problem list — scroll sideways for every column',
   'problems.empty': 'No problems found.',
   'problems.colCode': 'Code',
   'problems.colName': 'Name',
@@ -345,7 +346,11 @@ export const en = {
 
   'submissions.gate': 'Sign in to see submissions.',
   'submissions.loadError': 'Could not load submissions.',
-  'submissions.empty': 'No submissions found.',
+  'submissions.tableLabel': 'Submission list — scroll sideways for every column',
+  'submissions.empty': 'Nothing submitted yet.',
+  'submissions.emptyAction': 'Pick a problem',
+  'submissions.emptyFiltered': 'No submission matches the filter.',
+  'submissions.clearFilters': 'Clear the filters',
   'submissions.filterProblem': 'Filter by problem code',
   'submissions.filterUser': 'Filter by username',
   'submissions.filterContest': 'Filter by contest key',
@@ -400,7 +405,6 @@ export const en = {
   'contests.colFormat': 'Format',
   'contests.colStarts': 'Starts',
   'contests.colEnds': 'Ends',
-  'contests.colPhase': 'Phase',
   'contests.colOrgs': 'Open to',
   'phase.upcoming': 'upcoming',
   'phase.running': 'running',
@@ -415,6 +419,11 @@ export const en = {
   'contest.notStarted': 'Not started yet.',
   'contest.startsIn': 'Starts in {d}',
   'contest.endsIn': 'Ends in {d}',
+  // D135 — a wait of a day or more counts in days; "Starts in 671:53:57"
+  // is a number nobody reads as "four weeks". Compact `d` rather than
+  // "days" so the line needs no plural rule to stay correct at 1.
+  'contest.startsInDays': 'Starts in {days}d {d}',
+  'contest.endsInDays': 'Ends in {days}d {d}',
   'contest.restrictedTo': 'Open to members of',
   'contest.problems': 'Problems',
   'contest.noProblems': 'No problems.',
@@ -460,6 +469,7 @@ export const en = {
   'scoreboard.colTime': 'Time',
   'scoreboard.virtual': '(virtual)',
   'scoreboard.disqualified': '(disqualified)',
+  'scoreboard.tableLabel': 'Scoreboard — scroll sideways for every problem',
   'scoreboard.empty': 'Nobody has competed yet.',
   'scoreboard.frozen': 'The scoreboard has been frozen since {time}.',
   'scoreboard.dq': 'DQ {name}',
