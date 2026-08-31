@@ -128,6 +128,38 @@ describe('SubmissionsPage', () => {
     }
   });
 
+  it('tells an empty list what to do next, and says which emptiness it is', async () => {
+    // "Không tìm thấy bài nộp nào." and nothing else: true, useless, and the
+    // first thing a new pupil sees on this screen. An empty list has exactly
+    // two causes and they want opposite actions — nothing submitted yet
+    // (go and solve something) versus a filter that matched nothing (clear
+    // it) — and the old line could not tell them apart.
+    mockedGet.mockResolvedValue({
+      data: { items: [], nextCursor: null },
+      error: undefined,
+      response: new Response(),
+    } as never);
+
+    const view = renderWithClient(<SubmissionsPage />);
+    // No filter: the way out is a problem to solve.
+    expect(await screen.findByText('Chưa có bài nộp nào.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Chọn một bài tập' })).toHaveAttribute(
+      'href',
+      '/problems',
+    );
+    expect(screen.queryByRole('button', { name: 'Xoá bộ lọc' })).toBeNull();
+    view.unmount();
+
+    // A filter that matched nothing: the way out is to drop the filter, and
+    // pressing it puts the unfiltered list back.
+    renderWithClient(<SubmissionsPage initialProblem="khong-co-bai-nay" />);
+    expect(await screen.findByText('Không có bài nộp nào khớp bộ lọc.')).toBeInTheDocument();
+    const clear = screen.getByRole('button', { name: 'Xoá bộ lọc' });
+    await userEvent.click(clear);
+    expect(screen.getByLabelText('Lọc theo mã bài')).toHaveValue('');
+    expect(screen.getByText('Chưa có bài nộp nào.')).toBeInTheDocument();
+  });
+
   it('links each row to its problem', async () => {
     mockedGet.mockResolvedValueOnce({
       data: { items: [SUBMISSION_A], nextCursor: null },
@@ -202,7 +234,7 @@ describe('SubmissionsPage', () => {
     } as never);
 
     renderWithClient(<SubmissionsPage initialProblem="aplusb" initialUser="kim" initialContest="spring" />);
-    await screen.findByText(/Không tìm thấy bài nộp nào/);
+    await screen.findByText(/Không có bài nộp nào khớp bộ lọc/);
 
     const [, options] = mockedGet.mock.calls[0] as unknown as [
       string,

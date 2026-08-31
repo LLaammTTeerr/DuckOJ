@@ -1969,6 +1969,25 @@ section section > h3:first-child {
   padding: 0.08em 0.4em;
 }
 
+/* --- an empty list ------------------------------------------------------
+ * An empty state that only says "nothing here" leaves the reader where they
+ * already were. This one is a small centred block: the sentence, then ONE
+ * way forward — a problem to solve when nothing has been submitted, a filter
+ * to clear when a filter is what emptied it.
+ *
+ * The button keeps its own top margin from the button rule; the block adds
+ * the breathing room a bare `<p>` in a table's place did not have.
+ */
+.empty {
+  margin: var(--sp-7) 0;
+  text-align: center;
+  color: var(--dim);
+}
+
+.empty p {
+  margin: 0 0 var(--sp-2);
+}
+
 /* --- contest phase chips (D134) -----------------------------------------
  * "Which round is on RIGHT NOW" is the only question a contest list is asked
  * on contest day, and until D134 it was answered by a word in the fifth

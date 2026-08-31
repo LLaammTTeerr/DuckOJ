@@ -82,6 +82,16 @@ export function SubmissionsPage({
   });
 
   const submissions = query.data?.pages.flatMap((page) => page.items) ?? [];
+  // An empty list has two causes that want opposite actions: nothing has been
+  // submitted (go and solve something) or a filter matched nothing (drop it).
+  // One sentence for both told a reader neither.
+  const filtered = problem !== '' || user !== '' || contest !== '' || verdict !== undefined;
+  const clearFilters = () => {
+    setProblem('');
+    setUser('');
+    setContest('');
+    setVerdict(undefined);
+  };
 
   return (
     <section>
@@ -227,7 +237,20 @@ export function SubmissionsPage({
         </table>
         </div>
       ) : !query.isLoading && !query.isError ? (
-        <p>{t('submissions.empty')}</p>
+        // `role="status"`: the list re-runs as the reader types in a filter,
+        // so a query that filters everything away must be ANNOUNCED rather
+        // than silently swapping the table for a line — the same shape the
+        // problem list uses.
+        <div className="empty" role="status">
+          <p>{t(filtered ? 'submissions.emptyFiltered' : 'submissions.empty')}</p>
+          {filtered ? (
+            <button type="button" onClick={clearFilters}>
+              {t('submissions.clearFilters')}
+            </button>
+          ) : (
+            <Link to="/problems">{t('submissions.emptyAction')}</Link>
+          )}
+        </div>
       ) : null}
 
       {query.hasNextPage ? (
