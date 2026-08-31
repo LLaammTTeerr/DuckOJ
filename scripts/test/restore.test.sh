@@ -192,6 +192,50 @@ check "second restore exits 0" [ $? -eq 0 ]
 check "still exactly one row" [ "$(psql -c 'select count(*) from province;')" = "1" ]
 
 # ===========================================================================
+# B32 (the 2026-08-31 disaster-recovery drill). THE scenario this script is
+# for — "restore last night's backup onto the stack that is running" — did not
+# work, and nothing here caught it because every case above restored a dump
+# into the schema it was taken from.
+#
+# A running stack's database is at TODAY's schema; a backup is by definition
+# older. So the target holds tables the dump has never heard of, whose foreign
+# keys point at tables the dump DOES carry. `pg_restore --clean` emits
+# `DROP TABLE IF EXISTS` with no CASCADE, so every one of those DROPs failed,
+# the old tables survived with their old primary keys, and the dump's own
+# CREATE/ADD CONSTRAINT then failed on top of them. Measured against the real
+# newest ~/duckoj-backups dump: 32 ignored errors, exit 1, writers left down.
+#
+# `seat` below is `contest_seats` in miniature: a table created after the
+# backup, with an FK onto a table inside it.
+echo "# --- B32: an older dump restores onto a NEWER schema"
+psql -c "create table seat (id int primary key, province_id int not null references province(id));" >/dev/null
+psql -c "insert into seat values (1, 1);" >/dev/null
+# The row the dump carries is destroyed; `seat` referenced it, so it goes
+# first — this is the "someone deleted the data" disaster, not a schema one.
+psql -c "delete from seat;" >/dev/null
+psql -c "delete from province where id = 1;" >/dev/null
+check "B32: the dumped row is gone before the restore" \
+  [ "$(psql -c 'select count(*) from province;')" = "0" ]
+check "B32: the newer table exists before the restore" \
+  [ "$(psql -c "select count(*) from information_schema.tables where table_name = 'seat';")" = "1" ]
+
+CONFIRM=yes COMPOSE_PROJECT_NAME="$PROJECT" SERVICES="" COMPOSE="$STUB" \
+  "$REPO/scripts/restore.sh" "$PREFIX" >"$WORK/newerschema.out" 2>&1
+rc=$?
+sed 's/^/#   /' "$WORK/newerschema.out" | head -n 8
+check "B32: restore onto a newer schema exits 0" [ "$rc" -eq 0 ]
+check "B32: pg_restore emitted no error line at all" \
+  sh -c '! grep -q "pg_restore: error" "$WORK/newerschema.out"'
+check "B32: the dumped row came back" \
+  [ "$(psql -c "select name from province where id = 1;")" = "Ha Giang" ]
+# The reset is what makes the reload work, and this is its cost, stated as a
+# test rather than as a comment: a restore MEANS "this database becomes that
+# backup", so a table the dump does not carry does not survive it. The migrate
+# step that follows in the real script is what puts it back.
+check "B32: a table the dump does not carry did not survive" \
+  [ "$(psql -c "select count(*) from information_schema.tables where table_name = 'seat';")" = "0" ]
+
+# ===========================================================================
 echo "# --- M7: migrate runs after the reload, before the writers restart"
 : >"$COMPOSE_LOG"
 CONFIRM=yes COMPOSE_PROJECT_NAME="$PROJECT" SERVICES="api judged" COMPOSE="$STUB" \
