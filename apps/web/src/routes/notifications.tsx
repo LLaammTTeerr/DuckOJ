@@ -220,7 +220,12 @@ export function NotificationsPage() {
       ) : null}
       {error ? <p role="alert">{error}</p> : null}
       {feed.data.items.length === 0 ? (
-        <p className="muted">{t('notifications.empty')}</p>
+        <div className="empty">
+          <p>{t('notifications.empty')}</p>
+          <p>
+            <Link to="/contests">{t('notifications.emptyAction')}</Link>
+          </p>
+        </div>
       ) : (
         <table>
           <tbody>

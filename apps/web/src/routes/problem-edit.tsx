@@ -6,6 +6,7 @@ import { meQueryOptions } from '../me.js';
 import { renderStatement } from '../markdown.js';
 import { tagsQueryOptions } from '../tags.js';
 import { useLocale, useT, tagName } from '../i18n/index.js';
+import { CodeAlert, type CodeAlertState } from '../states.js';
 import { ProblemTestDataTab } from './problem-testdata.js';
 
 type ProblemDetail = paths['/problems/{code}']['get']['responses'][200]['content']['application/json'];
@@ -110,7 +111,7 @@ export function ProblemEditPage(props: { code?: string }) {
   // one, exactly as `tags`, `difficulty` and the editorial are not.
   const [tab, setTab] = useState<'details' | 'testdata'>('details');
   const [busy, setBusy] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<CodeAlertState>(null);
   const [saved, setSaved] = useState(false);
 
   // Rejudging every submission of this problem is an admin operation that
@@ -119,7 +120,7 @@ export function ProblemEditPage(props: { code?: string }) {
   const me = useQuery(meQueryOptions);
   const [rejudgeBusy, setRejudgeBusy] = useState(false);
   const [rejudgeMessage, setRejudgeMessage] = useState<string | null>(null);
-  const [rejudgeError, setRejudgeError] = useState<string | null>(null);
+  const [rejudgeError, setRejudgeError] = useState<CodeAlertState>(null);
   // D21: see submission.tsx — a rejudge names the contests to re-rate and
   // replays nothing itself.
   const [reRate, setReRate] = useState<string[]>([]);
@@ -131,7 +132,7 @@ export function ProblemEditPage(props: { code?: string }) {
   const [cloneCode, setCloneCode] = useState('');
   const [cloneName, setCloneName] = useState('');
   const [cloneBusy, setCloneBusy] = useState(false);
-  const [cloneError, setCloneError] = useState<string | null>(null);
+  const [cloneError, setCloneError] = useState<CodeAlertState>(null);
   const [cloned, setCloned] = useState<string | null>(null);
 
   /**
@@ -157,12 +158,12 @@ export function ProblemEditPage(props: { code?: string }) {
         },
       });
       if (error || !data) {
-        setCloneError(error?.code ?? t('problemEdit.cloneFailed'));
+        setCloneError({ message: t('problemEdit.cloneFailed'), code: error?.code });
         return;
       }
       setCloned(data.code);
     } catch {
-      setCloneError(t('common.networkError'));
+      setCloneError({ message: t('common.networkError') });
     } finally {
       setCloneBusy(false);
     }
@@ -182,7 +183,7 @@ export function ProblemEditPage(props: { code?: string }) {
         params: { path: { code: props.code! } },
       });
       if (error) {
-        setRejudgeError(error.code);
+        setRejudgeError({ message: t('problemEdit.rejudgeFailed'), code: error.code });
         return;
       }
       setRejudgeMessage(t('problemEdit.rejudgeQueued', { n: data.submissionsQueued }));
@@ -190,7 +191,7 @@ export function ProblemEditPage(props: { code?: string }) {
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
-      setRejudgeError(t('common.networkError'));
+      setRejudgeError({ message: t('common.networkError') });
     } finally {
       setRejudgeBusy(false);
     }
@@ -271,12 +272,12 @@ export function ProblemEditPage(props: { code?: string }) {
         // Verbatim, not paraphrased — this is a tool for people who will
         // read error codes like `problem_code_taken` or
         // `problem_org_unknown`, not a consumer app (task-12 brief).
-        setSubmitError(error.code);
+        setSubmitError({ message: t('problemEdit.saveFailed'), code: error.code });
         return;
       }
       setSaved(true);
     } catch {
-      setSubmitError(t('common.networkError'));
+      setSubmitError({ message: t('common.networkError') });
     } finally {
       setBusy(false);
     }
@@ -307,7 +308,7 @@ export function ProblemEditPage(props: { code?: string }) {
       {/* `submitError` is the server's own error CODE (`problem_code_taken`)
           — deliberately verbatim, never paraphrased or translated: this is a
           tool for people who read codes (task-12 brief). */}
-      {submitError ? <p role="alert">{submitError}</p> : null}
+      {submitError ? <CodeAlert {...submitError} /> : null}
       {saved ? <p>{t('problemEdit.saved')}</p> : null}
       <form onSubmit={(e) => void handleSubmit(e)}>
         <label htmlFor="problem-code">{t('problemEdit.code')}</label>
@@ -459,7 +460,7 @@ export function ProblemEditPage(props: { code?: string }) {
               {reRate.length > 0 ? ` ${t('rejudge.reRate', { keys: reRate.join(', ') })}` : ''}
             </p>
           ) : null}
-          {rejudgeError ? <p role="alert">{rejudgeError}</p> : null}
+          {rejudgeError ? <CodeAlert {...rejudgeError} /> : null}
         </section>
       ) : null}
 
@@ -485,7 +486,7 @@ export function ProblemEditPage(props: { code?: string }) {
               {t('problemEdit.cloneButton')}
             </button>
           </p>
-          {cloneError ? <p role="alert">{cloneError}</p> : null}
+          {cloneError ? <CodeAlert {...cloneError} /> : null}
           {cloned ? (
             <p role="status">
               {t('problemEdit.cloned', { code: cloned })}{' '}

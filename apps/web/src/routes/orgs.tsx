@@ -20,6 +20,7 @@ import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError, read } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
+import { LoadError } from '../states.js';
 import { useT, type MsgKey, type TFunction } from '../i18n/index.js';
 import { OrgSets } from './problem-sets.js';
 import { OrgTeams } from './teams.js';
@@ -132,7 +133,13 @@ export function OrgsPage() {
     <section className="panel">
       <h1>{t('orgs.title')}</h1>
       {query.isPending ? <p className="muted">{t('common.loading')}</p> : null}
-      {query.error ? <p role="alert">{query.error.message}</p> : null}
+      {query.error ? (
+        <LoadError
+          error={query.error}
+          what={t('orgs.loadError')}
+          onRetry={() => void query.refetch()}
+        />
+      ) : null}
       {query.data && query.data.items.length === 0 ? (
         <p className="muted">{t('orgs.empty')}</p>
       ) : null}
@@ -705,7 +712,9 @@ export function OrgPage({ slug }: { slug: string }) {
   }
 
   if (org.isPending) return <p className="muted">{t('common.loading')}</p>;
-  if (org.error) return <p role="alert">{org.error.message}</p>;
+  // D145: the fallback behind this message is `org.notFound`, so a 500 used
+  // to tell a teacher their school is not on the system.
+  if (org.error) return <LoadError error={org.error} onRetry={() => void org.refetch()} />;
   if (!org.data) return null;
 
   const myName = me.data?.username ?? null;

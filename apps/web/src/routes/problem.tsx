@@ -4,6 +4,8 @@ import { Link } from '@tanstack/react-router';
 import { hideDuplicateSampleTables } from '@duckoj/statement-samples';
 import { meQueryOptions } from '../me.js';
 import { api, apiError } from '../api.js';
+import { read } from '../api-error.js';
+import { LoadError, SkeletonBlock } from '../states.js';
 import { Avatar } from '../avatar.js';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import { renderStatement } from '../markdown.js';
@@ -46,18 +48,27 @@ export function ProblemPage(props: { code: string }) {
       // below, distinct from (and not to be confused with) the API's own
       // 404. See submit.tsx's `fetchSubmission`/`handleSubmit` for the same
       // shape, documented at more length.
-      const { data, error } = await api.GET('/problems/{code}', { params: { path: { code } } });
-      if (error) return null; // absent or invisible — the API does not distinguish, and neither may this page
-      return data;
+      const result = await api.GET('/problems/{code}', { params: { path: { code } } });
+      // D145 — `if (error) return null` turned EVERY failure into "no such
+      // problem", including a 500 mid-round. `read`'s `absent` list says
+      // which status genuinely means absent: 404, which the API also uses
+      // for a problem this reader may not see, and nothing else.
+      return read(result, t('problem.loadError'), [404]);
     },
     retry: false,
   });
 
   const me = useQuery(meQueryOptions);
 
-  if (query.isLoading) return <p>{t('common.loading')}</p>;
+  if (query.isLoading) return <SkeletonBlock lines={5} />;
   if (query.isError) {
-    return <p role="alert">{t('problem.loadError')}</p>;
+    return (
+      <LoadError
+        error={query.error}
+        what={t('problem.loadError')}
+        onRetry={() => void query.refetch()}
+      />
+    );
   }
   if (!query.data) return <p>{t('problem.notFound')}</p>;
 

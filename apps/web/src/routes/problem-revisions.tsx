@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { formatMemoryMb } from './problems.js';
 import { useT } from '../i18n/index.js';
+import { CodeAlert, type CodeAlertState } from '../states.js';
 
 type Revision =
   paths['/problems/{code}/revisions']['get']['responses'][200]['content']['application/json'][number];
@@ -64,15 +65,17 @@ export function ProblemRevisionsPage(props: { code: string }) {
 
   const [packageHash, setPackageHash] = useState('');
   const [attachBusy, setAttachBusy] = useState(false);
-  const [attachError, setAttachError] = useState<string | null>(null);
+  // `{ message, code }`, not a bare string: the message is what a setter
+  // reads, the code is what they search for (D145).
+  const [attachError, setAttachError] = useState<CodeAlertState>(null);
   // The version currently mid-publish, if any — used only to disable that
   // one row's button while the request is in flight, not to gate the whole
   // page.
   const [publishingVersion, setPublishingVersion] = useState<number | null>(null);
-  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<CodeAlertState>(null);
 
   const [uploadBusy, setUploadBusy] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<CodeAlertState>(null);
   const [uploadHash, setUploadHash] = useState('');
   const [archive, setArchive] = useState<File | null>(null);
 
@@ -96,14 +99,14 @@ export function ProblemRevisionsPage(props: { code: string }) {
         headers: { 'content-type': 'application/octet-stream' },
       } as never);
       if (error) {
-        setUploadError((error as { code?: string }).code ?? t('revisions.uploadFailed'));
+        setUploadError({ message: t('revisions.uploadFailed'), code: (error as { code?: string }).code });
         return;
       }
       setPackageHash(uploadHash);
       setUploadHash('');
       setArchive(null);
     } catch {
-      setUploadError(t('common.networkError'));
+      setUploadError({ message: t('common.networkError') });
     } finally {
       setUploadBusy(false);
     }
@@ -121,13 +124,13 @@ export function ProblemRevisionsPage(props: { code: string }) {
         body: { packageHash },
       });
       if (error) {
-        setAttachError(error.code);
+        setAttachError({ message: t('revisions.attachFailed'), code: error.code });
         return;
       }
       setPackageHash('');
       await client.invalidateQueries({ queryKey: ['problem-revisions', code] });
     } catch {
-      setAttachError(t('common.networkError'));
+      setAttachError({ message: t('common.networkError') });
     } finally {
       setAttachBusy(false);
     }
@@ -141,12 +144,12 @@ export function ProblemRevisionsPage(props: { code: string }) {
         params: { path: { code, version } },
       });
       if (error) {
-        setPublishError(error.code);
+        setPublishError({ message: t('revisions.publishFailed'), code: error.code });
         return;
       }
       await client.invalidateQueries({ queryKey: ['problem-revisions', code] });
     } catch {
-      setPublishError(t('common.networkError'));
+      setPublishError({ message: t('common.networkError') });
     } finally {
       setPublishingVersion(null);
     }
@@ -175,7 +178,7 @@ export function ProblemRevisionsPage(props: { code: string }) {
         >
           {t('revisions.upload')}
         </button>
-        {uploadError ? <p role="alert">{uploadError}</p> : null}
+        {uploadError ? <CodeAlert {...uploadError} /> : null}
       </div>
 
       <div>
@@ -184,10 +187,10 @@ export function ProblemRevisionsPage(props: { code: string }) {
         <button type="button" onClick={() => void handleAttach()} disabled={attachBusy || packageHash === ''}>
           {t('revisions.attach')}
         </button>
-        {attachError ? <p role="alert">{attachError}</p> : null}
+        {attachError ? <CodeAlert {...attachError} /> : null}
       </div>
 
-      {publishError ? <p role="alert">{publishError}</p> : null}
+      {publishError ? <CodeAlert {...publishError} /> : null}
 
       {query.isLoading ? <p>{t('common.loading')}</p> : null}
       {query.isError ? <p role="alert">{t('revisions.loadError')}</p> : null}

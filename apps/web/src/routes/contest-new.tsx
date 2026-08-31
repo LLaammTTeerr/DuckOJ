@@ -12,7 +12,9 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { api } from '../api.js';
+import { apiError, read } from '../api-error.js';
 import { useT } from '../i18n/index.js';
+import { CodeAlert, type CodeAlertState } from '../states.js';
 import { OrgPicker } from '../org-picker.js';
 
 interface ProblemRow {
@@ -59,17 +61,24 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
   // who can see it may join.
   const [orgSlugs, setOrgSlugs] = useState<string[]>([]);
   const [rows, setRows] = useState<ProblemRow[]>([{ code: '', points: '100', partial: true }]);
-  const [error, setError] = useState<string | null>(null);
+  // `{ message, code }` (D145): the sentence a setter reads, and the
+  // server's identifier beside it — this screen used to show the
+  // identifier ALONE (`contest_key_taken`) as the whole message.
+  const [error, setError] = useState<CodeAlertState>(null);
   const [busy, setBusy] = useState(false);
   const [seeded, setSeeded] = useState(false);
 
   const source = useQuery({
     queryKey: ['contest', cloneFrom],
     queryFn: async () => {
-      const { data, error: err } = await api.GET('/contests/{key}', {
+      const result = await api.GET('/contests/{key}', {
         params: { path: { key: cloneFrom! } },
       });
-      if (err || !data) throw new Error(err?.code ?? 'contest_not_found');
+      // D145 — was `new Error(err?.code)`, which put `contest_not_found` on
+      // screen as a sentence and threw the STATUS away with it, so
+      // `src/query.ts` retried a 404 three times before saying so.
+      const data = read(result, t('contest.notFound'));
+      if (data === null) throw apiError(result, t('contest.notFound'));
       return data;
     },
     enabled: cloneFrom !== undefined,
@@ -98,7 +107,7 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
    */
   async function clone(): Promise<void> {
     if (start === '' || end === '') {
-      setError(t('contestNew.datesRequired'));
+      setError({ message: t('contestNew.datesRequired') });
       return;
     }
     setBusy(true);
@@ -113,12 +122,12 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
         },
       });
       if (err || !data) {
-        setError(err?.detail ?? err?.code ?? t('contestNew.createError'));
+        setError({ message: err?.detail ?? t('contestNew.createError'), code: err?.code });
         return;
       }
       await navigate({ to: '/contests/$key', params: { key: data.key } });
     } catch {
-      setError(t('common.networkError'));
+      setError({ message: t('common.networkError') });
     } finally {
       setBusy(false);
     }
@@ -128,17 +137,17 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
     const problems = rows.filter((row) => row.code.trim() !== '');
     for (const row of problems) {
       if (Number.isNaN(Number(row.points)) || Number(row.points) < 0) {
-        setError(t('contestNew.badPoints', { code: row.code }));
+        setError({ message: t('contestNew.badPoints', { code: row.code }) });
         return;
       }
     }
     if (start === '' || end === '') {
-      setError(t('contestNew.datesRequired'));
+      setError({ message: t('contestNew.datesRequired') });
       return;
     }
     const frozenLastMinutes = Number(freeze);
     if (!Number.isInteger(frozenLastMinutes) || frozenLastMinutes < 0) {
-      setError(t('contestNew.badFreeze'));
+      setError({ message: t('contestNew.badFreeze') });
       return;
     }
     setBusy(true);
@@ -165,14 +174,14 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
         },
       });
       if (err) {
-        setError(err.detail ?? t('contestNew.createError'));
+        setError({ message: err.detail ?? t('contestNew.createError'), code: err.code });
         return;
       }
       await navigate({ to: '/contests/$key', params: { key: data.key } });
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
-      setError(t('common.networkError'));
+      setError({ message: t('common.networkError') });
     } finally {
       setBusy(false);
     }
@@ -341,7 +350,7 @@ export function ContestNewPage(props: { cloneFrom?: string } = {}) {
         </>
       ) : null}
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? <CodeAlert {...error} /> : null}
       <p>
         <button
           type="button"

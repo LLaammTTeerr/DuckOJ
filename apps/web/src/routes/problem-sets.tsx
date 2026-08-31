@@ -21,8 +21,9 @@ import { Link } from '@tanstack/react-router';
 import { API_PREFIX } from '@duckoj/api-prefix';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
-import { apiError } from '../api-error.js';
+import { apiError, read } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
+import { LoadError } from '../states.js';
 import { renderStatement } from '../markdown.js';
 import { formatDateTime, useLocale, useT, verdictName, type TFunction } from '../i18n/index.js';
 import { verdictToken } from './submit.js';
@@ -302,8 +303,13 @@ export function OrgSets({ slug, canManage }: { slug: string; canManage: boolean 
     queryKey: setsKey(slug),
     enabled: me.data != null,
     queryFn: async () => {
-      const { data } = await api.GET('/orgs/{slug}/sets', { params: { path: { slug } } });
-      return data?.items ?? [];
+      // NOT `data?.items ?? []`. openapi-fetch RESOLVES on an HTTP error, so
+      // that spelling turned every 500 into an empty array — and this panel
+      // renders an empty array as `sets.empty`, "Chưa có bài tập nào": a
+      // pupil told their teacher has assigned them nothing (B-8's swallow,
+      // one more survivor, found by the D143 sweep).
+      const result = await api.GET('/orgs/{slug}/sets', { params: { path: { slug } } });
+      return read(result, t('sets.loadError'))?.items ?? [];
     },
   });
 
@@ -318,6 +324,13 @@ export function OrgSets({ slug, canManage }: { slug: string; canManage: boolean 
   return (
     <>
       <h2>{t('sets.title')}</h2>
+      {sets.error ? (
+        <LoadError
+          error={sets.error}
+          what={t('sets.loadError')}
+          onRetry={() => void sets.refetch()}
+        />
+      ) : null}
       {sets.data && sets.data.length === 0 ? <p className="muted">{t('sets.empty')}</p> : null}
       {sets.data && sets.data.length > 0 ? (
         <table>
@@ -417,7 +430,7 @@ export function ProblemSetPage({ slug, setSlug }: { slug: string; setSlug: strin
   }
 
   if (set.isPending) return <p className="muted">{t('common.loading')}</p>;
-  if (set.error) return <p role="alert">{set.error.message}</p>;
+  if (set.error) return <LoadError error={set.error} onRetry={() => void set.refetch()} />;
   if (!set.data) return null;
 
   const dated = set.data.deadline !== null;
@@ -542,7 +555,7 @@ export function ProblemSetProgressPage({ slug, setSlug }: { slug: string; setSlu
   });
 
   if (grid.isPending) return <p className="muted">{t('common.loading')}</p>;
-  if (grid.error) return <p role="alert">{grid.error.message}</p>;
+  if (grid.error) return <LoadError error={grid.error} onRetry={() => void grid.refetch()} />;
   if (!grid.data) return null;
 
   // Every page carries the same columns and deadline — they describe the SET,

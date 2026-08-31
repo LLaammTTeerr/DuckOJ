@@ -191,7 +191,10 @@ describe('ProblemsPage', () => {
     mockApiGet({ '/problems': apiResponse({ items: [], nextCursor: null }) });
     renderWithClient(<ProblemsPage />);
     const status = await screen.findByRole('status');
-    expect(status).toHaveTextContent('Không tìm thấy bài tập nào.');
+    // D145 split the one sentence in two: with no filter in force this is the
+    // "nothing published yet" half. `test/screen-states.spec.tsx` covers the
+    // filtered half beside it.
+    expect(status).toHaveTextContent('Chưa có bài tập nào được đăng.');
   });
 
   // Regression coverage for the three problem-list bugs found by screenshot
@@ -521,7 +524,11 @@ describe('ProblemPage', () => {
     mockedGet.mockResolvedValueOnce({
       data: undefined,
       error: { type: 'about:blank', title: 'Not Found', status: 404, code: 'problem_not_found', detail: 'No such problem.' },
-      response: new Response(),
+      // A real 404 answers with a 404 RESPONSE. `new Response()` is a 200,
+      // and `read`'s `absent: [404]` reads the response — so the old mock
+      // described a case the server cannot produce and, once the screen
+      // started telling 404 apart from 500, stopped standing for one.
+      response: new Response(null, { status: 404 }),
     } as never);
 
     renderWithClient(<ProblemPage code="does-not-exist" />);

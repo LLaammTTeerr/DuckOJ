@@ -2293,6 +2293,117 @@ section section > h3:first-child {
   margin: 0 0 var(--sp-2);
 }
 
+/* --- the states nobody designs (D143–D145) -------------------------------
+ * Skeletons, the failure block and the two connection notices. Every colour
+ * here is an EXISTING token — `--sel`, `--line`, `--dim`, `--glass-inset` —
+ * which is what makes the dark theme free: tokens.css aliases each of them
+ * to its `--dark-*` twin under BOTH triggers (D116), so there is no second
+ * palette to keep in step and no way to define one in only one of them.
+ *
+ * WHY A SKELETON AND NOT A SPINNER. Every data screen in this app used to
+ * answer `if (query.isPending) return <p>Đang tải…</p>` — the entire page
+ * thrown away and replaced by one grey line at the top of an empty sheet.
+ * Measured on the scoreboard against a 3s-delayed route: 720px of nothing,
+ * then the whole board at once. The reader gets no shape to look at while
+ * they wait and no stable ground when the answer lands.
+ */
+.skeleton {
+  display: block;
+  width: 100%;
+  height: 1em;
+  border-radius: var(--r-xs);
+  background: var(--sel);
+  /* The sweep is a gradient over the same neutral, not a second colour: a
+     tinted shimmer would read as a verdict hue in the corner of a
+     scoreboard, and D46/D77 keep those for verdicts and ranks. */
+  background-image: linear-gradient(90deg, transparent 0%, var(--line) 50%, transparent 100%);
+  background-repeat: no-repeat;
+  background-size: 240px 100%;
+  background-position: -240px 0;
+  animation: skeleton-sweep 1.2s linear infinite;
+}
+
+@keyframes skeleton-sweep {
+  to {
+    background-position: calc(100% + 240px) 0;
+  }
+}
+
+/* Stillness (tokens.css's own rule): a page that pulses for the whole of a
+   slow load is exactly the page a reader with vestibular trouble cannot use.
+   The reserved SPACE is the point and it survives; only the sweep stops. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background-image: none;
+  }
+}
+
+/* Varying the widths is not decoration — a column of identical full-width
+   bars reads as a rendered table with no text in it. */
+.skeleton-row td:first-child .skeleton {
+  width: 72%;
+}
+.skeleton-row td:last-child .skeleton {
+  width: 46%;
+}
+
+.skeleton-block {
+  display: grid;
+  gap: var(--sp-2);
+  max-width: var(--measure);
+  margin: var(--sp-3) 0;
+}
+.skeleton-block .skeleton:last-child {
+  width: 60%;
+}
+
+/* --- a read that failed --------------------------------------------------
+ * A block, not a sentence: the headline, optionally the server's own wording
+ * under it, and the one control that could change the outcome. It inherits
+ * the shared `[role="alert"]` shell above (inset rule, glass, measure) and
+ * only adds the stacking.
+ */
+.load-error {
+  display: grid;
+  gap: var(--sp-2);
+  justify-items: start;
+}
+.load-error .muted {
+  font-weight: 400;
+  font-size: 0.92em;
+}
+.load-error button {
+  margin: 0;
+}
+
+/* --- the connection ------------------------------------------------------
+ * The offline line sits under the bar on every screen; the stale line sits
+ * with the numbers it is about. Both are `role="status"` and inherit that
+ * shell, so this only places them.
+ */
+.offline-banner {
+  max-width: none;
+  margin: var(--sp-3) auto 0;
+  /* The same 960px well `main` uses, so it lines up with the page under it
+     rather than with the floating bar above it. */
+  width: min(100%, 960px);
+}
+
+.stale-notice {
+  margin: var(--sp-2) 0;
+  font-size: 0.92em;
+  font-weight: 500;
+}
+
+/* Stale is a state, and colour alone must not be what says so (D46's rule,
+   applied outside verdicts): the WORDING changes too — `common.updatedAt`
+   becomes `common.stale` — and this only thickens the rule beside it. */
+.stale-notice.is-stale {
+  box-shadow: inset 3px 0 0 var(--fg);
+  color: var(--fg);
+}
+
 /* --- contest phase chips (D134) -----------------------------------------
  * "Which round is on RIGHT NOW" is the only question a contest list is asked
  * on contest day, and until D134 it was answered by a word in the fifth
