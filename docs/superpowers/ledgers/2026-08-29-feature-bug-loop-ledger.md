@@ -137,3 +137,4 @@
 - B-28 deployed (api+judged, counter FOR UPDATE fix live) — first build attempt flaked on ssh2/cpu-features gyp (MCP's transitive native dep, prebuilt-fetch fallback), retry green. Real fragility: api/judged images  the whole workspace incl apps/mcp's ssh2 → intermittent deploy/CI failure. → B-29 to filter the image install.
 - Dispatched B-29 image-install hardening (worktree, D124) and F-34 problem status filter solved/attempted/unsolved (main, D125).
 - F-34 DONE (52fe1dd..fefabf3, main): problem status filter solved/attempted/unsolved + myStatus glyph (D125, window-gated, D113 guard green); api 1120, web 601; deployed via deploy.sh; pushed.
+- B-29 DONE, merged (f6b280c): api/judged Dockerfiles --ignore-scripts + prune ssh2/cpu-features chain (D124) — deploy build flake CLASS CLOSED (ssh2 grep-c 0 in live api). F-34 status filter deployed with it; problems 200. web rebuilt. Pushed.
