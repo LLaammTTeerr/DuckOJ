@@ -128,3 +128,4 @@
 - Dispatched F-31 print stylesheet (main, D121) and B-26 review IV + fresh-clone integrity + CSP-hash drift guard (worktree, D122–D124).
 - F-31 DONE (5fad5c2..c59e661, on main): print stylesheet for scoreboard/statement/submissions (D121); caught phone-table-in-print clipping. web 571/571, rebuilt, pushed.
 - B-26 DONE, merged: built-artefact CSP drift guard (scripts/verify-csp-hash.ts, wired into verify + CI) closes the D120 class properly; D119/D120 backfilled; fresh-clone + api image build verified; no product bugs. Pushed.
+- F-31 print merged/deployed. Dispatched F-32 initials avatars (main, D122, zero-backend) and B-27 web-surfaces hunt (worktree: theme/countdown/print/comments a11y+contrast, D123–D125).
