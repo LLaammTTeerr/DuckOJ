@@ -1384,14 +1384,21 @@ textarea:disabled {
 /* A file input renders as a browser-drawn control that no token can reach,
    and the `input { width: 100% }` form rule stretched it across the page.
    The LABEL is the button; the input itself is present, focusable and
-   keyboard-reachable, just not painted. */
-.editor-upload {
+   keyboard-reachable, just not painted.
+
+   Named `.file-pick` rather than `.editor-upload` because it is not the
+   editor's: the roster import panel (D61) shipped a bare `<input type=file>`,
+   which a browser paints in ITS chrome and ITS language — "Choose File | No
+   file chosen", in the OS's light palette, i.e. a white box in the middle of
+   a dark page, and English inside a Vietnamese screen. One picker, both
+   places. */
+.file-pick {
   display: inline-flex;
   align-items: center;
   margin: 0;
 }
 
-.editor-upload span {
+.file-pick span {
   display: inline-flex;
   align-items: center;
   min-height: var(--tap-dense);
@@ -1405,7 +1412,7 @@ textarea:disabled {
   font-size: 12.5px;
 }
 
-.editor-upload input[type='file'] {
+.file-pick input[type='file'] {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1416,7 +1423,7 @@ textarea:disabled {
   opacity: 0;
 }
 
-.editor-upload:focus-within span {
+.file-pick:focus-within span {
   border-color: var(--fg);
 }
 
