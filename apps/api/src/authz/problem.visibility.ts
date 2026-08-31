@@ -123,8 +123,17 @@ export function canCreateProblem(actor: Actor | null): boolean {
  * on the team's row *now*, while this one decides what a competitor may READ,
  * and `inJoinedContest` is already not gated on the window still being open
  * — after a contest you may re-read what you competed on.
+ *
+ * **Exported as the one sanctioned "does this person compete here?" clause
+ * (D113).** Every read that keys a `contest_participations` row on the actor
+ * — "is this person IN this contest / what may they see" — routes through it
+ * rather than writing `contest_participations.user_id = you`, which in a team
+ * contest (D99) names only the captain. `team-participation-invariant.spec.ts`
+ * fails if a new `contestParticipations.userId` lookup appears outside this
+ * module or the audited allowlist, so the bug class B-18/B-19/B-21 each paid
+ * for cannot silently return.
  */
-function actingParticipationWhere(db: Db, userId: number): SQL {
+export function actingParticipationWhere(db: Db, userId: number): SQL {
   const myTeams = db
     .select({ teamId: teamMembers.teamId })
     .from(teamMembers)

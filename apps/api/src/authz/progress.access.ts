@@ -81,6 +81,7 @@ import { AppError } from '../common/app.error.js';
 import type { Actor } from './actor.js';
 import { ScoreboardCache } from './scoreboard.cache.js';
 import { contestWindowOpenWhere, participationEndsAtSql } from './submission.freeze.js';
+import { actingParticipationWhere } from './problem.visibility.js';
 
 const { tags, users } = schema;
 
@@ -388,7 +389,15 @@ export class ProgressService {
       .innerJoin(contests, eq(contests.id, contestParticipations.contestId))
       .where(
         and(
-          eq(contestParticipations.userId, userId),
+          // Not `user_id = you`: a team is ONE participation held by whichever
+          // member pressed Join (D99), so keyed on `user_id` this page listed
+          // the round for the captain alone and left every other member's
+          // "upcoming contests" empty of the contest they are sitting. The
+          // sanctioned read predicate (D113) — the actor's own row, or one a
+          // team they are on holds. The READ form, deliberately not narrowed
+          // to current membership: a removed member still sees on their page
+          // what they competed on, exactly as they may still re-read it.
+          actingParticipationWhere(this.db, userId),
           sql`${now.toISOString()}::timestamptz < (${endsAt})`,
         ),
       )
