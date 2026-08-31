@@ -228,6 +228,31 @@ export const problems = pgTable(
      * without a second migration; nothing reads it as a clock yet.
      */
     editorialPublishedAt: timestamp('editorial_published_at', { withTimezone: true }),
+    /**
+     * The published revision this problem currently IS — what a submission is
+     * graded against.
+     *
+     * **The foreign key is in migration 0040's SQL, not here, and that is
+     * deliberate.** It is COMPOSITE — `(id, current_revision_id) REFERENCES
+     * problem_revisions (problem_id, id)` — because the fact worth stating is
+     * not "some revision exists" but "the current revision is a revision OF
+     * THIS PROBLEM": `SubmissionAccessService.create` loads the revision by
+     * this id alone and never re-checks whose problem it belongs to, so a
+     * crossed pointer grades one problem's submissions against another
+     * problem's package, silently and forever. Drizzle's `foreignKey()` helper
+     * cannot express it: the table config runs while `problems` is being
+     * defined, and `problemRevisions` is defined below it, so naming those
+     * columns here is a temporal-dead-zone error. A hand-written `ALTER TABLE`
+     * in the migration is the one form that works, and drizzle-kit will not
+     * later drop it — it diffs the SNAPSHOT against this file, and a
+     * constraint in neither is invisible to it.
+     *
+     * `MATCH SIMPLE` (Postgres's default) means a NULL here satisfies the key
+     * outright, which is exactly the intended state of a problem with no
+     * published revision. B-31 verified live: zero rows dangling, zero
+     * pointing at another problem's revision, zero out of step with
+     * `problem_revisions.state`.
+     */
     currentRevisionId: bigint('current_revision_id', { mode: 'number' }),
     createdBy: bigint('created_by', { mode: 'number' })
       .notNull()
@@ -293,6 +318,15 @@ export const problemRevisions = pgTable(
     uniqueIndex('problem_revisions_one_published_idx')
       .on(t.problemId)
       .where(sql`${t.state} = 'published'`),
+    /**
+     * Not a rule of its own — `id` is already the primary key, so this index
+     * makes no row impossible. It exists because a FOREIGN KEY may only
+     * reference columns carrying a unique constraint, and migration 0040's
+     * composite key on `problems (id, current_revision_id)` references
+     * exactly `(problem_id, id)` here (B-31). See `problems.currentRevisionId`
+     * for why that key is composite rather than a plain one-column reference.
+     */
+    uniqueIndex('problem_revisions_problem_identity_idx').on(t.problemId, t.id),
   ],
 );
 
@@ -645,9 +679,27 @@ export const contestParticipations = pgTable(
   'contest_participations',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
+    /**
+     * `restrict` since migration 0040, and it is the repair of a rule that had
+     * been quietly untrue since 0016 (B-31).
+     *
+     * 0016 made `contest_submissions.contest_problem_id` `ON DELETE restrict`
+     * so "a contest submission's link to its contest problem must never vanish
+     * silently". While THIS key was `cascade`, that guarantee was reachable
+     * around rather than through: `DELETE FROM contests` cascaded to the
+     * participations, `contest_submissions.participation_id` cascaded from
+     * those, and the children were gone before the restrict on
+     * `contest_problem_id` was ever evaluated — the delete succeeded and took
+     * the scoreboard with it. Measured on a throwaway database: `DELETE 1`,
+     * `contest_submissions` left = 0.
+     *
+     * A contest anybody entered is history (D11), so it is refused, loudly. A
+     * contest nobody entered still deletes — the mistyped one an organiser
+     * wants gone has no participations by definition.
+     */
     contestId: bigint('contest_id', { mode: 'number' })
       .notNull()
-      .references(() => contests.id, { onDelete: 'cascade' }),
+      .references(() => contests.id, { onDelete: 'restrict' }),
     userId: bigint('user_id', { mode: 'number' })
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
