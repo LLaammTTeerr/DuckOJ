@@ -1204,7 +1204,14 @@ tr:hover td {
 .grid-scroll thead th {
   position: sticky;
   top: 0;
-  background: var(--panel);
+  /* Opaque, but still the tinted header band the bare `th` rule paints: a
+     flat `--panel` turned every wrapped table's header into a white stripe
+     inside a `--glass-inset` well. `--sel` is translucent by design, so it is
+     layered OVER an opaque `--panel` rather than used alone — a sticky row
+     that lets the rows pass through it is unreadable. */
+  background:
+    linear-gradient(var(--sel), var(--sel)),
+    var(--panel);
   z-index: 1;
 }
 

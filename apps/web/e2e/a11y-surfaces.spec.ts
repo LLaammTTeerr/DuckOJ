@@ -112,6 +112,62 @@ test.describe('B-27 web-surfaces a11y sweep', () => {
     for (const screen of SCREENS) await checkScreen(page, screen);
   });
 
+  /**
+   * The page itself must never scroll sideways — on ANY of the three widths
+   * this app is designed for, not just the phone.
+   *
+   * The phone was already guarded (P5 journey 6) by the `max-width: 700px`
+   * rule that turns a table into its own scroll container. Nothing guarded
+   * the TABLET: at 768px — an iPad in portrait, which is what a school lab
+   * has — `/problems` pushed the document 170px wider than the viewport, so
+   * the nav, the heading and every other row slid under the thumb together
+   * and the last column was simply gone. The three wide data tables now sit
+   * in a `.grid-scroll` wrapper that scrolls ITSELF at every width, which is
+   * also the only way the columns off the right edge are reachable from a
+   * keyboard (WCAG 2.1.1 — a bare scroll container is not a tab stop).
+   */
+  test('no screen pushes the document sideways, at phone, tablet or laptop width', async ({ page }) => {
+    const admin = adminCredentials();
+    await signIn(page, admin.username, admin.password);
+    const paths = ['/problems', '/submissions', `/contests/${CONTEST}/scoreboard`, `/contests/${CONTEST}`];
+    for (const width of [390, 768, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const path of paths) {
+        await page.goto(path, { waitUntil: 'networkidle' });
+        await page.waitForTimeout(300);
+        const over = await page.evaluate(
+          () => document.documentElement.scrollWidth - window.innerWidth,
+        );
+        expect(over, `${path} at ${width}px overflows the viewport by ${over}px`).toBeLessThanOrEqual(0);
+      }
+    }
+  });
+
+  test('the wide data tables are keyboard-reachable scroll regions', async ({ page }) => {
+    const admin = adminCredentials();
+    await signIn(page, admin.username, admin.password);
+    for (const path of ['/problems', '/submissions', `/contests/${CONTEST}/scoreboard`]) {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(path, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(300);
+      const info = await page.evaluate(() => {
+        const table = document.querySelector('main table');
+        const wrap = table?.closest('.grid-scroll') ?? null;
+        return {
+          wrapped: wrap !== null,
+          tabIndex: wrap?.getAttribute('tabindex') ?? null,
+          named: (wrap?.getAttribute('aria-label') ?? '').length > 0,
+          // The wrapper, not the page, is what carries the sideways scroll.
+          scrolls: wrap ? wrap.scrollWidth > wrap.clientWidth : false,
+        };
+      });
+      expect(info.wrapped, `${path}: the data table has no scroll wrapper`).toBe(true);
+      expect(info.tabIndex, `${path}: the scroll wrapper is not a tab stop`).toBe('0');
+      expect(info.named, `${path}: the scroll region has no accessible name`).toBe(true);
+      expect(info.scrolls, `${path}: the wrapper does not carry the overflow`).toBe(true);
+    }
+  });
+
   test('the OS-dark and the toggled-dark paths resolve to the same palette (D116)', async ({ page }) => {
     // Both triggers alias the ONE `--dark-*` source; if they ever diverged the
     // toggle could hand a reader a contrast the media-query path never had.

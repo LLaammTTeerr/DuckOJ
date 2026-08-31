@@ -163,6 +163,7 @@ export const vi = {
   'tokens.loadError': 'Không tải được danh sách mã truy cập.',
   'org.requestsLoadError': 'Không tải được danh sách yêu cầu tham gia.',
   'contest.participationLoadError': 'Không kiểm tra được bạn đã tham gia hay chưa.',
+  'problems.tableLabel': 'Danh sách bài tập — cuộn ngang để xem hết các cột',
   'problems.empty': 'Không tìm thấy bài tập nào.',
   'problems.colCode': 'Mã',
   'problems.colName': 'Tên',
@@ -327,6 +328,7 @@ export const vi = {
 
   'submissions.gate': 'Đăng nhập để xem bài nộp.',
   'submissions.loadError': 'Không tải được danh sách bài nộp.',
+  'submissions.tableLabel': 'Danh sách bài nộp — cuộn ngang để xem hết các cột',
   'submissions.empty': 'Không tìm thấy bài nộp nào.',
   'submissions.filterProblem': 'Lọc theo mã bài',
   'submissions.filterUser': 'Lọc theo tên đăng nhập',
@@ -441,6 +443,7 @@ export const vi = {
   'scoreboard.colTime': 'Thời gian',
   'scoreboard.virtual': '(thi ảo)',
   'scoreboard.disqualified': '(hủy tư cách)',
+  'scoreboard.tableLabel': 'Bảng điểm — cuộn ngang để xem hết các bài',
   'scoreboard.empty': 'Chưa có ai dự thi.',
   'scoreboard.frozen': 'Bảng điểm đang đóng băng từ {time}.',
   'scoreboard.dq': 'Hủy tư cách {name}',

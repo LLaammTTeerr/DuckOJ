@@ -252,7 +252,14 @@ export function ProblemsPage(props: {
       {query.isLoading ? <p>{t('common.loading')}</p> : null}
       {query.isError ? <p role="alert">{t('problems.loadError')}</p> : null}
 
+      {/* A scroll wrapper, not a bare table: nine columns need ~900px and an
+          iPad in portrait has ~700 inside the sheet, so the DOCUMENT used to
+          scroll sideways — the nav and the heading sliding under the thumb
+          together with the column you were reading. The wrapper is also a tab
+          stop, which is the only way the columns off the right edge are
+          reachable without a mouse (WCAG 2.1.1). */}
       {problems.length > 0 ? (
+        <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('problems.tableLabel')}>
         <table>
           <thead>
             <tr>
@@ -358,6 +365,7 @@ export function ProblemsPage(props: {
             ))}
           </tbody>
         </table>
+        </div>
       ) : !query.isLoading && !query.isError ? (
         // A live region: the list re-runs as the reader types in the search
         // box, so a query that filters everything away must be announced

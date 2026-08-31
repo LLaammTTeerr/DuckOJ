@@ -140,7 +140,11 @@ export function SubmissionsPage({
       {query.isLoading ? <p>{t('common.loading')}</p> : null}
       {query.isError ? <p role="alert">{t('submissions.loadError')}</p> : null}
 
+      {/* See the problem list: a wrapper that scrolls itself, and a tab stop
+          so the verdict and points columns are reachable by keyboard on a
+          phone. */}
       {submissions.length > 0 ? (
+        <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('submissions.tableLabel')}>
         <table>
           <thead>
             <tr>
@@ -221,6 +225,7 @@ export function SubmissionsPage({
             ))}
           </tbody>
         </table>
+        </div>
       ) : !query.isLoading && !query.isError ? (
         <p>{t('submissions.empty')}</p>
       ) : null}

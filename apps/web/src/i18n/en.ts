@@ -177,6 +177,7 @@ export const en = {
   'tokens.loadError': 'Could not load your access tokens.',
   'org.requestsLoadError': 'Could not load the join requests.',
   'contest.participationLoadError': 'Could not check whether you have joined.',
+  'problems.tableLabel': 'Problem list — scroll sideways for every column',
   'problems.empty': 'No problems found.',
   'problems.colCode': 'Code',
   'problems.colName': 'Name',
@@ -345,6 +346,7 @@ export const en = {
 
   'submissions.gate': 'Sign in to see submissions.',
   'submissions.loadError': 'Could not load submissions.',
+  'submissions.tableLabel': 'Submission list — scroll sideways for every column',
   'submissions.empty': 'No submissions found.',
   'submissions.filterProblem': 'Filter by problem code',
   'submissions.filterUser': 'Filter by username',
@@ -465,6 +467,7 @@ export const en = {
   'scoreboard.colTime': 'Time',
   'scoreboard.virtual': '(virtual)',
   'scoreboard.disqualified': '(disqualified)',
+  'scoreboard.tableLabel': 'Scoreboard — scroll sideways for every problem',
   'scoreboard.empty': 'Nobody has competed yet.',
   'scoreboard.frozen': 'The scoreboard has been frozen since {time}.',
   'scoreboard.dq': 'DQ {name}',

@@ -1132,6 +1132,12 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
           {t('scoreboard.frozen', { time: freezeInstant(query.data.frozenAt, locale, timeZone) })}
         </p>
       ) : null}
+      {/* The board grows a column per problem, so it outruns any screen the
+          moment a round has more than a handful — and on contest day it is
+          read on a phone. The wrapper carries the sideways scroll (the page
+          must not) and is a tab stop, so the problem columns are reachable
+          without a mouse. */}
+      <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('scoreboard.tableLabel')}>
       <table>
         <thead>
           <tr>
@@ -1233,6 +1239,7 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
           ))}
         </tbody>
       </table>
+      </div>
       {dqError ? <p role="alert">{dqError}</p> : null}
       {ranking.length === 0 ? <p className="muted">{t('scoreboard.empty')}</p> : null}
     </section>
