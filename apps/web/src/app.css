@@ -1222,6 +1222,206 @@ tr:hover td {
   outline-offset: 2px;
 }
 
+/* A LIGHT wrapper, for a table that is merely narrow rather than merely wide.
+ *
+ * FE-1's finding 12, now measured: at <=700px `table { display: block }`
+ * makes the table its own scroll container, and CSS then generates an
+ * ANONYMOUS table box around the row groups inside that block. An anonymous
+ * block-level table shrink-wraps to its content and no selector can reach it,
+ * so a table narrower than its well paints its tinted header band 95px short
+ * of the well's right edge (`/help` at 390px, exactly the number FE-1 read
+ * off the screen). Three CSS-only remedies were measured and none works,
+ * because none of them can address a box that has no element.
+ *
+ * A wrapper can: restoring `display: table` inside it puts the table's own
+ * `width: 100%` back in charge, so it fills the well and still overflows —
+ * into the wrapper, never onto the page — when its content is genuinely
+ * wider. `tabindex` is what makes those overflowing columns reachable
+ * without a mouse (WCAG 2.1.1); unlike `.grid-scroll` it carries no
+ * `role="region"`, because a region must be NAMED and these tables are
+ * rendered by the Markdown pipeline, which has no `t()`.
+ */
+.table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.table-wrap > table {
+  display: table;
+}
+
+.table-wrap:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+/* --- a row as a card, on a phone (D136) ---------------------------------
+ *
+ * THE PROBLEM. The submissions list is eight columns wide and the verdict is
+ * the sixth. At 390px — the width most of this judge's readers meet it at —
+ * the verdict badge started 470px across a 390px screen: present in the DOM,
+ * absent from the phone. A student on contest day opens this list to answer
+ * exactly one question, "did it pass?", and the answer was behind a sideways
+ * swipe nothing on screen advertised. The other four visible columns were no
+ * better: `duong-di-ngan-nhat` in a 60px column is a tower of single letters.
+ *
+ * THE SHAPE. Below the D76 breakpoint each `<tr>` becomes a card — a
+ * three-line grid whose areas are named after the columns, so the ORDER on a
+ * phone is a product decision written here rather than an accident of the
+ * `<td>` order the desktop table needs:
+ *
+ *     ┌──────────────────────────────────────┐
+ *     │ #715   aplusb                 [+ AC] │
+ *     │ NGƯỜI NỘP  NGÔN NGỮ        ĐIỂM      │
+ *     │ hocsinh1   cpp17            100/100  │
+ *     │ KỲ THI                     THỜI GIAN │
+ *     │ FE1 đông băng…          30/08 14:22  │
+ *     └──────────────────────────────────────┘
+ *
+ * WHY IT IS STILL A `<table>`. The markup does not change at all — one
+ * `data-col` attribute per cell and nothing else. Every `getByRole('row')`,
+ * every `within(row).getByText('AC')` and every Playwright `hasText` filter
+ * in the suite goes on matching, because none of them is about layout; the
+ * cell captions are `::before` pseudo-content, which never enters
+ * `textContent`. Measured in Chromium: `display: grid` on a `<tr>` and
+ * `display: block` on a `<td>` do NOT strip the row/cell roles from the
+ * accessibility tree, so a screen reader still reads a table.
+ *
+ * WHY THE CAPTIONS ARE THERE AT ALL. `<thead>` is hidden in this shape, and
+ * a bare `100/100` under a bare `cpp17` is two numbers with no nouns. The
+ * caption is `attr(data-label)` — the SAME translated column heading the
+ * desktop table prints, so the two shapes can never drift apart or fall out
+ * of Vietnamese.
+ */
+@media (max-width: 700px) {
+  /* Beats `.grid-scroll table { display: table }` on specificity, not on
+     source order: this table lives inside that wrapper on every screen. */
+  .grid-scroll table.card-rows,
+  table.card-rows {
+    display: block;
+    /* The well moves onto each card, so the container stops being one. */
+    background: none;
+    border: 0;
+    margin: var(--sp-3) 0 0;
+  }
+
+  table.card-rows thead {
+    /* Not `visibility: hidden` — the headings are re-shown per cell below,
+       and two copies of "KẾT QUẢ" is what a screen reader would then read. */
+    display: none;
+  }
+
+  table.card-rows tbody {
+    display: block;
+  }
+
+  table.card-rows tbody tr {
+    display: grid;
+    /* id and the right rail size to their content; the middle column takes
+       what is left, which is what keeps a long problem code on one line. */
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'id      problem  verdict'
+      'user    language points'
+      'contest contest  contest'
+      'when    when     when';
+    column-gap: var(--sp-3);
+    row-gap: var(--sp-2);
+    align-items: baseline;
+    padding: var(--sp-3);
+    margin-bottom: var(--sp-2);
+    background: var(--glass-inset);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+  }
+
+  table.card-rows tbody tr:hover td {
+    /* The desktop row-hover tint would paint a stripe across a card. */
+    background: none;
+  }
+
+  table.card-rows td {
+    display: block;
+    padding: 0;
+    border-bottom: 0;
+    min-width: 0;
+    /* A card is 312px of usable width; a contest name or a problem code that
+       does not fit breaks at a character rather than pushing the card. */
+    overflow-wrap: anywhere;
+  }
+
+  table.card-rows td[data-col='id'] {
+    grid-area: id;
+  }
+  table.card-rows td[data-col='problem'] {
+    grid-area: problem;
+    font-weight: 600;
+  }
+  table.card-rows td[data-col='verdict'] {
+    grid-area: verdict;
+    text-align: right;
+  }
+  table.card-rows td[data-col='user'] {
+    grid-area: user;
+  }
+  table.card-rows td[data-col='language'] {
+    grid-area: language;
+  }
+  table.card-rows td[data-col='points'] {
+    grid-area: points;
+  }
+  table.card-rows td[data-col='contest'] {
+    grid-area: contest;
+  }
+  table.card-rows td[data-col='when'] {
+    grid-area: when;
+  }
+
+  /* The captions. Same face, size and colour as the `<th>` they replace, so
+     the card reads as the table it is. Only the four cells whose value is
+     ambiguous on its own get one: a problem code, a verdict badge and an id
+     with a `#` in front of it each say what they are. */
+  table.card-rows td[data-col='user']::before,
+  table.card-rows td[data-col='language']::before,
+  table.card-rows td[data-col='points']::before,
+  table.card-rows td[data-col='contest']::before,
+  table.card-rows td[data-col='when']::before {
+    content: attr(data-label);
+    display: block;
+    font-family: var(--font-ui);
+    font-size: 10px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--dim);
+    margin-bottom: 2px;
+  }
+
+  /* A practice attempt has no contest, and on a card that fact costs a whole
+     captioned line to say `KỲ THI —`. The em dash stays on the DESKTOP table,
+     where the column has to line up with the rows around it; here the row
+     simply is not drawn. `data-empty` rather than `:empty`, because the cell
+     is not empty — it holds the dash the table needs. */
+  table.card-rows td[data-col='contest'][data-empty] {
+    display: none;
+  }
+
+  /* The id reads as an id without spending a caption line on it. */
+  table.card-rows td[data-col='id'] a::before {
+    content: '#';
+    color: var(--dim);
+  }
+
+  /* Read against the card's right edge. `when` spans the full width on a row
+     of its own rather than sharing the right rail: a full timestamp is 110px
+     wide, and sizing the rail to it stole the middle column's width — which
+     is what broke `duong-di-ngan-nhat` into a two-line tower. */
+  table.card-rows td[data-col='points'],
+  table.card-rows td[data-col='when'] {
+    text-align: right;
+  }
+}
+
 /* --- forms --------------------------------------------------------------
  * A field is an inset well in the pane, at a 44px thumb target, in the
  * monospace face — what is typed into these boxes is a username, a problem
@@ -2413,3 +2613,4 @@ fieldset label {
   align-items: center;
   gap: var(--sp-2);
 }
+

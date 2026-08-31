@@ -197,6 +197,7 @@ export function ProgressBars({
       {byTag.length === 0 ? (
         <p className="muted">{t('progress.noBars')}</p>
       ) : (
+        <div className="table-wrap" tabIndex={0}>
         <table>
           <thead>
             <tr>
@@ -226,12 +227,14 @@ export function ProgressBars({
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       <h2>{t('progress.byDifficulty')}</h2>
       {byDifficulty.length === 0 ? (
         <p className="muted">{t('progress.noBars')}</p>
       ) : (
+        <div className="table-wrap" tabIndex={0}>
         <table>
           <thead>
             <tr>
@@ -254,6 +257,7 @@ export function ProgressBars({
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </>
   );
@@ -432,6 +436,7 @@ export function MyProgressPage() {
       {data.homework.length === 0 ? (
         <p className="muted">{t('progress.noHomework')}</p>
       ) : (
+        <div className="table-wrap" tabIndex={0}>
         <table>
           <thead>
             <tr>
@@ -463,12 +468,14 @@ export function MyProgressPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       <h2>{t('progress.recent')}</h2>
       {data.recent.length === 0 ? (
         <p className="muted">{t('progress.noRecent')}</p>
       ) : (
+        <div className="table-wrap" tabIndex={0}>
         <table>
           <thead>
             <tr>
@@ -501,6 +508,7 @@ export function MyProgressPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </section>
   );

@@ -99,5 +99,33 @@ const markdown = new Marked({
  */
 export function renderStatement(source: string): string {
   const html = markdown.parse(source, { async: false });
-  return DOMPurify.sanitize(html);
+  return DOMPurify.sanitize(wrapTables(html));
+}
+
+/**
+ * Every rendered table gets a `.table-wrap` around it (D136).
+ *
+ * A statement's constraints table and the student guide's tables are the
+ * tables a pupil actually meets on a phone, and at <=700px `app.css` turns a
+ * `<table>` into its own scroll container — which makes CSS generate an
+ * anonymous, unstylable table box inside it that shrink-wraps to its content.
+ * The visible symptom is a header band that stops short of the well (95px
+ * short on `/help` at 390px). `.table-wrap` restores `display: table`, so the
+ * table fills its well, and carries the sideways scroll (and the tab stop
+ * that makes an overflowing column keyboard-reachable) when a table is
+ * genuinely too wide.
+ *
+ * A string rewrite rather than a `renderer.table` override: marked's default
+ * table renderer is the one that gets alignment, inline parsing and the
+ * header/body split right, and reimplementing it to change nothing but the
+ * outermost tag is how that goes quietly wrong. Markdown tables cannot nest,
+ * and marked emits the tag with no attributes, so the match is exact.
+ *
+ * It runs BEFORE `DOMPurify.sanitize`, never after: the module comment above
+ * explains why nothing may touch the HTML once it has been sanitized.
+ */
+function wrapTables(html: string): string {
+  return html
+    .replace(/<table>/g, '<div class="table-wrap" tabindex="0"><table>')
+    .replace(/<\/table>/g, '</table></div>');
 }

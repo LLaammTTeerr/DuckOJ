@@ -229,4 +229,31 @@ describe('app.css', () => {
     // asserts the rule against the source directly.
     expect(CSS).toMatch(/\.countdown\s*\{[^}]*font-variant-numeric:\s*tabular-nums/);
   });
+
+  it('gives every submissions column a place in the phone card (D136)', () => {
+    // The card layout is driven entirely by `data-col` on each `<td>`: the
+    // markup names a column, the stylesheet gives it a grid area. A cell
+    // whose name has no rule lands in `grid-auto-flow`'s next free slot —
+    // silently, in the right THEME and the right language, so nothing but a
+    // 390px screenshot would ever show it. This is the drift guard: every
+    // name the component emits must be placed, and every area the grid
+    // declares must be claimed by a name.
+    const source = read('src/routes/submissions.tsx', 'apps/web/src/routes/submissions.tsx');
+    const emitted = [...source.matchAll(/data-col="([a-z]+)"/g)].map((m) => m[1]!);
+    expect(emitted.length, 'submissions.tsx emits no data-col at all').toBe(8);
+
+    const placed = new Set(
+      [...CSS.matchAll(/td\[data-col='([a-z]+)'\]\s*\{\s*grid-area/g)].map((m) => m[1]!),
+    );
+    for (const name of emitted) {
+      expect(placed.has(name), `data-col="${name}" has no grid-area rule`).toBe(true);
+    }
+
+    // And the areas the template names are exactly those eight — a template
+    // naming an area no cell claims collapses that track to nothing.
+    const template = /grid-template-areas:\s*([^;]+);/.exec(CSS);
+    expect(template, 'the card grid declares no template areas').not.toBeNull();
+    const areas = new Set(template![1]!.match(/[a-z]+/g) ?? []);
+    expect([...areas].sort()).toEqual([...new Set(emitted)].sort());
+  });
 });
