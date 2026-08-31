@@ -313,6 +313,10 @@ export const vi = {
 
   // ── submission list / one submission ──────────────────────────────────
   'submissions.title': 'Bài nộp',
+
+  // ── the printed header (D121) ────────────────────────────────────────────
+  'print.printedOn': 'In ngày {date}',
+
   'submissions.gate': 'Đăng nhập để xem bài nộp.',
   'submissions.loadError': 'Không tải được danh sách bài nộp.',
   'submissions.empty': 'Không tìm thấy bài nộp nào.',

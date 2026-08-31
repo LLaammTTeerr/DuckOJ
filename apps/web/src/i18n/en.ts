@@ -331,6 +331,10 @@ export const en = {
 
   // ── submission list / one submission ──────────────────────────────────
   'submissions.title': 'Submissions',
+
+  // ── the printed header (D121) ────────────────────────────────────────────
+  'print.printedOn': 'Printed {date}',
+
   'submissions.gate': 'Sign in to see submissions.',
   'submissions.loadError': 'Could not load submissions.',
   'submissions.empty': 'No submissions found.',

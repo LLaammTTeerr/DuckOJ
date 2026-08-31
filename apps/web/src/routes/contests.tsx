@@ -1068,6 +1068,16 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
 
   return (
     <section className="panel">
+      {/* Printed header (D121): a stack of Ctrl-P'd scoreboards is anonymous
+          without the contest named on each — the on-screen h1 is only the
+          generic "Bảng điểm". Shown on paper alone. `contest.data` can be
+          null for a viewer who may see the board but not the detail, so it
+          degrades to the title and date. */}
+      <div className="print-only">
+        {contest.data?.name ? `${contest.data.name} · ` : ''}
+        {t('scoreboard.title')} ·{' '}
+        {t('print.printedOn', { date: formatDateTime(new Date().toISOString(), locale, timeZone) })}
+      </div>
       <h1>{t('scoreboard.title')}</h1>
       <p>
         <Link to="/contests/$key" params={{ key: contestKey }}>

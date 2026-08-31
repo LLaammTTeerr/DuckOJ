@@ -85,6 +85,12 @@ export function SubmissionsPage({
 
   return (
     <section>
+      {/* Printed header (D121): the filters are hidden on paper, so the sheet
+          says what it is and when it was printed. */}
+      <div className="print-only">
+        {t('submissions.title')} ·{' '}
+        {t('print.printedOn', { date: formatTimestamp(new Date().toISOString(), locale, timeZone) })}
+      </div>
       <h1>{t('submissions.title')}</h1>
 
       <div className="field">

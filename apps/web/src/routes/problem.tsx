@@ -30,7 +30,7 @@ function statementPdfUrl(code: string): string {
 export function ProblemPage(props: { code: string }) {
   const { code } = props;
   const t = useT();
-  const { locale } = useLocale();
+  const { locale, timeZone } = useLocale();
 
   const query = useQuery({
     queryKey: ['problem', code],
@@ -89,6 +89,12 @@ export function ProblemPage(props: { code: string }) {
 
   return (
     <section>
+      {/* Printed header (D121): the name and code, plus the date, on paper
+          only — a teacher printing the statement gets an identified sheet. */}
+      <div className="print-only">
+        {problem.name} ({problem.code}) ·{' '}
+        {t('print.printedOn', { date: formatDateTime(new Date().toISOString(), locale, timeZone) })}
+      </div>
       <h1>
         {problem.name} <small>({problem.code})</small>
       </h1>
