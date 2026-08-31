@@ -1969,6 +1969,65 @@ section section > h3:first-child {
   padding: 0.08em 0.4em;
 }
 
+/* --- contest phase chips (D134) -----------------------------------------
+ * "Which round is on RIGHT NOW" is the only question a contest list is asked
+ * on contest day, and until D134 it was answered by a word in the fifth
+ * column, in the same ink and weight as the format beside it — invisible on a
+ * laptop, off the right edge on a phone. The chip rides in the name cell
+ * instead, and the running one is the only chip on the page that is drawn in
+ * full-strength ink on a raised surface, so the eye finds it without reading.
+ *
+ * NOT a hue. `--ac` green would be the obvious pick and is exactly the wrong
+ * one: green means Accepted here (D46), and a running contest is not a
+ * verdict. The three states separate by GLYPH first — a filled dot, a clock,
+ * a tick — with weight and elevation as the second cue, which is what keeps
+ * the distinction alive in a monochrome print and for a colour-blind reader
+ * (D77 — never signal by colour alone).
+ */
+.phase {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: var(--tap-dense);
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--glass-inset);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  /* `--dim`, never `--faint`: at 11px this is small text, and `--faint`
+     measures below AA against the inset it sits on in the light palette. */
+  color: var(--dim);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.phase::before {
+  font-family: var(--font-mono);
+  /* Decorative twin of the word beside it — the word is already the label,
+     and a screen reader reading "● đang diễn ra" gains nothing. */
+  speak: never;
+}
+
+.phase.running {
+  color: var(--fg);
+  border-color: var(--fg);
+  background: var(--glass-raised);
+  box-shadow: var(--shadow-1);
+}
+.phase.running::before {
+  content: '\25CF'; /* ● — on air */
+}
+.phase.upcoming::before {
+  content: '\25D4'; /* ◔ — a clock still running down */
+}
+.phase.finished::before {
+  content: '\2713'; /* ✓ — done */
+}
+
 /* --- topic tags --------------------------------------------------------
  * A chip is a link (every entity is a hyperlink). Deliberately NOT coloured
  * per topic: colour is reserved for verdicts, and twenty-five hues would

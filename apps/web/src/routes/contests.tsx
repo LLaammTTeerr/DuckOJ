@@ -196,6 +196,25 @@ function phaseLabel(t: TFunction, phase: Phase): string {
 }
 
 /**
+ * The phase as a chip (D134).
+ *
+ * It used to be a word in the contest list's fifth column, in the same ink
+ * and the same weight as the format and the two instants — so the one round
+ * that was RUNNING read exactly like the two dozen that had finished, and at
+ * phone width the column was off the right edge entirely. The chip rides in
+ * the name cell instead: column one, on screen at every width, and weighted
+ * so "đang diễn ra" is the thing the eye lands on.
+ *
+ * The phase class is what gives each state its own `::before` glyph in
+ * `app.css`, so the distinction survives a colour-blind reader and a
+ * monochrome print (D46/D77 — never signal by colour alone).
+ */
+export function PhaseChip({ phase }: { phase: Phase }) {
+  const t = useT();
+  return <span className={`phase ${phase}`}>{phaseLabel(t, phase)}</span>;
+}
+
+/**
  * The live countdown in the contest header (D118): "bắt đầu sau …" while the
  * round is upcoming, "kết thúc sau …" while it runs, and NOTHING once it has
  * ended — a finished round has nothing to count down to.
@@ -280,7 +299,6 @@ export function ContestsPage() {
               <th>{t('contests.colFormat')}</th>
               <th>{t('contests.colStarts')}</th>
               <th>{t('contests.colEnds')}</th>
-              <th>{t('contests.colPhase')}</th>
               <th>{t('contests.colOrgs')}</th>
             </tr>
           </thead>
@@ -290,7 +308,8 @@ export function ContestsPage() {
                 <td>
                   <Link to="/contests/$key" params={{ key: contest.key }}>
                     {contest.name}
-                  </Link>
+                  </Link>{' '}
+                  <PhaseChip phase={phaseOf(contest)} />
                 </td>
                 {/* `format` is the registry's own key (`icpc`, `ioi16`) —
                     an identifier every setter types into the create form,
@@ -298,7 +317,6 @@ export function ContestsPage() {
                 <td>{contest.format}</td>
                 <td>{when(contest.startTime, locale, timeZone)}</td>
                 <td>{when(contest.endTime, locale, timeZone)}</td>
-                <td>{phaseLabel(t, phaseOf(contest))}</td>
                 <td>{contest.orgs.length === 0 ? '—' : <OrgBadges orgs={contest.orgs} />}</td>
               </tr>
             ))}
@@ -440,7 +458,7 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
       <h1>{contest.data.name}</h1>
       <p className="muted">
         {contest.data.format} · {when(contest.data.startTime, locale, timeZone)} →{' '}
-        {when(contest.data.endTime, locale, timeZone)} · {phaseLabel(t, phase)}
+        {when(contest.data.endTime, locale, timeZone)} <PhaseChip phase={phase} />
         {/* Said once, at the top: whether this is a team round decides what
             the Join button asks for and what the board will print (D99). */}
         {isTeamContest ? ` · ${t('contest.teamMode')}` : null}
