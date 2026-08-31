@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import { orgJoinRequests, orgMembers, organizations } from '@duckoj/db/guarded';
 import { withTestDb } from './db.harness.js';
@@ -20,6 +20,7 @@ import { AdminUsersService } from '../src/admin/admin-users.service.js';
 import { TotpService } from '../src/authn/totp.service.js';
 import { PasswordService } from '../src/authn/password.service.js';
 import { TotpRecoveryService } from '../src/authn/totp-recovery.service.js';
+import { NOTIFY_CAP } from '../src/authz/contest.clarifications.js';
 import { RateLimiter } from '../src/common/rate-limiter.js';
 import type { Actor } from '../src/authz/actor.js';
 
@@ -188,6 +189,42 @@ describe('role-grant notifications', () => {
       expect((await feedOf(db, root.id)).items).toHaveLength(0);
     });
   }, 120_000);
+});
+
+/**
+ * `notifyMany` writes one INSERT however many recipients there are, and D59
+ * caps that at `NOTIFY_CAP` — ten thousand, four times the largest provincial
+ * room. Postgres binds at most 65 535 parameters per statement, and this row
+ * carries three of them, so the cap sits at 30 000 against a ceiling of
+ * 65 535. That margin is arithmetic nobody re-does when a column is added:
+ * one more bound value per row and the statement that fans an announcement
+ * out to a full room starts failing — mid-transaction, on contest day, in the
+ * one code path whose whole job is to reach everybody at once.
+ */
+describe('one broadcast is one statement, at the cap', () => {
+  it('writes NOTIFY_CAP notifications in a single insert', async () => {
+    await withTestDb(async (db) => {
+      const rows = await db.execute<{ id: number }>(sql`
+        insert into users (username, email, password_hash, display_name)
+        select 'bulk' || i, 'bulk' || i || '@t.local', 'x', 'Bulk ' || i
+          from generate_series(1, ${NOTIFY_CAP}) as i
+        returning id
+      `);
+      const userIds = rows.map((row) => Number(row.id));
+      expect(userIds).toHaveLength(NOTIFY_CAP);
+
+      await new NotificationsService(db).notifyMany(db, userIds, 'contest_announcement', {
+        contestKey: 'bulk',
+        contestName: 'Bulk',
+        clarificationId: 1,
+      });
+
+      const [counted] = await db.execute<{ n: string }>(
+        sql`select count(*) as n from notifications where kind = 'contest_announcement'`,
+      );
+      expect(Number(counted!.n)).toBe(NOTIFY_CAP);
+    });
+  }, 300_000);
 });
 
 describe('the feed itself', () => {
