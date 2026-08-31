@@ -42,7 +42,12 @@ import { watchForBrokenRequests, type Allowance } from './watch.js';
  */
 const PHONE = { width: 390, height: 844 } as const;
 test.use({ viewport: { ...PHONE } });
-test.describe.configure({ mode: 'serial' });
+// NOT `mode: 'serial'`, which FE-5's version inherited from the older journey
+// files. The three tests here share only the round `beforeAll` seeds; each
+// signs in for itself and the two D152 walks submit outside any contest. Under
+// `serial` a red in the first SKIPS the other two, and a mutation check that
+// can only ever show one failure at a time is a worse instrument. The config's
+// `workers: 1` already keeps them off each other's stack.
 
 // A judged submission is a compile plus a sandboxed run, and D80's submit
 // meter (1 per 10 s) can cost this journey two extra windows on a busy stack.
