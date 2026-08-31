@@ -396,6 +396,8 @@ export const en = {
   'contest.join': 'Join',
   'contest.joinVirtually': 'Join virtually',
   'contest.notStarted': 'Not started yet.',
+  'contest.startsIn': 'Starts in {d}',
+  'contest.endsIn': 'Ends in {d}',
   'contest.restrictedTo': 'Open to members of',
   'contest.problems': 'Problems',
   'contest.noProblems': 'No problems.',

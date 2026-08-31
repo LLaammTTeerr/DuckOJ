@@ -374,6 +374,8 @@ export const vi = {
   'contest.join': 'Tham gia',
   'contest.joinVirtually': 'Thi ảo',
   'contest.notStarted': 'Chưa bắt đầu.',
+  'contest.startsIn': 'Bắt đầu sau {d}',
+  'contest.endsIn': 'Kết thúc sau {d}',
   'contest.restrictedTo': 'Chỉ dành cho thành viên của',
   'contest.problems': 'Bài tập',
   'contest.noProblems': 'Chưa có bài nào.',

@@ -40,3 +40,22 @@ export function formatPoints(value: number, precision: number = DEFAULT_PRECISIO
   // cannot reintroduce the precision it just removed.
   return String(Number(value.toFixed(precision)));
 }
+
+/**
+ * A duration in milliseconds as `HH:MM:SS`, zero-padded, for a live contest
+ * countdown ("bắt đầu sau …" / "kết thúc sau …", D118). Hours are NOT capped
+ * at 24 — an upcoming contest days away reads `72:00:15` rather than losing
+ * the days — and a negative or non-finite input clamps to `00:00:00`, so a
+ * clock that has already run out never prints a minus sign.
+ *
+ * Locale-neutral on purpose, like `formatPoints`: it is digits and colons,
+ * the same in every language, so it takes no locale and carries no separator.
+ */
+export function formatCountdown(ms: number): string {
+  const total = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}

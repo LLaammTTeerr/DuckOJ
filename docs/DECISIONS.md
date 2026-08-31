@@ -5311,3 +5311,33 @@ before.
 
 *Ruled by the implementer during the 2026-08-31 f29 loop, no human available to
 consult. No migration: two shared predicates widened, one display field added.*
+
+## D118 — The contest header carries a live per-second countdown, as plain text
+
+The contest page header already named the window and the phase; it did not say
+how long is left. A reader watching for the gun had to subtract two timestamps
+in their head, once a second. The header now counts down.
+
+- **"Bắt đầu sau …" before, "kết thúc sau …" during, nothing after.** One line
+  (`ContestCountdown`), which derives the phase from `now` on every tick, so
+  the label flips from starts-in to ends-in at the start instant on its own and
+  disappears once the end has passed — a finished round has nothing to count
+  down to.
+- **It is a leaf of its own, not state on the page.** The ticking `now` lives
+  in the countdown component, so one second's tick re-renders only that line —
+  never the problem table, the scoreboard link, or the join panel above it. The
+  `setInterval` is cleared on unmount. Every existing `ContestPage` test keeps
+  passing with the line mounted.
+- **Plain text — no live region, no animation.** `role="timer"`, deliberately
+  NOT `role="status"`/`aria-live`: a clock read aloud every second is a screen
+  reader nobody can use. There is no CSS transition, so it is
+  `prefers-reduced-motion`-safe by construction rather than by a media query.
+- **The number is locale-neutral `HH:MM:SS`.** `formatCountdown` (in
+  `format.ts`, beside `formatPoints`) is zero-padded digits and colons — the
+  same in vi and en, so it takes no locale — with hours UNcapped (a contest
+  days away reads `72:00:15` rather than losing the days) and a past/non-finite
+  input clamped to `00:00:00`, so the clock never prints a minus sign. Only the
+  two label strings (`contest.startsIn`/`contest.endsIn`) are translated.
+
+*Ruled by the implementer during the 2026-08-31 f30 loop, no human available to
+consult. Web-only: one leaf component, one display helper, two i18n keys.*
