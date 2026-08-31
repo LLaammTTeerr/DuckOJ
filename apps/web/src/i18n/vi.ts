@@ -154,6 +154,11 @@ export const vi = {
   'home.signInHeading': 'Đăng nhập',
   'home.signInNote': 'Cần tài khoản để nộp bài. Xem bài tập công khai thì không cần.',
   'home.notSignedIn': 'Chưa đăng nhập.',
+  'home.yourContest': 'Kỳ thi của bạn',
+  'home.noContest': 'Không có kỳ thi nào đang diễn ra hoặc sắp diễn ra.',
+  'home.allContests': 'Tất cả kỳ thi',
+  'home.recent': 'Bài nộp gần đây',
+  'home.allSubmissions': 'Tất cả bài nộp của tôi',
 
   // ── problem list ──────────────────────────────────────────────────────
   'problems.title': 'Bài tập',

@@ -168,6 +168,11 @@ export const en = {
   'home.signInHeading': 'Sign in',
   'home.signInNote': 'An account is needed to submit. Browsing public problems is not gated.',
   'home.notSignedIn': 'Not signed in.',
+  'home.yourContest': 'Your contest',
+  'home.noContest': 'No contest is running or scheduled.',
+  'home.allContests': 'All contests',
+  'home.recent': 'Recent submissions',
+  'home.allSubmissions': 'All my submissions',
 
   // ── problem list ──────────────────────────────────────────────────────
   'problems.title': 'Problems',

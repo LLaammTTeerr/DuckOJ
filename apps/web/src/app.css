@@ -2705,3 +2705,96 @@ fieldset label {
   gap: var(--sp-2);
 }
 
+/* --- the signed-in home (D138) ------------------------------------------
+ * Two panels above the fold: the round that is running (or the next to
+ * start) and the reader's own last five verdicts. Side by side where there
+ * is room, stacked on a phone — which is where the questions they answer
+ * ("when does it start?", "did it pass?") are actually asked.
+ *
+ * `.panel`'s glass is deliberately not reused: these sit INSIDE the page's
+ * own sheet, so they are inset wells like a table, not raised panes floating
+ * on one. Two blurs stacked is the thing D67 spends a paragraph forbidding.
+ */
+.home-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--sp-4);
+  margin: var(--sp-4) 0;
+  /* Each panel is as tall as what it holds. Stretched to a common height,
+     the contest panel became a tall empty box beside a full list of
+     verdicts — an equal-height grid is for cards that carry equal content. */
+  align-items: start;
+}
+
+@media (max-width: 700px) {
+  .home-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.home-panel {
+  min-width: 0;
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  background: var(--glass-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+/* The panel heading is a caption, not a second page title: same face and
+   tracking as a table's `<th>`, so the two panels read as furniture around
+   the content rather than as two more sections competing with the `<h1>`. */
+.home-panel h2 {
+  margin: 0 0 var(--sp-2);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-weight: 600;
+}
+
+/* The contest's own name, which is the largest thing in its panel because it
+   is the answer to the question the panel exists for. */
+.home-contest {
+  margin: 0 0 var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.home-verdicts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* The verdict and the problem on one line, the points and the instant on
+   their own beneath. Panels are ~270px wide even on a desktop, and a
+   timestamp on the same line as the code left `tong-hai-so` to break across
+   two — the code is what the row is FOR, so it gets the whole line. */
+.home-verdicts li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.home-verdicts li:last-child {
+  border-bottom: 0;
+}
+
+/* Points and the instant: present, but never competing with the verdict.
+   `margin-left: auto` puts them on the right rail of the row, and they are
+   the first thing to be squeezed when the line has to wrap. */
+.home-verdict-meta {
+  flex-basis: 100%;
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 12px;
+  text-align: right;
+}
