@@ -367,6 +367,33 @@ describe('ProblemsPage', () => {
 });
 
 describe('ProblemPage', () => {
+  it('states the memory limit in MB, the same unit the problem list uses', async () => {
+    // The list has rendered `formatMemoryMb` since it was written ("65536 KB
+    // is unreadable" — see the function's own note), but the problem PAGE —
+    // the screen a competitor actually reads before solving — still printed
+    // the raw KB. On the seeded 256 MiB problems that is the string
+    // "262144 KB", which no student converts in their head, and which
+    // contradicts the "256 MB" the row they clicked from showed them.
+    mockedGet.mockResolvedValueOnce({
+      data: {
+        ...PROBLEM_A,
+        memoryKb: 262144,
+        statement: 'Add.',
+        testCount: 3,
+        totalPoints: 100,
+        checkerKind: 'wcmp',
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      error: undefined,
+      response: new Response(),
+    } as never);
+
+    renderWithClient(<ProblemPage code="aplusb" />);
+
+    expect(await screen.findByText(/Giới hạn: 1000 ms \/ 256 MB/)).toBeInTheDocument();
+    expect(screen.queryByText(/262144 KB/)).toBeNull();
+  });
+
   it('renders the statement HTML into the document', async () => {
     mockedGet.mockResolvedValueOnce({
       data: {

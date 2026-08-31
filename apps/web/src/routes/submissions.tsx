@@ -94,27 +94,27 @@ export function SubmissionsPage({
       <h1>{t('submissions.title')}</h1>
 
       <div className="field">
-        <span>#</span>
+        <label htmlFor="submissions-problem">{t('submissions.filterProblem')}</label>
         <input
-          aria-label={t('submissions.filterProblem')}
+          id="submissions-problem"
           placeholder={t('submissions.placeholderProblem')}
           value={problem}
           onChange={(e) => setProblem(e.target.value)}
         />
       </div>
       <div className="field">
-        <span>@</span>
+        <label htmlFor="submissions-user">{t('submissions.filterUser')}</label>
         <input
-          aria-label={t('submissions.filterUser')}
+          id="submissions-user"
           placeholder={t('submissions.placeholderUser')}
           value={user}
           onChange={(e) => setUser(e.target.value)}
         />
       </div>
       <div className="field">
-        <span>%</span>
+        <label htmlFor="submissions-contest">{t('submissions.filterContest')}</label>
         <input
-          aria-label={t('submissions.filterContest')}
+          id="submissions-contest"
           placeholder={t('submissions.placeholderContest')}
           value={contest}
           onChange={(e) => setContest(e.target.value)}

@@ -96,6 +96,38 @@ describe('SubmissionsPage', () => {
     expect(within(rows[2]!).getAllByText('—', { selector: 'td' })).toHaveLength(2);
   });
 
+  it('names each filter box in words a reader can see, not a bare sigil', async () => {
+    // The three filter boxes were labelled "#", "@" and "%" — the real
+    // wording lived only in `aria-label`, so a sighted teacher looking for
+    // "filter by contest key" saw a percent sign and had to guess. The
+    // caption is now the visible label, tied to its box by `htmlFor` so
+    // clicking it focuses the field (a screen reader's experience is
+    // unchanged: the same string was already its accessible name).
+    mockedGet.mockResolvedValueOnce({
+      data: { items: [SUBMISSION_A], nextCursor: null },
+      error: undefined,
+      response: new Response(),
+    } as never);
+
+    renderWithClient(<SubmissionsPage />);
+    await screen.findByText('42');
+
+    for (const [caption, placeholder] of [
+      ['Lọc theo mã bài', 'mã bài'],
+      ['Lọc theo tên đăng nhập', 'tên đăng nhập'],
+      ['Lọc theo mã kỳ thi', 'mã kỳ thi'],
+    ] as const) {
+      const label = screen.getByText(caption, { selector: 'label' });
+      const box = screen.getByLabelText(caption);
+      expect(label).toHaveAttribute('for', box.getAttribute('id'));
+      expect(box).toHaveAttribute('placeholder', placeholder);
+    }
+    // And the sigils are gone from the rendered page.
+    for (const sigil of ['#', '@', '%']) {
+      expect(screen.queryByText(sigil, { selector: 'span' })).toBeNull();
+    }
+  });
+
   it('links each row to its problem', async () => {
     mockedGet.mockResolvedValueOnce({
       data: { items: [SUBMISSION_A], nextCursor: null },
