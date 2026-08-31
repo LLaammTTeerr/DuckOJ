@@ -131,3 +131,4 @@
 - F-31 print merged/deployed. Dispatched F-32 initials avatars (main, D122, zero-backend) and B-27 web-surfaces hunt (worktree: theme/countdown/print/comments a11y+contrast, D123–D125).
 - F-32 DONE (cf9087e..15d1c33, on main): deterministic initials avatars (D122) in nav/profile/scoreboard/comments/submission; worst contrast 5.52:1, theme-independent; web 587/587, rebuilt (CSP guard still green), pushed.
 - B-27 DONE, merged: comment textarea labels + countdown tabular-nums; live axe sweep clean across light/dark(both paths)/phone/print on all new surfaces; web 575→(rebuilt), pushed.
+- e2e 44/44 (my run) after F-32/B-27. Shifted ratio to hunts: B-28 deep judging-correctness + counter-consistency (D100) + soak (worktree, D123–D126); F-33 small download/copy source (main, D123).
