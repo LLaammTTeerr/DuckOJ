@@ -21,6 +21,7 @@ import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { useT } from '../i18n/index.js';
 import { OrgPicker } from '../org-picker.js';
+import { CodeAlert, LoadError, type CodeAlertState } from '../states.js';
 
 type ContestDetail = paths['/contests/{key}']['get']['responses'][200]['content']['application/json'];
 type Visibility = ContestDetail['visibility'];
@@ -117,7 +118,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
   const [maxTeamSize, setMaxTeamSize] = useState('3');
   const [orgSlugs, setOrgSlugs] = useState<string[]>([]);
   const [rows, setRows] = useState<ProblemRow[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<CodeAlertState>(null);
   const [busy, setBusy] = useState(false);
 
   // Which contest the form was seeded FROM — a key, not a boolean. The
@@ -169,12 +170,12 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
     const problems = rows.filter((row) => row.code.trim() !== '');
     for (const row of problems) {
       if (Number.isNaN(Number(row.points)) || Number(row.points) < 0) {
-        setError(t('contestNew.badPoints', { code: row.code }));
+        setError({ message: t('contestNew.badPoints', { code: row.code }) });
         return;
       }
     }
     if (start === '' || end === '') {
-      setError(t('contestNew.datesRequired'));
+      setError({ message: t('contestNew.datesRequired') });
       return;
     }
     // `.trim() === ''` FIRST (m6): `Number('')` is 0 and `Number.isInteger(0)`
@@ -183,7 +184,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
     // nothing on screen saying so.
     const frozenLastMinutes = Number(freeze);
     if (freeze.trim() === '' || !Number.isInteger(frozenLastMinutes) || frozenLastMinutes < 0) {
-      setError(t('contestNew.badFreeze'));
+      setError({ message: t('contestNew.badFreeze') });
       return;
     }
     setBusy(true);
@@ -213,21 +214,21 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
         },
       });
       if (err) {
-        setError(err.detail ?? err.code);
+        setError({ message: err.detail ?? t('contestEdit.saveFailed'), code: err.code });
         return;
       }
       await navigate({ to: '/contests/$key', params: { key: contestKey } });
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
       // them to `{ error }` — see submit.tsx's handleSubmit for the pattern.
-      setError(t('common.networkError'));
+      setError({ message: t('common.networkError') });
     } finally {
       setBusy(false);
     }
   }
 
   if (query.isPending) return <p className="muted">{t('common.loading')}</p>;
-  if (query.error) return <p role="alert">{query.error.message}</p>;
+  if (query.error) return <LoadError error={query.error} onRetry={() => void query.refetch()} />;
   if (!query.data) return null;
 
   return (
@@ -379,7 +380,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
         </button>
       </p>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? <CodeAlert {...error} /> : null}
       <p>
         <button type="button" disabled={busy || name === ''} onClick={() => void save()}>
           {t('contestEdit.save')}

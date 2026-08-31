@@ -17,12 +17,25 @@
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | undefined;
+  /**
+   * The server's OWN wording, when it sent any — as opposed to `message`,
+   * which is `detail ?? the caller's fallback` and therefore cannot be told
+   * apart from a sentence this app made up.
+   *
+   * That difference is load-bearing. `src/states.tsx` leads with a translated
+   * sentence chosen by status and prints the server's wording underneath it;
+   * doing that off `message` reprinted the caller's own fallback as if the
+   * server had said it — which is how a 500 came to tell a competitor
+   * "Không có kỳ thi này. Máy chủ báo: Không có kỳ thi này."
+   */
+  readonly detail: string | undefined;
 
-  constructor(status: number, message: string, code?: string) {
+  constructor(status: number, message: string, code?: string, detail?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -53,6 +66,7 @@ export function apiError(result: FailedRequest, fallback: string): ApiError {
     result.response?.status ?? 0,
     result.error?.detail ?? fallback,
     result.error?.code,
+    result.error?.detail,
   );
 }
 

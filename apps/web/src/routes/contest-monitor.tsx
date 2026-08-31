@@ -37,6 +37,7 @@ import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { formatTimestamp, useLocale, useT, type TFunction } from '../i18n/index.js';
+import { LoadError, StaleNotice } from '../states.js';
 import { verdictToken } from './submit.js';
 
 type Monitor =
@@ -252,7 +253,9 @@ export function ContestMonitorPage({ contestKey }: { contestKey: string }) {
         · {t('monitor.subtitle')}
       </p>
 
-      {monitor.isError ? <p role="alert">{t('monitor.loadError')}</p> : null}
+      {monitor.isError ? (
+        <LoadError error={monitor.error} onRetry={() => void monitor.refetch()} />
+      ) : null}
       {!data ? (
         <p className="muted">{t('common.loading')}</p>
       ) : (
@@ -261,6 +264,14 @@ export function ContestMonitorPage({ contestKey }: { contestKey: string }) {
             {t('monitor.updated', { time: formatTimestamp(data.generatedAt, locale, timeZone) })}
             {socketRefused ? ` · ${t('monitor.pollOnly')}` : ''}
           </p>
+          {/* Two different facts, deliberately both said. The line above is
+              the NUMBERS' vintage — the API's own five-second cache stamps
+              it, so it moves even when nothing on this screen does. This one
+              is whether THIS BROWSER is still receiving them: offline,
+              TanStack Query pauses the refetch entirely (`networkMode:
+              'online'`), the numbers freeze, and before D141 the page went
+              on looking exactly as live as it had a second earlier. */}
+          <StaleNotice updatedAt={monitor.dataUpdatedAt} intervalMs={5_000} />
 
           <div className="stats">
             <Stat label={t('monitor.online')} value={String(data.participantsOnline)} />

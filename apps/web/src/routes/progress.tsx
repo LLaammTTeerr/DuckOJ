@@ -21,6 +21,7 @@ import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { meQueryOptions } from '../me.js';
+import { LoadError } from '../states.js';
 import { formatDate, formatDateTime, rankTitle, useLocale, useT, verdictName, type TFunction } from '../i18n/index.js';
 import { verdictToken } from './submit.js';
 
@@ -352,7 +353,9 @@ export function MyProgressPage() {
       </section>
     );
   }
-  if (progress.error) return <p role="alert">{progress.error.message}</p>;
+  if (progress.error) {
+    return <LoadError error={progress.error} onRetry={() => void progress.refetch()} />;
+  }
   if (progress.isPending || !progress.data) return <p className="muted">{t('common.loading')}</p>;
 
   const data = progress.data;

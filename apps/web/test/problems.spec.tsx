@@ -191,7 +191,10 @@ describe('ProblemsPage', () => {
     mockApiGet({ '/problems': apiResponse({ items: [], nextCursor: null }) });
     renderWithClient(<ProblemsPage />);
     const status = await screen.findByRole('status');
-    expect(status).toHaveTextContent('Không tìm thấy bài tập nào.');
+    // D142 split the one sentence in two: with no filter in force this is the
+    // "nothing published yet" half. `test/screen-states.spec.tsx` covers the
+    // filtered half beside it.
+    expect(status).toHaveTextContent('Chưa có bài tập nào được đăng.');
   });
 
   // Regression coverage for the three problem-list bugs found by screenshot

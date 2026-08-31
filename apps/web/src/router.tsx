@@ -10,6 +10,7 @@ import {
   useParams,
   useSearch,
 } from '@tanstack/react-router';
+import { OfflineBanner } from './states.js';
 import { LoginForm, type LoginValues } from './routes/login.js';
 import { RegisterPage } from './routes/register.js';
 import { DEFAULT_PROBLEM_CODE, SubmitPage } from './routes/submit.js';
@@ -147,6 +148,10 @@ function RootComponent() {
     <>
       <PreferenceSync />
       <ShellNav />
+      {/* D141 — one line, under the bar, on every screen. Above `<main>` so
+          it is the first thing after the navigation in the reading order and
+          so no route has to remember to say it. */}
+      <OfflineBanner />
       <main>
         {/* D61 — an account created by a school's roster import holds a
             password it never chose, and is shown nothing else until it has

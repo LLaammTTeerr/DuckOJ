@@ -7,6 +7,7 @@ import { verdictToken } from './submit.js';
 import { meQueryOptions } from '../me.js';
 import { tagsQueryOptions } from '../tags.js';
 import { useLocale, useT, tagName, verdictName } from '../i18n/index.js';
+import { LoadError, SkeletonRows } from '../states.js';
 
 /**
  * `memoryKb` (what the API returns, and what a problem's manifest stores)
@@ -158,6 +159,17 @@ export function ProblemsPage(props: {
   });
 
   const problems = query.data?.pages.flatMap((page) => page.items) ?? [];
+  /**
+   * Whether ANY narrowing is in force — which is what decides which of the
+   * two empty states the reader is in (D142). Read off the same five values
+   * the query key is built from, so the two cannot disagree.
+   */
+  const filtered =
+    q !== '' ||
+    filters.tags.length > 0 ||
+    filters.difficultyMin !== undefined ||
+    filters.difficultyMax !== undefined ||
+    filters.status !== undefined;
 
   return (
     <section>
@@ -249,8 +261,9 @@ export function ProblemsPage(props: {
         </fieldset>
       ) : null}
 
-      {query.isLoading ? <p>{t('common.loading')}</p> : null}
-      {query.isError ? <p role="alert">{t('problems.loadError')}</p> : null}
+      {query.isError ? (
+        <LoadError error={query.error} onRetry={() => void query.refetch()} />
+      ) : null}
 
       {/* A scroll wrapper, not a bare table: nine columns need ~900px and an
           iPad in portrait has ~700 inside the sheet, so the DOCUMENT used to
@@ -258,7 +271,7 @@ export function ProblemsPage(props: {
           together with the column you were reading. The wrapper is also a tab
           stop, which is the only way the columns off the right edge are
           reachable without a mouse (WCAG 2.1.1). */}
-      {problems.length > 0 ? (
+      {problems.length > 0 || query.isLoading ? (
         <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('problems.tableLabel')}>
         <table>
           <thead>
@@ -275,6 +288,11 @@ export function ProblemsPage(props: {
             </tr>
           </thead>
           <tbody>
+            {/* D140 — the head, the filter bar and the "load more" button
+                keep their positions while the rows arrive; before this the
+                table vanished entirely and one grey line stood in for nine
+                columns. */}
+            {query.isLoading ? <SkeletonRows rows={8} columns={9} /> : null}
             {problems.map((p) => (
               <tr key={p.id}>
                 <td>
@@ -370,7 +388,40 @@ export function ProblemsPage(props: {
         // A live region: the list re-runs as the reader types in the search
         // box, so a query that filters everything away must be announced
         // rather than silently swapping the table for this line. (loop-b20)
-        <p role="status">{t('problems.empty')}</p>
+        //
+        // D142 — and it says WHICH emptiness, the way `/submissions` has
+        // since FE-1: "no problem matches these filters" with the filters to
+        // clear is a different screen from "nothing has been published yet",
+        // and one sentence for both left the reader unable to tell which.
+        <div className="empty" role="status">
+          {filtered ? (
+            <>
+              <p>{t('problems.emptyFiltered')}</p>
+              <p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // The search box too, unlike the bar's own button: from
+                    // HERE the reader is asking to see problems again, and a
+                    // clear that leaves `q` in place answers with the same
+                    // empty screen.
+                    setQ('');
+                    applyFilters({ tags: [] });
+                  }}
+                >
+                  {t('problems.clearFilters')}
+                </button>
+              </p>
+            </>
+          ) : (
+            <>
+              <p>{t('problems.empty')}</p>
+              <p>
+                <Link to="/help">{t('problems.emptyAction')}</Link>
+              </p>
+            </>
+          )}
+        </div>
       ) : null}
 
       {query.hasNextPage ? (

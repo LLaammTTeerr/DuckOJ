@@ -7,6 +7,7 @@ import { api } from '../api.js';
 import { Avatar } from '../avatar.js';
 import { apiError, read } from '../api-error.js';
 import { formatCountdownParts, formatPoints } from '../format.js';
+import { LoadError, SkeletonRows, StaleNotice } from '../states.js';
 import { meQueryOptions } from '../me.js';
 import { formatDateTime, formatTime, useLocale, useT, type Locale, type MsgKey, type TFunction } from '../i18n/index.js';
 
@@ -286,12 +287,19 @@ export function ContestsPage() {
           <Link to="/contests/new">{t('contests.new')}</Link>
         </p>
       ) : null}
-      {query.isPending ? <p className="muted">{t('common.loading')}</p> : null}
-      {query.error ? <p role="alert">{query.error.message}</p> : null}
+      {query.error ? <LoadError error={query.error} onRetry={() => void query.refetch()} /> : null}
       {query.data && query.data.items.length === 0 ? (
-        <p className="muted">{t('contests.empty')}</p>
+        <div className="empty">
+          <p>{t('contests.empty')}</p>
+          <p>
+            <Link to="/problems">{t('contests.emptyAction')}</Link>
+          </p>
+        </div>
       ) : null}
-      {query.data && query.data.items.length > 0 ? (
+      {/* D140 — the head is drawn WHILE the rows load, so the one question a
+          contest list is asked on contest day ("which round is on?") has a
+          shape to appear in rather than displacing the page when it lands. */}
+      {query.isPending || (query.data && query.data.items.length > 0) ? (
         <table>
           <thead>
             <tr>
@@ -303,7 +311,8 @@ export function ContestsPage() {
             </tr>
           </thead>
           <tbody>
-            {query.data.items.map((contest: Contest) => (
+            {query.isPending ? <SkeletonRows rows={6} columns={5} /> : null}
+            {(query.data?.items ?? []).map((contest: Contest) => (
               <tr key={contest.key}>
                 <td>
                   <Link to="/contests/$key" params={{ key: contest.key }}>
@@ -446,7 +455,13 @@ export function ContestPage({ contestKey }: { contestKey: string }) {
   }
 
   if (contest.isPending) return <p className="muted">{t('common.loading')}</p>;
-  if (contest.error) return <p role="alert">{contest.error.message}</p>;
+  // D142 — NOT `contest.error.message`. That message is `detail ?? the
+  // fallback this file chose`, and the fallback this file chose is
+  // `contest.notFound`, so a 500 used to tell a competitor at the bell that
+  // their round does not exist.
+  if (contest.error) {
+    return <LoadError error={contest.error} onRetry={() => void contest.refetch()} />;
+  }
   if (!contest.data) return null;
 
   const joined = participation.data != null;
@@ -930,7 +945,15 @@ function ClarificationsPanel({
       )}
 
       {error ? <p role="alert">{error}</p> : null}
-      {feed.error ? <p role="alert">{feed.error.message}</p> : null}
+      {feed.error ? <LoadError error={feed.error} onRetry={() => void feed.refetch()} /> : null}
+      {/* D141 — this feed is the announcement channel, polled every 30 s
+          while the round runs, and a contestant reading it has no other way
+          to tell "nothing has been announced" from "my wifi died four
+          minutes ago". Only while it actually polls: outside a running round
+          the feed is static and a vintage would be noise. */}
+      {phase === 'running' && feed.data ? (
+        <StaleNotice updatedAt={feed.dataUpdatedAt} intervalMs={30_000} />
+      ) : null}
       {feed.data && feed.data.items.length === 0 ? (
         <p className="muted">{t('clar.empty')}</p>
       ) : null}
@@ -1046,6 +1069,54 @@ function cell(data: Cell | undefined, pending = 0): string {
   return data.tries > 0 ? `\u2212${String(data.tries)}${suffix}` : `\u2014${suffix}`;
 }
 
+/**
+ * The board's own shape while it loads (D140).
+ *
+ * Not `<p>Đang tải…</p>`: measured against a 3s-delayed route, that answer
+ * threw the heading, the back link and the table away and left one grey line
+ * at the top of 720px of empty sheet — then moved every pixel on the page
+ * when the rows landed. On contest day the scoreboard is reloaded constantly
+ * on a connection that is doing badly, so this is the load a reader sees most
+ * of any in the app.
+ *
+ * Four columns, because rank / participant / score / time are the four every
+ * board has whatever the round; the per-problem columns cannot be guessed and
+ * are exactly the ones that scroll anyway.
+ */
+function ScoreboardSkeleton({ contestKey }: { contestKey: string }) {
+  const t = useT();
+  return (
+    // `aria-busy`, and NOT a `role="status"` on the line below: the board's
+    // own frozen banner is this section's live region (D22), and a second
+    // one that only ever says "loading" would be the first thing
+    // `findByRole('status')` — and a screen reader — reached instead.
+    <section className="panel" aria-busy="true">
+      <h1>{t('scoreboard.title')}</h1>
+      <p>
+        <Link to="/contests/$key" params={{ key: contestKey }}>
+          {t('scoreboard.back')}
+        </Link>
+      </p>
+      <p className="muted">{t('common.loading')}</p>
+      <div className="grid-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th className="num">{t('scoreboard.colRank')}</th>
+              <th>{t('scoreboard.colParticipant')}</th>
+              <th className="num">{t('scoreboard.colScore')}</th>
+              <th className="num">{t('scoreboard.colTime')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <SkeletonRows rows={8} columns={4} />
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export function ScoreboardPage({ contestKey }: { contestKey: string }) {
   const client = useQueryClient();
   const [dqError, setDqError] = useState<string | null>(null);
@@ -1111,9 +1182,8 @@ export function ScoreboardPage({ contestKey }: { contestKey: string }) {
     }
   }
 
-    if (query.isPending) return <p className="muted">{t('common.loading')}</p>;
-  if (query.error) return <p role="alert">{query.error.message}</p>;
-  if (!query.data) return null;
+  if (query.error) return <LoadError error={query.error} onRetry={() => void query.refetch()} />;
+  if (query.isPending || !query.data) return <ScoreboardSkeleton contestKey={contestKey} />;
   const canEdit = contest.data?.canEdit === true;
 
   // snake_case throughout: the scoreboard is served in the goldens' own shape,
@@ -1551,7 +1621,7 @@ export function SimilarityPairPage({
       </p>
       <p className="muted">{t('similarity.caution')}</p>
       {query.isPending ? <p className="muted">{t('common.loading')}</p> : null}
-      {query.error ? <p role="alert">{query.error.message}</p> : null}
+      {query.error ? <LoadError error={query.error} onRetry={() => void query.refetch()} /> : null}
       {query.data ? (
         <>
           <p>
