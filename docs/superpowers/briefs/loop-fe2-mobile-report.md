@@ -52,11 +52,11 @@ unchanged.
 
 `typecheck` clean · `lint` clean (src test e2e) · `vitest run --no-file-parallelism`
 **626 passed (59 files)** · `vite build` ok · e2e against the preview build:
-`mobile.spec.ts` + `a11y-surfaces.spec.ts` + `a11y-axe.spec.ts` **20 passed**. A
+`mobile.spec.ts` + `a11y-surfaces.spec.ts` + `a11y-axe.spec.ts` **19 passed** (6 + 5 + 8). A
 CSP-safe axe sweep over `/`, `/submissions`, `/help`, `/me/progress` at 390 and the
 bar at 1280 **with the menu open**, light and dark: **zero serious/critical**. Every
-fix mutation-checked (five: card class, wrappers, menu, padding specificity, a
-grid-area rule) — red observed, restored.
+fix mutation-checked (six: card class, wrappers, menu, padding specificity, a
+grid-area rule, the cache key) — red observed, restored.
 
 **Concern.** `smoke`/`journey`/`features`/`contest-day` seed through `page.request`,
 which the API refuses `403 csrf_origin` from the preview port, and against the live
