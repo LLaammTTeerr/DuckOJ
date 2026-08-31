@@ -141,3 +141,4 @@
 - F-34 status filter + B-29 image hardening live. Dispatched B-30 whole-API-surface fuzz + marker/scope/rate/pagination sweep (worktree, D126–D128). e2e confirming deploy.
 - e2e after F-34/B-29 deploy: 44/44 on live.
 - B-30 DONE, merged (8a317a4..27d07e7): 3 bigint id-overflow 500s → 422/404/400; route-fuzz had lost ALL write coverage since D82 (no Origin) — restored + guarded; new runtime-route↔OpenAPI parity spec (114 routes). api 1127/1127. Deployed; pushed.
+- Dispatched B-31 data-integrity sweep (worktree: FK ON DELETE audit, scripts/integrity-check.ts run live read-only, uniqueness indexes; D126–D128, migration 0040 if justified) and F-35 printable seat slips (main, D129).
