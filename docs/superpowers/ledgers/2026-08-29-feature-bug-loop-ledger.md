@@ -127,3 +127,4 @@
 - B-25 DONE, merged (7d6681a): e2e stabilized test-only (axe via page.evaluate, register alert-scoped, authoring exact labels). My own live run confirms 41 passed / 0 failed / 0 skipped. Verification trustworthy again. Pushed.
 - Dispatched F-31 print stylesheet (main, D121) and B-26 review IV + fresh-clone integrity + CSP-hash drift guard (worktree, D122–D124).
 - F-31 DONE (5fad5c2..c59e661, on main): print stylesheet for scoreboard/statement/submissions (D121); caught phone-table-in-print clipping. web 571/571, rebuilt, pushed.
+- B-26 DONE, merged: built-artefact CSP drift guard (scripts/verify-csp-hash.ts, wired into verify + CI) closes the D120 class properly; D119/D120 backfilled; fresh-clone + api image build verified; no product bugs. Pushed.
