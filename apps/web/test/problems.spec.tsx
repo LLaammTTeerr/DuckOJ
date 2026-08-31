@@ -524,7 +524,11 @@ describe('ProblemPage', () => {
     mockedGet.mockResolvedValueOnce({
       data: undefined,
       error: { type: 'about:blank', title: 'Not Found', status: 404, code: 'problem_not_found', detail: 'No such problem.' },
-      response: new Response(),
+      // A real 404 answers with a 404 RESPONSE. `new Response()` is a 200,
+      // and `read`'s `absent: [404]` reads the response — so the old mock
+      // described a case the server cannot produce and, once the screen
+      // started telling 404 apart from 500, stopped standing for one.
+      response: new Response(null, { status: 404 }),
     } as never);
 
     renderWithClient(<ProblemPage code="does-not-exist" />);

@@ -25,6 +25,7 @@ import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError } from '../api-error.js';
+import { LoadError, useLastError } from '../states.js';
 import { meQueryOptions } from '../me.js';
 import { formatRelative, formatTimestamp, globalRoleLabel, useLocale, useT, type TFunction } from '../i18n/index.js';
 import { verdictToken } from './submit.js';
@@ -331,12 +332,20 @@ function Operations() {
   }
 
   const data = dashboard.data;
+  // Polls every 15 s, so the same hole: see `useLastError`.
+  const failure = useLastError(dashboard.error, data !== undefined);
   return (
     <>
       <h2>{t('admin.dashHeading')}</h2>
       <p className="muted">{t('admin.dashNote')}</p>
-      {dashboard.isError ? <p role="alert">{t('admin.dashError')}</p> : null}
-      {!data ? (
+      {failure ? (
+        <LoadError
+          error={failure}
+          what={t('admin.dashError')}
+          onRetry={() => void dashboard.refetch()}
+        />
+      ) : null}
+      {!data && failure ? null : !data ? (
         <p className="muted">{t('common.loading')}</p>
       ) : (
         <>

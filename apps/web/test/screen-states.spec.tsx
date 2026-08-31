@@ -35,7 +35,9 @@ const { OrgPage } = await import('../src/routes/orgs.js');
 const { MyProgressPage } = await import('../src/routes/progress.js');
 const { NotificationsPage } = await import('../src/routes/notifications.js');
 const { ProblemsPage } = await import('../src/routes/problems.js');
+const { ProblemPage } = await import('../src/routes/problem.js');
 const { OrgSets } = await import('../src/routes/problem-sets.js');
+const { ContestMonitorPage } = await import('../src/routes/contest-monitor.js');
 
 function wrap(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -112,6 +114,16 @@ describe('a 500 must not read as "it does not exist"', () => {
     expect(await screen.findByRole('alert')).not.toHaveTextContent(/Không có bài nộp này/);
   });
 
+  it('problem page: a 500 is not "no such problem"', async () => {
+    // `if (error) return null` — every failure folded into the absent case,
+    // and the comment above it said the API only ever answers 404 here.
+    everythingElse(() => Promise.resolve(failure(500)));
+    wrap(<ProblemPage code="aplusb" />);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Không tải được bài tập này/);
+    expect(screen.queryByText('Không có bài tập này.')).not.toBeInTheDocument();
+  });
+
   it('org page: a 500 is not "no such organisation"', async () => {
     everythingElse(() => Promise.resolve(failure(500)));
     wrap(<OrgPage slug="probe-org" />);
@@ -166,6 +178,17 @@ describe('loading reserves the space the answer will need', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('.skeleton-row').length).toBeGreaterThan(0);
     });
+  });
+});
+
+describe('a polling screen that fails stops saying "loading"', () => {
+  it('monitor: names the panel and offers a retry instead of a spinner', async () => {
+    // Measured: fourteen seconds of solid 500s and the page still said
+    // "Đang tải…" and nothing else.
+    everythingElse(() => Promise.resolve(failure(500)));
+    wrap(<ContestMonitorPage contestKey="probe-cup" />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không tải được màn hình theo dõi/);
+    expect(screen.queryByText('Đang tải…')).not.toBeInTheDocument();
   });
 });
 

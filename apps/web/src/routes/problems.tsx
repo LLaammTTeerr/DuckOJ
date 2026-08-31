@@ -262,7 +262,11 @@ export function ProblemsPage(props: {
       ) : null}
 
       {query.isError ? (
-        <LoadError error={query.error} onRetry={() => void query.refetch()} />
+        <LoadError
+          error={query.error}
+          what={t('problems.loadError')}
+          onRetry={() => void query.refetch()}
+        />
       ) : null}
 
       {/* A scroll wrapper, not a bare table: nine columns need ~900px and an

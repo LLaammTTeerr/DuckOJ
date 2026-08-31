@@ -37,7 +37,7 @@ import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { formatTimestamp, useLocale, useT, type TFunction } from '../i18n/index.js';
-import { LoadError, StaleNotice } from '../states.js';
+import { LoadError, StaleNotice, useLastError } from '../states.js';
 import { verdictToken } from './submit.js';
 
 type Monitor =
@@ -243,6 +243,9 @@ export function ContestMonitorPage({ contestKey }: { contestKey: string }) {
   useContestActivity(contestKey, refetch, onRefused);
 
   const data = monitor.data;
+  // See `useLastError`: this query polls, so TanStack clears its own
+  // `error` on every new attempt while there is no data to keep.
+  const failure = useLastError(monitor.error, data !== undefined);
   return (
     <section className="panel">
       <h1>{t('monitor.title')}</h1>
@@ -253,10 +256,14 @@ export function ContestMonitorPage({ contestKey }: { contestKey: string }) {
         · {t('monitor.subtitle')}
       </p>
 
-      {monitor.isError ? (
-        <LoadError error={monitor.error} onRetry={() => void monitor.refetch()} />
+      {failure ? (
+        <LoadError
+          error={failure}
+          what={t('monitor.loadError')}
+          onRetry={() => void monitor.refetch()}
+        />
       ) : null}
-      {!data ? (
+      {!data && failure ? null : !data ? (
         <p className="muted">{t('common.loading')}</p>
       ) : (
         <>

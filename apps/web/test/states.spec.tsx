@@ -23,7 +23,14 @@ import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../src/api-error.js';
-import { LoadError, OfflineBanner, SkeletonRows, StaleNotice, useOnline } from '../src/states.js';
+import {
+  LoadError,
+  OfflineBanner,
+  SkeletonRows,
+  StaleNotice,
+  useLastError,
+  useOnline,
+} from '../src/states.js';
 
 describe('LoadError — the headline follows the STATUS', () => {
   it('does not say "no such contest" when the server broke', () => {
@@ -59,6 +66,23 @@ describe('LoadError — the headline follows the STATUS', () => {
   it('treats a thrown non-ApiError as a connection failure rather than blanking', () => {
     render(<LoadError error={new Error('boom')} />);
     expect(screen.getByRole('alert')).toHaveTextContent(/Không kết nối được máy chủ/);
+  });
+});
+
+describe('LoadError — naming the panel', () => {
+  it('leads with WHAT failed and keeps the status sentence under it', () => {
+    // The admin dashboard shows six panels at once; "the server had a
+    // problem" alone does not tell an operator which one is down.
+    render(<LoadError error={new ApiError(500, 'x')} what="Không tải được bảng vận hành." />);
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent?.indexOf('Không tải được bảng vận hành.')).toBe(0);
+    expect(alert).toHaveTextContent(/Máy chủ đang gặp sự cố/);
+  });
+
+  it('does not say the same sentence twice', () => {
+    render(<LoadError error={new ApiError(0, 'x')} what="Không kết nối được máy chủ. Kiểm tra đường truyền rồi thử lại." />);
+    const text = screen.getByRole('alert').textContent ?? '';
+    expect(text.split('Không kết nối được máy chủ')).toHaveLength(2);
   });
 });
 
@@ -144,6 +168,35 @@ describe('OfflineBanner', () => {
     }
     render(<Probe />);
     expect(screen.getByText('down')).toBeInTheDocument();
+  });
+});
+
+describe('useLastError — a polling query forgets that it failed', () => {
+  /**
+   * TanStack Query's `fetchState()`: when a fetch STARTS and `data ===
+   * undefined`, it resets `error` to null and `status` to `'pending'`. A
+   * screen that polls therefore drops back to "loading" between attempts,
+   * which is what `/contests/…/monitor` did for sixteen seconds of solid
+   * 500s in Chromium while saying nothing.
+   */
+  function Probe({ error, hasData }: { error: unknown; hasData: boolean }) {
+    const last = useLastError(error, hasData);
+    return <p>{last === null || last === undefined ? 'none' : String((last as Error).message)}</p>;
+  }
+
+  it('holds the failure across the reset the next attempt performs', () => {
+    const { rerender } = render(<Probe error={new Error('boom')} hasData={false} />);
+    expect(screen.getByText('boom')).toBeInTheDocument();
+    // The next poll begins: TanStack clears `error` although nothing has
+    // succeeded.
+    rerender(<Probe error={null} hasData={false} />);
+    expect(screen.getByText('boom')).toBeInTheDocument();
+  });
+
+  it('forgets it the moment a poll actually succeeds', () => {
+    const { rerender } = render(<Probe error={new Error('boom')} hasData={false} />);
+    rerender(<Probe error={null} hasData />);
+    expect(screen.getByText('none')).toBeInTheDocument();
   });
 });
 

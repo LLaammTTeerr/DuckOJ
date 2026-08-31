@@ -66,6 +66,16 @@ function detailOf(error: unknown): string {
 export interface LoadErrorProps {
   /** Whatever the query threw. A non-`ApiError` is a network-level failure. */
   error: unknown;
+  /**
+   * A translated sentence naming WHAT failed to load — "Không tải được bảng
+   * vận hành." — for a screen that shows several panels at once.
+   *
+   * It leads, and the status sentence follows it, because on the admin
+   * dashboard or the problem list the operator's first question is which of
+   * six panels is down, not what HTTP did. Omitted on a detail screen, where
+   * the panel IS the page and naming it would only say the heading again.
+   */
+  what?: string | undefined;
   /** `query.refetch`. Rendered only when the status says a retry could work. */
   onRetry?: (() => void) | undefined;
 }
@@ -78,18 +88,20 @@ export interface LoadErrorProps {
  * muted, so a teacher on the phone to an operator can still read out what the
  * server actually said.
  */
-export function LoadError({ error, onRetry }: LoadErrorProps): ReactElement {
+export function LoadError({ error, what, onRetry }: LoadErrorProps): ReactElement {
   const t = useT();
   const status = statusOf(error);
   const key = headlineKey(status);
-  const headline = key === null ? messageOf(error) : t(key);
+  const said = key === null ? messageOf(error) : t(key);
+  const headline = what ?? said;
   // Only the server's own wording, and never twice: for a 404 the detail IS
   // the headline. A fallback this app invented is not news to the reader.
   const detail = detailOf(error);
-  const alsoSay = key !== null && detail !== '' && detail !== headline;
+  const alsoSay = key !== null && detail !== '' && detail !== said;
   return (
     <p role="alert" className="load-error">
       <span>{headline}</span>
+      {what !== undefined && said !== what ? <span className="muted">{said}</span> : null}
       {alsoSay ? <span className="muted">{t('common.serverSaid', { detail })}</span> : null}
       {onRetry && isRetryable(status) ? (
         <button type="button" onClick={onRetry}>
@@ -127,6 +139,31 @@ export function CodeAlert({ message, code }: { message: string; code?: string | 
       ) : null}
     </p>
   );
+}
+
+/**
+ * The last failure of a POLLING query, which TanStack Query throws away.
+ *
+ * Measured, not guessed. `/contests/probe-cup/monitor` answered 500 to seven
+ * requests over sixteen seconds in Chromium and the page said "Đang tải…"
+ * for every one of them. The reason is in `fetchState()`: when a query starts
+ * a fetch and `data === undefined`, it resets `error` to null and `status` to
+ * `'pending'`. A screen that polls therefore spends almost all of a total
+ * outage back in the loading state — the error is visible only in the gap
+ * between the last retry giving up and the next interval firing, and with a
+ * 5 s interval against a ~7 s retry chain that gap is most of the time zero.
+ *
+ * `isError` has the same hole, so this is not a `.error` vs `.isError`
+ * choice: the fact has to be remembered outside the query. Forgotten the
+ * moment a fetch actually succeeds, which is what `hasData` is for.
+ */
+export function useLastError(error: unknown, hasData: boolean): unknown {
+  const [last, setLast] = useState<unknown>(null);
+  useEffect(() => {
+    if (error != null) setLast(error);
+    else if (hasData) setLast(null);
+  }, [error, hasData]);
+  return error ?? last;
 }
 
 /* ────────────────────────── loading ────────────────────────────────────── */

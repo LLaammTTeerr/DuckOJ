@@ -133,7 +133,13 @@ export function OrgsPage() {
     <section className="panel">
       <h1>{t('orgs.title')}</h1>
       {query.isPending ? <p className="muted">{t('common.loading')}</p> : null}
-      {query.error ? <LoadError error={query.error} onRetry={() => void query.refetch()} /> : null}
+      {query.error ? (
+        <LoadError
+          error={query.error}
+          what={t('orgs.loadError')}
+          onRetry={() => void query.refetch()}
+        />
+      ) : null}
       {query.data && query.data.items.length === 0 ? (
         <p className="muted">{t('orgs.empty')}</p>
       ) : null}

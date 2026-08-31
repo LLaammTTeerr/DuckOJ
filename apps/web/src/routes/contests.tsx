@@ -287,7 +287,13 @@ export function ContestsPage() {
           <Link to="/contests/new">{t('contests.new')}</Link>
         </p>
       ) : null}
-      {query.error ? <LoadError error={query.error} onRetry={() => void query.refetch()} /> : null}
+      {query.error ? (
+        <LoadError
+          error={query.error}
+          what={t('contests.loadError')}
+          onRetry={() => void query.refetch()}
+        />
+      ) : null}
       {query.data && query.data.items.length === 0 ? (
         <div className="empty">
           <p>{t('contests.empty')}</p>

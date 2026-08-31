@@ -324,7 +324,13 @@ export function OrgSets({ slug, canManage }: { slug: string; canManage: boolean 
   return (
     <>
       <h2>{t('sets.title')}</h2>
-      {sets.error ? <LoadError error={sets.error} onRetry={() => void sets.refetch()} /> : null}
+      {sets.error ? (
+        <LoadError
+          error={sets.error}
+          what={t('sets.loadError')}
+          onRetry={() => void sets.refetch()}
+        />
+      ) : null}
       {sets.data && sets.data.length === 0 ? <p className="muted">{t('sets.empty')}</p> : null}
       {sets.data && sets.data.length > 0 ? (
         <table>
