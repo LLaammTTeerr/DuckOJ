@@ -122,6 +122,7 @@ const DYNAMIC_KEY_PREFIXES: readonly string[] = [
   // refusal code, so the catalogue is keyed by it rather than by a second
   // list of reasons this app would have to keep in step.
   'contest.teamReason.',
+  'theme.', // theme.tsx (D116), built as `theme.${option}` over the three modes
 ];
 
 function sourceFiles(dir: string): string[] {

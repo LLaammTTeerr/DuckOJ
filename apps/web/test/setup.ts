@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { LOCALE_STORAGE_KEY, resetFallbackLocale } from '../src/i18n/index.js';
+import { THEME_STORAGE_KEY } from '../src/theme.js';
 
 // `vite.config.ts` sets `test.globals: false`, so `afterEach` is never a
 // global — and @testing-library/react's automatic cleanup relies on exactly
@@ -10,6 +11,19 @@ import { LOCALE_STORAGE_KEY, resetFallbackLocale } from '../src/i18n/index.js';
 // turns "one element" queries into "multiple elements found" failures in any
 // spec file with more than one `render()` call.
 afterEach(cleanup);
+
+// jsdom's `documentElement` and `localStorage` persist across the tests in a
+// file. The theme control (D116) writes both, so a test that leaves a
+// `data-theme` on `<html>` or a `duckoj.theme` in storage would silently tint
+// the next test's assertions. Clear both after every test.
+afterEach(() => {
+  document.documentElement.removeAttribute('data-theme');
+  try {
+    localStorage.removeItem(THEME_STORAGE_KEY);
+  } catch {
+    // storage unavailable in this test — nothing to clear
+  }
+});
 
 // Pin the suite to the app's real default locale.
 //

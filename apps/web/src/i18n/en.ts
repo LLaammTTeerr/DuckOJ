@@ -43,6 +43,15 @@ export const en = {
   'settings.saved': 'Saved.',
   'settings.saveError': 'Could not save your settings.',
   'settings.signedOut': 'Sign in to change your settings.',
+  // The theme is a per-DEVICE choice (D116), so unlike the language and zone
+  // above it lives in this browser and is offered whether or not anyone is
+  // signed in.
+  'settings.theme': 'Appearance',
+  'settings.themeHint': 'This choice is remembered on this device only, not on your account.',
+  'theme.label': 'Appearance',
+  'theme.light': 'Light',
+  'theme.dark': 'Dark',
+  'theme.system': 'System',
   'nav.settings': 'Settings',
   'nav.signIn': 'Sign in',
   'nav.signOut': 'Sign out',

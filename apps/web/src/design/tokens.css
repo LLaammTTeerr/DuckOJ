@@ -171,41 +171,116 @@
  * (low alpha over a near-black floor would go muddy), the specular hairline
  * becomes a faint white edge rather than a bright one, and the outer edge
  * becomes shadow rather than a line.
+ *
+ * The palette is DEFINED ONCE, here, as `--dark-*` SOURCE values that nothing
+ * reads until a trigger below aliases the live token to one. There are two
+ * triggers — the OS (System mode, no `data-theme`) and an explicit
+ * `data-theme="dark"` choice (D116) — and because both point at the SAME
+ * source values, the D67/B-20 measured contrast holds identically in all
+ * three modes rather than depending on two copies staying in step. A
+ * `--dark-mark-fg` is deliberately absent: `--mark-fg` is `var(--fg)` in both
+ * palettes, so it re-resolves to the dark foreground for free.
  */
+:root {
+  --dark-bg: #0c0e12;
+  --dark-wash-1: rgba(64, 96, 150, 0.22);
+  --dark-wash-2: rgba(122, 78, 128, 0.16);
+
+  --dark-fg: #e7e9ee;
+  --dark-dim: #aeb8c6;
+  --dark-faint: #79838f;
+  --dark-line: rgba(255, 255, 255, 0.13);
+  --dark-sel: rgba(255, 255, 255, 0.06);
+  --dark-scrim: rgba(0, 0, 0, 0.58);
+  --dark-mark: rgba(214, 158, 46, 0.3);
+  --dark-panel: #171b22;
+
+  --dark-glass-bar: rgba(22, 26, 33, 0.74);
+  --dark-glass-sheet: rgba(24, 29, 36, 0.68);
+  --dark-glass-raised: rgba(31, 37, 45, 0.82);
+  --dark-glass-inset: rgba(0, 0, 0, 0.24);
+  --dark-glass-stroke: rgba(255, 255, 255, 0.14);
+  --dark-glass-edge: rgba(0, 0, 0, 0.5);
+  --dark-glass-specular: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.05) 38%,
+    rgba(255, 255, 255, 0) 64%
+  );
+
+  --dark-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --dark-shadow-2: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  --dark-shadow-3: 0 1px 3px rgba(0, 0, 0, 0.45), 0 18px 44px -14px rgba(0, 0, 0, 0.7);
+  --dark-shadow-bar: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 32px -12px rgba(0, 0, 0, 0.7);
+}
+
+/* Trigger 1 — System: the reader has chosen no theme (`data-theme` absent),
+ * so the OS decides. `:where()` holds this at `:root`'s own (0,1,0)
+ * specificity so the solid-twin collapse blocks further down still win on
+ * source order; a bare `:root[data-theme]` would be (0,2,0) and would keep
+ * translucent glass for a forced-dark reader who also asked to reduce
+ * transparency. The body is byte-identical to trigger 2 below, and
+ * `test/app-css.spec.ts` fails if the two ever drift. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0c0e12;
-    --wash-1: rgba(64, 96, 150, 0.22);
-    --wash-2: rgba(122, 78, 128, 0.16);
-
-    --fg: #e7e9ee;
-    --dim: #aeb8c6;
-    --faint: #79838f;
-    --line: rgba(255, 255, 255, 0.13);
-    --sel: rgba(255, 255, 255, 0.06);
-    --scrim: rgba(0, 0, 0, 0.58);
-    --mark: rgba(214, 158, 46, 0.3);
-    --mark-fg: var(--fg);
-    --panel: #171b22;
-
-    --glass-bar: rgba(22, 26, 33, 0.74);
-    --glass-sheet: rgba(24, 29, 36, 0.68);
-    --glass-raised: rgba(31, 37, 45, 0.82);
-    --glass-inset: rgba(0, 0, 0, 0.24);
-    --glass-stroke: rgba(255, 255, 255, 0.14);
-    --glass-edge: rgba(0, 0, 0, 0.5);
-    --glass-specular: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.16) 0%,
-      rgba(255, 255, 255, 0.05) 38%,
-      rgba(255, 255, 255, 0) 64%
-    );
-
-    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.6);
-    --shadow-3: 0 1px 3px rgba(0, 0, 0, 0.45), 0 18px 44px -14px rgba(0, 0, 0, 0.7);
-    --shadow-bar: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 32px -12px rgba(0, 0, 0, 0.7);
+  :root:where(:not([data-theme='light'])) {
+    color-scheme: dark;
+    --bg: var(--dark-bg);
+    --wash-1: var(--dark-wash-1);
+    --wash-2: var(--dark-wash-2);
+    --fg: var(--dark-fg);
+    --dim: var(--dark-dim);
+    --faint: var(--dark-faint);
+    --line: var(--dark-line);
+    --sel: var(--dark-sel);
+    --scrim: var(--dark-scrim);
+    --mark: var(--dark-mark);
+    --panel: var(--dark-panel);
+    --glass-bar: var(--dark-glass-bar);
+    --glass-sheet: var(--dark-glass-sheet);
+    --glass-raised: var(--dark-glass-raised);
+    --glass-inset: var(--dark-glass-inset);
+    --glass-stroke: var(--dark-glass-stroke);
+    --glass-edge: var(--dark-glass-edge);
+    --glass-specular: var(--dark-glass-specular);
+    --shadow-1: var(--dark-shadow-1);
+    --shadow-2: var(--dark-shadow-2);
+    --shadow-3: var(--dark-shadow-3);
+    --shadow-bar: var(--dark-shadow-bar);
   }
+}
+
+/* Trigger 2 — the reader chose dark by hand. Same body as trigger 1. */
+:root:where([data-theme='dark']) {
+  color-scheme: dark;
+  --bg: var(--dark-bg);
+  --wash-1: var(--dark-wash-1);
+  --wash-2: var(--dark-wash-2);
+  --fg: var(--dark-fg);
+  --dim: var(--dark-dim);
+  --faint: var(--dark-faint);
+  --line: var(--dark-line);
+  --sel: var(--dark-sel);
+  --scrim: var(--dark-scrim);
+  --mark: var(--dark-mark);
+  --panel: var(--dark-panel);
+  --glass-bar: var(--dark-glass-bar);
+  --glass-sheet: var(--dark-glass-sheet);
+  --glass-raised: var(--dark-glass-raised);
+  --glass-inset: var(--dark-glass-inset);
+  --glass-stroke: var(--dark-glass-stroke);
+  --glass-edge: var(--dark-glass-edge);
+  --glass-specular: var(--dark-glass-specular);
+  --shadow-1: var(--dark-shadow-1);
+  --shadow-2: var(--dark-shadow-2);
+  --shadow-3: var(--dark-shadow-3);
+  --shadow-bar: var(--dark-shadow-bar);
+}
+
+/* The reader chose light by hand: pin the scheme so an OS set to dark cannot
+ * leak trigger 1 onto them. The light tokens are already the `:root` default,
+ * so only `color-scheme` needs stating. */
+:root:where([data-theme='light']) {
+  color-scheme: light;
 }
 
 /* ── the solid twin ───────────────────────────────────────────────────────
