@@ -46,7 +46,7 @@ import { api } from './api.js';
 // `routes/problems.tsx` — which needs the viewer's username for the `me`
 // verdict column, but is not itself part of the route tree — can share the
 // same `['me']` cache entry without importing this file.
-import { meQueryOptions } from './me.js';
+import { dropDepartingViewerCache, meQueryOptions } from './me.js';
 import { PreferenceSync } from './preferences.js';
 // D76 — the nav is two information architectures (a grouped desktop bar, a
 // five-tab phone bar with an overflow sheet) and owns real focus behaviour,
@@ -90,7 +90,13 @@ function RecoveryLink() {
   );
 }
 
-function useAuthGate() {
+/**
+ * Exported for `test/viewer-switch.spec.tsx`, which drives the sign-in path
+ * itself: the three components below differ only in what they render AROUND
+ * `LoginForm`, and what a viewer swap does to the cache is a property of this
+ * hook rather than of any one of them.
+ */
+export function useAuthGate() {
   const client = useQueryClient();
   const t = useT();
   const me = useQuery(meQueryOptions);
@@ -124,6 +130,15 @@ function useAuthGate() {
       return;
     }
     setLoginError(null);
+    // B-34 — before `['me']`, and this is the order that matters. The tab may
+    // still be holding the PREVIOUS viewer's answers: a session that ended
+    // without the sign-out button (it expired, or a password change elsewhere
+    // revoked it, D32/D141) leaves the shell showing the signed-out form with
+    // a full cache behind it, and on a shared school machine the next person
+    // signs in on that same tab. Flipping `['me']` first would render the new
+    // viewer over the old viewer's feed for as long as each entry took to
+    // refetch.
+    dropDepartingViewerCache(client);
     await client.invalidateQueries({ queryKey: ['me'] });
   }
 
