@@ -9,10 +9,12 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { eq } from 'drizzle-orm';
+import { authenticator } from '@otplib/preset-default';
 import type { INestApplication } from '@nestjs/common';
 import { schema, type Db } from '@duckoj/db';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
+import { userIdOf } from './submissions.fixtures.js';
 import { MAILER, type LogMailer } from '../src/mail/mailer.js';
 import { refusalPurpose } from '../src/common/rate-limiter.js';
 
@@ -305,6 +307,178 @@ describe('a refused credential check is counted once (D47)', () => {
         expect(refused.headers['retry-after']).toBeDefined();
 
         expect(await refusalRows(db, 'totp_confirm')).toBe(1);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
+/**
+ * The pairs that turned out to be RIGHT, pinned so they stay right.
+ *
+ * Each of these is a place where one feature could plausibly have undone
+ * another and does not. They are cheap to keep and expensive to rediscover:
+ * every one of them is a security property that a future "while I am here"
+ * edit to `resetPassword` or `disable` could take out silently.
+ */
+describe('what a credential change deliberately does NOT touch', () => {
+  async function enrol(app: INestApplication, agent: ReturnType<typeof request.agent>) {
+    const secret = (await agent.post('/api/v1/auth/totp/begin')).body.secret as string;
+    const confirmed = await agent
+      .post('/api/v1/auth/totp/confirm')
+      .send({ code: authenticator.generate(secret) });
+    expect(confirmed.status).toBe(200);
+    return { secret, codes: confirmed.body.recoveryCodes as string[] };
+  }
+
+  it('a mailed reset is not a way around the second factor (D32 vs D39)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = await registerAndLogin(app, 'bh34twofactor');
+        const { codes } = await enrol(app, agent);
+
+        expect((await resetByMail(app, 'bh34twofactor', CHOSEN)).status).toBe(200);
+
+        // The password is the one they just chose AND the code is still
+        // demanded. A reset that quietly dropped 2FA would hand the account
+        // to anyone who can reach the mailbox — which is the threat 2FA is
+        // bought to survive.
+        const withoutCode = await request(app.getHttpServer())
+          .post('/api/v1/auth/login')
+          .send({ usernameOrEmail: 'bh34twofactor', password: CHOSEN });
+        expect(withoutCode.status).toBe(401);
+        expect(withoutCode.body.code).toBe('totp_required');
+
+        // And the printout made before the reset still works: recovery codes
+        // are the second factor in another shape, not a password credential,
+        // so a password event neither spends nor reissues them.
+        const withCode = await request(app.getHttpServer())
+          .post('/api/v1/auth/login')
+          .send({ usernameOrEmail: 'bh34twofactor', password: CHOSEN, recoveryCode: codes[0] });
+        expect(withCode.status).toBe(200);
+        expect(withCode.body.user.recoveryCodesRemaining).toBe(7);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('an admin TOTP reset takes the recovery codes with it (M9 vs D39)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = await registerAndLogin(app, 'bh34lostphone');
+        const { codes } = await enrol(app, agent);
+
+        const admin = await registerAndLogin(app, 'bh34admin');
+        await db
+          .update(schema.users)
+          .set({ globalRole: 'admin' })
+          .where(eq(schema.users.username, 'bh34admin'));
+        const reset = await admin.delete('/api/v1/admin/users/bh34lostphone/totp');
+        expect(reset.status).toBe(204);
+
+        // Not merely "2FA is off": the eight codes printed for the secret the
+        // admin just destroyed must not survive it. A stale printout that
+        // outlived the reset would be a standing sign-in credential for
+        // whoever found the notebook.
+        expect((await agent.get('/api/v1/auth/me')).body.totpEnabled).toBe(false);
+        expect((await agent.get('/api/v1/auth/me')).body.recoveryCodesRemaining).toBe(0);
+        const [row] = await db
+          .select({ id: schema.totpRecoveryCodes.id })
+          .from(schema.totpRecoveryCodes)
+          .where(eq(schema.totpRecoveryCodes.userId, await userIdOf(db, 'bh34lostphone')));
+        expect(row).toBeUndefined();
+        expect(codes).toHaveLength(8);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('a recovery-code sign-in leaves must_change_password standing (D39 vs D61)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = await registerAndLogin(app, 'bh34stillowed');
+        const { codes } = await enrol(app, agent);
+        await flagAsImported(db, 'bh34stillowed');
+
+        const signedIn = await request(app.getHttpServer())
+          .post('/api/v1/auth/login')
+          .send({ usernameOrEmail: 'bh34stillowed', password: PASSWORD, recoveryCode: codes[0] });
+        expect(signedIn.status).toBe(200);
+        // Spending a recovery code proves possession of the second factor.
+        // It says nothing about the password, which is still the one this
+        // server generated — so the obligation is untouched, and D102 still
+        // refuses the account a token.
+        expect(signedIn.body.user.mustChangePassword).toBe(true);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
+/**
+ * The four meters are four meters (D16, D26, D73, D80).
+ *
+ * They share one table, and `RateLimiter.record`'s cleanup deletes by
+ * `(purpose, key, age)` — so a caller that got a purpose or a window wrong
+ * could sweep another meter's live window out from under it. These are the
+ * pairs a single-feature suite cannot see.
+ */
+describe('one meter refusing does not move another meter', () => {
+  it('spending D73 does not spend D16, so the account can still sign in', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const agent = await registerAndLogin(app, 'bh34budget');
+        for (let attempt = 0; attempt < 11; attempt++) {
+          await agent
+            .post('/api/v1/auth/password/change')
+            .send({ currentPassword: 'not-the-password', newPassword: CHOSEN });
+        }
+        // Eleven wrong passwords on `password/change` exhaust D73's budget
+        // and D16's is ten. If the two shared a window, this sign-in — with
+        // the RIGHT password — would be a 429 rather than a 200.
+        const signedIn = await request(app.getHttpServer())
+          .post('/api/v1/auth/login')
+          .send({ usernameOrEmail: 'bh34budget', password: PASSWORD });
+        expect(signedIn.status).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('login refuses a known and an unknown identifier identically (D16 vs D26)', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await registerAndLogin(app, 'bh34known');
+        async function fail(identifier: string) {
+          return request(app.getHttpServer())
+            .post('/api/v1/auth/login')
+            .send({ usernameOrEmail: identifier, password: 'not-the-password' });
+        }
+        for (let attempt = 0; attempt < 10; attempt++) {
+          expect((await fail('bh34known')).status).toBe(401);
+          expect((await fail('bh34nobody')).status).toBe(401);
+        }
+        const known = await fail('bh34known');
+        const unknown = await fail('bh34nobody');
+
+        // Byte-identical, and both refused: the window is keyed on the
+        // identifier as SUBMITTED, so an account that does not exist has one
+        // too. A 429 that arrived for only one of the two would be an
+        // enumeration oracle wearing a rate limiter's clothes.
+        expect(known.status).toBe(429);
+        expect(unknown.status).toBe(known.status);
+        expect(unknown.body.code).toBe(known.body.code);
+        expect(unknown.body.detail).toBe(known.body.detail);
       } finally {
         await app.close();
       }
