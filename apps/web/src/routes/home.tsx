@@ -17,11 +17,29 @@
  * one to start), carrying the live countdown and the phase chip the contest
  * list already uses, and then the reader's own last five verdicts as badges.
  * NO NEW ENDPOINT: this is `GET /contests` and `GET /submissions?user=…`,
- * both of which the app already calls elsewhere. The contest panel shares
- * `contests.tsx`'s `['contests']` key, so opening the home page warms the
- * contest list rather than duplicating it; the recent-verdicts panel
- * deliberately does NOT share the submissions list's key, because that screen
- * caches an INFINITE query and the two shapes are not interchangeable.
+ * both of which the app already calls elsewhere.
+ *
+ * D151 — WHAT IT ASKS, AND UNDER WHICH KEY. D138 had this panel read
+ * `GET /contests` unfiltered and share `contests.tsx`'s `['contests']` cache
+ * entry, so that opening the front page warmed the contest list. Both halves
+ * of that were wrong, and FE-5's phone journey found the first:
+ *
+ * - Unfiltered, that endpoint answers page 1 of an **id**-ordered list —
+ *   creation order — which on the real judge is 25 rows of 125. The round a
+ *   school created this morning was not in the answer at all, which is
+ *   precisely when this panel is the reason someone opened the app. It now
+ *   asks `?phase=active&mine=true&limit=5`: the rounds that have not ended,
+ *   that this reader may actually enter, in start-time order.
+ * - And so the shared key had to go. A narrow answer parked under `['contests']`
+ *   would have the contest list render three rounds out of a hundred and
+ *   twenty-five, with no request and no error to show for it — the same
+ *   two-shapes-one-key bug D138 avoided for the verdicts panel, arriving
+ *   through the door D138 left open. Warming the list was never worth a
+ *   wrong list.
+ *
+ * The recent-verdicts panel keeps its own key for D138's original reason:
+ * the submissions screen caches an INFINITE query and the two shapes are not
+ * interchangeable.
  *
  * A VISITOR sees none of it and the page is byte-identical to what it was:
  * both queries are `enabled` only when there is a viewer, `/submissions` 401s
@@ -60,6 +78,16 @@ type SubmissionRow =
 const RECENT = 5;
 
 /**
+ * How many rounds the panel asks for (D151). It names ONE, and `pickContest`
+ * only ever reads the front of the list — but a handful rather than one,
+ * because the server orders by start time and the client decides what is
+ * running, and those two can disagree by a few seconds across a clock skew.
+ * A page of five costs nothing and leaves `pickContest` something to choose
+ * from when it does.
+ */
+const HOME_CONTESTS = 5;
+
+/**
  * The one round worth naming on a landing page.
  *
  * A running contest always wins, however many there are — that is the one the
@@ -86,10 +114,16 @@ export function pickContest<T extends { startTime: string; endTime: string }>(
 function ContestPanel({ enabled }: { enabled: boolean }) {
   const t = useT();
   const query = useQuery({
-    // The SAME key `contests.tsx` uses, so the two screens share one answer.
-    queryKey: ['contests'],
+    // Its OWN key (D151). This is a DIFFERENT question from the one
+    // `contests.tsx` asks, and two questions are never one key however
+    // tempting the warm cache looks.
+    queryKey: ['home-contest'],
     queryFn: async () => {
-      const result = await api.GET('/contests', {});
+      const result = await api.GET('/contests', {
+        // `mine` is a string because a query string carries strings, and the
+        // contract spells `false` out rather than leaving it to omission.
+        params: { query: { phase: 'active', mine: 'true', limit: HOME_CONTESTS } },
+      });
       if (result.error) throw new Error(t('contests.loadError'));
       return result.data;
     },

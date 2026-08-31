@@ -11,6 +11,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api.js';
 import { HomePage, pickContest } from '../src/routes/home.js';
+import { ContestsPage } from '../src/routes/contests.js';
 import { SubmissionsPage } from '../src/routes/submissions.js';
 
 // `HomePage` reaches the network only through `api`, exactly like
@@ -191,6 +192,75 @@ describe('the signed-in home', () => {
     expect(await screen.findByRole('link', { name: 'aplusb' })).toBeInTheDocument();
 
     // And the two entries are genuinely distinct in the cache.
+    const keys = client.getQueryCache().getAll().map((q) => JSON.stringify(q.queryKey));
+    expect(new Set(keys).size, `two screens share a cache key: ${keys.join(' | ')}`).toBe(keys.length);
+  });
+
+  /**
+   * D151 — the bug FE-5's phone journey found. Unfiltered, `GET /contests`
+   * answers page 1 of an ID-ordered list: creation order. On the real judge
+   * that is 25 rows of 125, so the round a school created this morning — the
+   * one this panel exists to name — was not in the answer at all.
+   *
+   * The panel therefore has to ASK the narrow question. Asserted on the call
+   * rather than on the rendering, because the rendering cannot tell the
+   * difference: the server is what knows there are another hundred rows.
+   */
+  it('asks for the round that is happening, not for page one of everything', async () => {
+    serve([contest('now', -HOUR)], []);
+    renderHome(<HomePage me={ME} />);
+    await screen.findByRole('link', { name: 'Round now' });
+
+    expect(mockedGet).toHaveBeenCalledWith('/contests', {
+      params: { query: { phase: 'active', mine: 'true', limit: 5 } },
+    });
+  });
+
+  /**
+   * D151's other half, and the one that would have shipped silently: D138 had
+   * this panel share `contests.tsx`'s `['contests']` key on purpose, to warm
+   * the contest list. The moment home asks a FILTERED question that sharing
+   * inverts — opening the front page would seed the cache with the active
+   * rounds, and `/contests` would then render three contests out of a
+   * hundred and twenty-five, with no request and no error.
+   *
+   * One QueryClient across both renders is the whole fixture, exactly as in
+   * the submissions-key test above: that is what a reader's session is.
+   */
+  it('does not seed the contest list’s cache with its own narrow answer', async () => {
+    const active = contest('now', -HOUR);
+    const everything = [contest('old', -10 * HOUR), active, contest('later', 5 * HOUR)];
+    mockedGet.mockImplementation(((path: string, init?: { params?: { query?: Record<string, unknown> } }) => {
+      if (path === '/contests') {
+        const filtered = init?.params?.query?.phase !== undefined;
+        return Promise.resolve({ data: { items: filtered ? [active] : everything } });
+      }
+      if (path === '/submissions') return Promise.resolve({ data: { items: [], nextCursor: null } });
+      return Promise.resolve({ data: null, error: { code: 'not_mocked' } });
+    }) as unknown as typeof api.GET);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrap = (ui: ReactElement) => (
+      <QueryClientProvider client={client}>
+        <RouterContextProvider router={testRouter}>{ui}</RouterContextProvider>
+      </QueryClientProvider>
+    );
+
+    const home = render(wrap(<HomePage me={ME} />));
+    await screen.findByRole('link', { name: 'Round now' });
+    home.unmount();
+
+    // The reader follows "Tất cả kỳ thi". Asserted on the FIRST paint, before
+    // any background refetch: sharing the key does not break the list
+    // permanently — the refetch repairs it a moment later — it paints three
+    // rounds out of a hundred and twenty-five and then swaps them, which is
+    // a list a reader can act on while it is wrong.
+    render(wrap(<ContestsPage />));
+    expect(screen.queryByRole('link', { name: 'Round now' })).toBeNull();
+    expect(await screen.findByRole('link', { name: 'Round old' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Round later' })).toBeInTheDocument();
+
+    // And the two questions are genuinely two entries in the cache.
     const keys = client.getQueryCache().getAll().map((q) => JSON.stringify(q.queryKey));
     expect(new Set(keys).size, `two screens share a cache key: ${keys.join(' | ')}`).toBe(keys.length);
   });
