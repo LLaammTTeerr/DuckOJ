@@ -42,3 +42,17 @@ export function resultsCacheKey(contestId: number, document: string): string {
 export function certificatesCacheKey(contestId: number, document: string): string {
   return `duckoj:certificates:v1:${String(contestId)}:${digest(document)}`;
 }
+
+/**
+ * The seat slips (D129), in a namespace of their own for the reason the
+ * certificates have one: the documents could not collide, but a shared prefix
+ * would make `KEYS duckoj:results:*` in an incident report mean three things.
+ *
+ * The same 60 s TTL and the same content addressing: a slip carries the
+ * contest's own window and never a clock, so the roster changing is what
+ * changes the key — and a competitor who joins between two prints appears on
+ * the second one.
+ */
+export function seatsCacheKey(contestId: number, document: string): string {
+  return `duckoj:seats:v1:${String(contestId)}:${digest(document)}`;
+}

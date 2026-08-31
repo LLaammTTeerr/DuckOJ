@@ -370,7 +370,7 @@ const DEFAULT_BOOKLET_TZ = 'Asia/Ho_Chi_Minh';
  * everybody. A booklet dated in the room's own clock is the harmless
  * direction to be wrong in.
  */
-function resolveZone(timeZone: string | null): string {
+export function resolveZone(timeZone: string | null): string {
   if (timeZone === null || timeZone === '') return DEFAULT_BOOKLET_TZ;
   try {
     new Intl.DateTimeFormat('en', { timeZone }).format(new Date());
@@ -391,8 +391,10 @@ function resolveZone(timeZone: string | null): string {
  * contest's START, not at render time, because a zone with daylight saving
  * has two answers and the one that matters is the one in force when the room
  * sits down.
+ *
+ * Exported beside `resolveZone` for the seat slips (D129).
  */
-function offsetLabel(at: Date, timeZone: string): string {
+export function offsetLabel(at: Date, timeZone: string): string {
   const parts = new Intl.DateTimeFormat('en', { timeZone, timeZoneName: 'longOffset' }).formatToParts(at);
   const name = parts.find((part) => part.type === 'timeZoneName')?.value ?? 'GMT';
   // `longOffset` gives `GMT+07:00`; the cover has always read `GMT+7`, and a
