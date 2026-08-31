@@ -3,8 +3,8 @@
 Every non-generated source diff read (D100 counters, D102 tokens, D104 seats,
 D105 feed, D109 comments, D110/D111/D113/D116, F-25 team gaps, web UI). Method:
 B-18's — read the diff, not steady state. One defect confirmed
-(red→green→commit); rest cleared or noted. No D108 index item re-reported.
-
+(red→green→commit); rest cleared or noted. No D108 item re-reported. The fix
+implements D99's already-documented contract, so **D118–D120 unspent**.
 ## Blocker — none.
 ## Major (fixed)
 **1. A cross-org team-slug collision refused a pupil their own team.** `8c8e6c7`.
@@ -54,7 +54,7 @@ Closing it needs org-in-value + a contract change; narrow, left.
 - **Samples cache × publish:** N/A — no `statement-samples` change in range. No
   new `as any`/`: any`; no new secret-bearing log line in the diff.
 ## Concerns
-Full `pnpm -r test` (20 pkgs, ~16m) not run end-to-end; ran typecheck(+scripts),
-lint(+scripts), regen(no-diff), vite build, all contest/team API suites (70) +
-contracts (39) + web i18n/theme/css (47) + guards, plus the full `@duckoj/api`
-suite serially (result appended). Fresh-DB pg torn down; nothing pushed.
+Full ritual GREEN: typecheck(+scripts), lint(+scripts), regen(no-diff), vite
+build, every package suite serial (`--no-file-parallelism`) — api 1104/1104
+(126 files), web 560, judged 128, db 49, contracts 39, rest green. drizzle-kit
+no drift; fresh-DB pg migrate 0001→latest clean, torn down. Nothing pushed.
