@@ -594,6 +594,67 @@ describe('submission realtime — the subscription set is bounded and releasable
 });
 
 /**
+ * Cluster mode. `main.ts` forks `API_WORKERS` processes; a wake-up published
+ * once must reach every worker's own sockets, and reach each of them exactly
+ * once.
+ *
+ * Both halves are worth pinning. If the API called
+ * `SubmissionsGateway.notify` directly instead of publishing on Redis, the
+ * tab that happened to land on worker 1 would simply never hear about a
+ * rejudge worker 0 performed — silently, and only in production, since a
+ * single-process test would pass. And if a worker subscribed twice (a
+ * reconnect that re-`SUBSCRIBE`s without dropping the first, say), its
+ * clients would get every verdict twice, which a page that re-fetches on each
+ * frame turns into doubled load on exactly the day that matters.
+ *
+ * Two apps over ONE database and ONE Redis is the faithful shape: the session
+ * lives in the database, so the same person's cookie authenticates on either
+ * worker, which is precisely how two tabs end up on two workers.
+ */
+describe('submission realtime — a wake-up crosses workers, once per client', () => {
+  it('delivers one frame to a socket on every worker', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const workerA = await buildAppWithRealtime(db);
+      const workerB = await buildAppWithRealtime(db);
+      try {
+        const agent = request.agent(workerA.app.getHttpServer());
+        const cookie = await registerAndLogin(agent, 'clustered');
+        const created = await agent
+          .post('/api/v1/submissions')
+          .send({ problemCode: 'aplusb', languageKey: 'cpp17', source: 'int main(){}' });
+        const id = created.body.id as number;
+
+        const socketA = await open(`${workerA.url}/ws`, { cookie });
+        const socketB = await open(`${workerB.url}/ws`, { cookie });
+        try {
+          await subscribeAcked(socketA, id);
+          await subscribeAcked(socketB, id);
+
+          const seenA: unknown[] = [];
+          const seenB: unknown[] = [];
+          socketA.on('message', (d) => seenA.push(JSON.parse(String(d))));
+          socketB.on('message', (d) => seenB.push(JSON.parse(String(d))));
+
+          // ONE publish, as `judged` makes it.
+          await workerA.publish(id);
+          await new Promise((r) => setTimeout(r, 500));
+
+          expect(seenA).toEqual([{ type: 'submission', id }]);
+          expect(seenB).toEqual([{ type: 'submission', id }]);
+        } finally {
+          socketA.close();
+          socketB.close();
+        }
+      } finally {
+        await workerA.app.close();
+        await workerB.app.close();
+      }
+    });
+  }, 180_000);
+});
+
+/**
  * The caps must hold against a BURST, not only against a client polite enough
  * to wait for each ack.
  *
