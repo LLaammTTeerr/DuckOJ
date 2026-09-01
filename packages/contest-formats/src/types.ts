@@ -9,6 +9,8 @@
  * the goldens and the code they are supposed to pin.
  */
 
+import type { SubtaskSummary } from './subtasks.js';
+
 /** An ISO-8601 instant with an explicit offset, e.g. `2026-03-01T09:00:00Z`. */
 export type Instant = string;
 
@@ -100,7 +102,19 @@ export interface SubmissionSpec {
   /** `null` for an internal error. `CE`/`IE`/`null` are free of ICPC penalty. */
   result: string | null;
   status: string;
-  cases: TestCaseSpec[];
+  /**
+   * The raw `SubmissionTestCase` rows, in insertion order — how every fixture
+   * describes a submission.
+   *
+   * Optional since D165, because the API no longer has them: it summarises
+   * them per group in SQL and supplies `subtasks` instead. Exactly one of the
+   * two must be present; supplying both is refused in `lower()`, and
+   * supplying neither is a submission that graded no case at all, which is
+   * what a compile error looks like.
+   */
+  cases?: TestCaseSpec[];
+  /** The same cases, already reduced per group (D165). */
+  subtasks?: SubtaskSummary[];
 }
 
 /**

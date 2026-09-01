@@ -37,40 +37,11 @@
 
 import { groupByProblem } from './lower.js';
 import type { FormatSemantics, LoweredContest, LoweredParticipation } from './lower.js';
+import { bestSubtaskPoints } from './subtasks.js';
 import { pyRound } from './numeric.js';
 import { NO_FROZEN_FIELDS, computeScoreboard, numericLabel } from './scoreboard.js';
 import type { FormatDefinition, ParticipationResult } from './scoreboard.js';
 import type { ContestInput, FormatData, IcpcFormatData, Instant, Scoreboard } from './types.js';
-
-/**
- * `ContestParticipation.get_best_subtask_point()`, for one problem.
- *
- * Insertion order is load-bearing: the caller sums these values sequentially,
- * and IEEE addition is not associative. A plain object would reorder
- * integer-like keys into ascending numeric order; a `Map` keeps first-seen
- * order the way a Python dict does.
- */
-function bestSubtaskPoints(
-  submissions: { cases: { points: number; batch: number | null }[] }[],
-): Map<number, number> {
-  const best = new Map<number, number>();
-
-  for (const submission of submissions) {
-    const current = new Map<number, number>();
-    for (const testCase of submission.cases) {
-      const batch = testCase.batch ?? 0;
-      const seen = current.get(batch);
-      current.set(batch, seen === undefined ? testCase.points : Math.min(testCase.points, seen));
-    }
-    for (const [batch, points] of current) {
-      const seen = best.get(batch);
-      // `undefined` here is an *absent* batch, not a zero one: it takes the new
-      // value outright rather than maxing against an assumed 0.
-      best.set(batch, seen === undefined ? points : Math.max(seen, points));
-    }
-  }
-  return best;
-}
 
 function updateParticipation(
   contest: LoweredContest,

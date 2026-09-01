@@ -7,6 +7,8 @@
  * so that arithmetic has to be reproduced here, once, for all four formats.
  */
 
+import { accumulateSubtasks, summariseCases } from './subtasks.js';
+import type { SubtaskSummary } from './subtasks.js';
 import { pyRound } from './numeric.js';
 import {
   SPECTATE,
@@ -17,7 +19,13 @@ import {
   participationEndMs,
   participationStartMs,
 } from './window.js';
-import type { ContestInput, ContestSpec, Instant, ProblemSpec, TestCaseSpec } from './types.js';
+import type {
+  ContestInput,
+  ContestSpec,
+  Instant,
+  ProblemSpec,
+  SubmissionSpec,
+} from './types.js';
 
 export { LIVE, SPECTATE } from './window.js';
 
@@ -45,8 +53,13 @@ export interface LoweredSubmission {
   dateMs: number;
   /** `Submission.result`; `null` for an internal error. */
   result: string | null;
-  /** `SubmissionTestCase` rows, in insertion order. */
-  cases: TestCaseSpec[];
+  /**
+   * The submission's cases reduced per group, in first-seen group order
+   * (D165). Nothing downstream ever wanted an individual case: `ioi16` reduces
+   * them per batch and `contestSubmissionPoints` reduces them per batch, so
+   * the reduction happens once, here or in SQL, and never again.
+   */
+  subtasks: SubtaskSummary[];
   /** `ContestSubmission.points`. `ioi16` is the one format that ignores this. */
   points: number;
 }
@@ -136,40 +149,6 @@ export function pointsScalingFactor(problem: ProblemSpec): number | null {
 }
 
 /**
- * The judge bridge's batch-aware case aggregation
- * (`judge/bridge/judge_handler.py`): loose cases sum, a batch contributes
- * `min(points)` and `max(total)` over its cases. Note the bridge's test is
- * `if not case.batch`, so **batch 0 is loose**, which is why the fixtures
- * number their batches from 1.
- */
-function aggregateCases(cases: TestCaseSpec[]): { casePoints: number; caseTotal: number } {
-  let points = 0;
-  let total = 0;
-  const batches = new Map<number, { points: number; total: number }>();
-
-  for (const testCase of cases) {
-    const batch = testCase.batch;
-    if (batch === null || batch === 0) {
-      points += testCase.points;
-      total += testCase.total;
-      continue;
-    }
-    const existing = batches.get(batch);
-    if (existing === undefined) {
-      batches.set(batch, { points: testCase.points, total: testCase.total });
-    } else {
-      existing.points = Math.min(existing.points, testCase.points);
-      existing.total = Math.max(existing.total, testCase.total);
-    }
-  }
-  for (const batch of batches.values()) {
-    points += batch.points;
-    total += batch.total;
-  }
-  return { casePoints: pyRound(points, 1), caseTotal: pyRound(total, 1) };
-}
-
-/**
  * `Submission.update_contest()` — how `ContestSubmission.points` is derived.
  *
  * Exported (via `index.ts`) so a writer persisting `contest_submissions.points`
@@ -179,13 +158,20 @@ function aggregateCases(cases: TestCaseSpec[]): { casePoints: number; caseTotal:
  *
  * Note that nothing in this package reads a persisted value: `lower()` calls
  * this on every scoreboard read, and `ioi16` ignores the result entirely.
+ *
+ * The batch-aware aggregation this used to inline now lives in `subtasks.ts`,
+ * because the API reproduces it in SQL (D165) and one arithmetic with two
+ * spellings is the split-predicate bug this project keeps finding.
  */
 export function contestSubmissionPoints(
-  cases: TestCaseSpec[],
+  subtasks: SubtaskSummary[],
   problem: { points: number; partial: boolean },
 ): number {
-  const { casePoints, caseTotal } = aggregateCases(cases);
-  let points = caseTotal > 0 ? pyRound((casePoints / caseTotal) * problem.points, 3) : 0;
+  const { points: casePoints, total: caseTotal } = accumulateSubtasks(subtasks);
+  const roundedPoints = pyRound(casePoints, 1);
+  const roundedTotal = pyRound(caseTotal, 1);
+  let points =
+    roundedTotal > 0 ? pyRound((roundedPoints / roundedTotal) * problem.points, 3) : 0;
   if (!problem.partial && points !== problem.points) points = 0;
   return points;
 }
@@ -283,12 +269,13 @@ export function lower(
       participation.pending.set(code, (participation.pending.get(code) ?? 0) + 1);
       continue;
     }
+    const subtasks = subtasksOf(submission);
     participation.submissions.push({
       problemCode: submission.problem,
       dateMs,
       result: submission.result,
-      cases: submission.cases,
-      points: contestSubmissionPoints(submission.cases, problem),
+      subtasks,
+      points: contestSubmissionPoints(subtasks, problem),
     });
   }
 
@@ -307,6 +294,26 @@ export function lower(
     frozenAt: contestFreezeMs === null ? null : new Date(contestFreezeMs).toISOString(),
     semantics,
   };
+}
+
+/**
+ * A submission's per-group summaries, however the caller supplied them.
+ *
+ * A fixture carries raw `cases` and is summarised here; the API carries
+ * `subtasks` it already summarised in SQL. Both together is refused rather
+ * than resolved by precedence — two descriptions of one submission that
+ * disagree would silently score a board from whichever one won.
+ */
+function subtasksOf(submission: SubmissionSpec): SubtaskSummary[] {
+  if (submission.subtasks !== undefined) {
+    if (submission.cases !== undefined) {
+      throw new Error(
+        `submission by "${submission.participant}" carries both cases and subtasks; supply one`,
+      );
+    }
+    return submission.subtasks;
+  }
+  return summariseCases(submission.cases ?? []);
 }
 
 /**

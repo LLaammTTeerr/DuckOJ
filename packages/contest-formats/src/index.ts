@@ -45,6 +45,15 @@ export type {
 export { contestSubmissionPoints } from './lower.js';
 
 /**
+ * The per-group summary a submission's cases reduce to (D165), and the two
+ * reductions that read it. Exported because the API produces these rows with a
+ * `GROUP BY` instead of shipping every case row to JavaScript, and its
+ * equality spec needs the reference summariser to compare against.
+ */
+export type { SubtaskSummary } from './subtasks.js';
+export { summariseCases, accumulateSubtasks, aggregateSubtasks } from './subtasks.js';
+
+/**
  * Which semantics to compute under. Everything defaults to `duckoj`, so no
  * caller can select the bug-compatible path by forgetting an argument;
  * `dmojCompat` is named in exactly one place, the golden suite.
