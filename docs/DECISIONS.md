@@ -8215,3 +8215,170 @@ this teaches the deployer to refuse to lie about the marker.
 *Cost if wrong: an extra no-op migrate container on the deploy after any
 skipped one, which the journal makes idempotent. The failure it prevents is a
 province running a schema its code does not match, silently.*
+
+## D172 — An executor no row names is dropped, loudly; a language key is never manufactured
+
+F-46 shipped Pascal and Java. The controller deployed them and two of the
+three languages graded:
+
+```
+python3  AC   78 ms  15028 KB
+java     AC  104 ms  43364 KB
+pascal   TIMED OUT — queued, never graded
+```
+
+The judge had self-tested `PAS` at startup, `language_driver_keys` held
+`pascal -> PAS`, and `judged` announced:
+
+```
+["c11","cpp14","cpp17","cpp20","java","pas","python3"]
+```
+
+**`pas`, not `pascal`.** The mapping is read once at boot; this process had
+booted before migration 0046 inserted the row; the lookup missed; and
+`executorToLanguage` fell back to **lowercasing the executor name**. No
+language has the key `pas`, so `JobStore.claim` filtered every Pascal job out
+and D68's `blocked_reason` recorded, correctly and uselessly, that no
+connected judge supported `pascal`.
+
+**The fallback manufactured a plausible wrong answer, and that is the defect.**
+`PY3 → py3` and `PAS → pas` have exactly the shape of a real key. Nothing
+downstream — not the claim filter, not `judge_nodes.capabilities`, not the
+dashboard — can tell a fallback from a mapping, so the failure is silent by
+construction. `language_driver_keys` exists, in its own words, "so that
+`CPP17` — judge-server's name — does not become our name"; a fallback that
+turns judge-server's name into our name is that rule inverted.
+
+**The ruling: `executorToLanguage` answers `undefined`, and every caller drops
+the executor.** "This judge announces something we have no language for" is
+*true*, and it is safe: `supportedLanguages()` omits it, `claim` never takes a
+job for it, and `judge_nodes.capabilities` records the raw executor (what the
+judge said) beside only the languages we can actually grade (what we can do
+with it). Ignoring is not silence — the executors that map to nothing are
+**named once per handshake**, and again after any reload that changes the
+answer. Never from `supportedLanguages()` itself, which the claim loop calls
+twice a second and would turn into a log flood.
+
+**`BridgeOptions.executorToLanguage` becomes required.** It was optional, with
+a default that lowercased, documented as "exactly the inverse of production's
+`key.toUpperCase()` mapping". That was true until F-39, when production's
+mapping became a table; the default outlived its own justification by seven
+slots and was the second copy of the same bug. The argument for making it
+required is verbatim the one `verifyJudge` carries three lines below it in the
+same interface: a caller must not be able to construct a `BridgeServer`
+without deciding this. Thirty-odd test doubles now supply the pair.
+
+**`languageToExecutor` keeps its `toUpperCase()` fallback, and the asymmetry
+is deliberate.** An invented *executor* (`pascal → PASCAL`) matches nothing
+any judge announces, so dispatch finds no capable judge and the job parks with
+a `blocked_reason` an operator can read — loud, and already covered by D68. An
+invented *language key* is the silent one, because it is indistinguishable
+from a real key. And with the inverse now exact, the fallback is unreachable
+on the production path: a job is only claimed if its language is in
+`supportedLanguages()`, which now contains only mapped keys.
+
+*Cost if wrong: an executor deliberately announced ahead of its row is ignored
+until the row lands, rather than being guessed at. D174 makes that state fail
+in CI instead.*
+
+## D173 — The mapping reloads on an empty claim, not only on a handshake
+
+The other half of the same incident. `judged` loaded
+`language_driver_keys` at startup and never again, on this reasoning, written
+into the function itself:
+
+> Loaded once, at `judged` startup, and never refreshed: the migration that
+> adds a language row and the `judged` restart that picks it up are the same
+> deploy.
+
+That held while adding a language meant editing code. F-41 gave limits a form,
+F-46 made it a migration, and on 2026-09-01 `FORCE_MIGRATE=1` (D171's own
+recovery path) applied 0046 against a **running** `judged`. Adding a language
+is now a supported operation that silently requires a restart nothing tells
+anyone about.
+
+**The brief proposed reloading on handshake — "a judge reconnects whenever its
+executors change, which is exactly when the mapping matters". That is half the
+truth and it does not cover this incident.** The mapping also matters when the
+ROWS change, and a row landing involves no reconnect at all. Worse, D171's
+sanctioned deploy order is judge-first, migrate-second — deliberately, so no
+pupil can submit in a language no judge can take — which means that in the
+*blessed* flow every handshake systematically precedes the rows.
+
+**The trigger is the claim loop's empty-claim scan.** `Worker.scanBlocked`
+already runs exactly when a claim comes back empty with judges connected,
+already at most once per five seconds per loop, and already never while the
+fleet is busy. That is precisely the state a newly-added language is stuck
+behind. One indexed read of a seven-row table on that clock is not a cost
+worth designing around, and a periodic timer would be more code for a worse
+trigger.
+
+**Unconditional within the window, never conditional on what `markBlocked`
+reports.** A job blocked *before* the rows landed already carries the right
+`blocked_reason`, so nothing changes and `changed` comes back empty — and the
+standing-blocked job is the incident. Gating the refresh on a reconciliation
+that finds nothing would have reproduced the bug exactly.
+
+**Handshake stays, as a cheaper second trigger** — it costs nothing, it covers
+the judge that dials in after a migration, and it keeps
+`judge_nodes.capabilities` fresh for a judge that restarts. It fires detached,
+after `handshake-success` and after the parked dispatches are woken, so it
+adds neither latency nor a failure mode to a handshake that has already
+succeeded.
+
+**Everything about it fails open.** A reload that rejects leaves the map it
+has, logs one line, and never costs a judge its connection — `admittedJudges`'
+contract, for `admittedJudges`' reason. Both directions are swapped wholesale,
+so no reader can observe the pair half-updated (D68). And a reload that
+changes anything re-announces every connected judge's capabilities, because
+`judge_nodes.capabilities` is written at handshake and would otherwise
+under-report a judge that gained a language on our side without reconnecting.
+
+The reconciliation D68 already had is what corrects the jobs: with the wider
+list, `markBlocked` clears the reason and the next claim takes the work —
+which is what the restart did by hand on 2026-09-01, `pascal AC 3 ms 204 KB`.
+
+*Cost if wrong: one small SELECT per five seconds per idle claim loop, and a
+capability write per judge per actual change. The failure it prevents is a
+province adding a language and getting a queue that never moves, with nothing
+anywhere saying why.*
+
+## D174 — The allow-list and the seeded executors are EQUAL, and every judge service is asked
+
+F-39 wrote the rule down and F-46 enforced it:
+
+> `--only-executors` must stay a superset of the `executor_key`s in
+> `language_driver_keys`, and be identical on every judge service.
+
+F-46's guard went red twice in development and was, on both counts, weaker
+than its own comment. F-47 found out by asking what it would actually have
+caught.
+
+**A guard that matches a flag cannot see the flag's absence.** It regexed the
+compose file for `--only-executors` and asserted there were two, under a
+comment claiming "a third one added without the flag would drop this to a list
+that no longer covers every judge". It would not: a third judge service with
+no flag leaves exactly two matches and passes — while that judge announces
+every executor in the image, `JAVA8` included, which fails its own self-test
+(F-46). The services are now derived from the compose file's own structure,
+every service whose command runs `dmoj judged` must carry the flag, and they
+must agree. The **count** is no longer asserted at all, so a province that
+legitimately runs a third judge is not failed for having one.
+
+**Superset becomes equality.** The direction F-39 named protects the pupil: a
+seeded language the judge may not load is a language nobody can grade (D160),
+offered by the picker anyway. The direction it did not name is the one D172
+just changed the shape of: an allow-listed executor that no row claims is
+announced by the judge, dropped by `judged`, and visible in no query. Before
+D172 it was silently renamed into a fake language; after D172 it is silently
+ignored. Neither is a state to ship, and both are the same one-line
+misconfiguration. So the rule is: **announce exactly what we can grade.**
+
+It stays in `packages/db/test`, beside the seed it reads, rather than joining
+the source-scan guards in `apps/api/test` — the seeded half needs a migrated
+database, and moving it would put a container-backed check into the 121-file
+serial API run for no gain.
+
+*Cost if wrong: a deployment that deliberately wants a judge to load an
+executor this deployment has no language for must add the row or narrow the
+flag. That is the choice being forced, on purpose.*
