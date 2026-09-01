@@ -1,10 +1,11 @@
 # B-31 report — the invalidation class
 
 **Status: complete.** Every mutation in `apps/web/src` enumerated against every
-query key it moves — 48 rows, below. **Three defects found and fixed**, each
-with a test demonstrated red against the unfixed code; **five further gaps
-found, reasoned about and deliberately not fixed**, with the reason given per
-row. Two commits in this clone on `main`, plus this report. **Not pushed, not
+query key it moves — 38 rows below, covering every write the SPA makes.
+**Three defects found and fixed** (table rows 1–3), each with a test
+demonstrated red against the unfixed code; **five further client-side gaps
+found, reasoned about and deliberately not fixed** (rows 4–8), with the reason
+given per row. Two commits in this clone on `main`, plus this report. **Not pushed, not
 deployed.**
 
 `podman-compose`, `scripts/compose-up.sh` and `scripts/deploy.sh` were never
@@ -173,7 +174,7 @@ Every remaining write, with the reason its invalidation is sufficient.
 
 ---
 
-## Defect 1 — the edit form reopens showing what it replaced
+## Defects 1 and 2 — the edit form reopens showing what it replaced
 
 **Severity: high (silent data loss).** `problem-edit.tsx` and
 `contest-edit.tsx`. Fixed in `e971024`; **not deployed**.
@@ -271,7 +272,7 @@ is deliberately out of this slot. **Recorded, not fixed.**
 
 ---
 
-## Defect 2 — publishing a revision does not move the limits a pupil is quoted
+## Defect 3 — publishing a revision does not move the limits a pupil is quoted
 
 **Severity: low (cosmetic within one mount).** `problem-revisions.tsx`. Fixed in
 `59b9385`; **not deployed**.
@@ -369,7 +370,7 @@ absence, since an unsupported all-clear is worse than a missed bug.
   the controller ships `web`, a setter who reopens the problem or contest edit
   form after saving is still prefilled from the roster of values their own save
   replaced, and their next save still writes them back.
-* **The seed-once residual is recorded, not fixed** — see the end of defect 1.
+* **The seed-once residual is recorded, not fixed** — see the end of defects 1 and 2.
   Two people editing the same problem still race, and closing that means
   reseeding an undirty form when fresh data lands, which is a behaviour change
   needing its own decision.
