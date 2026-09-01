@@ -65,6 +65,8 @@ describe('GET /problems/:code — the limits each language really gets', () => {
           'cpp14',
           'c11',
           'python3',
+          'pascal',
+          'java',
         ]);
         expect(limits.find((l) => l.languageKey === 'cpp17')).toEqual({
           languageKey: 'cpp17',
@@ -82,6 +84,25 @@ describe('GET /problems/:code — the limits each language really gets', () => {
           languageName: 'Python 3',
           timeMs: 3000,
           memoryKb: 288_768,
+          allowed: true,
+        });
+        // D169, the same rule reaching two more languages. Pascal's 200 % of
+        // 1000 ms with no addend at all — its floor is BELOW C++'s — and
+        // Java's 300 % with the largest addend in the catalogue, which buys
+        // heap rather than a floor because the judge passes the limit as
+        // `-Xmx`.
+        expect(limits.find((l) => l.languageKey === 'pascal')).toEqual({
+          languageKey: 'pascal',
+          languageName: 'Pascal',
+          timeMs: 2000,
+          memoryKb: 256_000,
+          allowed: true,
+        });
+        expect(limits.find((l) => l.languageKey === 'java')).toEqual({
+          languageKey: 'java',
+          languageName: 'Java 17',
+          timeMs: 3000,
+          memoryKb: 321_536,
           allowed: true,
         });
       } finally {

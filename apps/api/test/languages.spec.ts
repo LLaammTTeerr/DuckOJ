@@ -20,9 +20,9 @@ function byKey(items: LanguageRow[], key: string): LanguageRow | undefined {
 describe('GET /languages', () => {
   // This used to assert `{ items: [] }` — true only while `languages` was a
   // table migrations left empty and `scripts/seed-problem.ts` filled. Since
-  // 0042 the catalogue is seeded BY a migration (F-39/D154), so a migrated
-  // database has five rows and an empty answer would mean the seed did not
-  // run. The route's public reachability is what this test is about, and it
+  // 0042 the catalogue is seeded BY a migration (F-39/D154), and 0046 added
+  // Pascal and Java (F-46/D169), so a migrated database has seven rows and an
+  // empty answer would mean the seed did not run. The route's public reachability is what this test is about, and it
   // is asserted the same way it always was: a 200 with no credentials.
   it('is reachable with no credentials at all, and answers the seeded catalogue', async () => {
     await withTestDb(async (db) => {
@@ -35,6 +35,8 @@ describe('GET /languages', () => {
           'cpp14',
           'cpp17',
           'cpp20',
+          'java',
+          'pascal',
           'python3',
         ]);
       } finally {
@@ -64,6 +66,26 @@ describe('GET /languages', () => {
         // C++ is the language the limits were authored against, so it is the
         // one the adjustment must leave alone.
         expect(byKey(items, 'cpp17')).toMatchObject({ timeMultiplierPct: 100, memoryExtraKb: 0 });
+        // D169. Java's addend is the largest in the catalogue and is NOT a
+        // runtime floor: the judge passes the limit as `-Xmx`, so it buys the
+        // generational headroom SerialGC needs (1.57x the live data). Pascal
+        // is native code with a 0.2 MB floor and gets no addend at all.
+        expect(byKey(items, 'java')).toEqual({
+          key: 'java',
+          name: 'Java 17',
+          extension: 'java',
+          isActive: true,
+          timeMultiplierPct: 300,
+          memoryExtraKb: 65_536,
+        });
+        expect(byKey(items, 'pascal')).toEqual({
+          key: 'pascal',
+          name: 'Pascal',
+          extension: 'pas',
+          isActive: true,
+          timeMultiplierPct: 200,
+          memoryExtraKb: 0,
+        });
       } finally {
         await app.close();
       }
@@ -77,7 +99,7 @@ describe('GET /languages', () => {
   // row would force every consumer to cope with a dangling `languageKey`.
   it('lists an inactive language, flagged rather than hidden', async () => {
     await withTestDb(async (db) => {
-      // `py2` is deliberately NOT one of the five 0042 seeds: this asserts
+      // `py2` is deliberately NOT one of the seven seeded rows: this asserts
       // the flagging rule, which needs a row no migration is going to
       // activate underneath it.
       await db
@@ -95,6 +117,8 @@ describe('GET /languages', () => {
           'cpp14',
           'cpp17',
           'cpp20',
+          'java',
+          'pascal',
           'py2',
           'python3',
         ]);

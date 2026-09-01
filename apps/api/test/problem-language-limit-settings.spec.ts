@@ -65,6 +65,8 @@ describe('GET /problems/:code/language-limits (D159)', () => {
           'cpp14',
           'c11',
           'python3',
+          'pascal',
+          'java',
         ]);
         // The row nobody has overridden: `null`, NOT the resolved 300. This
         // is the whole difference between this route and
@@ -78,6 +80,21 @@ describe('GET /problems/:code/language-limits (D159)', () => {
           languageName: 'Python 3',
           defaultTimeMultiplierPct: 300,
           defaultMemoryExtraKb: 32_768,
+          timeMultiplierPct: null,
+          memoryExtraKb: null,
+          allowed: true,
+        });
+        // F-46's rows reach this form for free, which is the point: the
+        // defaults it renders are read from `languages`, so D169's numbers
+        // appear as the placeholder a setter overrides, with no code here
+        // knowing what they are.
+        expect(
+          res.body.languages.find((l: { languageKey: string }) => l.languageKey === 'java'),
+        ).toEqual({
+          languageKey: 'java',
+          languageName: 'Java 17',
+          defaultTimeMultiplierPct: 300,
+          defaultMemoryExtraKb: 65_536,
           timeMultiplierPct: null,
           memoryExtraKb: null,
           allowed: true,

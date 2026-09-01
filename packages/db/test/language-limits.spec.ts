@@ -35,8 +35,8 @@ describe('@duckoj/db re-exports the limit arithmetic (D159)', () => {
 });
 
 /**
- * Migration 0042's seed, asserted against a database that has only ever had
- * the migrations run on it.
+ * Migrations 0042's and 0046's seeds, asserted against a database that has
+ * only ever had the migrations run on it.
  *
  * The executor names are the load-bearing half. A key mapped to an executor
  * no judge announces is a language whose submissions sit `queued` forever
@@ -44,8 +44,8 @@ describe('@duckoj/db re-exports the limit arithmetic (D159)', () => {
  * the language at all — so these are pinned to what the live judge's own
  * self-test reports, not to what a table in a brief guessed.
  */
-describe('migration 0042 seeds the language catalogue', () => {
-  it('seeds five languages, with cpp17 unadjusted and python3 adjusted', async () => {
+describe('migrations 0042 and 0046 seed the language catalogue', () => {
+  it('seeds seven languages: C++/C unadjusted, python3, pascal and java adjusted', async () => {
     await withTestDb(async (db) => {
       const rows = await db
         .select({
@@ -92,6 +92,30 @@ describe('migration 0042 seeds the language catalogue', () => {
           timeMultiplierPct: 100,
           memoryExtraKb: 0,
         },
+        // D169. Java's 300 % pays a FIXED 55 ms JVM start out of a
+        // proportional instrument, and its +64 MB pays a PROPORTIONAL heap
+        // need (1.57x the live data, because the judge hands `-Xmx<limit>`)
+        // out of an additive one — the reverse of D154's interpreter case,
+        // in both columns.
+        {
+          key: 'java',
+          name: 'Java 17',
+          extension: 'java',
+          isActive: true,
+          timeMultiplierPct: 300,
+          memoryExtraKb: 65_536,
+        },
+        // Pascal is native code and 1.05-1.37x C++ on everything measured
+        // except line-oriented string input; its memory floor (196-204 KB)
+        // is BELOW C++'s, so the addend is 0 and not a token amount.
+        {
+          key: 'pascal',
+          name: 'Pascal',
+          extension: 'pas',
+          isActive: true,
+          timeMultiplierPct: 200,
+          memoryExtraKb: 0,
+        },
         {
           key: 'python3',
           name: 'Python 3',
@@ -119,11 +143,16 @@ describe('migration 0042 seeds the language catalogue', () => {
       // `python3 -> PY3` is the first key whose executor is not its own name
       // uppercased, which is what retired the hard-coded closure in
       // `apps/judged/src/main.ts`.
+      // Free Pascal announces itself as `PAS`, not `PASCAL`, and the JDK as
+      // `JAVA`. `JAVA8` is in the image and unusable — its own autoconf says
+      // "Could not find JVM" — so nothing maps to it (F-46).
       expect(rows).toEqual([
         { key: 'c11', executorKey: 'C11' },
         { key: 'cpp14', executorKey: 'CPP14' },
         { key: 'cpp17', executorKey: 'CPP17' },
         { key: 'cpp20', executorKey: 'CPP20' },
+        { key: 'java', executorKey: 'JAVA' },
+        { key: 'pascal', executorKey: 'PAS' },
         { key: 'python3', executorKey: 'PY3' },
       ]);
     });
@@ -337,6 +366,74 @@ describe('migration 0043 bounds a limit adjustment (D159)', () => {
                                'problem_language_limits_memory_extra_kb_ck')`,
       );
       expect(rows[0]!.n).toBe(4);
+    });
+  });
+});
+
+/**
+ * F-46. The rule F-39 wrote down and nothing enforced:
+ *
+ * > `--only-executors` must stay a superset of the `executor_key`s in
+ * > `language_driver_keys`.
+ *
+ * It is the flag that kept this judge at one language for a fortnight, and it
+ * appears on BOTH judge services in `docker-compose.yml` — the second one
+ * (`judge-2`, behind the `scale` profile) is the easy one to forget, and a
+ * fleet where the two disagree is a fleet where a submission's fate depends
+ * on which judge claimed it. The check reads the real compose file against a
+ * real migrated database, so a migration that seeds a language nobody widened
+ * the flag for fails here rather than as D68's `blocked_reason` in
+ * production.
+ */
+describe('the compose allow-list covers every seeded executor (F-39, F-46)', () => {
+  it('names the same allow-list on every judge service, and it is a superset', async () => {
+    const compose = await readFile(new URL('../../../docker-compose.yml', import.meta.url), 'utf8');
+    const lists = [...compose.matchAll(/'--only-executors',\s*'([^']+)'/g)].map((m) =>
+      m[1]!.split(','),
+    );
+
+    // Two judge services today: `judge` and the profiled `judge-2`. A third
+    // one added without the flag would drop this to a list that no longer
+    // covers every judge, which is exactly the state this guards.
+    expect(lists).toHaveLength(2);
+    expect(lists[0]).toEqual(lists[1]);
+
+    await withTestDb(async (db) => {
+      const rows = await db
+        .select({ executorKey: schema.languageDriverKeys.executorKey })
+        .from(schema.languageDriverKeys)
+        .where(eq(schema.languageDriverKeys.driver, 'dmoj'))
+        .orderBy(asc(schema.languageDriverKeys.executorKey));
+
+      const seeded = rows.map((row) => row.executorKey);
+      expect(seeded.length).toBeGreaterThan(0);
+      for (const list of lists) {
+        expect(list).toEqual(expect.arrayContaining(seeded));
+      }
+    });
+  });
+});
+
+/**
+ * D133's lesson applied to 0046: a seed nobody dares re-run is a seed that
+ * cannot be replayed onto a database that took a different path to today.
+ */
+describe('migration 0046 is idempotent', () => {
+  it('re-runs and still leaves seven languages and seven executor mappings', async () => {
+    await withTestDb(async (db) => {
+      const migration = await readFile(
+        new URL('../migrations/0046_pascal_and_java.sql', import.meta.url),
+        'utf8',
+      );
+      for (const statement of migration.split('--> statement-breakpoint')) {
+        if (statement.trim() === '') continue;
+        await db.execute(sql.raw(statement));
+      }
+      const counts = await db.execute<{ languages: number; mappings: number }>(
+        sql`select (select count(*)::int from languages) as languages,
+                   (select count(*)::int from language_driver_keys where driver = 'dmoj') as mappings`,
+      );
+      expect(counts[0]).toEqual({ languages: 7, mappings: 7 });
     });
   });
 });

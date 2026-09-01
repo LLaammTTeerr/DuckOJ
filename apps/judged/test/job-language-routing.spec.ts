@@ -57,12 +57,13 @@ async function fixture(db: Db): Promise<Fixture> {
       checkerKind: 'wcmp',
     })
     .returning();
-  // Read, not inserted: migration 0042 seeds both of these (F-39/D154), and
-  // `python3` arrives with the 300 % / +32768 KB adjustment that the
-  // multiplier assertions below depend on. A fixture that minted its own rows
-  // would be asserting against numbers it had itself chosen.
+  // Read, not inserted: migrations 0042 and 0046 seed all of these
+  // (F-39/D154, F-46/D169), and `python3`, `pascal` and `java` arrive with
+  // the adjustments the multiplier assertions below depend on. A fixture that
+  // minted its own rows would be asserting against numbers it had itself
+  // chosen.
   const languageIds = new Map<string, number>();
-  for (const key of ['cpp17', 'python3']) {
+  for (const key of ['cpp17', 'python3', 'pascal', 'java']) {
     const [language] = await db
       .select()
       .from(schema.languages)
@@ -302,6 +303,33 @@ describe('recordJudgeNode', () => {
         // 300 % of 1000 ms, and 256000 + 32768 KB. Not 300 % of the memory:
         // CPython's floor is a constant, not a proportion.
         expect(claimed).toMatchObject({ languageKey: 'python3', timeMs: 3000, memoryKb: 288_768 });
+      });
+    }, 120_000);
+
+    /**
+     * D169, pinned from the ENFORCEMENT end. `apps/api`'s
+     * `problem-language-limits.spec.ts` pins the same two numbers as what
+     * `GET /problems/aplusb` puts on screen for the same 1000 ms / 256000 KB
+     * problem — which is the whole of D154's "the number shown is the number
+     * enforced", now carrying two more languages.
+     */
+    it('gives Pascal its 200 % and no addend, and Java its 300 % and heap headroom', async () => {
+      await withTestDb(async (db) => {
+        const f = await fixture(db);
+        await f.enqueue('pascal');
+        await f.enqueue('java');
+
+        const pascal = await f.store.claim('worker-a', ['pascal']);
+        // 200 % of 1000 ms, and memory untouched: Free Pascal's measured
+        // floor (196-204 KB) is BELOW the C++ baseline's, so an addend would
+        // be inventing a cost.
+        expect(pascal).toMatchObject({ languageKey: 'pascal', timeMs: 2000, memoryKb: 256_000 });
+
+        const java = await f.store.claim('worker-b', ['java']);
+        // 300 % of 1000 ms, and 256000 + 65536 KB. The addend is not a floor:
+        // judge-server hands the JVM `-Xmx<limit>`, so it buys the 1.57x
+        // generational headroom SerialGC needs to hold the live data.
+        expect(java).toMatchObject({ languageKey: 'java', timeMs: 3000, memoryKb: 321_536 });
       });
     }, 120_000);
 
