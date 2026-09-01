@@ -78,6 +78,12 @@ const FOREIGN_KEYS: Readonly<Record<string, string>> = {
   'problem_comments.author_id -> users': 'CASCADE',
   'problem_comments.parent_id -> problem_comments': 'CASCADE',
   'problem_comments.problem_id -> problems': 'CASCADE',
+  // D154. Both CASCADE: an override says "on THIS problem, THIS language gets
+  // these limits", so it is meaningless once either side is gone. Nothing
+  // else points at it and no history is lost — a graded submission keeps its
+  // own limits in `submission_cases`, not here.
+  'problem_language_limits.language_id -> languages': 'CASCADE',
+  'problem_language_limits.problem_id -> problems': 'CASCADE',
   'problem_members.problem_id -> problems': 'CASCADE',
   'problem_members.user_id -> users': 'CASCADE',
   'problem_orgs.org_id -> organizations': 'CASCADE',

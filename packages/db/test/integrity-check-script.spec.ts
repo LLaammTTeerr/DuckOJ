@@ -99,7 +99,9 @@ async function plantOneOfEach(db: Db): Promise<void> {
     update problems set current_revision_id = 2 where id = 2;
     update problems set current_revision_id = 3 where id = 3;
 
-    insert into languages (id, key, name, extension) values (1,'ic-cpp','C++','cpp');
+    -- id 901, not 1: migration 0042 seeds the catalogue, so the low ids are
+    -- taken. Pinned rather than serial because the submissions below name it.
+    insert into languages (id, key, name, extension) values (901,'ic-cpp','C++','cpp');
 
     insert into contests (id, key, name, start_time, end_time, format, created_by, is_rated) values
       (1,'ic-c1','Kỳ 1', now(), now() + interval '1 hour','ioi',1,false),
@@ -127,10 +129,10 @@ async function plantOneOfEach(db: Db): Promise<void> {
       (2,3,4);   -- seated on somebody else's individual row
 
     insert into submissions (id, user_id, problem_id, revision_id, language_id, source, state, verdict) values
-      (1,1,1,1,1,'x','done','AC'),
-      (2,1,1,2,1,'x','done','WA'),   -- graded against problem 2's revision
-      (3,2,2,2,1,'x','done','WA'),
-      (4,2,2,2,1,'x','done','WA');
+      (1,1,1,1,901,'x','done','AC'),
+      (2,1,1,2,901,'x','done','WA'),   -- graded against problem 2's revision
+      (3,2,2,2,901,'x','done','WA'),
+      (4,2,2,2,901,'x','done','WA');
     insert into contest_submissions (id, participation_id, contest_problem_id, submission_id) values
       (1,1,1,1),
       (2,1,2,3),   -- participation is in contest 1, the contest problem is in contest 2
