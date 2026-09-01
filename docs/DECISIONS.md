@@ -9199,9 +9199,20 @@ precisely because a username is public, on every scoreboard and in every
 submission list. So a search box over this endpoint discloses nothing that was
 not already served and does not undo D26. What it does add is a way to find an
 account by DISPLAY NAME, which `GET /users/{username}` has always served
-publicly one request at a time; the fold makes that cheaper to sweep, and the
-answer to that is the same rate limiting D16 and D26 already own, not a
-narrower search.
+publicly one request at a time, and the fold makes that cheaper to sweep.
+**Precisely: this endpoint has no rate limiter and never had one** — D16 meters
+login and D26 meters registration, and neither is in this path. That was true
+before this slot and is unchanged by it, because `q` adds no caller, no row and
+no field; if metering is ever wanted here, D13's DB-backed limiter in D16's
+shape is what it should be, and a narrower search is not.
+
+**And the fold column itself never reaches the wire.** `toSummary` maps each
+row into an explicit DTO rather than spreading it, which is what enforces
+that — the first attempt to demonstrate the leak red, by adding `search_fold`
+to `PUBLIC_COLUMNS`, stayed green for exactly that reason. The spec now pins
+the property at the serialization point instead: the `?q=` response carries
+the same keys as the unfiltered one, and neither carries `search_fold`,
+`email`, `status` or a hash.
 
 **`OrgMember` gains `displayName`.** Without it the roster is a column of
 `hs000123` — D61's bulk import mints exactly that — and a search that matched
@@ -9224,7 +9235,7 @@ Cost if wrong: a stored generated column (a whole-table rewrite — 431 rows
 live, 0.25 s for 25 000), one widened public response, one new query parameter
 and three React leaves. The column and the widening are breaking to revert;
 the fold expression itself is one function and reverts free. Tests:
-`apps/api/test/user-search-diacritics.spec.ts` (seven cases, real Vietnamese
+`apps/api/test/user-search-diacritics.spec.ts` (eight cases, real Vietnamese
 names throughout, red three ways — an unfolded string prefix reds 6 of 7, a
 folded whole-string prefix reds 5 because `nguyen` then finds nothing at all,
 and a substring match reds `an` dragging in Hoàng/Lan/Thanh/Trang and `%`

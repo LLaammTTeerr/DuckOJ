@@ -136,6 +136,50 @@ describe('GET /users?q= — Vietnamese names, typed the way people type them (D1
     });
   }, 120_000);
 
+it('changes WHICH ROWS come back and never which fields — and the fold column stays server-side', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        await seedPupils(db);
+        // D26, checked rather than assumed. This route is `@Public()` and was
+        // ALREADY a fully enumerable directory with no `q` at all — an
+        // anonymous caller pages every account with `?limit=&cursor=`. So the
+        // search adds no caller and no row; the only question it can raise is
+        // whether it adds a FIELD.
+        const all = await request(app.getHttpServer()).get('/api/v1/users?limit=50').send();
+        const some = await request(app.getHttpServer()).get('/api/v1/users?limit=50&q=nguyen').send();
+        expect(all.status).toBe(200);
+        expect(some.status).toBe(200);
+
+        // Same shape, fewer rows.
+        expect(Object.keys(some.body.items[0] as object).sort()).toEqual(
+          Object.keys(all.body.items[0] as object).sort(),
+        );
+        expect(some.body.items.length).toBeLessThan(all.body.items.length);
+
+        // Nothing private, and — the new one — `users.search_fold` itself
+        // never reaches the wire. It is derived from two fields this response
+        // already serves, so it discloses nothing, but a generated column that
+        // leaked into a public list is how the next one would.
+        for (const body of [all.body, some.body]) {
+          const wire = JSON.stringify(body);
+          for (const field of ['email', 'status', 'passwordHash', 'password_hash', 'searchFold', 'search_fold']) {
+            expect(wire, `the user list must not contain ${field}`).not.toContain(`"${field}"`);
+          }
+        }
+
+        // And signing in changes nothing here: the search is not a privilege,
+        // it is a way of asking for rows this endpoint has always served.
+        const signedIn = request.agent(app.getHttpServer());
+        await registerAndLogin(signedIn, 'nguoi-dung-thuong');
+        const asUser = await signedIn.get('/api/v1/users?limit=50&q=nguyen');
+        expect(asUser.body.items).toEqual(some.body.items);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 120_000);
+
   it('treats `%` and `_` as characters a person typed, not as wildcards', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);

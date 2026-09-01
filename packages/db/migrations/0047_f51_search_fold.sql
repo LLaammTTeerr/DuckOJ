@@ -30,7 +30,21 @@
 -- STABLE, not IMMUTABLE, so it may not appear in a generated column at all.
 -- `normalize()` is IMMUTABLE and ships with Postgres.
 --
--- The rewrite this ALTER performs is a whole-table one. The live database
--- holds 431 accounts; on the 25 000-account copy it took 0.25 s.
+-- WHAT THIS LOCKS, AND FOR HOW LONG. A STORED generated column cannot be
+-- added without rewriting the table, so this takes an ACCESS EXCLUSIVE lock on
+-- `users` — observed, not assumed: `pg_locks` reports `AccessExclusiveLock` for
+-- the duration — which blocks every read and write of that table, and therefore
+-- every authenticated request, while it runs. Measured on a copy of the live
+-- shape (431 accounts, real Vietnamese display names): **10.9 ms**. On the
+-- 25 000-account province copy it was 0.25 s. It is a stall, not an outage, but
+-- it is a stall that queues behind any long transaction already holding a lock
+-- on `users`, so apply it when the judge is not mid-contest.
+--
+-- `IF NOT EXISTS`, in 0041's spirit rather than drizzle-kit's default. The
+-- migrator runs each journal entry exactly once, so this is not needed for the
+-- normal path — but D131/D133 is the record of a migration that WAS skipped on
+-- production and had to be re-applied by hand, and a hand re-run of a bare
+-- `ADD COLUMN` fails on the second attempt. Costing nothing to make this
+-- re-runnable is cheaper than the afternoon that mistake cost last time.
 
-ALTER TABLE "users" ADD COLUMN "search_fold" text GENERATED ALWAYS AS (translate(regexp_replace(normalize(lower("users"."username" || ' ' || "users"."display_name"), NFD), '[\u0300-\u036f]', '', 'g'), 'đ-_.', 'd   ')) STORED;
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "search_fold" text GENERATED ALWAYS AS (translate(regexp_replace(normalize(lower("users"."username" || ' ' || "users"."display_name"), NFD), '[\u0300-\u036f]', '', 'g'), 'đ-_.', 'd   ')) STORED;
