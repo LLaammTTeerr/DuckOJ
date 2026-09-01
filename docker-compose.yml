@@ -264,9 +264,19 @@ services:
     # OBJC.py does `None + list`) — harmless (the judge still comes online)
     # but it reads exactly like a broken judge in the startup log.
     #
-    # Verified against the running image's own self-test: CPP03, CPP11,
-    # CPP14, CPP17, CPP20, C, C11 and PY3 all pass. There is no CPP23 and,
-    # notably, no C17 — `C` is -std=c99 and `C11` is -std=c11.
+    # Verified against the image's own self-test, not against expectation —
+    # F-46 re-ran it inside `localhost/duckoj-judge:f46-probe`, the tag built
+    # from today's judge/Dockerfile:
+    #
+    #   AVAILABLE: AWK C C11 CPP03 CPP11 CPP14 CPP17 CPP20 GAS64 JAVA NODEJS
+    #              PAS PY3 SED TEXT
+    #
+    # There is no CPP23 and, notably, no C17 — `C` is -std=c99 and `C11` is
+    # -std=c11 (F-39). Free Pascal is `PAS`, not `PASCAL`; the JDK executor is
+    # `JAVA` (javac 17.0.20.1). `JAVA8` ships in the image and stays OFF this
+    # list on purpose: its own autoconf answers "Could not find JVM", because
+    # its `jvm_regex` wants a java-8 tree the image does not have, so
+    # announcing it would be announcing an executor that cannot run.
     command:
       [
         'dmoj',
@@ -276,7 +286,7 @@ services:
         '-c',
         '/judge-config/judge.yml',
         '--only-executors',
-        'CPP14,CPP17,CPP20,C11,PY3',
+        'CPP14,CPP17,CPP20,C11,PY3,PAS,JAVA',
       ]
     # No bind mount for /problems: it is now a purely runtime, in-container
     # directory that judge-agent materialises packages into on demand
@@ -360,7 +370,7 @@ services:
         '-c',
         '/judge-config/judge.yml',
         '--only-executors',
-        'CPP14,CPP17,CPP20,C11,PY3',
+        'CPP14,CPP17,CPP20,C11,PY3,PAS,JAVA',
       ]
     volumes:
       - ./judge/judge.yml:/judge-config/judge.yml.template:ro

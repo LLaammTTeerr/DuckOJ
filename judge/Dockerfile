@@ -61,8 +61,19 @@ COPY apps/judge-agent apps/judge-agent
 RUN pnpm --filter "@duckoj/judge-agent..." typecheck
 
 FROM python:3.11-slim-bookworm
+# The contestant toolchain. `--no-install-recommends` is load-bearing on the
+# last two: `fp-compiler` recommends fp-docs/fp-ide and `openjdk-17-jdk-headless`
+# recommends the whole non-headless JDK with X11 behind it — this image ships
+# to a province's own hardware and may run on modest kit.
+#
+# `openjdk-17-jdk-headless`, pinned to a major version rather than
+# `default-jdk-headless`: the executor needs `javac` (JDK, not JRE), and a
+# floating default silently changes the JVM under `judge.yml`'s `runtime:`
+# paths the next time the base image moves. 17 is what bookworm's default
+# resolves to today, and judge-server's JAVA.py accepts it
+# (`jvm_regex = (?:java-|openjdk)(?:9|[1-9][0-9]+)`).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      g++ libseccomp2 tini \
+      g++ libseccomp2 tini fp-compiler openjdk-17-jdk-headless \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /env /env
 COPY --from=build /judge /judge
