@@ -26,6 +26,7 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
+import type { Agent as SupertestAgent } from 'supertest';
 import { organizations, orgMembers } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { buildApp } from './app.harness.js';
@@ -64,13 +65,34 @@ async function seedPupils(db: Db): Promise<void> {
   );
 }
 
-/** The display names `GET /users?q=` answers with, in the order served. */
-async function search(app: Awaited<ReturnType<typeof buildApp>>, q: string): Promise<string[]> {
-  const res = await request(app.getHttpServer())
-    .get(`/api/v1/users?limit=50&q=${encodeURIComponent(q)}`)
-    .send();
+/**
+ * The display names `GET /users?q=` answers with, in the order served.
+ *
+ * **Signed in, since D188.** This helper used to issue the request with no
+ * credential at all, because the route was `@Public()`; the list now requires
+ * an actor. The search itself is unchanged — D185's fold is not a privilege
+ * and a session grants no extra row — so every expectation below is the one
+ * F-51 wrote, asked by a teacher who is logged in, which is who asks it.
+ */
+async function search(agent: SupertestAgent, q: string): Promise<string[]> {
+  const res = await agent.get(`/api/v1/users?limit=50&q=${encodeURIComponent(q)}`).send();
   expect(res.status, JSON.stringify(res.body)).toBe(200);
   return (res.body.items as { username: string; displayName: string }[]).map((u) => u.displayName);
+}
+
+/**
+ * A signed-in teacher, which is what `GET /users` now takes (D188).
+ *
+ * The usernames passed here are deliberately `kiemtra*` — no word of them is
+ * a prefix of `nguyen`, `an`, `do`, `dinh` or `uoc`. The observer is a row in
+ * `users` like any other, so a name that matched would appear in the very
+ * result it was created to read, and every expectation below would be one
+ * longer for a reason that has nothing to do with the fold.
+ */
+async function teacher(app: Awaited<ReturnType<typeof buildApp>>, username: string) {
+  const agent = request.agent(app.getHttpServer());
+  await registerAndLogin(agent, username);
+  return agent;
 }
 
 describe('GET /users?q= — Vietnamese names, typed the way people type them (D185)', () => {
@@ -79,17 +101,18 @@ describe('GET /users?q= — Vietnamese names, typed the way people type them (D1
       const app = await buildApp(db);
       try {
         await seedPupils(db);
+        const gv = await teacher(app, 'kiemtramot');
         // The ruling itself. Unaccented in, accented out. The third row is
         // the form teacher, matched on the `nguyen` inside the hyphenated
         // username `gv-nguyen-van-an` — the same word rule, applied to the
         // half of an account a bulk import chose.
         const expected = ['Nguyễn Văn An', 'Nguyễn Thị Bình', 'Giáo viên chủ nhiệm'];
-        expect(await search(app, 'nguyen')).toEqual(expected);
+        expect(await search(gv, 'nguyen')).toEqual(expected);
         // Folding BOTH sides is what makes the accented query work too: a
         // reader with a Vietnamese keyboard must not be punished for using it.
-        expect(await search(app, 'Nguyễn')).toEqual(expected);
+        expect(await search(gv, 'Nguyễn')).toEqual(expected);
         // And case, which is the same fold's first step.
-        expect(await search(app, 'NGUYEN')).toEqual(expected);
+        expect(await search(gv, 'NGUYEN')).toEqual(expected);
       } finally {
         await app.close();
       }
@@ -101,16 +124,17 @@ describe('GET /users?q= — Vietnamese names, typed the way people type them (D1
       const app = await buildApp(db);
       try {
         await seedPupils(db);
+        const gv = await teacher(app, 'kiemtrahai');
         // `An` is the LAST word of `Nguyễn Văn An`. A string prefix would
         // have answered nothing here, which is the failure this rules out.
         // The teacher's own account matches too, on the `an` at the end of
         // its hyphenated username.
-        expect(await search(app, 'an')).toEqual(['Nguyễn Văn An', 'Giáo viên chủ nhiệm']);
+        expect(await search(gv, 'an')).toEqual(['Nguyễn Văn An', 'Giáo viên chủ nhiệm']);
         // And NOT `Hoàng`, `Lan`, `Thanh` or `Trang`: a substring match would
         // return all four and call it an answer.
-        expect(await search(app, 'an')).not.toContain('Hoàng Thị Lan');
-        expect(await search(app, 'an')).not.toContain('Lê Ngọc Trang');
-        expect(await search(app, 'an')).not.toContain('Trần Thanh Hà');
+        expect(await search(gv, 'an')).not.toContain('Hoàng Thị Lan');
+        expect(await search(gv, 'an')).not.toContain('Lê Ngọc Trang');
+        expect(await search(gv, 'an')).not.toContain('Trần Thanh Hà');
       } finally {
         await app.close();
       }
@@ -122,14 +146,15 @@ describe('GET /users?q= — Vietnamese names, typed the way people type them (D1
       const app = await buildApp(db);
       try {
         await seedPupils(db);
+        const gv = await teacher(app, 'kiemtraba');
         // `đ` is a letter with a STROKE, not a letter with a mark: NFD leaves
         // it exactly as it was, so it is mapped by hand in `searchFold`. Miss
         // that and every Đỗ, Đặng, Đinh and Dũng in the province is unfindable
         // by a keyboard that cannot type it.
-        expect(await search(app, 'do')).toEqual(['Đỗ Hữu Ước']);
-        expect(await search(app, 'dinh')).toEqual(['Phạm Đình Dũng']);
+        expect(await search(gv, 'do')).toEqual(['Đỗ Hữu Ước']);
+        expect(await search(gv, 'dinh')).toEqual(['Phạm Đình Dũng']);
         // Two marks on one vowel — `ư` + horn, then the acute — both peeled.
-        expect(await search(app, 'uoc')).toEqual(['Đỗ Hữu Ước']);
+        expect(await search(gv, 'uoc')).toEqual(['Đỗ Hữu Ước']);
       } finally {
         await app.close();
       }
@@ -141,13 +166,20 @@ it('changes WHICH ROWS come back and never which fields — and the fold column 
       const app = await buildApp(db);
       try {
         await seedPupils(db);
-        // D26, checked rather than assumed. This route is `@Public()` and was
-        // ALREADY a fully enumerable directory with no `q` at all — an
-        // anonymous caller pages every account with `?limit=&cursor=`. So the
-        // search adds no caller and no row; the only question it can raise is
-        // whether it adds a FIELD.
-        const all = await request(app.getHttpServer()).get('/api/v1/users?limit=50').send();
-        const some = await request(app.getHttpServer()).get('/api/v1/users?limit=50&q=nguyen').send();
+        // D26, checked rather than assumed. The question this case answers is
+        // whether `q` adds a FIELD — it changes which rows come back, and the
+        // fold column must never reach the wire.
+        //
+        // **The comparison is now made SIGNED IN, and that is the D188 change
+        // visible from here.** F-51 asked it anonymously, and asserted at the
+        // end that an anonymous caller and a signed-in one got byte-identical
+        // results — true then, because the route was `@Public()`, and
+        // deliberately no longer true: the anonymous half of that pair is now
+        // a 401, which `user-list-enumeration.spec.ts` is what pins. The
+        // disclosure property itself is unchanged and still checked here.
+        const gv = await teacher(app, 'kiemtranam');
+        const all = await gv.get('/api/v1/users?limit=50').send();
+        const some = await gv.get('/api/v1/users?limit=50&q=nguyen').send();
         expect(all.status).toBe(200);
         expect(some.status).toBe(200);
 
@@ -168,12 +200,19 @@ it('changes WHICH ROWS come back and never which fields — and the fold column 
           }
         }
 
-        // And signing in changes nothing here: the search is not a privilege,
-        // it is a way of asking for rows this endpoint has always served.
-        const signedIn = request.agent(app.getHttpServer());
-        await registerAndLogin(signedIn, 'nguoi-dung-thuong');
-        const asUser = await signedIn.get('/api/v1/users?limit=50&q=nguyen');
+        // The search is not a privilege: it is a way of asking for rows this
+        // endpoint serves to every actor alike, so a second ordinary account
+        // sees exactly what the first did. D188 gated WHO may ask; it did not
+        // make the answer depend on who asked, and a list that differed per
+        // caller would be a new oracle rather than a closed one.
+        const other = await teacher(app, 'nguoi-dung-thuong');
+        const asUser = await other.get('/api/v1/users?limit=50&q=nguyen');
         expect(asUser.body.items).toEqual(some.body.items);
+
+        // And the anonymous caller — the one F-51 measured taking the whole
+        // roster in five requests — is refused, search or no search.
+        const stranger = await request(app.getHttpServer()).get('/api/v1/users?limit=50&q=nguyen');
+        expect(stranger.status).toBe(401);
       } finally {
         await app.close();
       }
@@ -185,13 +224,14 @@ it('changes WHICH ROWS come back and never which fields — and the fold column 
       const app = await buildApp(db);
       try {
         await seedPupils(db);
+        const gv = await teacher(app, 'kiemtrabon');
         // The oldest bug in every LIKE-backed search: `%` matching the whole
         // table. The fold runs first and the escape second, which is the order
         // that matters — `_` is folded to a space before it can be a wildcard,
         // and `%` survives the fold and is escaped.
-        expect(await search(app, '%')).toEqual([]);
-        expect(await search(app, '%nguyen')).toEqual([]);
-        expect(await search(app, '_')).toEqual([]);
+        expect(await search(gv, '%')).toEqual([]);
+        expect(await search(gv, '%nguyen')).toEqual([]);
+        expect(await search(gv, '_')).toEqual([]);
       } finally {
         await app.close();
       }

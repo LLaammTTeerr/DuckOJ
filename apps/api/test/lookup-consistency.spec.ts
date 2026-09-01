@@ -8,7 +8,7 @@ import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
-import { insertUser } from './submissions.fixtures.js';
+import { insertUser, registerAndLogin } from './submissions.fixtures.js';
 import { MAILER, type LogMailer } from '../src/mail/mailer.js';
 import { passwordResetMail } from '../src/mail/templates.js';
 
@@ -51,17 +51,26 @@ describe('password reset finds mixed-case emails', () => {
   }, 120_000);
 });
 
+/**
+ * Signed in, since D188: `GET /users` is no longer `@Public()`. The input
+ * handling under test is the same, and asking it as an actor is what a real
+ * caller does — the ONE thing that had to be kept is the order of the two
+ * refusals, since a malformed cursor must still be a 422 rather than being
+ * swallowed by the walk meter's 429.
+ */
 describe('user list input handling', () => {
   it('rejects garbage and negative cursors with the sibling 422 invalid_cursor', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'nguoi-tra-cuu');
         for (const cursor of ['12abc', '-5', 'abc']) {
-          const res = await request(app.getHttpServer()).get(`/api/v1/users?cursor=${cursor}`);
+          const res = await agent.get(`/api/v1/users?cursor=${cursor}`);
           expect(res.status, `cursor=${cursor}`).toBe(422);
           expect(res.body.code, `cursor=${cursor}`).toBe('invalid_cursor');
         }
-        await request(app.getHttpServer()).get('/api/v1/users?cursor=0').expect(200);
+        await agent.get('/api/v1/users?cursor=0').expect(200);
       } finally {
         await app.close();
       }
@@ -72,13 +81,15 @@ describe('user list input handling', () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
       try {
+        const agent = request.agent(app.getHttpServer());
+        await registerAndLogin(agent, 'nguoi-go-phan-tram');
         await insertUser(db, 'abc');
         await insertUser(db, 'axc');
-        const all = await request(app.getHttpServer()).get('/api/v1/users?q=%25').expect(200);
+        const all = await agent.get('/api/v1/users?q=%25').expect(200);
         expect(all.body.items).toEqual([]);
-        const underscore = await request(app.getHttpServer()).get('/api/v1/users?q=a_c').expect(200);
+        const underscore = await agent.get('/api/v1/users?q=a_c').expect(200);
         expect(underscore.body.items).toEqual([]);
-        const literal = await request(app.getHttpServer()).get('/api/v1/users?q=ab').expect(200);
+        const literal = await agent.get('/api/v1/users?q=ab').expect(200);
         expect(literal.body.items.map((u: { username: string }) => u.username)).toEqual(['abc']);
       } finally {
         await app.close();

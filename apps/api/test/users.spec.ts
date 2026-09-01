@@ -207,8 +207,15 @@ describe('GET /users', () => {
         for (const name of ['alpha1', 'alpha2', 'alpha3', 'beta1']) {
           await registerAndLogin(request.agent(app.getHttpServer()), name);
         }
+        // Signed in, since D188: the list is no longer `@Public()`. The
+        // reader is `zeta`, deliberately not one of the four seeded above —
+        // an observer whose own username matched `alpha` would appear in the
+        // result it exists to check. What is under test is unchanged: which
+        // rows the word match returns, and that the walk pages.
+        const reader = request.agent(app.getHttpServer());
+        await registerAndLogin(reader, 'zeta1');
 
-        const hit = await request(app.getHttpServer()).get('/api/v1/users').query({ q: 'alpha' });
+        const hit = await reader.get('/api/v1/users').query({ q: 'alpha' });
         expect(hit.status).toBe(200);
         expect(UserPage.safeParse(hit.body).success).toBe(true);
         expect((hit.body.items as { username: string }[]).map((u) => u.username).sort()).toEqual([
@@ -220,13 +227,13 @@ describe('GET /users', () => {
 
         // `lpha` is a substring of every alpha* name and must match none of
         // them: a substring search cannot use the username index.
-        const substring = await request(app.getHttpServer()).get('/api/v1/users').query({ q: 'lpha' });
+        const substring = await reader.get('/api/v1/users').query({ q: 'lpha' });
         expect(substring.body.items).toHaveLength(0);
 
-        const paged = await request(app.getHttpServer()).get('/api/v1/users').query({ q: 'alpha', limit: 2 });
+        const paged = await reader.get('/api/v1/users').query({ q: 'alpha', limit: 2 });
         expect(paged.body.items).toHaveLength(2);
         expect(paged.body.nextCursor).not.toBeNull();
-        const next = await request(app.getHttpServer())
+        const next = await reader
           .get('/api/v1/users')
           .query({ q: 'alpha', limit: 2, cursor: paged.body.nextCursor });
         expect(next.body.items).toHaveLength(1);

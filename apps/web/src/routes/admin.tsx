@@ -66,9 +66,16 @@ const FIND_LIMIT = 10;
  *
  * **This one searches the whole judge on purpose**, unlike the team form's
  * picker (which is scoped to a school's roster): a global admin acts across
- * every organization, and the endpoint behind it is `@Public()` — it discloses
- * nothing here that an anonymous caller cannot already page through without a
- * search term at all.
+ * every organization, and this screen is already behind the admin gate.
+ *
+ * **It is also the only caller `GET /users` has, and D188 was decided on
+ * that.** The endpoint used to be `@Public()` and anonymously walkable — a
+ * province's whole pupil roster in five requests — and now requires an actor.
+ * Nothing here changed for it: this screen is signed in as an admin, and the
+ * walk meter D188 added counts only requests carrying a `cursor`, which this
+ * lookup never sends. The `findMore` line below is a HINT, deliberately not a
+ * "load more" button — an admin who needs a different person types a better
+ * name, and a directory nobody can page is the point.
  */
 function FindAccount({ onPick }: { onPick: (username: string) => void }) {
   const t = useT();

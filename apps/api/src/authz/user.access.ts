@@ -12,13 +12,46 @@ import type {
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
+import { RateLimiter } from '../common/rate-limiter.js';
 import { nameSearchWhere } from './name-search.js';
 import type { Actor } from './actor.js';
 import { frozenSubmissionsWhere } from './submission.freeze.js';
 
 const { users } = schema;
 
-/** Exactly the columns §3 marks public. `email` and `status` are not among them. */
+/* ------------------------------------------------------------- D188 --- */
+
+/** The `rate_events.purpose` a walk of `GET /users` is counted under. */
+export const USER_WALK_PURPOSE = 'user_walk';
+
+/**
+ * Pages of `GET /users` a single ACCOUNT may advance through per window.
+ *
+ * A judgement, not a measurement — three constants, exactly as D16 says of
+ * its own. Twenty pages is generous for every use anyone has articulated
+ * (nothing in this product pages this endpoint at all) and slow for the one
+ * nobody has: at the endpoint's maximum page of 100 it is 2 000 rows an hour,
+ * so a province's 25 000 accounts take half a working day and leave a
+ * `rate_events` trail under one user id the whole way.
+ */
+export const USER_WALK_LIMIT = 20;
+export const USER_WALK_WINDOW_MS = 3_600_000;
+
+/**
+ * Exactly the columns §3 marks public. `email` and `status` are not among them.
+ *
+ * **D188 asked whether `globalRole` and `createdAt` should come off this list
+ * too, and the answer is no — for the same reason, twice.** Both are already
+ * served, one account at a time and to anyone, by `GET /users/{username}`:
+ * `UserProfile` is `UserSummary.extend(...)`, so trimming the LIST would fork
+ * the two DTOs and buy nothing an attacker cannot get by asking for a username
+ * they already have. `globalRole` is a setter/admin badge the profile page
+ * renders and the admin lookup shows beside a name so "yes, that is the
+ * person" is answerable at all; `createdAt` is a join date every judge prints
+ * on a profile. Neither is a moderation fact — that is `status`, which has
+ * never been here. What made this endpoint a disclosure was the BULK, and the
+ * bulk is what the gate below closes.
+ */
 const PUBLIC_COLUMNS = {
   id: users.id,
   username: users.username,
@@ -39,14 +72,81 @@ const PUBLIC_COLUMNS = {
  */
 @Injectable()
 export class UserAccessService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  private readonly limiter: RateLimiter;
 
-  async list(query: UserListQueryDto): Promise<UserPageDto> {
+  constructor(
+    @Inject(DB) private readonly db: Db,
+    @Inject(RateLimiter) limiter?: RateLimiter,
+  ) {
+    // Defaulted on D80's precedent, and for D80's reason: the specs that
+    // construct this service by hand keep working, and they get the REAL
+    // limiter rather than a bypass.
+    this.limiter = limiter ?? new RateLimiter(db);
+  }
+
+  /**
+   * D188 — the walk, and only the walk.
+   *
+   * A request with no `cursor` answers the same first page however often it
+   * is asked for; that is a lookup, not enumeration. A request WITH one
+   * advances, and advancing is the only way past the first page — so metering
+   * cursor-bearing requests bounds a sweep exactly, and a search box, which
+   * never sends one, is structurally incapable of spending the budget. That
+   * matters more than it sounds: the one caller this endpoint has in the whole
+   * product is the admin account lookup, which issues a request per keystroke
+   * with no debounce. A meter loose enough for that box (~300 per 15 minutes,
+   * to survive a few names typed in a row) would still let a caller harvest a
+   * hundred rows per `q` underneath it — so metering every request would take
+   * D16's self-lockout risk and buy no bound at all.
+   *
+   * The key is `user:<id>` and **never an address**. A school computer room is
+   * one NAT address and thirty pupils; an IP-keyed meter would hand the room a
+   * single budget between them and lock the last arrivals out in the middle of
+   * a contest, which is worse than the problem it solves. Requiring an actor
+   * is what makes the per-account key possible — the gate and the meter are
+   * one ruling, not two.
+   *
+   * `retryAfterSeconds` then `record`, D16's split rather than D13's `allow`:
+   * a refused request records nothing, so the window DRAINS instead of a
+   * caller who hit the wall pinning themselves against it.
+   */
+  private async walkRetryAfter(actor: Actor): Promise<number | null> {
+    return this.limiter.retryAfterSeconds(
+      USER_WALK_PURPOSE,
+      `user:${String(actor.userId)}`,
+      USER_WALK_LIMIT,
+      USER_WALK_WINDOW_MS,
+    );
+  }
+
+  /**
+   * `actor` is non-null, unlike `getByUsername`'s: D188 took `@Public()` off
+   * this route, so there is no anonymous caller to model. The type is the
+   * enforcement's second layer — a handler that forgot the marker could not
+   * even call this.
+   */
+  async list(actor: Actor, query: UserListQueryDto): Promise<UserPageDto> {
     // The same cursor discipline as every sibling list (problems, contests,
     // orgs, submissions): Number(), safe-integer, non-negative — parseInt
     // accepted '12abc' and negatives, and answered a different status and
     // code than the identical mistake anywhere else.
     const after = parseUserCursor(query.cursor);
+
+    // Checked after the cursor is parsed and before a row is read: a
+    // malformed cursor is still a 422 (it is a mistake, not a walk), and a
+    // refused walker costs this process no query at all — `register`'s rule.
+    if (query.cursor !== undefined) {
+      const retryAfter = await this.walkRetryAfter(actor);
+      if (retryAfter !== null) {
+        throw new AppError(
+          429,
+          'user_walk_rate_limited',
+          'Too many pages of the user list have been requested. Try again later.',
+          undefined,
+          { 'Retry-After': String(retryAfter) },
+        );
+      }
+    }
 
     // D185. One rule for "find this person", shared with the org roster:
     // diacritics folded on both sides, matched at a WORD boundary.
@@ -68,6 +168,13 @@ export class UserAccessService {
       .where(and(gt(users.id, after), search))
       .orderBy(asc(users.id))
       .limit(query.limit + 1);
+
+    // Recorded only for a page that was actually served, and only for a walk
+    // — see `walkRetryAfter`. After the read, so a query that threw costs the
+    // caller nothing.
+    if (query.cursor !== undefined) {
+      await this.limiter.record(USER_WALK_PURPOSE, `user:${String(actor.userId)}`, USER_WALK_WINDOW_MS);
+    }
 
     const items = rows.slice(0, query.limit).map(toSummary);
     return {

@@ -94,13 +94,49 @@ export class UsersController {
     return this.teams.myTeams(actor, query);
   }
 
+  /**
+   * **D188 — the pupil directory is not a public download.**
+   *
+   * This route used to carry `@Public()`, and with it an anonymous caller
+   * could page every account on the judge: five requests at `limit=100` took
+   * the whole roster off the live host, with no credential and no meter. On a
+   * province's judge that is every pupil's real name, most of them children.
+   *
+   * **Individual visibility is not what changed.** `GET /users/{username}`,
+   * its progress and its rating are still `@Public()` — a judge is a public
+   * thing, D46's rank ramp hangs off exactly those, and a profile someone
+   * links to from a scoreboard must open for a stranger. What is gated is
+   * BULK: the difference between looking a person up and downloading the
+   * school.
+   *
+   * `@RequireScope('users:read')` alone, and deliberately not `@SessionOnly()`
+   * — this is an API as well as a website, and a token that already carries
+   * the profile scope is a named, revocable principal, which is precisely what
+   * an anonymous caller is not. Exactly one marker, so `route-marker-
+   * coverage.spec.ts` stays satisfied; the refusal is `AuthGuard`'s 401
+   * `authentication_required`, the same one `GET /submissions` has always
+   * answered, and no 403 is introduced for a read.
+   *
+   * The list is metered per ACCOUNT in `UserAccessService`, on the walk only.
+   * The `@CurrentActor()` below is what makes that key possible.
+   *
+   * **And it is defended twice, which was found by trying to break it.** The
+   * first attempt to demonstrate this red — putting `@Public()` back and
+   * changing nothing else — stayed GREEN, because `@CurrentActor()` throws the
+   * same 401 when no actor was attached (`authz-default.spec.ts` pins exactly
+   * that second layer). The real red needed `@Public()` AND `@MaybeActor()`,
+   * which is the true pre-D188 shape. Worth recording, because the next reader
+   * removing the marker on the assumption that the marker is the whole
+   * enforcement would be wrong in the safe direction here and might not be
+   * somewhere else.
+   */
   @Get()
-  @Public()
   @RequireScope('users:read')
   list(
+    @CurrentActor() actor: Actor,
     @Query(new ZodValidationPipe(UserListQuery)) query: UserListQueryDto,
   ): Promise<UserPageDto> {
-    return this.users.list(query);
+    return this.users.list(actor, query);
   }
 
   /**

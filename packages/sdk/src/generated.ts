@@ -10396,7 +10396,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search users by username or display name prefix */
+        /**
+         * Search users by username or display name word (signed in)
+         * @description **Requires an actor — a session, or a token carrying `users:read` (D188).** This route was public until F-52, and an anonymous caller could page every account on the judge: five requests at `limit=100` took the whole roster off the live host, with no credential and no meter. On a province’s judge that list is every pupil’s real name, most of them children, so the ruling is that bulk enumeration is a thing you have to be someone to do. Individual visibility is untouched: `GET /users/{username}`, its progress and its rating are still public, because that is how a competitive-programming judge works. Not `@SessionOnly()` — this is an API as well as a website, and a token is a named, revocable principal, which is exactly what an anonymous caller is not. The WALK is metered per account: a request carrying `cursor` spends one of twenty pages per hour, and a request without one spends nothing, so a search box (which never sends a cursor) can never be locked out by the meter. The key is the account, never the address — a school computer room is one NAT address and thirty pupils, and an IP-keyed meter would hand the room one budget between them and shut the last arrivals out mid-contest.
+         */
         get: {
             parameters: {
                 query?: {
@@ -10430,6 +10433,46 @@ export interface paths {
                                 createdAt: string;
                             }[];
                             nextCursor: string | null;
+                        };
+                    };
+                };
+                /** @description Not signed in (`authentication_required`). Deliberately the same refusal `GET /submissions` answers, and deliberately not a 403 or an empty page. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Too many pages of the list have been walked by this account (`user_walk_rate_limited`) — twenty per hour, counting only requests that carry a `cursor` (D188). `Retry-After` carries the whole seconds until the oldest page falls out of the window. A refused request records nothing, so the window drains rather than pinning a caller against it. */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
                         };
                     };
                 };
