@@ -86,6 +86,33 @@ services:
       # Statement PDFs (Phase 7b): the binary is baked into the image with
       # the mitex cache pre-seeded; unset this to turn the route back to 501.
       TYPST_BIN: /usr/local/bin/typst
+      # Mail (D1, D57, F-40). Until F-40 this block did not exist: the
+      # config module had read a full SMTP_* set since 3f and NONE of it
+      # reached the container, so an operator could fill in every line of
+      # `.env`, restart, and get the same silent no-op — with the reset link
+      # for a locked-out teacher going to this log and nowhere else.
+      #
+      # All six are passed, and all six default to EMPTY rather than being
+      # conditionally omitted, because compose cannot omit conditionally.
+      # `SMTP_HOST=` is what an unconfigured stack hands the process, and
+      # `unsetWhenBlank` in apps/api/src/config/config.schema.ts is what makes
+      # that mean "no mail configured" instead of a boot crash on `.min(1)`.
+      # Do not "tidy" these into literals: this file is committed, and
+      # SMTP_PASSWORD is a credential. Values live in `.env` only.
+      #
+      # Empty SMTP_HOST is a legitimate configuration (development, and any
+      # province that has not been given a relay yet) — it is not silent
+      # about it: the API warns at boot naming this variable, `readyz`
+      # reports `mail: "log"`, and the admin dashboard says so on screen.
+      SMTP_HOST: ${SMTP_HOST:-}
+      # Defaults (587, false, and the From address) belong to the schema, not
+      # to a `${VAR:-default}` here — one place for each, so the deployment
+      # cannot disagree with the code about what unset means.
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      MAIL_FROM: ${MAIL_FROM:-}
     volumes:
       - package_store:/var/lib/duckoj/packages
     # This condition is correct per the Compose spec and is left in place for

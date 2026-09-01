@@ -1,5 +1,33 @@
 import { z } from 'zod';
 
+/**
+ * Treats the empty string as "not set".
+ *
+ * This is what makes the mail variables safe to wire through
+ * `docker-compose.yml`, and it is not a nicety. Compose has no way to pass a
+ * variable *only if the operator set one*: the file's own convention —
+ * `WS_EXTRA_ORIGINS: ${WS_EXTRA_ORIGINS:-}` — renders an unset variable as
+ * the EMPTY STRING, and the container is handed `SMTP_HOST=`. Read literally
+ * that is a zero-length host failing `.min(1)`, a `SMTP_PORT=''` that coerces
+ * to `0` and fails `.min(1)`, and a `SMTP_SECURE=''` outside the enum: three
+ * refusals, one boot crash, on a stack whose `.env` simply says nothing about
+ * mail. Before F-40 nothing noticed, because no `SMTP_*` variable reached the
+ * `api` service at all.
+ *
+ * So the rule is stated once, here, rather than being worked around with a
+ * defaulting incantation per variable in a YAML file: an environment variable
+ * that is present and empty means exactly what an absent one means. It wraps
+ * only the mail variables, because they are the only optional set compose
+ * passes — extending it to a required variable would turn "you forgot
+ * DATABASE_URL" into a confusing default rather than the refusal it should be.
+ */
+function unsetWhenBlank<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    schema,
+  );
+}
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
@@ -30,22 +58,39 @@ const EnvSchema = z.object({
   // actually exercise the over-limit path without uploading 256 MiB.
   PACKAGE_UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(268_435_456),
 
+  TYPST_BIN: z.string().min(1).optional(),
+
   /**
    * SMTP. Absent means mail is logged rather than sent (3f §2) — a developer
    * must not need a mail server to register a user, and neither must a test.
    * Resend is configured here like any other host (`smtp.resend.com`), which
    * is why no provider SDK exists in this codebase.
+   *
+   * Every one of the six is wrapped in `unsetWhenBlank`, because since F-40
+   * `docker-compose.yml` passes all six into the `api` service and passes
+   * them EMPTY on a deployment that configured no mail. See that helper for
+   * what reading them literally would do at boot.
    */
-  SMTP_HOST: z.string().min(1).optional(),
-  TYPST_BIN: z.string().min(1).optional(),
-  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASSWORD: z.string().optional(),
-  SMTP_SECURE: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((value) => value === 'true'),
-  MAIL_FROM: z.string().default('DuckOJ <no-reply@duckoj.local>'),
+  SMTP_HOST: unsetWhenBlank(z.string().min(1).optional()),
+  SMTP_PORT: unsetWhenBlank(z.coerce.number().int().min(1).max(65535).default(587)),
+  // An empty username is not a username. Left as `''` it would build a
+  // nodemailer `auth` block and make the transport send `AUTH LOGIN` with no
+  // credential — a server that accepts anonymous relay would take it, and one
+  // that does not would refuse a connection the operator believes is
+  // unauthenticated.
+  SMTP_USER: unsetWhenBlank(z.string().optional()),
+  SMTP_PASSWORD: unsetWhenBlank(z.string().optional()),
+  SMTP_SECURE: unsetWhenBlank(
+    z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
+  ),
+  // The default lives HERE and nowhere else. Repeating it inside a compose
+  // `${MAIL_FROM:-DuckOJ <no-reply@duckoj.local>}` would put a string with
+  // spaces and angle brackets through podman-compose's interpolation for no
+  // gain, and give the deployment a second place to disagree with the code.
+  MAIL_FROM: unsetWhenBlank(z.string().default('DuckOJ <no-reply@duckoj.local>')),
 });
 
 export interface AppConfig {
