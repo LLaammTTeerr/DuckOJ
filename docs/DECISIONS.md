@@ -8382,3 +8382,255 @@ serial API run for no gain.
 *Cost if wrong: a deployment that deliberately wants a judge to load an
 executor this deployment has no language for must add the row or narrow the
 flag. That is the choice being forced, on purpose.*
+
+## D175 — The digits a double is rendered with are pinned where the connection is made, and 0045's `SET LOCAL` is now asserted rather than read out of a dependency
+
+Migration 0045 sets `SET LOCAL extra_float_digits = 3` before backfilling
+`submissions.subtask_summary`, because at `0` a `to_jsonb(double precision)`
+writes 15 digits rather than the shortest exactly-round-tripping form: **48 861
+of 50 000 generated values failed to round-trip** on this cluster. That guard
+is real and it is confined to one migration's transaction.
+
+B-32 checked the doors around it. The **write** path is safe and does not need
+the setting at all — drizzle's `PgJsonb.mapToDriverValue` is a client-side
+`JSON.stringify`, so the number crossing into jsonb from `EventWriter` is
+rendered in Node and the GUC cannot reach it. Then B-32 found the door still
+open and recorded it as **O1** rather than fixing it:
+
+> the **reads** of `submission_cases.points` inherit the cluster default,
+> pinned by nothing.
+
+Those readers are `EventWriter.writeTerminal` and the fold's residue read
+`loadSubtasksFromCases`. Both pull `points` as `float8` **over the wire**,
+which means through `float8out`, which means through `extra_float_digits`.
+`packages/db/src/client.ts` passed `{ max: 10 }` and nothing else, and the GUC
+appears nowhere in `node_modules/postgres` or `node_modules/drizzle-orm`.
+
+**Safe by inheritance, which is not safe.** PostgreSQL ≥ 12 defaults to 1 and
+this cluster reports 1. A province's Postgres is not this one: `ALTER DATABASE
+… SET extra_float_digits = 0` and `PGOPTIONS` are both things an administrator
+does, and the consequence is that a value read back for a scoreboard fold
+differs in its last bits from the value the judge wrote — **a wrong scoreboard,
+reported as a right one, on their hardware and not ours.**
+
+### The pin goes in the startup packet
+
+`postgres(url, { max: 10, connection: { extra_float_digits: '3' } })`.
+postgres.js merges `options.connection` into its `StartupMessage`
+(`src/connection.js`), and that buys three things a `SET` issued after
+connecting does not:
+
+- **every physical connection carries it**, including one opened to replace a
+  connection the server dropped. A pool that recycles cannot lose it. This is
+  the property the brief asked to be proved rather than argued, so the test
+  kills the backend from under the pool, asserts the pid changed, and asserts
+  the setting did not;
+- **it becomes the session's RESET value.** `DISCARD ALL` and `RESET ALL`
+  return to 3, not to the cluster's 0. A connection pooler placed in front of
+  Postgres issues `DISCARD ALL` between clients, so this is not hypothetical
+  for a province that adds one;
+- it costs **no round trip**. A statement per connection costs one; a statement
+  per query — the shape this decision explicitly refuses — costs one per query,
+  on every read in the deployment, to fix a rendering question.
+
+**3 rather than 1.** Any value above 0 is the shortest round-tripping form at
+≥ 12 and 1 would do. 3 is the number migration 0045 already chose, and two
+different pins for one property is how they come to disagree.
+
+**Not applied to `runMigrations`' pool**, deliberately, and this is the one
+part of the ruling that is a judgement rather than a measurement. A migration
+that renders a float server-side has to say so itself, as 0045 does. Pinning
+the migrator's connection would make that `SET LOCAL` look like a line
+somebody could delete, and would change how every future migration renders a
+`float8` with nobody having reviewed the change. It is the same objection D161
+raised against a `version` column: a guarantee that depends on nobody noticing
+is a discipline, not a constraint. What closes the gap instead is the test
+below.
+
+### O3, closed with the same machinery
+
+B-32 also recorded that 0045's `SET LOCAL` **holds only because drizzle wraps a
+migration's statements in one transaction** (`pg-core/dialect.js`), and that
+this was verified by reading a dependency — which a drizzle upgrade can change
+silently. Outside a transaction block `SET LOCAL` is a no-op that Postgres only
+*warns* about, so the failure would be a backfill quietly written at the
+cluster default.
+
+`packages/db/test/float-digits-pin.spec.ts` runs a scratch migrations folder
+through the real `migrate()`, with 0045's **own** `SET LOCAL` line read out of
+the migration file — so deleting that line from 0045 reds this test rather than
+quietly removing what it is about. It carries a **negative control**: the same
+statements issued one by one outside a transaction, asserted to store the
+truncated value *and* to raise Postgres's own `SET LOCAL can only be used in
+transaction blocks`. Without that control the assertion would pass on any
+cluster whose default is already above 0, which is every cluster we have.
+
+### The hostile province is built, not imagined
+
+Every test in that file runs against a database created with `ALTER DATABASE …
+SET extra_float_digits = 0`. That is what makes the assertions non-vacuous, and
+it is also what settles by **measurement** a precedence question that would
+otherwise be settled by reading the manual: a startup-packet parameter wins
+over `ALTER DATABASE … SET`.
+
+*Ruled by the implementer during the F-48 slot, no human available to consult.
+Cost if wrong: `extra_float_digits = 3` changes only how many digits Postgres
+prints for a `float8`; at ≥ 12 every value above 0 is the shortest
+exactly-round-tripping form, so 1 and 3 render identically for every double and
+the only observable difference from today's inherited 1 is on a cluster
+someone has set to 0 — which is the case this exists for. Reversible by
+deleting one option. Tests: `packages/db/test/float-digits-pin.spec.ts`.
+Red→green: removing the option reds four of its six cases, with `expected '0'
+to be '3'` and `expected 0.333333333333333 to be 0.3333333333333333`;
+neutering the migration's `SET LOCAL` reds the fifth.*
+
+## D176 — Which forms get D161's token, which one does not, and why `expectedVersion` stays optional
+
+D161 ruled that a save declares the state it believes it is replacing and the
+server refuses a stale one under `SELECT … FOR UPDATE`. F-43 applied it to
+`problem-edit` and `contest-edit` and said plainly what it had left:
+
+> the other three seed-once forms still have no token.
+
+The reasoning was never about problems and contests. It is about **any form
+that seeds once from a cached query and saves by replacement**, because that
+combination silently overwrites a co-editor's work with a copy the form has
+been holding since before they saved. No request fails. Nobody is told.
+
+### The five forms, and the verdict on each
+
+Read against the code rather than against F-43's count, because F-41's
+language-limits form and F-46's changes had both landed since.
+
+| Form | Seeds once from a query? | Saves by replacement? | Can two people hold it open? | Verdict |
+| --- | --- | --- | --- | --- |
+| `problem-edit` | yes | yes — every field | yes, any number of `problem_members` | **has it** (D161) |
+| `contest-edit` | yes | yes — `problems`, `orgSlugs` | yes, a creator and an admin | **has it** (D161) |
+| `problem-language-limits` | yes, `seededFrom === code` and never reseeded | yes — PUT replaces the whole set | yes, co-authors of one problem | **gets it** |
+| `problem-sets`' `SetForm` | yes, five `useState` **initializers** | yes — `problems` replaces the list | yes, `loadForEdit` admits an org owner **or** an org admin | **gets it** |
+| `teams`' `TeamForm` | hybrid — `x ?? loaded?.x` | yes — `members` replaces the roster | yes, same gate as the set | **gets it** |
+| `settings` | yes, `seededFrom === user.id` | yes — `displayName`, `locale`, `timezone` | **no** | **does not get it** |
+| `contest-new`'s clone | yes, from the source contest | n/a — POSTs a new contest | n/a | **does not get it** |
+
+Two of those verdicts are the ones worth arguing.
+
+**`TeamForm`'s hybrid seeding does not exempt it.** "Untouched fields track the
+live query" is clause A implemented implicitly — and D161 has already ruled
+that clause A alone is not a guarantee, because the person who loses work is
+the one who has typed. It is also worse than clause A: there is no `!dirty`
+condition anywhere in it, and no single moment the form was "seeded at", so it
+could not carry a token without being rewritten. It was rewritten.
+
+**`settings` does not need one, and the reason is not that the form is small.**
+It is that the field list has exactly one writer. `PATCH /users/me` is the
+account's own owner; `PATCH /admin/users/{username}`, the only other route that
+touches a user row from the outside, writes `globalRole` and nothing else —
+not a field this form can send, so an administrator granting somebody `setter`
+must not refuse the display name they are saving in the same minute. **What
+would make this stop being true**, stated so the next person does not have to
+re-derive it: any screen that lets a *second* person write a display name,
+locale or timezone — an admin "manage this account" form, an org teacher
+correcting a pupil's name after a roster import, or an SSO sync writing
+preferences on sign-in. On the day one of those lands, this row becomes a
+"gets it" and the machinery is already here.
+
+The same-person-in-two-tabs case is real and is deliberately not covered. The
+loss it can cause is one person's own two edits to their own three fields, and
+they can see both screens. That is not the class this exists for.
+
+**`contest-new`'s clone overwrites nothing.** A stale clone source produces a
+new contest seeded from a slightly old copy, on a form the organiser is
+looking at before they press create. The residual is honest and it is not data
+loss.
+
+### What each token is over — and, more usefully, what it is not
+
+D161's rule applied rather than restated: the token is over exactly what the
+request can write, computed from the **stored** row, taking no actor.
+
+- **language limits** — the stored override rows, keyed by language `key`.
+  **Not** `base` (the published revision's authored limits) and **not** the
+  per-language defaults. Both are on the response and neither is writable here;
+  publishing a corrected revision, or retuning Python deployment-wide as D169
+  did, changes what that screen *previews* without changing anything it can
+  *save*. A token over them would lock a co-author out over a write they do not
+  own.
+- **problem set** — slug, name, description, deadline, and the items with their
+  points and order. **Not** `solvedCount`, `visible` or the `me` cells: those
+  move when a pupil submits and differ between two teachers who may both edit
+  the set, which is exactly the viewer-dependence D161 rejected a DTO hash for.
+- **team** — slug, name, roster. **Not** `contests`: a team entering a round is
+  not an edit to the team, and refusing a rename made in the same minute as a
+  join would fire on contest morning, which is when both happen.
+
+### The language-limits lock is on `problems`, not on its own table
+
+Every other check locks the row it is about. This one cannot: the set being
+replaced may be **empty**, so there is no row to lock when a setter adds the
+first override, and two setters each adding a first override would find nothing
+to wait on. The parent `problems` row is the one thing that is always there —
+and it is the row `ProblemAccessService.update`'s own check already locks, so
+the statement writer and the limits writer serialise against each other as
+well.
+
+### `expectedVersion` stays optional, and this is the argument
+
+The brief asks whether it should become required now that most forms carry it.
+It should not, and the decisive reason is **deploy ordering**, not automation.
+
+Both `UpdateProblemRequest` and `UpdateContestRequest` are `.strict()`. That is
+what makes the *old bundle against a new API* direction safe — an old bundle
+simply sends no token and is unchecked, which is the pre-D161 behaviour — and
+the *new bundle against an old API* direction fatal, because a field the
+contract has not learned is a 422 on every save. Making `expectedVersion`
+required would break the one direction that currently works: an old bundle,
+served from a cache or a browser that has not reloaded, would have **every**
+save refused, on a route the operator did not touch, during a window they
+cannot control.
+
+The weaker arguments still hold and are recorded: this API is a documented
+surface with personal access tokens behind it, and an import script writes
+problems. What the rule actually says is **"a client that tells me what it
+believes it is overwriting will not be allowed to overwrite something else"**.
+
+The honest cost, unchanged from D161 and now five times as wide: **a client
+that forgets the token is silently unprotected**, and no test on the server can
+tell that client apart from a script that never had the problem. What makes
+this tolerable is that the *forms* are required to send it, and each of them
+has a test that asserts they do.
+
+### One schema is not `.strict()`, and it changes that route's deploy story
+
+`UpdateProblemLanguageLimitsRequest` never was strict, and this decision does
+**not** make it so — that would be a separate breaking change to a documented
+route, made under cover of a concurrency fix. The consequence is worth stating
+because it differs per route:
+
+- on `PATCH /problems/{code}`, `PATCH /contests/{key}`,
+  `PATCH /orgs/{slug}/sets/{setSlug}` and
+  `PATCH /orgs/{slug}/teams/{teamSlug}` (all `.strict()`), a **new bundle
+  against an old API** is a 422 on every save;
+- on `PUT /problems/{code}/language-limits`, zod strips the unknown key, so the
+  same mismatch is a save that lands **unchecked** — the pre-slot behaviour,
+  not a broken form.
+
+Neither is a reason to change the other. The deploy rule is the same either
+way: **API first, or both together.**
+
+### The conflict message was reused, not reinvented
+
+D161 shipped the shape — D110's summary, D146's attribution where the server
+offers any, D148's button, the announced reseed, and an explicit "load the
+newer version" that is never automatic. All five forms now use it. The three
+new sentences each name the field actually at risk, because on these forms the
+answer to "can I retype my way out of this?" is **no**: what the save would
+have replaced is a list the person at the keyboard never wrote.
+
+*Ruled by the implementer during the F-48 slot, no human available to consult.
+Cost if wrong: three more forms can now refuse a save that would previously
+have landed. The refusal is recoverable and the loss it replaces is not, which
+is D161's own trade; reversing it is deleting one field from three schemas and
+one check from three services. Tests:
+`apps/api/test/edit-version-conflict.spec.ts` (twelve cases over HTTP),
+`apps/web/test/edit-form-conflict.spec.tsx` (eight, one `QueryClient` across
+each walk). Red→green in both commit messages.*
