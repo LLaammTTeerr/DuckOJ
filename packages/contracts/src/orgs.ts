@@ -121,6 +121,12 @@ export type OrgMemberDto = z.infer<typeof OrgMember>;
  * — through a route with no organization gate on it at all. This route
  * already runs `findVisibleOrgRow`, the same 404 gate `GET /orgs/{slug}`
  * uses, so the search inherits exactly the visibility the roster already had.
+ *
+ * **`q` requires an actor (D191).** It matches a WORD prefix, so an anonymous
+ * caller iterating prefixes could reconstitute a whole public school's roster
+ * without ever asking for page two — which would make closing the anonymous
+ * cursor theatre. A teacher searching their own school is signed in; nobody
+ * else has a use for it. Anonymous `q` is 401 `authentication_required`.
  */
 export const OrgMemberListQuery = PaginationQuery.extend({
   q: z.string().min(1).max(64).optional(),
@@ -137,6 +143,14 @@ export type OrgMemberListQueryDto = z.infer<typeof OrgMemberListQuery>;
  * abandoned long ago. The cursor is the last username on the page, which is
  * exactly the column the roster is ordered by, so it is stable under
  * concurrent joins and departures.
+ *
+ * **`nextCursor` is always `null` for an anonymous reader (D191)** — the one
+ * field this ruling trims, and the only one that needed trimming. Every column
+ * of `OrgMember` is already public one row at a time, so withholding
+ * `displayName` or `joinedAt` would cost a teacher the readable roster D185
+ * built and close nothing; what made the roster a disclosure was the BULK, and
+ * the cursor is what made the bulk reachable. Handing a stranger a cursor and
+ * then refusing it would be a contradiction, so they are never handed one.
  *
  * The four *write* endpoints that answer with the roster (add, remove, set
  * role, decide a join request) return the FIRST page of it, with its own
@@ -380,11 +394,39 @@ registry.registerPath({
   description:
     'A page, ordered by username. `q` finds a person by a word of their username or display ' +
     'name with Vietnamese diacritics folded on both sides — `nguyen` finds `Nguyễn`, and `an` ' +
-    'finds `Nguyễn Văn An` by the given name a teacher calls them (D185).',
+    'finds `Nguyễn Văn An` by the given name a teacher calls them (D185).\n\n' +
+    '**An anonymous caller gets a page, not a walk and not a search (D191).** A public ' +
+    'organization stays readable without signing in — visibility is a deliberate setting (D56) ' +
+    'and a school that marked itself public did so to be seen — but the first page is all a ' +
+    'stranger gets: `nextCursor` is always `null` for them, and both `cursor` and `q` are ' +
+    'refused with 401. `q` is refused for the same reason `cursor` is, not as an extra: D185’s ' +
+    'search matches a WORD prefix, so a caller who cannot advance could still reconstitute a ' +
+    'whole roster by iterating prefixes. Before this ruling, one anonymous request per ' +
+    'organization took 80 distinct pupils off the live host across 27 public schools, and the ' +
+    'import contract advertises rosters of 5 000.\n\n' +
+    'For a signed-in caller the WALK is metered per account, spending the SAME budget as ' +
+    '`GET /users` — one window, never two. Members of the organization and global admins are ' +
+    'exempt: a teacher paging a five-thousand-pupil school is two hundred presses of “load ' +
+    'more”, and that is the reader the roster exists for.',
   request: { params: OrgSlugParam, query: OrgMemberListQuery },
   responses: {
     200: { description: 'A page of members, sorted by username', content: { 'application/json': { schema: OrgMemberPage } } },
+    401: {
+      description:
+        'An anonymous caller sent `cursor` or `q` (`authentication_required`, D191). The first ' +
+        'page without either is still served to anyone who can see the organization at all.',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
     404: ORG_NOT_FOUND,
+    429: {
+      description:
+        'Too many pages of a roster have been walked by this account (`user_walk_rate_limited`) ' +
+        '— twenty per hour, counting only requests that carry a `cursor`, and shared with ' +
+        '`GET /users` (D188, D191). Never answered to a member of the organization or to a ' +
+        'global admin. `Retry-After` carries the whole seconds until the oldest page falls out ' +
+        'of the window; a refused request records nothing, so the window drains.',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
 

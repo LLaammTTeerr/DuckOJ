@@ -23,6 +23,8 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { isAdmin, type Actor } from './actor.js';
 import { visibleOrgsWhere } from './org.visibility.js';
 import { nameSearchWhere } from './name-search.js';
+import { RateLimiter } from '../common/rate-limiter.js';
+import { recordWalk, walkRefused, walkRetryAfter } from './walk.meter.js';
 
 /** Postgres SQLSTATE for a unique-constraint violation. */
 /** Advisory-lock namespace for the per-org owner invariant (two-int form). */
@@ -91,10 +93,18 @@ type OrgRow = { id: number; slug: string; visibility: 'public' | 'private' };
  */
 @Injectable()
 export class OrgAccessService {
+  private readonly limiter: RateLimiter;
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(NotificationsService) private readonly notifications: NotificationsService,
-  ) {}
+    @Inject(RateLimiter) limiter?: RateLimiter,
+  ) {
+    // Optional and defaulted on D80's precedent, and for D80's reason: the
+    // specs that construct this service by hand keep working, and they get
+    // the REAL limiter rather than a bypass.
+    this.limiter = limiter ?? new RateLimiter(db);
+  }
 
   async listVisible(
     actor: Actor | null,
@@ -181,7 +191,85 @@ export class OrgAccessService {
     query: OrgMemberListQueryDto,
   ): Promise<OrgMemberPageDto> {
     const row = await this.findVisibleOrgRow(actor, slug);
-    return this.rosterOf(row.id, query);
+
+    /* ------------------------------------------------------------ D191 --- */
+
+    // **An anonymous reader gets a PAGE. Not a walk, and not a search.**
+    //
+    // This route is not `GET /users`, and D188's blanket gate does not
+    // transfer: `/orgs/$slug` has no route guard in the web app, so a public
+    // school's page — its roster included — renders for a stranger, and an
+    // org marked `public` was marked that way on purpose (D56 makes
+    // visibility a deliberate setting). Requiring a session here would break
+    // a legitimate choice. What is closed instead is exhaustion: one fixed,
+    // non-advancing page shows who is in the school without shipping a
+    // machine-readable list of every pupil.
+    //
+    // `nextCursor` is the field that is trimmed, and it is the only one that
+    // needed to be. Every column served here is already public one row at a
+    // time (`GET /users/{username}` serves `displayName` to anyone), so
+    // trimming `displayName` or `joinedAt` would cost a teacher the readable
+    // roster D185 built and close nothing — the disclosure was the BULK, and
+    // the cursor is what made the bulk reachable.
+    //
+    // **`q` goes with the cursor, and that is not belt-and-braces.** D185's
+    // search matches a WORD prefix of the folded username or display name, so
+    // a caller who cannot advance can still reconstitute a whole roster by
+    // iterating prefixes — closing the cursor while leaving anonymous `q`
+    // open would be theatre. A teacher searching their school is signed in;
+    // nobody else has a use for it.
+    //
+    // The refusal is 401 `authentication_required`, the same one `GET
+    // /submissions` and (since D188) `GET /users` answer. Not a 403 — this is
+    // a read, and a read a caller may not do says 401 or 404, never 403 — and
+    // not a silently truncated page, which is D187's exact sin.
+    if (actor === null) {
+      if (query.cursor !== undefined || query.q !== undefined) {
+        throw new AppError(
+          401,
+          'authentication_required',
+          'Sign in to search this roster or to read past its first page.',
+        );
+      }
+      const page = await this.rosterOf(row.id, query);
+      // Handing out a cursor and then refusing it would be a contradiction,
+      // so an anonymous page never carries one. The web hides "load more"
+      // and the search box for a signed-out reader and says why, rather than
+      // letting the roster look as though it ended here.
+      return { items: page.items, nextCursor: null };
+    }
+
+    // **The school's own people are not metered on their own roster**, and a
+    // global admin is not metered anywhere. The org-import contract
+    // advertises a five-thousand-pupil school: that is two hundred presses of
+    // "load more" for the teacher who has to find somebody, and metering them
+    // at twenty pages an hour would be D16's self-lockout on a real screen —
+    // the failure D188 refused to buy on the admin lookup, bought here
+    // instead. A caller with no standing in the school has no such page to
+    // render, and is exactly the sweep this bounds.
+    //
+    // The residual, named: on an `open` organization a harvester can join to
+    // become exempt. Accepted — appearing on the roster is attribution of the
+    // strongest kind available, and removal revokes it — and it is why the
+    // meter is a bound on strangers rather than a claim of impossibility.
+    const metered = !isAdmin(actor) && (await this.roleIn(actor, row.id)) === null;
+
+    // The SAME budget `GET /users` spends (`walk.meter.ts`), never a parallel
+    // one: two budgets would mean a caller who exhausted their twenty pages
+    // of the directory still had twenty more of every school, which is the
+    // same province-scale sweep with an extra step in it.
+    if (metered && query.cursor !== undefined) {
+      const retryAfter = await walkRetryAfter(this.limiter, actor.userId);
+      if (retryAfter !== null) throw walkRefused(retryAfter);
+    }
+
+    const page = await this.rosterOf(row.id, query);
+
+    // After the read, so a query that threw costs the caller nothing — and
+    // only for a walk, so the roster search box (which never sends a cursor)
+    // is structurally incapable of spending the budget, exactly as D188's is.
+    if (metered && query.cursor !== undefined) await recordWalk(this.limiter, actor.userId);
+    return page;
   }
 
   /**

@@ -14,28 +14,30 @@ import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { RateLimiter } from '../common/rate-limiter.js';
 import { nameSearchWhere } from './name-search.js';
+import { recordWalk, walkRefused, walkRetryAfter } from './walk.meter.js';
 import type { Actor } from './actor.js';
 import { frozenSubmissionsWhere } from './submission.freeze.js';
 
 const { users } = schema;
 
-/* ------------------------------------------------------------- D188 --- */
-
-/** The `rate_events.purpose` a walk of `GET /users` is counted under. */
-export const USER_WALK_PURPOSE = 'user_walk';
+/* --------------------------------------------------------- D188/D191 --- */
 
 /**
- * Pages of `GET /users` a single ACCOUNT may advance through per window.
+ * The walk meter moved to `walk.meter.ts` in F-53 and is **re-exported here
+ * unchanged**, not copied.
  *
- * A judgement, not a measurement — three constants, exactly as D16 says of
- * its own. Twenty pages is generous for every use anyone has articulated
- * (nothing in this product pages this endpoint at all) and slow for the one
- * nobody has: at the endpoint's maximum page of 100 it is 2 000 rows an hour,
- * so a province's 25 000 accounts take half a working day and leave a
- * `rate_events` trail under one user id the whole way.
+ * D191 found the second list of people a stranger could sweep — a public
+ * organization's roster — and ruled that it spends the SAME budget rather
+ * than a parallel one of its own. Two identical constants in two files would
+ * have been the bug: a caller who exhausted their twenty pages of `GET /users`
+ * would still have had twenty more pages of every school. The re-export keeps
+ * `user-list-enumeration.spec.ts` importing from where D188 put them.
  */
-export const USER_WALK_LIMIT = 20;
-export const USER_WALK_WINDOW_MS = 3_600_000;
+export {
+  USER_WALK_LIMIT,
+  USER_WALK_PURPOSE,
+  USER_WALK_WINDOW_MS,
+} from './walk.meter.js';
 
 /**
  * Exactly the columns §3 marks public. `email` and `status` are not among them.
@@ -85,7 +87,8 @@ export class UserAccessService {
   }
 
   /**
-   * D188 — the walk, and only the walk.
+   * D188 — the walk, and only the walk. The meter itself is `walk.meter.ts`,
+   * shared verbatim with the organization roster since D191.
    *
    * A request with no `cursor` answers the same first page however often it
    * is asked for; that is a lookup, not enumeration. A request WITH one
@@ -99,26 +102,8 @@ export class UserAccessService {
    * hundred rows per `q` underneath it — so metering every request would take
    * D16's self-lockout risk and buy no bound at all.
    *
-   * The key is `user:<id>` and **never an address**. A school computer room is
-   * one NAT address and thirty pupils; an IP-keyed meter would hand the room a
-   * single budget between them and lock the last arrivals out in the middle of
-   * a contest, which is worse than the problem it solves. Requiring an actor
-   * is what makes the per-account key possible — the gate and the meter are
-   * one ruling, not two.
-   *
-   * `retryAfterSeconds` then `record`, D16's split rather than D13's `allow`:
-   * a refused request records nothing, so the window DRAINS instead of a
-   * caller who hit the wall pinning themselves against it.
+   * The key is `user:<id>` and **never an address** — see `walkKey`.
    */
-  private async walkRetryAfter(actor: Actor): Promise<number | null> {
-    return this.limiter.retryAfterSeconds(
-      USER_WALK_PURPOSE,
-      `user:${String(actor.userId)}`,
-      USER_WALK_LIMIT,
-      USER_WALK_WINDOW_MS,
-    );
-  }
-
   /**
    * `actor` is non-null, unlike `getByUsername`'s: D188 took `@Public()` off
    * this route, so there is no anonymous caller to model. The type is the
@@ -136,16 +121,8 @@ export class UserAccessService {
     // malformed cursor is still a 422 (it is a mistake, not a walk), and a
     // refused walker costs this process no query at all — `register`'s rule.
     if (query.cursor !== undefined) {
-      const retryAfter = await this.walkRetryAfter(actor);
-      if (retryAfter !== null) {
-        throw new AppError(
-          429,
-          'user_walk_rate_limited',
-          'Too many pages of the user list have been requested. Try again later.',
-          undefined,
-          { 'Retry-After': String(retryAfter) },
-        );
-      }
+      const retryAfter = await walkRetryAfter(this.limiter, actor.userId);
+      if (retryAfter !== null) throw walkRefused(retryAfter);
     }
 
     // D185. One rule for "find this person", shared with the org roster:
@@ -173,7 +150,7 @@ export class UserAccessService {
     // — see `walkRetryAfter`. After the read, so a query that threw costs the
     // caller nothing.
     if (query.cursor !== undefined) {
-      await this.limiter.record(USER_WALK_PURPOSE, `user:${String(actor.userId)}`, USER_WALK_WINDOW_MS);
+      await recordWalk(this.limiter, actor.userId);
     }
 
     const items = rows.slice(0, query.limit).map(toSummary);

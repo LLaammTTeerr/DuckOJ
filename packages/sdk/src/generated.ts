@@ -5553,6 +5553,10 @@ export interface paths {
         /**
          * The members of an organization visible to the caller
          * @description A page, ordered by username. `q` finds a person by a word of their username or display name with Vietnamese diacritics folded on both sides — `nguyen` finds `Nguyễn`, and `an` finds `Nguyễn Văn An` by the given name a teacher calls them (D185).
+         *
+         *     **An anonymous caller gets a page, not a walk and not a search (D191).** A public organization stays readable without signing in — visibility is a deliberate setting (D56) and a school that marked itself public did so to be seen — but the first page is all a stranger gets: `nextCursor` is always `null` for them, and both `cursor` and `q` are refused with 401. `q` is refused for the same reason `cursor` is, not as an extra: D185’s search matches a WORD prefix, so a caller who cannot advance could still reconstitute a whole roster by iterating prefixes. Before this ruling, one anonymous request per organization took 80 distinct pupils off the live host across 27 public schools, and the import contract advertises rosters of 5 000.
+         *
+         *     For a signed-in caller the WALK is metered per account, spending the SAME budget as `GET /users` — one window, never two. Members of the organization and global admins are exempt: a teacher paging a five-thousand-pupil school is two hundred presses of “load more”, and that is the reader the roster exists for.
          */
         get: {
             parameters: {
@@ -5588,8 +5592,48 @@ export interface paths {
                         };
                     };
                 };
+                /** @description An anonymous caller sent `cursor` or `q` (`authentication_required`, D191). The first page without either is still served to anyone who can see the organization at all. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
                 /** @description No such organization, or one the caller may not see — the two are indistinguishable */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Too many pages of a roster have been walked by this account (`user_walk_rate_limited`) — twenty per hour, counting only requests that carry a `cursor`, and shared with `GET /users` (D188, D191). Never answered to a member of the organization or to a global admin. `Retry-After` carries the whole seconds until the oldest page falls out of the window; a refused request records nothing, so the window drains. */
+                429: {
                     headers: {
                         [name: string]: unknown;
                     };
