@@ -6978,3 +6978,112 @@ if 300 % is wrong: submissions graded against a limit that is too generous or
 too tight until it is changed, with no data loss and no schema change either
 way. The live database was not written; the migration and the Compose change
 deploy together, and until they do the seeded rows do not exist.*
+
+## D155 — A production stack that cannot send mail refuses the reset, and the refusal is about the server
+
+`docs/PROVINCE-READINESS.md` has listed SMTP first since 29 August. Until
+F-40, `docker-compose.yml` passed **no** `SMTP_*` variable into the `api`
+service, so every deployment this campaign has produced resolved `LogMailer`
+— the transport whose entire job is to deliver nothing. `POST
+/auth/password/forgot` answered `202` regardless, and the web app said a link
+had been sent. It had not. Nobody finds out until a student is locked out on
+contest day, and by then the log line has rotated away.
+
+The wiring is fixed elsewhere in this slot. This decision is the other half:
+what the endpoint should DO when there is no transport.
+
+- **It answers `503 mail_unavailable`, in production, when the resolved
+  transport is the no-op.** Not 202. A success response for a mail that was
+  never sent is the failure this whole slot exists to remove, and it is worse
+  than an error because it actively sends the person to wait by an inbox.
+- **This does not reopen D26's oracle, and the reason is structural rather
+  than careful.** The refusal is a function of two facts about the SERVER —
+  which transport `MailModule` resolved at boot, and `NODE_ENV` — and of
+  nothing whatsoever about the request. It cannot vary with the address, so
+  it cannot answer "does this person have an account here". Every caller gets
+  the identical 503 for every address, including addresses that have never
+  existed. What D26 forbids is a response that DIFFERS by account; this one
+  differs by deployment.
+- **It is raised first — before the rate limiter and before the user
+  lookup.** That is the half a response body does not carry. Raised after the
+  lookup the answer would be uniform in content and non-uniform in timing,
+  and a timing oracle is still an oracle.
+  `apps/api/test/mail-unavailable.spec.ts` pins this with a database handle
+  and a limiter that throw on any access at all: the test cannot pass unless
+  nothing else ran.
+- **Only production.** `LogMailer` is the deliberate default in development
+  and test, not a misconfiguration — a developer must not need a mail server
+  to register a user, and neither must ~900 specs. There the log IS the
+  delivery and the developer is its reader. In production nobody reads it.
+- **`POST /auth/email/verify/send` refuses the same way.** It is the same
+  promise ("a mail is coming") from the same broken server. Registration is
+  unaffected: `AuthController.register` already wraps that call in a
+  try/catch precisely so a mailer outage cannot turn a successful signup into
+  a 500, so on a mail-less production stack the account is still created and
+  the operator gets one ERROR line per registration naming the reason — which
+  is the record that was missing before.
+- **The screen says it in Vietnamese, and says it about the site.** The API's
+  `detail` is English; `apps/web/src/routes/account-recovery.tsx` maps the
+  `mail_unavailable` code to its own catalogue entry (D18), worded to name
+  the deployment — "no reset link can be sent, to this address or to any
+  other". A refusal that reads as "your address was rejected" would be the
+  membership oracle arriving by the back door of a translation.
+
+**The alternative considered and rejected** was to keep answering 202 and put
+the honesty only in the boot log and on the admin dashboard. Both of those
+exist (they are the rest of F-40), and neither reaches the person standing in
+front of a screen that says a mail is on its way. The log tells an operator
+who is already looking; the dashboard tells an admin who thought to check.
+Only the response tells the teacher.
+
+*Ruled by the implementer during the F-40 slot, no human available to
+consult. Reversible in one commit — the guard is five lines in
+`AccountRecoveryService` — and the failure mode if it is wrong is that a
+production stack with deliberately-logged mail starts answering 503 on two
+endpoints, which is loud and immediately visible rather than silent. The
+opposite error is the one that has already cost this campaign a fortnight of
+"mail is configured, isn't it?".*
+
+## D156 — Mail state on the dashboard is configuration; the only connection is one a human asks for
+
+The operations dashboard (D47) refreshes every fifteen seconds and `readyz`
+is probed every ten. Both now report mail, and neither opens a socket.
+
+- **The panel reads configuration, and says `configured: false` plainly.** A
+  health readout that dialled an SMTP server six times a minute would be
+  traffic against somebody else's relay, and a firewalled host — which does
+  not refuse, it says nothing — would hang the probe. That is exactly the
+  failure `READY_TIMEOUT_MS` exists to prevent for the database, arriving
+  through a new door.
+- **The unconfigured case is an alarm, not an em dash.** Every other "not
+  told" on that page (`judgedConcurrency`, an idle judge) is a fact about a
+  reading. This one is a fact about the deployment: a province with no
+  `SMTP_HOST` cannot reset a single password. It renders as `role="alert"`
+  naming the variable.
+- **`POST /admin/mail/test` is the one place a connection is opened**, and it
+  is opened because an admin typed an address and pressed a button. It goes
+  through the INJECTED mailer — the transport production uses — because a
+  transport assembled for the test would prove that *some* SMTP client can
+  reach the host, which is not the question.
+- **It answers `200` with `delivered: false` and the transport's own error
+  text on failure.** The request succeeded: the admin asked "can you send
+  mail" and got a complete answer. The value of having opened the connection
+  is entirely in the string — `535 5.7.8 Authentication credentials invalid`,
+  `certificate has expired`, `ECONNREFUSED 10.0.0.5:587` — each of which
+  names the next thing to do, where "could not send mail" names nothing. An
+  error status would carry that string in a body many clients discard. The
+  one genuine `503` is a deployment with no transport to test.
+- **Bounded at 15 s.** nodemailer's own connection timeout is minutes; a
+  probe's contract is to answer, and an admin owed a verdict must not be
+  given a spinner.
+- **The password is absent by construction.** The panel reports host, port,
+  TLS mode, sender and `authenticated: boolean` — there is no field for the
+  secret to leak into, and `admin-dashboard.spec.ts` asserts the whole
+  serialised snapshot does not contain it.
+- **Not rate-limited.** The caller is an authenticated admin on a
+  session-only route sending one message to an address they typed, which is
+  every other button on this dashboard.
+
+*Ruled by the implementer during the F-40 slot. The live database is not
+touched by any of it; the route is additive and the panel is a new field on
+an existing response.*
