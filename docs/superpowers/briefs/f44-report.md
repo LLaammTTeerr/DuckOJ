@@ -19,6 +19,15 @@ Each captured statement was then handed **verbatim, parameters included** to
 `EXPLAIN (ANALYZE, BUFFERS)` on the same connection. 41 statements, 0 EXPLAIN
 failures.
 
+**The "after" numbers come from elsewhere, and that is deliberate.** The
+container runs the image built at `6089829`, which predates this slot's
+rewrite, so the harness could only ever measure the *before* state. Every
+"after" figure below is either from `apps/api/test/progress-plan.spec.ts` —
+which captures the emitted SQL from drizzle's logger in exactly the same way,
+against the rewritten service — or from a hand-issued `EXPLAIN` of the
+statement that spec captured, run on `f44_scratch` with migration 0044's own
+`CREATE INDEX` statements applied verbatim.
+
 The harness had to run inside the container because the deployed Postgres
 publishes no host port — the same reason `scripts/integrity-check.ts` shells
 out to `podman exec … psql`. It read `DATABASE_URL` from the container's own
