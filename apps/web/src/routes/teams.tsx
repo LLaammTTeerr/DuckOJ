@@ -433,6 +433,48 @@ function TeamForm({
     );
   }
 
+  /**
+   * **B-33 / D183.** The same danger, one state earlier: a roster that has
+   * not loaded YET.
+   *
+   * The branch above covers the load that FAILED, and until this one existed
+   * the load still in flight rendered the whole form with three empty boxes —
+   * editable, with nothing saying they were about to be replaced. Anything
+   * typed into them was overwritten without a word the moment the GET landed,
+   * because the seed effect's `first` branch runs regardless of `dirty` (it
+   * has to: `loadNewer` reopens the guard by clearing `seededFrom`, and that
+   * reseed is the admin explicitly asking for the newer roster). The teacher
+   * then pressed Lưu and the PATCH carried the PRE-EDIT list, back at 200,
+   * with the roster unchanged and nobody told.
+   *
+   * It was survivable until F-50. `TeamMembers` used to fetch each row's
+   * detail under this very key, so `['org-team', slug, teamSlug]` was already
+   * warm when the teacher clicked Sửa and the seed was effectively
+   * synchronous. D182 removed that N+1 — rightly — and with it the accidental
+   * prefetch, so the form now opens on a cold cache and the window is a real
+   * network round trip wide.
+   *
+   * The gate is "seeded from THIS team", not "the query answered": between
+   * the response landing and the effect committing there is one paint where
+   * the boxes are mounted and still empty, and one paint is enough for a
+   * keystroke that is already in flight — and enough to make a browser walk
+   * that types straight after the click flaky rather than wrong. No editable
+   * field exists until it holds the roster it is editing.
+   */
+  if (teamSlug !== undefined && seededFrom !== teamSlug) {
+    return (
+      <>
+        <h3>{t('teams.edit')}</h3>
+        <p className="muted">{t('common.loading')}</p>
+        <p>
+          <button type="button" onClick={onCancel}>
+            {t('common.cancel')}
+          </button>
+        </p>
+      </>
+    );
+  }
+
   return (
     <>
       <h3>{teamSlug ? t('teams.edit') : t('teams.new')}</h3>
