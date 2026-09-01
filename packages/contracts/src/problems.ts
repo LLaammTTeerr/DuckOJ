@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import {
+  MEMORY_EXTRA_KB_MAX,
+  MEMORY_EXTRA_KB_MIN,
+  TIME_MULTIPLIER_PCT_MAX,
+  TIME_MULTIPLIER_PCT_MIN,
+} from '@duckoj/language-limits';
 import { PaginationQuery, ProblemDetails, Timestamp, cursorPage } from './common.js';
 import { registry } from './registry.js';
 import { Difficulty, DifficultyQuery, Tag } from './tags.js';
@@ -330,6 +336,115 @@ export const ProblemLanguageLimit = z.object({
   allowed: z.boolean(),
 });
 export type ProblemLanguageLimitDto = z.infer<typeof ProblemLanguageLimit>;
+
+/**
+ * One language's row on the AUTHORING form (D159) — the inputs, not the
+ * result.
+ *
+ * `ProblemLanguageLimit` above is what a pupil is shown: the arithmetic
+ * already done, one pair of numbers, resolved server-side. This is its twin
+ * for the setter, and it is deliberately the other shape. A form that edits
+ * an override has to render a state the pupil's view cannot express —
+ * **inherit**, which is NULL and is not zero — and it has to show a resulting
+ * limit for a number that has been typed and not yet saved, which no
+ * server-resolved field can answer. So it carries the inputs and `apps/web`
+ * applies `effectiveLimits` from `@duckoj/language-limits`: the same
+ * function, from the same module, that `apps/api` displays with and
+ * `apps/judged` enforces with.
+ *
+ * That is a narrow amendment to D154's "the web app is never handed a
+ * multiplier to apply itself", and it is narrow on purpose: the pupil-facing
+ * `ProblemDetail.languageLimits` is unchanged, and the rule D154 was actually
+ * defending — one implementation of the arithmetic — is what makes the
+ * amendment safe rather than what it breaks.
+ */
+export const ProblemLanguageLimitSetting = z.object({
+  languageKey: z.string(),
+  languageName: z.string(),
+  /**
+   * The language's own default, from `languages` — what a `null` below
+   * inherits. Sent so the form can SHOW what "inherit" currently means
+   * ("kế thừa: 300 %") instead of showing an empty box that says nothing.
+   */
+  defaultTimeMultiplierPct: z.number().int(),
+  defaultMemoryExtraKb: z.number().int(),
+  /**
+   * This problem's override, or `null` for "inherit the default above".
+   *
+   * `null` and `0` are different requests and the difference decides a
+   * verdict: a row that pins the time and leaves this `null` keeps the
+   * interpreter's memory floor, and one that sent `0` instead would MRE every
+   * Python submission on a problem that still accepts them (D154).
+   */
+  timeMultiplierPct: z
+    .number()
+    .int()
+    .min(TIME_MULTIPLIER_PCT_MIN)
+    .max(TIME_MULTIPLIER_PCT_MAX)
+    .nullable(),
+  memoryExtraKb: z.number().int().min(MEMORY_EXTRA_KB_MIN).max(MEMORY_EXTRA_KB_MAX).nullable(),
+  /**
+   * `false` refuses this language on this problem — a 404 at submit time and
+   * an omission from the picker (D154). Never expressible as a limit of zero:
+   * the bounds above forbid one, precisely so that "not solvable in this
+   * language" cannot be said as "0 ms".
+   */
+  allowed: z.boolean(),
+});
+export type ProblemLanguageLimitSettingDto = z.infer<typeof ProblemLanguageLimitSetting>;
+
+/**
+ * `GET /problems/{code}/language-limits` — everything the authoring form
+ * needs and nothing the pupil's view already carries.
+ *
+ * Its own route rather than more fields on `ProblemDetail`: this is editor-only
+ * (`ProblemDetail` is served to anyone who may see the problem at all), and
+ * five rows of language defaults on every statement page for a question only
+ * one screen asks is the payload argument `languageLimits` itself is on the
+ * detail-not-the-summary for.
+ */
+export const ProblemLanguageLimitSettings = z.object({
+  /**
+   * The published revision's AUTHORED limits — what the multipliers multiply.
+   * `null` for a problem with no published revision, exactly as
+   * `ProblemDetail.languageLimits` is `[]` then: there is nothing to adjust,
+   * and inventing a base would be a limit nobody wrote. The form still edits
+   * the overrides in that state; it just cannot preview a result.
+   */
+  base: z.object({ timeMs: z.number().int(), memoryKb: z.number().int() }).nullable(),
+  /**
+   * One row per ACTIVE language, in `ProblemDetail.languageLimits`' order
+   * (D158) so the form and the pupil's picker read the same way down.
+   */
+  languages: z.array(ProblemLanguageLimitSetting),
+});
+export type ProblemLanguageLimitSettingsDto = z.infer<typeof ProblemLanguageLimitSettings>;
+
+/**
+ * `PUT /problems/{code}/language-limits` — the WHOLE set, replacing whatever
+ * is stored.
+ *
+ * A replacement rather than a patch, on `members`/`orgSlugs`' existing rule
+ * (`ProblemAccessService.update`): the form renders every active language at
+ * once, so it always knows the whole answer, and a partial write would leave
+ * a setter no way to remove an override they can see on their screen.
+ *
+ * A row that inherits both columns and allows the language is byte-identical
+ * to no row at all, and is stored as no row — see the route's description.
+ */
+export const UpdateProblemLanguageLimitsRequest = z.object({
+  limits: z.array(
+    ProblemLanguageLimitSetting.pick({
+      languageKey: true,
+      timeMultiplierPct: true,
+      memoryExtraKb: true,
+      allowed: true,
+    }),
+  ),
+});
+export type UpdateProblemLanguageLimitsRequestDto = z.infer<
+  typeof UpdateProblemLanguageLimitsRequest
+>;
 
 export const ProblemDetail = ProblemSummary.extend({
   statement: z.string(),
@@ -777,6 +892,69 @@ registry.registerPath({
       description:
         'The request failed validation, named a tag slug that does not exist, or asked to publish ' +
         'an empty editorial (`problem_editorial_empty`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/problems/{code}/language-limits',
+  tags: ['Problems'],
+  summary: "The per-language limit overrides, as the problem's editors may edit them (D159)",
+  description:
+    'Editor-only, and 404 rather than 403 for a problem the caller cannot SEE at all — the same ' +
+    'order `PATCH /problems/{code}` applies. Carries the INPUTS (each language\u2019s default ' +
+    'multiplier and memory floor, this problem\u2019s override or `null` for "inherit", and ' +
+    'whether the language is allowed) plus the published revision\u2019s authored limits, so an ' +
+    'editing form can show the resulting limits for a value that has been typed and not yet ' +
+    'saved. `GET /problems/{code}` carries the RESOLVED limits a pupil sees; this is its twin, ' +
+    'not a replacement for it.',
+  request: { params: ProblemCodeParam },
+  responses: {
+    200: {
+      description: 'The overrides and the defaults they resolve over',
+      content: { 'application/json': { schema: ProblemLanguageLimitSettings } },
+    },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: PROBLEM_NOT_FOUND,
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/problems/{code}/language-limits',
+  tags: ['Problems'],
+  summary: "Replace this problem's per-language limit overrides (D159)",
+  description:
+    'The WHOLE set, replacing whatever is stored — the same rule `members` and `orgSlugs` follow ' +
+    'on `PATCH /problems/{code}`. A row that inherits both columns (`null`, `null`) and allows ' +
+    'the language is byte-identical to having no row, and is stored as none, so a set that says ' +
+    'nothing about any language clears every override.\n\n' +
+    '`null` is "inherit this column from the language default", NOT zero: an override may pin ' +
+    'the time and keep the interpreter\u2019s memory floor (D154). A multiplier is bounded ' +
+    'below by 100 % and a memory addend by 0 KB, because an adjustment may never take away from ' +
+    'what the setter authored — "this problem cannot be solved in this language" is ' +
+    '`allowed: false`, which is a 404 at submit time, never a limit of zero presented as a TLE ' +
+    '(D159). The same bounds are a CHECK in the database, so a caller that bypasses this route ' +
+    'is refused too.',
+  request: {
+    params: ProblemCodeParam,
+    body: { content: { 'application/json': { schema: UpdateProblemLanguageLimitsRequest } } },
+  },
+  responses: {
+    200: {
+      description: 'The stored overrides, re-read',
+      content: { 'application/json': { schema: ProblemLanguageLimitSettings } },
+    },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    404: PROBLEM_NOT_FOUND,
+    422: {
+      description:
+        'The request failed validation (a bound, or a `languageKey` that is unknown, inactive ' +
+        'or named twice)',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },

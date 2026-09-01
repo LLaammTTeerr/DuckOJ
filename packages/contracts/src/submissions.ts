@@ -118,6 +118,38 @@ export const SubmissionDetail = z.object({
    */
   frozen: z.boolean(),
   /**
+   * D160 — this submission is `queued`, and no judge that can run its
+   * language is connected. `false` in every other state, including `queued`
+   * on a healthy fleet.
+   *
+   * D68 gives a blocked job a `blocked_reason`, and B-30 found that column is
+   * read in exactly one place: the admin dashboard. A pupil whose language
+   * nothing can grade therefore saw "đang chờ" — true, and silent — for as
+   * long as it took somebody to notice. This is that fact, and ONLY that
+   * fact, made sayable to them.
+   *
+   * A boolean rather than the reason string, deliberately. The internal
+   * reason is `no connected judge supports language <key>`; it is written by
+   * `judged` for an operator, it will grow other cases, and shipping it would
+   * put a sentence about the FLEET on a pupil's screen. What the client
+   * renders instead is "waiting for a judge that can run Python", built from
+   * `languageKey`, which the viewer already has and which is their own
+   * choice — so nothing here discloses how many judges exist, what they can
+   * run, or anything about anybody else's submission.
+   *
+   * The job stays `queued` and does NOT reach a terminal state. That is D68's
+   * ruling and this decision keeps it: a blocked job is runnable the instant
+   * a capable judge connects, so a terminal state would need a sweeper to
+   * undo and would make every existing query that reasons about `queued`
+   * wrong. Being told why the wait is happening is the fix; ending the wait
+   * with a verdict nobody earned is not.
+   *
+   * Masked to `false` by the freeze, along with the outcome fields: it
+   * describes queueing rather than a verdict, but the only viewer it is FOR
+   * is the submitter, and D23 never freezes a viewer's own submission.
+   */
+  awaitingCapableJudge: z.boolean(),
+  /**
    * D27 — the contest clause on the source. `true` means `source` is `null`
    * because this submission belongs to a contest participation whose window
    * is still open and the viewer is neither its submitter, nor a member of

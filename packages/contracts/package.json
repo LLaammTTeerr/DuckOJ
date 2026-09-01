@@ -17,6 +17,7 @@
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@duckoj/api-prefix": "workspace:^",
+    "@duckoj/language-limits": "workspace:^",
     "zod": "^4.4.3"
   },
   "devDependencies": {

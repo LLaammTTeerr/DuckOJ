@@ -7247,6 +7247,7 @@ export interface paths {
                             /** Format: date-time */
                             judgedAt: string | null;
                             frozen: boolean;
+                            awaitingCapableJudge: boolean;
                             sourceHidden: boolean;
                         };
                     };
@@ -8401,6 +8402,253 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/problems/{code}/language-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The per-language limit overrides, as the problem's editors may edit them (D159)
+         * @description Editor-only, and 404 rather than 403 for a problem the caller cannot SEE at all — the same order `PATCH /problems/{code}` applies. Carries the INPUTS (each language’s default multiplier and memory floor, this problem’s override or `null` for "inherit", and whether the language is allowed) plus the published revision’s authored limits, so an editing form can show the resulting limits for a value that has been typed and not yet saved. `GET /problems/{code}` carries the RESOLVED limits a pupil sees; this is its twin, not a replacement for it.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    code: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The overrides and the defaults they resolve over */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            base: {
+                                timeMs: number;
+                                memoryKb: number;
+                            } | null;
+                            languages: {
+                                languageKey: string;
+                                languageName: string;
+                                defaultTimeMultiplierPct: number;
+                                defaultMemoryExtraKb: number;
+                                timeMultiplierPct: number | null;
+                                memoryExtraKb: number | null;
+                                allowed: boolean;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not permitted to perform this action on this problem */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such problem, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        /**
+         * Replace this problem's per-language limit overrides (D159)
+         * @description The WHOLE set, replacing whatever is stored — the same rule `members` and `orgSlugs` follow on `PATCH /problems/{code}`. A row that inherits both columns (`null`, `null`) and allows the language is byte-identical to having no row, and is stored as none, so a set that says nothing about any language clears every override.
+         *
+         *     `null` is "inherit this column from the language default", NOT zero: an override may pin the time and keep the interpreter’s memory floor (D154). A multiplier is bounded below by 100 % and a memory addend by 0 KB, because an adjustment may never take away from what the setter authored — "this problem cannot be solved in this language" is `allowed: false`, which is a 404 at submit time, never a limit of zero presented as a TLE (D159). The same bounds are a CHECK in the database, so a caller that bypasses this route is refused too.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    code: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        limits: {
+                            languageKey: string;
+                            timeMultiplierPct: number | null;
+                            memoryExtraKb: number | null;
+                            allowed: boolean;
+                        }[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The stored overrides, re-read */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            base: {
+                                timeMs: number;
+                                memoryKb: number;
+                            } | null;
+                            languages: {
+                                languageKey: string;
+                                languageName: string;
+                                defaultTimeMultiplierPct: number;
+                                defaultMemoryExtraKb: number;
+                                timeMultiplierPct: number | null;
+                                memoryExtraKb: number | null;
+                                allowed: boolean;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not permitted to perform this action on this problem */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No such problem, or one the caller may not see — the two are indistinguishable */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description The request failed validation (a bound, or a `languageKey` that is unknown, inactive or named twice) */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;

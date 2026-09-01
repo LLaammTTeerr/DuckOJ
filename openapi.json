@@ -14923,6 +14923,9 @@
                     "frozen": {
                       "type": "boolean"
                     },
+                    "awaitingCapableJudge": {
+                      "type": "boolean"
+                    },
                     "sourceHidden": {
                       "type": "boolean"
                     }
@@ -14947,6 +14950,7 @@
                     "createdAt",
                     "judgedAt",
                     "frozen",
+                    "awaitingCapableJudge",
                     "sourceHidden"
                   ]
                 }
@@ -17999,6 +18003,575 @@
           },
           "422": {
             "description": "The request failed validation",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/problems/{code}/language-limits": {
+      "get": {
+        "tags": [
+          "Problems"
+        ],
+        "summary": "The per-language limit overrides, as the problem's editors may edit them (D159)",
+        "description": "Editor-only, and 404 rather than 403 for a problem the caller cannot SEE at all — the same order `PATCH /problems/{code}` applies. Carries the INPUTS (each language’s default multiplier and memory floor, this problem’s override or `null` for \"inherit\", and whether the language is allowed) plus the published revision’s authored limits, so an editing form can show the resulting limits for a value that has been typed and not yet saved. `GET /problems/{code}` carries the RESOLVED limits a pupil sees; this is its twin, not a replacement for it.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "code",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The overrides and the defaults they resolve over",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "base": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "timeMs": {
+                          "type": "integer"
+                        },
+                        "memoryKb": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "timeMs",
+                        "memoryKb"
+                      ]
+                    },
+                    "languages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "languageKey": {
+                            "type": "string"
+                          },
+                          "languageName": {
+                            "type": "string"
+                          },
+                          "defaultTimeMultiplierPct": {
+                            "type": "integer"
+                          },
+                          "defaultMemoryExtraKb": {
+                            "type": "integer"
+                          },
+                          "timeMultiplierPct": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "minimum": 100,
+                            "maximum": 1000
+                          },
+                          "memoryExtraKb": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 1048576
+                          },
+                          "allowed": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "languageKey",
+                          "languageName",
+                          "defaultTimeMultiplierPct",
+                          "defaultMemoryExtraKb",
+                          "timeMultiplierPct",
+                          "memoryExtraKb",
+                          "allowed"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "base",
+                    "languages"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in, but not permitted to perform this action on this problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such problem, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Problems"
+        ],
+        "summary": "Replace this problem's per-language limit overrides (D159)",
+        "description": "The WHOLE set, replacing whatever is stored — the same rule `members` and `orgSlugs` follow on `PATCH /problems/{code}`. A row that inherits both columns (`null`, `null`) and allows the language is byte-identical to having no row, and is stored as none, so a set that says nothing about any language clears every override.\n\n`null` is \"inherit this column from the language default\", NOT zero: an override may pin the time and keep the interpreter’s memory floor (D154). A multiplier is bounded below by 100 % and a memory addend by 0 KB, because an adjustment may never take away from what the setter authored — \"this problem cannot be solved in this language\" is `allowed: false`, which is a 404 at submit time, never a limit of zero presented as a TLE (D159). The same bounds are a CHECK in the database, so a caller that bypasses this route is refused too.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "code",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "limits": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "languageKey": {
+                          "type": "string"
+                        },
+                        "timeMultiplierPct": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "minimum": 100,
+                          "maximum": 1000
+                        },
+                        "memoryExtraKb": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "minimum": 0,
+                          "maximum": 1048576
+                        },
+                        "allowed": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "languageKey",
+                        "timeMultiplierPct",
+                        "memoryExtraKb",
+                        "allowed"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "limits"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The stored overrides, re-read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "base": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "timeMs": {
+                          "type": "integer"
+                        },
+                        "memoryKb": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "timeMs",
+                        "memoryKb"
+                      ]
+                    },
+                    "languages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "languageKey": {
+                            "type": "string"
+                          },
+                          "languageName": {
+                            "type": "string"
+                          },
+                          "defaultTimeMultiplierPct": {
+                            "type": "integer"
+                          },
+                          "defaultMemoryExtraKb": {
+                            "type": "integer"
+                          },
+                          "timeMultiplierPct": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "minimum": 100,
+                            "maximum": 1000
+                          },
+                          "memoryExtraKb": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "minimum": 0,
+                            "maximum": 1048576
+                          },
+                          "allowed": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "languageKey",
+                          "languageName",
+                          "defaultTimeMultiplierPct",
+                          "defaultMemoryExtraKb",
+                          "timeMultiplierPct",
+                          "memoryExtraKb",
+                          "allowed"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "base",
+                    "languages"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in, but not permitted to perform this action on this problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such problem, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request failed validation (a bound, or a `languageKey` that is unknown, inactive or named twice)",
             "content": {
               "application/problem+json": {
                 "schema": {
