@@ -284,14 +284,18 @@ registry.registerPath({
   method: 'get',
   path: '/orgs',
   tags: ['Organizations'],
-  summary: 'Organizations visible to the caller',
+  summary: 'Organizations visible to the caller, in alphabetical order',
+  description:
+    'Ordered by slug, which is the order a province looks a school up in (D186). The cursor is ' +
+    '`<slug>_<id>`, a keyset over the same pair; a cursor from the previous id-ordered grammar ' +
+    'has no `_` and is refused `422 invalid_cursor` rather than silently walking a different list.',
   // The controller has validated `PaginationQuery` here since Phase 3e and
   // this document never said so, which made `?limit=` invisible to the SDK
   // and therefore untypeable by the contest forms that need a whole page of
   // organizations at once.
   request: { query: PaginationQuery },
   responses: {
-    200: { description: 'A page of organizations', content: { 'application/json': { schema: OrgPage } } },
+    200: { description: 'A page of organizations, alphabetical by slug', content: { 'application/json': { schema: OrgPage } } },
   },
 });
 

@@ -5143,7 +5143,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Organizations visible to the caller */
+        /**
+         * Organizations visible to the caller, in alphabetical order
+         * @description Ordered by slug, which is the order a province looks a school up in (D186). The cursor is `<slug>_<id>`, a keyset over the same pair; a cursor from the previous id-ordered grammar has no `_` and is refused `422 invalid_cursor` rather than silently walking a different list.
+         */
         get: {
             parameters: {
                 query?: {
@@ -5156,7 +5159,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description A page of organizations */
+                /** @description A page of organizations, alphabetical by slug */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -11607,6 +11610,7 @@ export interface paths {
                                 createdAt: string;
                             }[];
                             unreadCount: number;
+                            truncated: boolean;
                         };
                     };
                 };
@@ -11698,6 +11702,7 @@ export interface paths {
                                 createdAt: string;
                             }[];
                             unreadCount: number;
+                            truncated: boolean;
                         };
                     };
                 };

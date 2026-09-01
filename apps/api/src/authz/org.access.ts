@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { z } from 'zod';
 import { organizations, orgJoinRequests, orgMembers } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
@@ -103,12 +103,25 @@ export class OrgAccessService {
     // `PaginationQueryDto` is not assignable to the narrower form.
     page: Pick<PaginationQueryDto, 'limit'> & { cursor?: string | undefined },
   ): Promise<OrgPageDto> {
-    const after = parseCursor(page.cursor);
+    // **D186. Alphabetical, because a province looks its school up by name.**
+    // This list was `asc(organizations.id)` — oldest school first, which is
+    // an order nobody reads it in. F-49 called it "the one list whose
+    // reader's order genuinely is not the served order" and F-50 left it
+    // because it needs a second cursor grammar; this is that grammar.
+    const seek = orgSeek(page.cursor);
     const rows = await this.db
       .select()
       .from(organizations)
-      .where(and(visibleOrgsWhere(this.db, actor), gt(organizations.id, after)))
-      .orderBy(asc(organizations.id))
+      .where(and(visibleOrgsWhere(this.db, actor), seek))
+      // `lower(slug)`, not `slug` and not `name`. It is the expression the
+      // UNIQUE index `organizations_slug_lower_idx` is built on, so the walk
+      // is an index scan and the ordering key is provably unique; `name` is
+      // not unique, has no index, and a school renamed mid-walk moves under
+      // the cursor. A slug reads as the name here — `thpt-chuyen-le-hong-phong`
+      // — because that is what a slug is FOR on this table (D-note in
+      // `UpdateOrgRequest`: nothing in the schema references an organization
+      // by slug, so it is a display handle).
+      .orderBy(asc(sql`lower(${organizations.slug})`), asc(organizations.id))
       .limit(page.limit + 1);
 
     const kept = rows.slice(0, page.limit);
@@ -119,7 +132,11 @@ export class OrgAccessService {
       kept.map((row) => row.id),
     );
     const items = kept.map((row) => toOrgSummary(row, roles.get(row.id) ?? null));
-    const nextCursor = rows.length > page.limit ? String(items.at(-1)!.id) : null;
+    const last = kept.at(-1);
+    const nextCursor =
+      rows.length > page.limit && last !== undefined
+        ? `${last.slug.toLowerCase()}_${String(last.id)}`
+        : null;
     return { items, nextCursor };
   }
 
@@ -847,6 +864,56 @@ function isUniqueViolationShape(value: unknown): value is { code: string; constr
  * client mistake, not a server fault: reject it as a validation problem rather
  * than letting `NaN` reach the driver and surface as a 500.
  */
+/**
+ * `GET /orgs`' cursor (D186): `<lower(slug)>_<id>`.
+ *
+ * A **row-value** keyset over `(lower(slug), id)`, seeking the same pair the
+ * order is by. Written as the explicit two-branch disjunction rather than
+ * Postgres' `(a, b) > (x, y)` because the leading term is an EXPRESSION, and a
+ * row constructor over `lower(slug)` is the shape that stops the planner using
+ * `organizations_slug_lower_idx`.
+ *
+ * **The tiebreak is unreachable today, and it is carried anyway.**
+ * `organizations_slug_lower_idx` is UNIQUE, and `ORG_SLUG` will not admit a
+ * slug that differs from another only by case, so no two rows can share the
+ * leading key and `id` can never decide anything. It is here for two reasons
+ * that are not hypothetical:
+ *
+ *  1. **The old grammar becomes distinguishable.** `GET /orgs` used to issue a
+ *     bare id — `"53"`. A bare id has no `_`, so it is refused 422 rather than
+ *     being read as a slug and walking a completely different list from
+ *     wherever `53` happens to sort. This is deliberately the OPPOSITE of
+ *     D177's accepted residual: there the two grammars were both a bare
+ *     `teams.id` and were arithmetically interchangeable, so refusing one
+ *     would have refused a cursor that was fine. Here the grammar changed
+ *     SHAPE, and a stale cursor read under the new order is a silently wrong
+ *     page.
+ *  2. If the unique index is ever dropped or the slug rule ever relaxed, a
+ *     single-column seek over a textual key starts skipping and repeating
+ *     rows, and page one looks perfect while it does.
+ *
+ * The split is on the LAST `_`, not the first: `ORG_SLUG` admits `_`, so
+ * `abc_1_5` is the slug `abc_1` at id `5`. That is unambiguous by
+ * construction, because the id half is digits and nothing else.
+ */
+function orgSeek(cursor: string | undefined): SQL | undefined {
+  if (cursor === undefined) return undefined;
+  const split = cursor.lastIndexOf('_');
+  const slug = split === -1 ? undefined : cursor.slice(0, split);
+  const afterId = Number(cursor.slice(split + 1));
+  if (
+    slug === undefined ||
+    slug === '' ||
+    !/^[0-9]+$/.test(cursor.slice(split + 1)) ||
+    !Number.isSafeInteger(afterId) ||
+    afterId < 0
+  ) {
+    throw new AppError(422, 'invalid_cursor', 'That page cursor is not valid.');
+  }
+  const key = sql`lower(${organizations.slug})`;
+  return or(gt(key, slug), and(eq(key, slug), gt(organizations.id, afterId)));
+}
+
 function parseCursor(cursor: string | undefined): number {
   if (cursor === undefined) return 0;
   const after = Number(cursor);

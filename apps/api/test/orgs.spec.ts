@@ -122,7 +122,10 @@ describe('OrgAccessService pagination', () => {
 
       const first = await service.listVisible(null, { limit: 2 });
       expect(first.items.map((o) => o.slug)).toEqual(['alpha', 'bravo']);
-      expect(first.nextCursor).toBe(String(first.items.at(-1)!.id));
+      // D186: the cursor is `<slug>_<id>`, not a bare id. The pair is the
+      // ordering key, and carrying the id makes a stale id-only cursor
+      // refusable rather than readable as a slug.
+      expect(first.nextCursor).toBe(`bravo_${String(first.items.at(-1)!.id)}`);
 
       const second = await service.listVisible(null, { limit: 2, cursor: first.nextCursor! });
       expect(second.items.map((o) => o.slug)).toEqual(['charlie']);
