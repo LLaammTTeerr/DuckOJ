@@ -7186,3 +7186,182 @@ already exists and already holds the order described. The failure mode if the
 insertion order is ever wrong for a new language is a suboptimal default in a
 picker the pupil can still change, which is strictly better than today's,
 where the default is decided by the alphabet.*
+
+## D159 — An adjustment may never take away from what the setter authored, and the form that writes one can say "inherit"
+
+F-39 shipped `problem_language_limits` — the column, its enforcement in
+`judged`, its resolution into `ProblemDetail.languageLimits` — and no way to
+write a row. B-30 found the two things that left open, and they are the same
+thing seen twice: **nothing constrained the values**, and **nothing but SQL
+could set them**. An operator who wanted "Python gets no bonus on this
+problem" had to write against production, and a typo of `0` in that statement
+gave `timeMs: 0`, which is D154's own forbidden outcome — "a zero limit would
+present the refusal as a TLE, teaching the pupil that their correct program
+was too slow" — reached by accident instead of by design.
+
+**The bounds, and the one rule both floors come from.**
+
+> An adjustment may never take away from what the setter authored.
+
+That is one rule in two units. The time adjustment is a multiplier, so
+"takes nothing away" is **100 %**; the memory adjustment is an addend, so it
+is **0 KB**. Below either, a correct program is failed by policy while being
+told it was failed by speed or by size. 1 % is as broken as 0 and 99 % is the
+same lie in miniature, so the floor is not a small positive number — it is
+exactly the identity. A setter who genuinely means "this problem cannot be
+solved in this language" has `allowed = false`, which is a 404 at submit time
+and says so; making a punitive limit *unrepresentable* is what stops the
+refusal from ever being expressed as a wrong verdict.
+
+The ceilings are the other half, and they are about the province rather than
+the pupil. **1000 %** comes from D154's own denial-of-service arithmetic: a
+350-test problem authored at 1 s costs 350 s of judge wall clock per
+submission at 100 %, and D154 rejected the measured 110× interpreter factor by
+name because "110× would make every deep-recursion or heavy-loop problem a
+denial-of-service on the one judge this province has". At 1000 % that same
+problem costs 3500 s — just under an hour — for one submission; past it a
+single pupil can hold the fleet for a lesson. It is also 3.3× the largest
+multiplier this deployment uses, so it is headroom rather than a constraint on
+anything anyone has proposed. **1 GiB** is what the addend MEANS: a runtime
+floor, the resident set an interpreter occupies before the solution allocates
+anything. CPython 3.11's, measured on this judge's image, is 15044 KB; a JVM's
+is tens of megabytes. Nothing that is a floor is a gigabyte wide, so a larger
+value is not a floor being declared but a different memory limit being
+smuggled in — and a memory limit the setter means to change belongs on the
+revision where it was authored. The judge box is the other reason: a limit
+larger than its RAM turns one submission's MLE into the kernel picking a
+victim.
+
+**NULL is exempt, and the exemption is the point.** `problem_language_limits`
+inherits **column by column**, so the ordinary override — pin the time, keep
+the interpreter's memory floor — must stay writable. A CHECK without
+`IS NULL OR` would have forbidden exactly the row D154 names.
+
+**Three layers, because the form is not the only way in.** The zod bounds on
+`PUT /problems/{code}/language-limits`, the form's own validation with the
+message in both languages, and migration 0043's CHECK. All three read the same
+four exported constants, and `packages/db/test/language-limits.spec.ts` reads
+the CHECK back out of `pg_constraint` and fails if the SQL and the constants
+ever disagree. The migration is **idempotent** — Postgres has no
+`ADD CONSTRAINT IF NOT EXISTS`, so each is a `DO $$ … EXCEPTION WHEN
+duplicate_object` — and it swallows only that one error: a row that actually
+violates a bound still fails the deploy, because silently clamping a limit
+somebody typed would change a verdict without telling anyone. Checked
+read-only against the live database first: `languages` holds 100–300 % and
+0–32768 KB across five rows, `problem_language_limits` is empty, and a fresh
+install runs 0042's seed immediately before this.
+
+**The route is the problem's own authorisation, not a new one.**
+`GET`/`PUT /problems/{code}/language-limits` both carry
+`@RequireScope('problems:write')` and neither carries `@Public()`; both go
+through `ProblemAccessService.loadForEdit`, so an invisible problem 404s
+before anything else is decided and a visible-but-uneditable one 403s.
+Editing a problem's language limits is editing the problem. The write is a
+**whole-set replacement** on `members`/`orgSlugs`' rule — the form renders
+every active language at once, so it always knows the whole answer, and a
+partial write would leave a setter unable to remove an override on their own
+screen. A row that inherits both columns and allows the language is stored as
+**no row**: it is byte-identical in every reader, and keeping it would grow
+the table by a row per (problem, language) for every problem anybody ever
+opened the form on. The response is re-read rather than echoed, precisely so
+those dropped rows are not reported back as stored.
+
+**The read is the INPUTS, and that is why it is not `ProblemDetail`.**
+`ProblemDetail.languageLimits` is the result: resolved server-side, one pair
+of numbers, what a pupil sees. A form that edits an override needs the other
+shape, because it has to render a state the pupil's view cannot express —
+inherit, which is NULL and is not zero — and because it has to show a
+resulting limit for a number that has been **typed and not yet saved**, which
+no server-resolved field can answer. So the overrides go out unresolved,
+beside the defaults they inherit and the authored limits they multiply.
+
+**Which moves `effectiveLimits` out of `@duckoj/db`, and narrows D154 by one
+clause.** D154 says "the web app is never handed a multiplier to apply
+itself", and this screen is handed one. The rule D154 was actually defending
+is that **the arithmetic exists once** — that is why it put the function in
+the one package `apps/api` and `apps/judged` both depended on. The authoring
+form is a third caller, and `apps/web` cannot depend on a package that imports
+`drizzle-orm` and `postgres`, so the alternative to moving the file was
+re-deriving `ceil(ms * pct / 100)` in a browser: the second implementation
+D154 exists to forbid. `@duckoj/language-limits` is that module with zero
+dependencies, in the shape `@duckoj/glicko2` and `@duckoj/api-prefix` already
+established; `@duckoj/db` re-exports the whole of it, so no existing call site
+changed. The pupil-facing surface is untouched — `ProblemDetail.languageLimits`
+is still resolved on the server — and what the setter previews is computed by
+the same function the judge enforces with, not by a second one written to
+agree.
+
+**And the form keeps the existing furniture rather than inventing any.**
+D110's focusable error summary, D146's field attribution (the dictionary is
+built from the row order the form is about to SEND, so a per-row objection
+reaches its own row instead of the banner), D147's dirty guard, D148's live
+submit button, and D18's two languages. The empty box's placeholder is the
+inherited **value** — "kế thừa: 300 %" — not the word "optional": an empty box
+has a meaning here, and the reader has to know which number it means. Saving
+invalidates `['problem', code]`, or a setter who saved and pressed Submit
+would be shown the limits they had just replaced.
+
+*Ruled by the implementer during the F-41 slot, no human available to consult.
+Cost if a bound is wrong: one line of SQL and one constant, in the widening
+direction, with no data change — the live `problem_language_limits` table is
+empty and every `languages` row already satisfies all four. Cost if the
+package move is wrong: an import path, reverted by moving one file back. The
+live database was not written and nothing was deployed.*
+
+## D160 — A pupil whose language nothing can grade is told what the queue is waiting for, and the job stays queued
+
+D68 gave a blocked grading job a `blocked_reason` and made `judged` reconcile
+it in both directions. B-30 found the column is read in **exactly one place**:
+`dashboard.access.ts`, the admin panel. No pupil-facing read carried it, so a
+submission in a language no connected judge announces sat at `queued` with the
+page saying "đang chờ" — true, and silent — until an operator happened to
+look at a dashboard. On today's fleet that state is unreachable, because the
+announced executor set and `language_driver_keys` are exact inverses; it
+becomes reachable the moment a province adds a language, narrows
+`--only-executors`, or runs a judge that is still coming up. F-39 is what made
+the two able to disagree at all.
+
+**`SubmissionDetail.awaitingCapableJudge`, a boolean, never the reason
+string.** The internal reason is `no connected judge supports language <key>`.
+It is written by `judged` for an operator, it will grow other cases, and it is
+a sentence about the **fleet** — how many judges are connected and what they
+can run. What the client renders instead is built from `languageKey`, which
+the viewer already has and which is their own choice: "Đang đợi một máy chấm
+chạy được Python 3." Nothing about the topology, nothing about anybody else.
+
+**Masked by the freeze, with the outcome fields.** `state` deliberately
+survives D23's mask — "somebody submitted and grading has not finished" is
+what the scoreboard's `pending` count already announces — but *why* it has not
+finished is a fact about the fleet attached to somebody else's in-flight
+submission. Masking costs the pupil nothing, because D23 never freezes a
+viewer's own submission: the only reader this field exists for can never be
+the one it is hidden from.
+
+**The job stays `queued`. It does not reach a terminal state.** This was
+weighed rather than assumed, and D68 had already argued it: a blocked job *is*
+queued — claimable the instant a capable judge connects — so a terminal state
+would need a sweeper to undo it, and would make every existing query that
+reasons about `queued` wrong. The failure being described is temporary by
+construction (a judge restarting empties the bridge for a second or two, and
+D68 deliberately parks rather than fails over that). A verdict would be a
+permanent answer to a temporary condition, and the only honest verdict
+available is `IE`, which tells a pupil their program broke the judge. Being
+told why the wait is happening is the fix; ending the wait with a verdict
+nobody earned is not. If a province ever wants a deadline instead, that is a
+sweeper with a clock and a policy, and it is a different decision.
+
+**Read as its own lookup, and only while it can be true.**
+`grading_jobs.submission_id` is not unique — a rejudge normally UPDATEs the
+job in place, but `RejudgeAccessService` inserts a fresh one for a submission
+whose job went missing — so a plain join would duplicate the submission row.
+The newest job wins. And it is skipped entirely unless the submission is
+`queued`: that is the only state in which the answer can be `true`, and this
+route is polled hardest by the submit page, where every poll after the first
+is against a job that has moved on.
+
+*Ruled by the implementer during the F-41 slot, no human available to consult.
+Cost if wrong: one boolean on one response and one sentence in two locales,
+removable without a migration. Nothing about the grading path changed — no
+state machine, no sweeper, no new column — and the unreachability of the
+condition on the current fleet is why it is covered by a spec rather than by a
+live probe.*
