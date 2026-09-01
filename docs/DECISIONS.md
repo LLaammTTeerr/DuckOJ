@@ -7916,3 +7916,106 @@ reproducible from `f45_scratch`'s seed (in the F-45 report) and the "before"
 half is asserted every run by `apps/api/test/contest-scoreboard-fold-plan.spec
 .ts`, which keeps the old statement as a literal and `EXPLAIN`s it beside the
 new one.*
+
+## D167 — A terminal write leaves no superseded attempt behind it, because every other reader picks max(attempt)
+
+D165 made `submissions.subtask_summary` the cold scoreboard fold's only input
+for a finished submission, written by `EventWriter.writeTerminal` from the case
+rows of **`job.attempt`** — the attempt that actually graded. Every other reader
+of those same rows picks the latest attempt **present**:
+
+| reader | how it picks the attempt |
+| --- | --- |
+| `SubmissionAccessService.getVisible` — the page a pupil looks at | `max(attempt)` |
+| `ContestAccessService.loadSubtasksFromCases` — the fold's residue read | `max(attempt)` |
+| migration 0045's backfill | `max(attempt)` |
+| `EventWriter.writeTerminal` — since D165, the scoreboard's writer | `job.attempt` |
+
+`JobStore.claim` bumps `attempt` on **every** claim and deletes nothing, so a
+submission whose lease lapsed mid-grade carries rows for more than one attempt —
+`submission.access.ts` says so in a comment, and it is why that method filters at
+all. The four readers agree on every path but one: **an attempt that ends having
+graded no case at all.** An unhealthy judge that abandons attempt 1 after six
+cases and answers `internalError` on attempt 2 stores `subtask_summary = []`
+while attempt 1's rows still answer `max(attempt)`. The scoreboard then scores
+that submission 0 through the stored column and 60 through the residue read, and
+the submission page shows the six graded cases beside a scoreboard row that does
+not count them. Two derivations of one number that disagree silently is D36's
+shape, and it is the exact hazard D165's own safety argument rests on **not**
+happening: the residue read is only an equivalent fallback if it computes the
+same thing.
+
+**The ruling: the terminal write deletes this submission's rows for earlier
+attempts**, inside the same transaction and after the fence, so `max(attempt)`
+and `job.attempt` are the same number for every terminal submission. `requeueAll`
+already deletes case rows on the rejudge path with the same reasoning — no
+reader has ever wanted a superseded attempt's rows, and every reader already
+filters them out.
+
+- **This changes a score, and the change is the point.** Before D165 that
+  submission scored the dead attempt's partial; after D165 it scored 0 on the
+  fast path and the partial on the residue path; now it scores 0 everywhere.
+  Zero is the coherent answer: the verdict is `IE`, `submissions.points` is
+  null, and after this the case list a pupil sees is empty too. The alternative
+  — summarising `max(attempt)` in the writer — restores the pre-D165 number and
+  keeps a scoreboard that credits an attempt the row itself calls errored.
+- **After the fence, deliberately.** A superseded attempt's UPDATE matches no
+  row (D29), and a DELETE that ran anyway would remove rows the winning attempt
+  is the only writer of. It sits beside `noteContestVerdict` for that reason.
+- **Cost**: one DELETE per terminal write, on `(submission_id, attempt)`,
+  matching zero rows on every normal grade.
+- **Not reachable on the live database today**: all 880 terminal submissions
+  have `grading_jobs.attempt` equal to `max(submission_cases.attempt)` (or no
+  case rows at all, which is the 13 compile errors). This is a defect found by
+  reading the writers, not by finding a wrong row.
+
+*Ruled by the implementer during the B-32 slot, no human available to consult.
+Cost if wrong: delete the DELETE; nothing else depends on it, and the summary
+goes back to disagreeing with the other three readers only in the case above.
+Tests: `apps/judged/test/event-writer.spec.ts` — "leaves no superseded case row
+answering max(attempt) behind it (D167)". Red first:
+`expected [ { attempt: 1, n: '1' } ] to deeply equal []`.*
+
+## D168 — The integrity audit asks whether a stored subtask summary is still true
+
+`subtask_summary` is a **derived** column and the only input the cold fold has
+for a finished submission (D165). A writer that fails to maintain it does not
+crash — it serves a stale score to a scoreboard, and nothing in the schema can
+notice, because no foreign key has an opinion about arithmetic. That is the
+whole premise of `scripts/integrity-check.ts`, so the question belongs there
+rather than in a one-off script.
+
+Two checks:
+
+- **`submission-summary-disagrees-with-cases`** (high) reduces every terminal
+  submission's latest attempt per group — `min(points)`, `max(max_points)`,
+  `sum(... order by id)` — and compares it field by field against the stored
+  array, positionally, in `float8`. It also catches D167's shape, because a
+  superseded attempt answering `max(attempt)` is exactly a disagreement.
+- **`submission-summary-missing-on-terminal`** (medium) is the performance half:
+  a terminal submission with no array is *correct* — null means "ask the case
+  rows" — and sends every fold of every contest it is in down the residue read,
+  forever.
+
+Two properties are deliberate:
+
+- **It never renders a `float8` through `to_jsonb`.** It reads the stored
+  numbers out of jsonb with `->>` and casts to `float8`, so unlike migration
+  0045's backfill it does not depend on the session's `extra_float_digits`.
+  B-32 measured what that dependency is worth: at `extra_float_digits = 0`,
+  `to_jsonb` of a `double precision` lost 7 of 17 adversarial values on this
+  cluster, one of them (`1.797…e308`) becoming `Infinity` — a jsonb the fold's
+  own validator would refuse forever.
+- **It is not an independent proof of the backfill.** It reduces the rows the
+  way the backfill does, so it would agree with a wrong backfill. It is a
+  **forward drift detector for the writers that come after**. The independent
+  proof is a different exercise and B-32 did it separately, in JavaScript
+  against `summariseCases`, on all 880 live summaries.
+
+*Ruled by the implementer during the B-32 slot, no human available to consult.
+Cost if wrong: two entries in `CHECKS`; deleting them restores the previous
+audit exactly. Tests: `packages/db/test/integrity-check-script.spec.ts` plants
+one violation of each in its one-of-each fixture. Red→green: correcting
+submission 4's stored `sumPoints` to the 20 its rows sum to, and giving
+submission 2 the `[]` it should carry, drops both ids from the reported set
+(`expected [ …(23) ] to deeply equal [ …(25) ]`).*
