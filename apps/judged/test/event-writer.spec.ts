@@ -253,11 +253,76 @@ describe('EventWriter', () => {
       });
 
       const [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
-      // 20, not 11 and not 31: both attempts' rows are in the table and the
-      // fold reads the highest attempt, so the summary must too.
+      // 20, not 11 and not 31: the summary describes the attempt that graded,
+      // never the one before it.
       expect(row?.subtaskSummary).toEqual([
         { batch: 0, minPoints: 20, maxTotal: 20, sumPoints: 20, sumTotal: 20 },
       ]);
+      // And the first attempt's row is gone, so `max(attempt)` — which is what
+      // `getVisible`, the residue read and migration 0045 all reduce over —
+      // cannot answer with a different number (D167).
+      const remaining = await db
+        .select({ attempt: submissionCases.attempt })
+        .from(submissionCases)
+        .where(eq(submissionCases.submissionId, submissionId));
+      expect(remaining.map((c) => c.attempt)).toEqual([2]);
+    });
+  }, 120_000);
+
+  it('leaves no superseded case row answering max(attempt) behind it (D167)', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+
+      // Attempt 1 grades a batch worth 60 and is then ABANDONED: the worker
+      // died, or its grading watchdog fired, so no terminal event is ever
+      // written for it and the lease simply lapses. The case rows stay.
+      await writer.apply(job, {
+        type: 'caseResult',
+        groupIndex: 1,
+        caseIndex: 0,
+        verdict: 'AC',
+        skipped: false,
+        flags: [],
+        timeMs: 1,
+        memoryKb: 1,
+        points: 60,
+        maxPoints: 60,
+        feedback: '',
+      });
+
+      await db.execute(sql`update grading_jobs set lease_until = now() - interval '1 second'`);
+      const second = (await store.claim('worker-b'))!;
+
+      // Attempt 2 dies before it grades a single case — the same unhealthy
+      // judge that abandoned attempt 1, one lease later.
+      await writer.apply(second, { type: 'internalError', message: 'judge went away' });
+
+      const [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      expect(row?.state).toBe('errored');
+      // The summary describes the attempt that graded: it graded nothing.
+      expect(row?.subtaskSummary).toEqual([]);
+
+      // Every OTHER reader of these rows picks the latest attempt PRESENT
+      // rather than the attempt that graded — `getVisible`'s `max(attempt)`
+      // (submission.access.ts), the fold's residue read
+      // (`loadSubtasksFromCases`), and migration 0045's backfill. If attempt
+      // 1's rows survive, those readers score this submission 60 while the
+      // stored summary scores it 0: the scoreboard and the submission page
+      // disagreeing about one submission, which is D36's shape exactly.
+      const residue = await db.execute<{ attempt: number; n: string }>(sql`
+        select sc.attempt, count(*)::text as n
+          from submission_cases sc
+          join (
+            select submission_id, max(attempt) as a
+              from submission_cases
+             group by submission_id
+          ) la on la.submission_id = sc.submission_id and la.a = sc.attempt
+         where sc.submission_id = ${submissionId}
+         group by sc.attempt
+      `);
+      expect(residue, 'a superseded attempt still answers max(attempt)').toEqual([]);
     });
   }, 120_000);
 

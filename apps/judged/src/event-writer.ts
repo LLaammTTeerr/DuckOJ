@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, lt, sql } from 'drizzle-orm';
 import { submissionCases, submissions } from '@duckoj/db/guarded';
 import { summariseCases } from '@duckoj/contest-formats';
 
@@ -277,6 +277,31 @@ export class EventWriter {
         .where(this.fencedById(submissionId, job))
         .returning({ id: submissions.id });
       if (applied.length === 0) return;
+
+      // D167. Every other reader of these rows picks the latest attempt
+      // PRESENT rather than the attempt that graded: `getVisible`'s
+      // `max(attempt)` (`submission.access.ts`), the fold's residue read
+      // (`loadSubtasksFromCases`), and migration 0045's backfill all do.
+      // `JobStore.claim` bumps `attempt` on EVERY claim and deletes nothing,
+      // so an attempt that ends having graded no case at all — an unhealthy
+      // judge answering `internalError` one lease after it abandoned the
+      // previous attempt — leaves a superseded attempt answering
+      // `max(attempt)`. The summary then says 0 while every other reader says
+      // whatever the dead attempt reached: the scoreboard and the submission
+      // page disagreeing about one submission, which is D36's shape.
+      //
+      // Dropping the superseded rows here makes `max(attempt)` and
+      // `job.attempt` the same number for every terminal submission, which is
+      // the invariant that lets the summary be an OPTIMISATION of the residue
+      // read rather than a second answer to the same question. Same reasoning
+      // as `requeueAll`'s own DELETE — no reader has ever wanted a superseded
+      // attempt's rows — and after the fence for the same reason the counters
+      // are: a superseded write must touch nothing.
+      await tx
+        .delete(submissionCases)
+        .where(
+          and(eq(submissionCases.submissionId, submissionId), lt(submissionCases.attempt, attempt)),
+        );
 
       await noteContestVerdict(tx as unknown as Db, submissionId, before, {
         state: values.state,
