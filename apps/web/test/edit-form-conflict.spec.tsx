@@ -316,7 +316,7 @@ const LANGUAGE_SETTINGS = {
   version: 'v1',
 };
 
-describe("the language-limits tab while a co-setter is saving (D176)", () => {
+describe('the language-limits tab while a co-setter is saving (D176)', () => {
   it('takes the newer overrides when nothing has been typed, and says that it did', async () => {
     const server: Record<string, unknown> = {
       ...LANGUAGE_SETTINGS,
@@ -325,7 +325,10 @@ describe("the language-limits tab while a co-setter is saving (D176)", () => {
     mockedGet.mockImplementation((path: string) => {
       if (path === '/problems/{code}/language-limits') {
         return Promise.resolve({
-          data: { ...server, languages: (server.languages as unknown[]).map((l) => ({ ...(l as object) })) },
+          data: {
+            ...server,
+            languages: (server.languages as unknown[]).map((l) => ({ ...(l as object) })),
+          },
         });
       }
       return Promise.resolve({ data: undefined, error: { code: 'not_mocked' } });
@@ -359,7 +362,10 @@ describe("the language-limits tab while a co-setter is saving (D176)", () => {
     mockedGet.mockImplementation((path: string) => {
       if (path === '/problems/{code}/language-limits') {
         return Promise.resolve({
-          data: { ...server, languages: (server.languages as unknown[]).map((l) => ({ ...(l as object) })) },
+          data: {
+            ...server,
+            languages: (server.languages as unknown[]).map((l) => ({ ...(l as object) })),
+          },
         });
       }
       return Promise.resolve({ data: undefined, error: { code: 'not_mocked' } });
@@ -419,9 +425,12 @@ describe('the problem-set form while a co-teacher is saving (D176)', () => {
     mockedGet.mockImplementation((path: string) => {
       if (path === '/auth/me')
         return Promise.resolve({ data: { username: 'teacher', globalRole: 'user' } });
-      if (path === '/orgs/{slug}') return Promise.resolve({ data: { slug: 'thpt', name: 'THPT', myRole: 'owner' } });
+      if (path === '/orgs/{slug}')
+        return Promise.resolve({ data: { slug: 'thpt', name: 'THPT', myRole: 'owner' } });
       if (path === '/orgs/{slug}/sets/{setSlug}') {
-        return Promise.resolve({ data: { ...SET_DETAIL, items: SET_DETAIL.items.map((i) => ({ ...i })) } });
+        return Promise.resolve({
+          data: { ...SET_DETAIL, items: SET_DETAIL.items.map((i) => ({ ...i })) },
+        });
       }
       return Promise.resolve({ data: undefined, error: { code: 'not_mocked' } });
     });
@@ -472,6 +481,12 @@ const TEAM_DETAIL = {
 describe('the team form while a co-admin is saving (D176)', () => {
   it('refuses to send the stale roster back, and keeps what was typed on screen', async () => {
     const user = userEvent.setup();
+    // Mutable, so the co-admin's third pupil can land between the refusal and
+    // the reload the admin presses to accept it.
+    const server = {
+      ...TEAM_DETAIL,
+      members: TEAM_DETAIL.members.map((m) => ({ ...m })),
+    };
     mockedGet.mockImplementation((path: string) => {
       if (path === '/auth/me')
         return Promise.resolve({ data: { username: 'teacher', globalRole: 'user' } });
@@ -498,7 +513,9 @@ describe('the team form while a co-admin is saving (D176)', () => {
         });
       }
       if (path === '/orgs/{slug}/teams/{teamSlug}') {
-        return Promise.resolve({ data: { ...TEAM_DETAIL, members: TEAM_DETAIL.members.map((m) => ({ ...m })) } });
+        return Promise.resolve({
+          data: { ...server, members: server.members.map((m) => ({ ...m })) },
+        });
       }
       return Promise.resolve({ data: undefined, error: { code: 'not_mocked' } });
     });
@@ -526,6 +543,30 @@ describe('the team form while a co-admin is saving (D176)', () => {
 
     expect(await screen.findByText(TEAM_CONFLICT)).toBeTruthy();
     expect(screen.getByLabelText('Tên đội')).toHaveValue('Đội Một');
-    expect(screen.getByRole('button', { name: RELOAD })).toBeTruthy();
+    const reload = screen.getByRole('button', { name: RELOAD });
+
+    // Pressing it is the admin giving their copy up, deliberately — and it is
+    // the one path where D183's gate has to reopen rather than close for good:
+    // `loadNewer` clears `seededFrom`, so the form falls back to the loading
+    // state and must come out of it seeded from the roster it just refetched.
+    server.members = [
+      ...server.members,
+      { username: 'chi', displayName: 'Chi', joinedAt: '2026-01-02T00:00:00Z' },
+    ];
+    server.version = 'v2';
+    await user.click(reload);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Thành viên')).toHaveValue('an, binh, chi');
+    });
+    expect(screen.getByLabelText('Tên đội')).toHaveValue('Đội 1');
+    expect(screen.queryByRole('button', { name: RELOAD })).toBeNull();
+
+    // And the newer token is what the next save would carry.
+    mockedPatch.mockImplementation(() => Promise.resolve({ data: {}, error: undefined }));
+    await user.click(screen.getByRole('button', { name: 'Lưu' }));
+    await waitFor(() => expect(mockedPatch).toHaveBeenCalledTimes(2));
+    const second = (mockedPatch.mock.calls[1]![1] as { body: Record<string, unknown> }).body;
+    expect(second.expectedVersion).toBe('v2');
+    expect(second.members).toEqual(['an', 'binh', 'chi']);
   });
 });

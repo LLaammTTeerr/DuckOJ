@@ -582,7 +582,7 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
  * second door onto that same loss and pinned it in
  * `test/teams-edit-seed-race.spec.tsx`.
  */
-test('journey 2b — the panel shows the added pupil with no reload (red until the fix ships)', async ({
+test('journey 2b — the panel shows the added pupil with no reload', async ({
   page,
 }) => {
   const watch = watchForBrokenRequests(page, [NOT_JOINED], CONSOLE_ALLOW);

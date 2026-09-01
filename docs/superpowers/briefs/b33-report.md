@@ -111,6 +111,7 @@ both, commented as *not* the fix.
 | --- | --- |
 | `fa2bd11` | `fix(web): the team edit form offers no field until it holds the roster it edits (D183)` — `apps/web/src/routes/teams.tsx`, `apps/web/test/teams-edit-seed-race.spec.tsx` |
 | `124c134` | `test(e2e): journey 2 waits for the prefill it types over, and 2b stops claiming it is red` — `apps/web/e2e/organiser.spec.ts` |
+| `(follow-up)` | `test(web,e2e): 2b's title stops saying it is red, and the team form's reload button gets pressed` — `apps/web/e2e/organiser.spec.ts`, `apps/web/test/edit-form-conflict.spec.tsx` |
 | (this commit) | `docs(D183)` — `docs/DECISIONS.md`, this report, the brief |
 
 ## Tests
@@ -142,11 +143,19 @@ AssertionError: the save carried the roster the form seeded over the typing:
 
 ```
   ✓  1 journey 1 — the monitor’s numbers are the API’s numbers, and the feed is live (44.7s)
-  ✓  2 journey 2 — a teacher assembles a team in the form, and the one-seat rule names the pupil (3.9s)
-  ✓  3 journey 2b — the panel shows the added pupil with no reload (red until the fix ships) (1.2s)
+  ✓  2 journey 2 — a teacher assembles a team in the form, and the one-seat rule names the pupil (2.9s)
+  ✓  3 journey 2b — the panel shows the added pupil with no reload (1.2s)
 
-  3 passed (50.7s)
+  3 passed (50.0s)
 ```
+
+**The D161 reload path, exercised rather than reasoned about.** The gate closes
+when `loadNewer()` clears `seededFrom`, so `edit-form-conflict.spec.tsx`'s team
+case now presses the reload button instead of only asserting it is on screen:
+it moves the server's roster to `an, binh, chi` at `v2`, clicks, and asserts
+the form comes back seeded from the newer roster and that the next save carries
+`expectedVersion: 'v2'` with all three pupils. It was the one D176/D161 flow
+this change touches that nothing clicked.
 
 **Read this honestly:** the edge serves the pre-fix bundle and this slot builds
 none, so the green walk proves the **walk** fix, not the product fix. The
@@ -158,9 +167,10 @@ captured bytes above. `typecheck` and `lint` clean for `@duckoj/web`.
 - **The deployed bundle is still defective.** Reverting F-50's web half would
   restore the accidental prefetch and hide it again; shipping `fa2bd11` is the
   real close. Either is a decision for the controller.
-- `fe42-truong` now holds **26 teams** — journey 2's `alpha`/`bravo` pairs are
-  seeded into contests and refuse deletion, so `afterAll` cannot clear them and
-  each run adds two. Teams list newest-first (D177) so the walk's own rows stay
-  on page one, but the count is past the page size and growing.
+- `fe42-truong` now holds **30 teams** (26 when this slot opened; the two walk
+  runs added two pairs). Journey 2's `alpha`/`bravo` teams are seeded into
+  contests and refuse deletion, so `afterAll` cannot clear them and every run
+  adds two. Teams list newest-first (D177) so the walk's own rows stay on page
+  one, but the count is past the page size and growing.
 - `apps/web/e2e/organiser.spec.ts` has pre-existing Prettier drift on lines
   unrelated to this change; left alone rather than mixed into the diff.
