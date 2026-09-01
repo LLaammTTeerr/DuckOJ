@@ -21,7 +21,7 @@
  *    minting *accounts*, which this does not (D99).
  */
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import {
   contestOrgs,
@@ -99,12 +99,17 @@ export class TeamAccessService {
    * are ON, and somebody who can see the organization but is on none gets an
    * EMPTY page rather than a refusal — D66's shape, for D66's reason: "no
    * teams" is exactly what a school that has assembled none returns.
+   *
+   * **Newest first (D177).** It used to be oldest first, which put the team a
+   * teacher had just assembled on the LAST page of a school with more than
+   * twenty-five of them — the one row they were looking at the panel to find.
+   * A list that only grows is read from its new end.
    */
   async list(actor: Actor, slug: string, page: PaginationQueryDto): Promise<TeamPageDto> {
     const { row: org, role } = await this.orgs.loadVisibleWithRole(actor, slug);
     const staff = isAdmin(actor) || role === 'owner' || role === 'admin';
 
-    const after = parseTeamCursor(page.cursor);
+    const before = parseTeamCursor(page.cursor);
     const mine = this.db
       .select({ teamId: teamMembers.teamId })
       .from(teamMembers)
@@ -120,14 +125,21 @@ export class TeamAccessService {
       .where(
         and(
           eq(teams.orgId, org.id),
-          gt(teams.id, after),
+          // D177 — NEWEST first, walked backwards. `teams.id` is unique and
+          // monotonic, so `desc` + `lt` is the same stable keyset `asc` +
+          // `gt` was: no tiebreak is needed and no row can be skipped or
+          // repeated. `created_at` would have read the same way and is NOT
+          // unique — two teams assembled in one `INSERT` share an instant —
+          // so it would have needed the composite cursor D151 built for the
+          // contest list, for no gain over the id.
+          before === undefined ? undefined : lt(teams.id, before),
           // A subquery rather than a join: a join through `team_members`
           // would multiply a page by the roster size and then need a
           // DISTINCT, which the keyset walk cannot page through.
           staff ? undefined : inArray(teams.id, mine),
         ),
       )
-      .orderBy(asc(teams.id))
+      .orderBy(desc(teams.id))
       .limit(page.limit + 1);
 
     const kept = rows.slice(0, page.limit);
@@ -890,12 +902,21 @@ function isViolationShape(
   );
 }
 
-/** A team list cursor is a `teams.id`, like every other id cursor here. */
-function parseTeamCursor(cursor: string | undefined): number {
-  if (cursor === undefined) return 0;
-  const after = Number(cursor);
-  if (!Number.isSafeInteger(after) || after < 0) {
+/**
+ * A team list cursor is a `teams.id` — but an UPPER bound, because D177 walks
+ * the list newest first.
+ *
+ * `undefined` rather than `0` for "no cursor", which is
+ * `submission.access.ts`'s shape and for its reason: a descending walk has no
+ * cheap sentinel the way an ascending one has zero, and inventing
+ * `Number.MAX_SAFE_INTEGER` would put a bind value in the statement that
+ * means "no filter".
+ */
+function parseTeamCursor(cursor: string | undefined): number | undefined {
+  if (cursor === undefined) return undefined;
+  const before = Number(cursor);
+  if (!Number.isSafeInteger(before) || before < 0) {
     throw new AppError(422, 'invalid_cursor', 'That page cursor is not valid.');
   }
-  return after;
+  return before;
 }

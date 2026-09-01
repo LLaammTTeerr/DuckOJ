@@ -220,7 +220,11 @@ registry.registerPath({
     'An owner or admin of the organization (or a global admin) sees every team; anybody else ' +
     'sees the teams they are ON, and a caller who can see the organization but belongs to no ' +
     'team in it gets an EMPTY page rather than a refusal — D66’s shape, for D66’s reason. An ' +
-    'organization the caller may not see is 404.',
+    'organization the caller may not see is 404. ' +
+    '**Newest first (D177)**: the page is ordered by `teams.id` DESCENDING, and `cursor` is ' +
+    'therefore an UPPER bound — the id of the last row of the previous page. The id is unique ' +
+    'and monotonic, so the walk needs no tiebreak and can neither skip nor repeat a team. A ' +
+    'cursor this list could not have issued is 422 `invalid_cursor`.',
   request: { params: OrgSlugParam, query: PaginationQuery },
   responses: {
     200: { description: 'A page of teams', content: { 'application/json': { schema: TeamPage } } },
