@@ -42,6 +42,12 @@ function headlineKey(status: number): MsgKey | null {
   if (status >= 500) return 'common.serverError';
   if (status === 401) return 'common.signInRequired';
   if (status === 403) return 'common.forbidden';
+  // D191. The roster walk meter is the first refusal in this app a reader can
+  // reach that is neither 401, 403 nor 5xx, and without this line it fell
+  // through to `null` — meaning the caller's own fallback became the
+  // headline, so a metered walk of an organization's members said "No such
+  // organization." That is bug (1) from this file's own list, on a new status.
+  if (status === 429) return 'common.tooManyRequests';
   return null;
 }
 

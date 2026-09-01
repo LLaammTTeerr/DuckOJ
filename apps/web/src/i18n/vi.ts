@@ -70,6 +70,7 @@ export const vi = {
     'Máy chủ đang gặp sự cố khi trả lời. Không phải do bạn — hãy thử lại sau giây lát.',
   'common.signInRequired': 'Đăng nhập để xem trang này.',
   'common.forbidden': 'Bạn không có quyền xem nội dung này.',
+  'common.tooManyRequests': 'Có quá nhiều yêu cầu lúc này. Chờ một lát rồi thử lại.',
   'common.retry': 'Thử lại',
   'common.offline': 'Mất kết nối. Những gì hiện bên dưới là dữ liệu tải được lần cuối.',
   'common.updatedAt': 'Cập nhật lúc {time}',
@@ -630,6 +631,9 @@ export const vi = {
   'org.leave': 'Rời khỏi',
   'org.remove': 'Xóa',
   'org.noMembers': 'Không thấy thành viên nào.',
+  'org.membersLoadError': 'Không tải được danh sách thành viên.',
+  'org.rosterSignedOut':
+    'Khách chưa đăng nhập chỉ xem được trang đầu của danh sách này. Đăng nhập để tìm kiếm hoặc xem tiếp.',
   'role.owner': 'chủ sở hữu',
   'role.admin': 'quản trị viên',
   'role.member': 'thành viên',

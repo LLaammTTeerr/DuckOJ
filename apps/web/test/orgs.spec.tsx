@@ -494,3 +494,64 @@ describe('the join queue past one page (D181)', () => {
     expect(cursors).toEqual([undefined, '25']);
   });
 });
+
+/**
+ * D191 — the roster a signed-out visitor gets, and the refusal a walk can now
+ * meet.
+ *
+ * The API keeps a public school's roster readable without a session (D56
+ * makes `public` a deliberate setting, and `/orgs/$slug` has no route guard)
+ * but hands an anonymous caller ONE page: no `nextCursor`, and `cursor` and
+ * `q` both 401. Two things follow for this screen, and neither is optional —
+ * D187 because a cap a reader cannot see is worse than the cap, D145 because
+ * a failure is named by its status and offers the next move.
+ */
+describe('OrgPage — the signed-out roster and the metered walk (D191)', () => {
+  it('hides the search box from a signed-out visitor and says why', async () => {
+    serve(null);
+    wrap(<OrgPage slug="hanoi" />);
+    await screen.findByText('Hanoi CS');
+
+    // A control that would always 401 is worse than no control…
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/^Tìm thành viên$/)).toBeNull();
+    });
+    // …and the page SAYS the roster is trimmed, so a 5 000-pupil school does
+    // not read as a school of two.
+    expect(screen.getByText(/Khách chưa đăng nhập chỉ xem được trang đầu/)).toBeInTheDocument();
+    // The page one they do get is still served — the ruling trims the walk,
+    // not the school's ability to advertise itself.
+    expect(screen.getByText('owner-person')).toBeInTheDocument();
+  });
+
+  it('leaves the search box, and no notice, for a signed-in reader', async () => {
+    serve('plain-person');
+    wrap(<OrgPage slug="hanoi" />);
+    expect(await screen.findByLabelText(/^Tìm thành viên$/)).toBeInTheDocument();
+    expect(screen.queryByText(/Khách chưa đăng nhập/)).toBeNull();
+  });
+
+  it('names a refused roster walk by its status instead of calling it a missing school', async () => {
+    // Before D191 this query had no error state at all: a failing roster fell
+    // through to "Không thấy thành viên nào" — a claim about the school that
+    // the server never answered — and its `apiError` fallback was
+    // `org.notFound`, so the 429 would have said the organization does not
+    // exist. That is D145's first measured bug, on a new status.
+    serve('plain-person');
+    const base = get.getMockImplementation()!;
+    get.mockImplementation((path: string, ...rest: unknown[]) =>
+      path === '/orgs/{slug}/members'
+        ? Promise.resolve({
+            error: { code: 'user_walk_rate_limited', detail: 'Too many pages.' },
+            response: { status: 429 },
+          })
+        : base(path, ...rest),
+    );
+    wrap(<OrgPage slug="hanoi" />);
+
+    expect(await screen.findByText(/Không tải được danh sách thành viên/)).toBeInTheDocument();
+    expect(screen.getByText(/Có quá nhiều yêu cầu lúc này/)).toBeInTheDocument();
+    expect(screen.queryByText(/Không thấy thành viên nào/)).toBeNull();
+    expect(screen.queryByText(/Không có tổ chức này/)).toBeNull();
+  });
+});

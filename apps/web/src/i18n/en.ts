@@ -78,6 +78,11 @@ export const en = {
     'The server had a problem answering. Nothing you did caused it — try again in a moment.',
   'common.signInRequired': 'Sign in to see this page.',
   'common.forbidden': 'You do not have permission to see this.',
+  // D191 put a 429 on a screen for the first time (the roster walk meter), and
+  // `headlineKey` had no sentence for one — so it fell through to the caller's
+  // own fallback and a metered walk would have said "No such organization.",
+  // which is D145's first measured bug reappearing.
+  'common.tooManyRequests': 'Too many requests just now. Wait a moment and try again.',
   'common.retry': 'Try again',
   'common.offline': 'Connection lost. What you see below is the last thing that loaded.',
   'common.updatedAt': 'Updated at {time}',
@@ -670,6 +675,12 @@ export const en = {
   'org.leave': 'Leave',
   'org.remove': 'Remove',
   'org.noMembers': 'No visible members.',
+  'org.membersLoadError': 'Could not load the members.',
+  // D191/D187: a cap the reader cannot see is worse than the cap. A signed-out
+  // visitor gets one page of a public school's roster and no search, so the
+  // page says so rather than letting a 5,000-pupil school look like 25 people.
+  'org.rosterSignedOut':
+    'Signed-out visitors see only the first page of this roster. Sign in to search it or to read the rest.',
   'role.owner': 'owner',
   'role.admin': 'admin',
   'role.member': 'member',

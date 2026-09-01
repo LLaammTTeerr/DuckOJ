@@ -861,6 +861,11 @@ export function OrgPage({ slug }: { slug: string }) {
   if (!org.data) return null;
 
   const myName = me.data?.username ?? null;
+  // D191. `fetchMe` resolves to `null` for a signed-out visitor rather than
+  // throwing, so `isSuccess && data === null` is "we know they are anonymous"
+  // — as opposed to "we have not asked yet", which must not flash the
+  // signed-out notice at a teacher who is about to be recognised.
+  const signedOut = me.isSuccess && me.data === null;
   // The viewer's own standing comes from the organization row (D58), NOT from
   // searching the roster: the roster is a page now, and a member sorted past
   // it would otherwise read as an outsider and be offered "Join".
@@ -907,18 +912,29 @@ export function OrgPage({ slug }: { slug: string }) {
       <OrgContests slug={slug} />
 
       <h2>{t('org.members')}</h2>
-      {/* The same bare label+input the problems list uses (no new class, no
-          debounce anywhere in this app), and no submit button: the query key
-          IS the box, so there is nothing to press. */}
-      <div className="field">
-        <label htmlFor="org-member-search">{t('org.searchMembers')}</label>
-        <input
-          id="org-member-search"
-          value={memberQuery}
-          placeholder={t('org.searchMembersHint')}
-          onChange={(e) => setMemberQuery(e.target.value)}
-        />
-      </div>
+      {/* D191. A signed-out visitor gets ONE page of a public school's roster
+          and no search — the API refuses `cursor` and `q` from an anonymous
+          caller, and never hands one a `nextCursor`. So the box is not
+          rendered (a control that always 401s is worse than no control) and
+          the cap is SAID, because D187's lesson is that a cap a reader cannot
+          see is worse than the cap: without this line a five-thousand-pupil
+          school reads as a school of twenty-five. */}
+      {signedOut ? (
+        <p className="muted">{t('org.rosterSignedOut')}</p>
+      ) : (
+        /* The same bare label+input the problems list uses (no new class, no
+           debounce anywhere in this app), and no submit button: the query key
+           IS the box, so there is nothing to press. */
+        <div className="field">
+          <label htmlFor="org-member-search">{t('org.searchMembers')}</label>
+          <input
+            id="org-member-search"
+            value={memberQuery}
+            placeholder={t('org.searchMembersHint')}
+            onChange={(e) => setMemberQuery(e.target.value)}
+          />
+        </div>
+      )}
       {memberRows.length > 0 ? (
         <div className="table-wrap" tabIndex={0}>
         <table>
@@ -979,16 +995,34 @@ export function OrgPage({ slug }: { slug: string }) {
           </tbody>
         </table>
         </div>
-      ) : (
+      ) : members.isError ? null : (
         // Two different empty states, deliberately. "No visible members" said
         // to a teacher who has just mistyped a name is a lie about the school
         // rather than about the search.
+        //
+        // And neither of them is said when the read FAILED (D144): a query
+        // that threw has no rows either, and printing "No visible members"
+        // over a 429 or a 500 tells a reader a fact about the school that the
+        // server never answered.
         <p className="muted">
           {memberQuery.trim() === ''
             ? t('org.noMembers')
             : t('org.noMemberMatch', { q: memberQuery.trim() })}
         </p>
       )}
+      {/* D145/D191. This query had NO error state at all: `org.error` got a
+          `LoadError` and a failing roster — including a `fetchNextPage` that
+          the D191 walk meter refuses with 429 — vanished silently. It sits
+          BELOW the table on purpose, because a refused "load more" keeps the
+          pages already loaded and blanking them would punish the reader for
+          the meter. */}
+      {members.isError ? (
+        <LoadError
+          error={members.error}
+          what={t('org.membersLoadError')}
+          onRetry={() => void members.refetch()}
+        />
+      ) : null}
       {members.hasNextPage ? (
         <p>
           <button
