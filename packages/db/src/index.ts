@@ -11,6 +11,15 @@ export {
   recordJudgeCapabilities,
 } from './judge-auth.js';
 export { reclaimExpiredLeases } from './grading.js';
+export { loadDriverLanguageMap, type DriverLanguageMap } from './language-drivers.js';
+export {
+  effectiveLimits,
+  resolveLanguageTuning,
+  type BaseLimits,
+  type LanguageDefaults,
+  type LanguageOverride,
+  type LanguageTuning,
+} from './language-limits.js';
 export {
   contestProblemIdsForSubmissions,
   isTerminalSubmissionState,

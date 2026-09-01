@@ -11,10 +11,14 @@ describe('judging schema', () => {
         .insert(schema.users)
         .values({ username: 'sub', email: 's@e.com', passwordHash: 'x', displayName: 'S' })
         .returning();
+      // Migration 0042 seeds the language catalogue (F-39/D154), so `cpp17`
+      // exists in every migrated database and inserting it here is now a unique
+      // violation on `languages_key_idx`. Read it instead: after 0042 the
+      // catalogue is schema-seeded data, not something a fixture owns.
       const [language] = await db
-        .insert(schema.languages)
-        .values({ key: 'cpp17', name: 'C++17', extension: 'cpp' })
-        .returning();
+        .select()
+        .from(schema.languages)
+        .where(eq(schema.languages.key, 'cpp17'));
       const [problem] = await db
         .insert(problems)
         .values({ code: 'aplusb', name: 'A+B', statement: 'Add two numbers.', createdBy: user!.id })
@@ -78,9 +82,9 @@ describe('judging schema', () => {
         .values({ username: 'sk', email: 'sk@e.com', passwordHash: 'x', displayName: 'K' })
         .returning();
       const [language] = await db
-        .insert(schema.languages)
-        .values({ key: 'cpp17', name: 'C++17', extension: 'cpp' })
-        .returning();
+        .select()
+        .from(schema.languages)
+        .where(eq(schema.languages.key, 'cpp17'));
       const [problem] = await db
         .insert(problems)
         .values({ code: 'p', name: 'P', statement: 's', createdBy: user!.id })
@@ -140,9 +144,9 @@ describe('judging schema', () => {
         .values({ username: 'dup', email: 'd@e.com', passwordHash: 'x', displayName: 'D' })
         .returning();
       const [language] = await db
-        .insert(schema.languages)
-        .values({ key: 'cpp17', name: 'C++17', extension: 'cpp' })
-        .returning();
+        .select()
+        .from(schema.languages)
+        .where(eq(schema.languages.key, 'cpp17'));
       const [problem] = await db
         .insert(problems)
         .values({ code: 'q', name: 'Q', statement: 's', createdBy: user!.id })
@@ -200,15 +204,14 @@ describe('judging schema', () => {
   it('maps a language to a driver executor key and reads it back', async () => {
     await withTestDb(async (db) => {
       const [language] = await db
-        .insert(schema.languages)
-        .values({ key: 'cpp17', name: 'C++17', extension: 'cpp' })
-        .returning();
+        .select()
+        .from(schema.languages)
+        .where(eq(schema.languages.key, 'cpp17'));
 
-      await db.insert(schema.languageDriverKeys).values({
-        languageId: language!.id,
-        driver: 'dmoj',
-        executorKey: 'CPP17',
-      });
+      await db
+        .insert(schema.languageDriverKeys)
+        .values({ languageId: language!.id, driver: 'dmoj', executorKey: 'CPP17' })
+        .onConflictDoNothing();
 
       const rows = await db
         .select()

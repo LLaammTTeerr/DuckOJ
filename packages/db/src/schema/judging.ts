@@ -13,7 +13,7 @@ import {
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import { problemRevisions, submissions } from './guarded.js';
+import { problems, problemRevisions, submissions } from './guarded.js';
 
 export const gradingJobState = pgEnum('grading_job_state', ['queued', 'leased', 'done', 'failed']);
 export const gradingJobKind = pgEnum('grading_job_kind', ['submission']);
@@ -26,6 +26,31 @@ export const languages = pgTable(
     name: text('name').notNull(),
     extension: text('extension').notNull(),
     isActive: boolean('is_active').notNull().default(true),
+    /**
+     * How much of the problem's authored time limit this language gets, as a
+     * WHOLE PERCENT of it — 100 is "exactly what the setter wrote", 300 is
+     * triple (D154).
+     *
+     * An integer percent rather than a float multiplier because the same
+     * arithmetic runs in two processes: the API computes it to DISPLAY a
+     * limit and `judged` computes it to ENFORCE one, and a scoreboard that
+     * says 2.0 s while the judge allowed 6.0 s is the lie this column exists
+     * to prevent. `ceil(ms * pct / 100)` over integers is bit-identical
+     * everywhere; `ms * 3.0` in IEEE-754 is not guaranteed to be.
+     */
+    timeMultiplierPct: integer('time_multiplier_pct').notNull().default(100),
+    /**
+     * Kilobytes ADDED to the problem's authored memory limit for this
+     * language — not a multiplier, on purpose (D154).
+     *
+     * An interpreter's cost is a fixed floor, not a proportion: CPython 3.11
+     * in this judge's own image occupies 15044 KB before the solution
+     * allocates a single byte, and that 15 MB is the same 15 MB whether the
+     * problem allows 16 MB or 512 MB. A multiplier would under-pay the tight
+     * problem (where the floor is nearly the whole budget) and hand the
+     * generous one hundreds of megabytes it has no use for.
+     */
+    memoryExtraKb: integer('memory_extra_kb').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('languages_key_idx').on(t.key)],
@@ -47,6 +72,50 @@ export const languageDriverKeys = pgTable(
   (t) => [primaryKey({ columns: [t.languageId, t.driver] })],
 );
 
+/**
+ * A problem's own answer to `languages`' defaults, per (problem, language).
+ *
+ * Keyed on the PROBLEM, not on the revision, although the limits it adjusts
+ * (`problem_revisions.time_ms` / `memory_kb`) live on the revision. A setter
+ * saying "Python gets no bonus here, the whole point is the constant factor"
+ * is stating something about the PROBLEM, and a statement about the problem
+ * must survive republishing its tests — a per-revision override would be
+ * silently dropped by the next `package:build`, which is exactly when nobody
+ * is looking at it.
+ *
+ * Absent is the normal case, and means "inherit the language's defaults".
+ * Both numeric columns are nullable for the same reason: a row that pins the
+ * time and says nothing about memory should keep inheriting the memory
+ * floor, so NULL is "inherit" and is distinguishable from an explicit 0.
+ */
+export const problemLanguageLimits = pgTable(
+  'problem_language_limits',
+  {
+    problemId: bigint('problem_id', { mode: 'number' })
+      .notNull()
+      .references(() => problems.id, { onDelete: 'cascade' }),
+    languageId: bigint('language_id', { mode: 'number' })
+      .notNull()
+      .references(() => languages.id, { onDelete: 'cascade' }),
+    /** NULL inherits `languages.time_multiplier_pct`. */
+    timeMultiplierPct: integer('time_multiplier_pct'),
+    /** NULL inherits `languages.memory_extra_kb`. */
+    memoryExtraKb: integer('memory_extra_kb'),
+    /**
+     * `false` refuses submissions in this language for this problem.
+     *
+     * A separate flag rather than a multiplier of 0, because they say
+     * different things and only one of them is honest. "This problem is about
+     * the constant factor and Python cannot express the intended solution" is
+     * a REFUSAL — a 404 at submit time with a reason — not a time limit of
+     * zero milliseconds, which would present as a TLE and teach the pupil
+     * that their correct program was too slow.
+     */
+    allowed: boolean('allowed').notNull().default(true),
+  },
+  (t) => [primaryKey({ columns: [t.problemId, t.languageId] })],
+);
+
 export const judgeNodes = pgTable(
   'judge_nodes',
   {
@@ -58,7 +127,10 @@ export const judgeNodes = pgTable(
     lastSeen: timestamp('last_seen', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('judge_nodes_name_idx').on(t.name), uniqueIndex('judge_nodes_token_idx').on(t.tokenHash)],
+  (t) => [
+    uniqueIndex('judge_nodes_name_idx').on(t.name),
+    uniqueIndex('judge_nodes_token_idx').on(t.tokenHash),
+  ],
 );
 
 export const gradingJobs = pgTable(
@@ -117,7 +189,9 @@ export const gradingJobs = pgTable(
     // enters the index on insert and leaves it when the job finishes.
     // Measured: the queue aggregate went from a 200 000-row parallel seq
     // scan (22.9 ms) to a 150-row index scan (0.9 ms).
-    index('grading_jobs_active_idx').on(t.state).where(sql`${t.state} <> 'done'`),
+    index('grading_jobs_active_idx')
+      .on(t.state)
+      .where(sql`${t.state} <> 'done'`),
     // NOT the dashboard's index — the foreign key's. `submission_id`
     // references `submissions` ON DELETE CASCADE, and Postgres creates no
     // index for a foreign key on its own, so every cascaded submission

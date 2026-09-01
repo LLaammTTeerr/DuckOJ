@@ -230,7 +230,20 @@ describe('a database that skipped a migration, the way production did', () => {
   it('is repaired by 0041, and repairing it twice changes nothing', async () => {
     tempFolder = mkdtempSync(join(tmpdir(), 'duckoj-migrations-'));
     cpSync(migrationsDir, tempFolder, { recursive: true });
-    const withoutSkipped = journal().entries.filter((e) => e.tag !== SKIPPED && e.tag !== REPAIR);
+    // The database this reconstructs is production AS IT STOOD the moment
+    // before the repair shipped: 0025 skipped, 0041 not yet written, and
+    // therefore nothing that came after 0041 applied either.
+    //
+    // The last clause is not tidiness — it is the same D131 rule the whole
+    // test is about, turned on the fixture. Drizzle runs only entries newer
+    // than the newest already applied, so leaving a POST-repair migration in
+    // this journal stamps the ledger past 0041's `when` and the repair can
+    // never run: the test would fail claiming the repair is broken, when what
+    // is really broken is the scenario. Found when 0042 was added (F-39).
+    const repairWhen = journal().entries.find((e) => e.tag === REPAIR)!.when;
+    const withoutSkipped = journal().entries.filter(
+      (e) => e.tag !== SKIPPED && e.tag !== REPAIR && e.when < repairWhen,
+    );
     writeFileSync(
       join(tempFolder, 'meta', '_journal.json'),
       JSON.stringify({ version: '7', dialect: 'postgresql', entries: withoutSkipped }, null, 2),
