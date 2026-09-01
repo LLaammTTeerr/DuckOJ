@@ -7579,3 +7579,115 @@ is not.
 Cost if wrong: one Redis `DEL` on each of three low-frequency writes. The
 failure mode of the rule being too broad is a monitor that recomputes slightly
 more often than it needed to, which is the cheap direction.*
+
+## D163 — The newest ten of one pupil is an index, and D83's "no migration" was wrong about which column leads
+
+`PROVINCE-READINESS.md` gap 3 has said since 29 August that `/users/me/progress`
+is **unmeasured at province size**. F-44 measured it: every statement the seven
+aggregates emit, captured from drizzle's own logger inside the running API
+container, then `EXPLAIN (ANALYZE, BUFFERS)`-ed against the live database
+(read-only) and against a scratch copy of it grown to a province — 2 446 users,
+200 880 submissions, 474 problems, 364 contests, 2 263 participations, 16 252
+contest submissions, 248 755 case rows. The full table is in
+`docs/superpowers/briefs/f44-report.md`.
+
+**One aggregate is indicted, and D83 said the opposite.** That entry ruled:
+
+> **No migration**: every aggregate here is led by `submissions.user_id`, which
+> `submissions_user_problem_points_idx` already covers.
+
+Led, yes. Covered, no. That index is `(user_id, problem_id, points DESC, id)`,
+so `id` is its **fourth** column and it can only offer a pupil's rows in
+*problem* order. The `recent` panel asks for `user_id = ? ORDER BY id DESC
+LIMIT 10`, and at province scale the planner answered it two ways, both linear:
+it read all of the pupil's rows and top-N-sorted them (**117 buffers to return
+ten**), or — when the pupil's newest submission sat behind a burst of everybody
+else's, which is the 07:00 case — it walked the primary key **backwards**
+discarding strangers (60 000 rows removed by filter, **1 074 buffers**, 4.7 ms).
+
+`submissions_user_recent_idx (user_id, id DESC NULLS FIRST)` answers it in
+**15–19 buffers**, ordering and all, and the LIMIT stops after ten entries.
+
+- **`DESC NULLS FIRST`, spelled out, is load-bearing.** `ORDER BY id DESC` means
+  NULLS FIRST in Postgres, and drizzle's `.desc()` alone emits `DESC NULLS
+  LAST` — a different pathkey. Measured: with `NULLS LAST` the planner declined
+  the index and sorted anyway (107 buffers), with `NULLS FIRST` it took it (15).
+  `id` is `NOT NULL`, so the two indexes hold identical entries and only one of
+  them is usable. `submissions_failed_idx` (0025/0041) carries the same
+  `DESC NULLS LAST` against an `order by id desc` query; that is noted here and
+  deliberately not changed in this slot — it is a different panel with its own
+  measurement, and one migration should not quietly re-plan two.
+- **Three routes, one index.** The progress page's `recent` (D83), the
+  signed-in home's last five verdicts (D138), and `GET /submissions?user=…`
+  behind both.
+- **What it costs.** One more btree entry per `INSERT` into `submissions`. That
+  write path is one row per submit, and the fleet's grading ceiling is ≈35
+  submissions/min (`load/RESULTS.md`), so this is not a hot write. On the live
+  table (881 rows) the `CREATE INDEX` takes a `SHARE` lock for milliseconds;
+  the migration runs inside drizzle's transaction, so it is **not**
+  `CONCURRENTLY`, and at 881 rows it does not need to be.
+
+**Three indexes the evidence REFUSED**, recorded because a province operator
+needs to know they were tried:
+
+| Candidate | Why not |
+| --- | --- |
+| `contest_participations (user_id)` | `upcomingContests` reads `user_id = ? OR team_id IN (…)` — D113's sanctioned predicate. A disjunction with a hashed subplan on one side is not indexable, and the planner kept the sequential scan with the index present |
+| `contests (end_time)` | 364 rows, and `phase=` composes with `visibleContestsWhere`'s `OR`-of-subqueries, which cannot be pushed. Seq scan stayed cheaper, correctly |
+| `submissions (user_id, created_at)` **on its own** | Never chosen. It only earns its bytes together with D164's rewrite — see there |
+
+*Ruled by the implementer during the F-44 slot, no human available to consult.
+Migration 0044. Tests: `apps/api/test/progress-plan.spec.ts` (container-backed,
+run alone). Red→green: blanking 0044's `CREATE INDEX` statements reds it with
+the pre-index plan.*
+
+## D164 — Your own calendar joins nothing, because nothing filters on it
+
+`ProgressService.heatmap` served both the public route and your own page from
+one statement, and that statement `INNER JOIN`ed `problems` unconditionally so
+that the public half could add `visibility = 'public'` (§3/§4's rule). On your
+own page there is no predicate on `problems` at all.
+
+The join is semantically free — `submissions.problem_id` is `NOT NULL` with a
+foreign key to `problems.id`, a primary key, so it can neither drop a row nor
+duplicate one — and it was costing the query its index. Measured at 200 880
+submissions:
+
+| heatmap, own page | buffers |
+| --- | --- |
+| join present, no new index (shipped state) | 305 |
+| join present, `(user_id, created_at)` added | 305 — the planner never chose it |
+| join removed, no index | 109 |
+| join removed **and** `submissions_user_created_idx` | **10**, `Heap Fetches: 0` |
+
+Only the last row is an index-only scan, and it is only reachable when
+`user_id` and `created_at` are the only columns the statement mentions. With
+the join present the plan must visit the heap for `problem_id` anyway, so the
+index buys nothing; without the index the pupil's whole history is read off the
+heap a block at a time. **Neither half is worth shipping alone**, which is why
+the rewrite and the migration are one change and one decision.
+
+- **The public route keeps the join**, because there it filters. Two shapes
+  from one method, chosen by the flag that already existed.
+- **`gte(created_at, from − 1 day)` was never the defect.** Gap 3 says "the
+  heatmap's day is not sargable". The sargable bound has been in the file since
+  the commit that created it (`4ec5999`, 30 August) — one day *before* the gap
+  text was written (`7d54a96`, 31 August). What is not sargable is the
+  `to_char(...) BETWEEN` clause beside it, and it is not meant to be: it is the
+  exact edge of the calendar, applied as a filter to the handful of rows the
+  bound already narrowed the read to. The plans show it removing **one** row.
+  The gap's wording is corrected rather than its defect fixed, because there
+  was no defect there — the defect was the join, one line above it.
+- **The streak is NOT fixed by this**, and that is stated rather than left to be
+  discovered: it also reads `verdict` and correlates on `id` for D49's window
+  exclusion, so it stays a heap read of the pupil's own rows (352 buffers).
+  Widening `submissions_user_created_idx` to cover it would pay index bytes on
+  every row of the table to save one aggregate on one page, and the arithmetic
+  in the report does not justify that.
+
+*Ruled by the implementer during the F-44 slot, no human available to consult.
+Cost if wrong: one branch in `ProgressService.heatmap`; deleting it restores
+the previous statement exactly, because the public path is untouched. Tests:
+`apps/api/test/progress-plan.spec.ts`. Red→green: reverting the branch reds the
+"emitted SQL mentions no `problems`" assertion — an assertion on the text
+drizzle built, not on a transcription of it.*

@@ -108,8 +108,19 @@ compose profile before a province-wide contest.
    exercised (unit-tested against a stub compose) — watch it (D30).
 2. Registration hides a taken email behind a fake 201 (D26); full closure
    needs verify-before-create.
-3. `/users/me/progress` runs seven aggregates per cold miss, cached per user,
-   unmeasured at province size, and the heatmap's day is not sargable (D83).
+3. ~~`/users/me/progress` … unmeasured at province size~~ — **measured**
+   (F-44, `docs/superpowers/briefs/f44-report.md`). Seven aggregates, ≈16 ms of
+   database time per cold miss at province scale; 2 000 pupils opening the page
+   at 07:00 is ≈32 s of one core spread over that minute, so the per-user cache
+   needs no stampede machinery. Two of the seven were indicted and fixed
+   (migration 0044, D163/D164). What is **still open** from that pass, in cost
+   order: the contest scoreboard's cold fold reads every subtask case row of
+   the contest (146 ms and a temp-file spill at 2 000 pupils × 8 problems) with
+   a bind list proportional to the contest's submissions; and D49's window
+   exclusion (`contestWindowOpenWhere`) sequentially scans `contest_submissions`
+   and `contest_participations` in full on the problem list, the problem read
+   and the progress bars — a cost that grows with lifetime contest activity
+   rather than with the page. Both are behind short caches; neither is fixed.
 4. Two web fixes from F-42 are committed and **not deployed** — the teams
    panel goes on showing the roster it just replaced (and prefills the next
    edit from it, which drops a pupil), and the submit editor loses a draft
