@@ -121,6 +121,14 @@ D157 was not needed and is unused.
 - **`.env` on the live host was not touched** (and not read). Until an
   operator adds real `SMTP_*` values, the deployed stack stays on the no-op
   transport — which it will now say out loud in three places instead of none.
+- **Read this before deploying `api`.** D155 has an operational consequence
+  the boot log, `readyz` and the dashboard do not carry: the fourth place the
+  stack now says it cannot send mail is **to the user's face**. The next
+  deploy flips the live `POST /auth/password/forgot` from a fake 202 to a
+  503, and the forgot-password page starts showing "this site is not set up
+  to send email yet", until real `SMTP_*` values are in `.env`. That is
+  deliberate and it is the whole point of D155 — but pair the deploy with the
+  credentials, or expect the tickets.
 - **The D155 refusal is unit-tested, not driven over HTTP.** The property
   under test is "nothing else ran", and the cleanest proof is a database
   handle and a limiter that throw on any access; an HTTP variant would need a
