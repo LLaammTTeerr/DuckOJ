@@ -111,8 +111,8 @@ both, commented as *not* the fix.
 | --- | --- |
 | `fa2bd11` | `fix(web): the team edit form offers no field until it holds the roster it edits (D183)` — `apps/web/src/routes/teams.tsx`, `apps/web/test/teams-edit-seed-race.spec.tsx` |
 | `124c134` | `test(e2e): journey 2 waits for the prefill it types over, and 2b stops claiming it is red` — `apps/web/e2e/organiser.spec.ts` |
-| `(follow-up)` | `test(web,e2e): 2b's title stops saying it is red, and the team form's reload button gets pressed` — `apps/web/e2e/organiser.spec.ts`, `apps/web/test/edit-form-conflict.spec.tsx` |
-| (this commit) | `docs(D183)` — `docs/DECISIONS.md`, this report, the brief |
+| `c8230ec` | `test(web,e2e): 2b's title stops saying it is red, and the team form's reload button gets pressed` — `apps/web/e2e/organiser.spec.ts`, `apps/web/test/edit-form-conflict.spec.tsx` |
+| `4f68da0` | `docs(D183): the form that offers a box it is about to overwrite, and the bytes that proved it` — `docs/DECISIONS.md`, this report, the brief |
 
 ## Tests
 
