@@ -9015,3 +9015,76 @@ Tests: `apps/api/test/team-list-order.spec.ts` gains a case asserting EVERY row
 on the page carries its roster and a `memberCount` that agrees with it, and
 `teams-read-errors.spec.tsx` asserts zero calls to the detail route. Red both
 ways — an empty `members` on the summary, and a re-introduced per-row query.*
+
+## D183 — A form offers no field until it holds the record it is editing
+
+B-33. `apps/web/e2e/organiser.spec.ts` journey 2 went red the day F-50's web
+half reached the edge: the walk typed a third pupil into Alpha's roster and
+the PATCH answered **200** where D101/D104's one-seat rule owed it a 409, with
+the roster on the server unmoved. The API was reproduced correct by hand. The
+request bytes, captured off the live edge with `page.on('request')`, say what
+happened — the teacher typed `fe42-a1, fe42-a2, fe42-c1` and the body carried:
+
+```
+PATCH /api/v1/orgs/fe42-truong/teams/fe42-b33a-1788290216569
+{"name":"FE42 B33 A 1788290216569","members":["fe42-a1","fe42-a2"],
+ "slug":"fe42-b33a-1788290216569","expectedVersion":"83b9995d…"}
+-> 200, roster unchanged
+```
+
+**A teacher can lose typed work on this path, and nothing tells them.** The
+form shows the roster they typed, the save succeeds, the pupil is not on the
+team, and there is no banner, no conflict and no error.
+
+**The mechanism.** `TeamForm` mounts on Sửa and fires `GET
+/orgs/{slug}/teams/{teamSlug}`. While that was in flight it rendered all three
+fields — **editable, empty, and provisional without saying so**. When the
+response landed, the seed effect ran with `first === true`, and the `first`
+branch overwrites regardless of `dirty`. It has to: `loadNewer()` reopens the
+guard by clearing `seededFrom`, and *that* reseed is D161's admin explicitly
+asking for the newer roster. `reseeded` is announced only when `!first`, so
+this seed was silent. Lưu then sent the roster the server already had.
+
+**F-50 did not write the bug; it removed the thing that was hiding it.** Until
+D182, `TeamMembers` fetched every visible row's detail under this exact
+`['org-team', slug, teamSlug]` key, so the cache was warm before anyone
+clicked Sửa and the seed was effectively synchronous. Deleting that N+1 was
+right, and it deleted an accidental prefetch with it — which is how a
+performance fix became a silent write of stale data. It is the fourth visit
+to this same loss: F-42's stale prefill, B-31's seed-once forms, F-48's five
+forms, and now the window before the first seed.
+
+- **The rule.** An edit form renders no editable field until it holds the
+  record it is editing. `teams.tsx` already refused to render over a load that
+  **failed**, and its comment gave the reason — `members` REPLACES the whole
+  roster, so an empty box is a saved change. The load still **in flight** is
+  the same hazard one state earlier, and it was the state the comment missed.
+- **The gate is "seeded from THIS team", not "the query answered".** Between
+  the response landing and the effect committing there is one paint where the
+  boxes are mounted and still empty. One paint is enough for a keystroke
+  already in flight, and enough to make a browser walk that types straight
+  after the click flaky rather than wrong.
+- **The seed effect is untouched.** Making `first` respect `dirty` would have
+  been the smaller diff and it would have broken D161: `loadNewer()` needs a
+  first seed that overwrites, because overwriting is what the admin pressed
+  the button for.
+- **`loadNewer()` now shows the loading state for a beat** — it clears
+  `seededFrom`, so the gate closes until the newer roster is seeded. That is
+  after an explicit press on an `aria-busy` button, and D161's promise (the
+  typed roster stays on screen until the admin asks) is about the moment
+  *before* the press.
+- **The walk was wrong too, and separately.** Journey 2's second edit typed
+  straight after the click while its first edit waited for the prefill. The
+  wait is now on both, with a comment saying it is not the fix — the browser
+  cannot prove the fix, because the edge carries the pre-fix bundle and this
+  slot builds no bundle.
+
+*Ruled by the implementer during the B-33 slot, no human available to consult.
+Cost if wrong: a team edit form that shows "Đang tải…" for one round trip
+where it used to show three empty boxes, and a beat of it after D161's reload
+button. Tests: `apps/web/test/teams-edit-seed-race.spec.tsx` holds the team
+detail response open, types into whatever box the form offers, lets the roster
+land and asserts the PATCH body carries what was typed — red against the
+deployed bundle (`["an","binh"]` for `an, binh, chi`), green after. The e2e
+walk proves the WALK fix only; the deployed bundle stays defective until it is
+rebuilt and shipped.*
