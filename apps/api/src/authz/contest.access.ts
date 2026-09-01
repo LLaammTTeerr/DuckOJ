@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, max, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   contestOrgs,
   contestParticipations,
@@ -44,7 +44,11 @@ import {
   loadContestContext,
   visibleContestsWhere,
 } from './contest.visibility.js';
-import { mapContest, type ContestCaseRow, type ContestSubmissionRow } from './contest.mapping.js';
+import {
+  mapContest,
+  type ContestSubmissionRow,
+  type ContestSubtaskRow,
+} from './contest.mapping.js';
 import {
   actingParticipations,
   listParticipations,
@@ -1910,14 +1914,44 @@ export class ContestAccessService {
   }
 
   /**
-   * Every contest submission with its cases, in `contest_submissions.id` and
-   * `submission_cases.id` order — both load-bearing, per `mapContest`.
+   * Every contest submission with its cases **summarised per group**, in
+   * `contest_submissions.id` and first-seen group order — both load-bearing,
+   * per `mapContest`.
    *
-   * Cases are restricted to each submission's **latest attempt**. A regrade
-   * writes a second attempt's rows beside the first's (the identity index
-   * makes redelivery harmless, it never deletes), and summing both would
-   * double every loose case. No golden covers this — the goldens are
-   * single-attempt — so it is a decision made here rather than a test result.
+   * F-44 measured the old shape of this (statement 34): two `Parallel Seq
+   * Scan`s of `submission_cases` under a `submission_id = ANY(<every id in the
+   * contest>)` list, an external merge sort spilling to disk, 13 326 buffers
+   * and 146 ms on a 2 000-pupil round — every case row of the contest shipped
+   * to Node and rebuilt as an object, so that JavaScript could reduce it per
+   * group. **The query was the finding**: no index makes reading 96 % of a
+   * table cheaper. D165 makes the read narrower instead.
+   *
+   * Three things change, and each is a separate claim:
+   *
+   * 1. **The reduction moves into Postgres.** `min(points)`, `max(max_points)`
+   *    and the loose group's ordered sums are exactly what the formats reduce
+   *    cases to; grouping by `(submission_id, attempt, group_index)` computes
+   *    them once, in the scan, and returns one row per group instead of one
+   *    per case.
+   * 2. **The bind list goes away.** The old statement named every submission
+   *    id twice, so its *text* grew linearly with the contest. The predicate
+   *    is now a join back to this contest's own `contest_submissions`, which
+   *    is a constant-sized statement whatever the contest holds.
+   * 3. **The latest-attempt filter costs no second scan.** It used to be a
+   *    self-join against a `max(attempt)` aggregate over the same rows — the
+   *    second seq scan. Grouping by `attempt` as well makes every attempt's
+   *    groups fall out of the one scan, and picking the highest is a pass over
+   *    at most a handful of rows per submission. Superseded attempts only
+   *    exist for regraded submissions (a rejudge deletes them outright,
+   *    `RejudgeAccessService.requeueAll`), so this reads no more rows than the
+   *    filter it replaces.
+   *
+   * `sum(... order by id)` is not decoration. `points` is `double precision`
+   * and the formats accumulate the loose group with `+` in `submission_cases
+   * .id` order; a bare `sum` may combine parallel partial aggregates in
+   * worker-completion order, so it is not even deterministic run to run. The
+   * ordered aggregate is what makes this bit-identical to the JavaScript it
+   * replaces, and `contest-scoreboard-fold.spec.ts` proves it on real rows.
    */
   private async loadSubmissionRows(contestId: number): Promise<ContestSubmissionRow[]> {
     const rows = await this.db
@@ -1943,52 +1977,63 @@ export class ContestAccessService {
 
     if (rows.length === 0) return [];
 
-    const submissionIds = rows.map((row) => row.submissionId);
-    const latestAttempt = this.db
+    const subtaskRows = await this.db
       .select({
         submissionId: submissionCases.submissionId,
-        // Aliased away from `attempt`: an `attempt` on both sides of the
-        // join is an ambiguous column reference to Postgres.
-        maxAttempt: max(submissionCases.attempt).as('max_attempt'),
-      })
-      .from(submissionCases)
-      .where(inArray(submissionCases.submissionId, submissionIds))
-      .groupBy(submissionCases.submissionId)
-      .as('latest_attempt');
-
-    const caseRows = await this.db
-      .select({
-        id: submissionCases.id,
-        submissionId: submissionCases.submissionId,
+        attempt: submissionCases.attempt,
         groupIndex: submissionCases.groupIndex,
-        caseIndex: submissionCases.caseIndex,
-        points: submissionCases.points,
-        maxPoints: submissionCases.maxPoints,
-        verdict: submissionCases.verdict,
+        minPoints: sql<number>`min(${submissionCases.points})`,
+        maxTotal: sql<number>`max(${submissionCases.maxPoints})`,
+        sumPoints: sql<number>`sum(${submissionCases.points} order by ${submissionCases.id})`,
+        sumTotal: sql<number>`sum(${submissionCases.maxPoints} order by ${submissionCases.id})`,
       })
       .from(submissionCases)
-      .innerJoin(
-        latestAttempt,
-        and(
-          eq(latestAttempt.submissionId, submissionCases.submissionId),
-          eq(latestAttempt.maxAttempt, submissionCases.attempt),
+      .where(
+        inArray(
+          submissionCases.submissionId,
+          this.db
+            .select({ submissionId: contestSubmissions.submissionId })
+            .from(contestSubmissions)
+            .innerJoin(
+              contestParticipations,
+              eq(contestParticipations.id, contestSubmissions.participationId),
+            )
+            .where(eq(contestParticipations.contestId, contestId)),
         ),
       )
-      .where(inArray(submissionCases.submissionId, submissionIds))
-      .orderBy(asc(submissionCases.id));
+      .groupBy(submissionCases.submissionId, submissionCases.attempt, submissionCases.groupIndex)
+      // First-seen group order is what `ioi16` sums in, and the least id in a
+      // group is where its first case sat in the order the old query read
+      // them. Sorting the AGGREGATE is a sort of one row per group, not one
+      // row per case, which is the whole point of doing it here.
+      .orderBy(
+        asc(submissionCases.submissionId),
+        asc(submissionCases.attempt),
+        sql`min(${submissionCases.id})`,
+      );
 
-    const casesBySubmission = new Map<number, ContestCaseRow[]>();
-    for (const row of caseRows) {
-      const bucket = casesBySubmission.get(row.submissionId);
-      const testCase: ContestCaseRow = {
+    // One pass, in the order above: a submission's rows arrive attempt by
+    // attempt, so the last attempt seen is the highest one and its groups
+    // replace whatever an earlier attempt left. Filtering in JavaScript rather
+    // than in SQL is what saves the second scan; the rows it discards exist
+    // only for a submission that has been regraded.
+    const subtasksBySubmission = new Map<number, ContestSubtaskRow[]>();
+    const attemptBySubmission = new Map<number, number>();
+    for (const row of subtaskRows) {
+      const seen = attemptBySubmission.get(row.submissionId);
+      if (seen === undefined || row.attempt > seen) {
+        attemptBySubmission.set(row.submissionId, row.attempt);
+        subtasksBySubmission.set(row.submissionId, []);
+      } else if (row.attempt < seen) {
+        continue;
+      }
+      subtasksBySubmission.get(row.submissionId)?.push({
         groupIndex: row.groupIndex,
-        caseIndex: row.caseIndex,
-        points: row.points,
-        maxPoints: row.maxPoints,
-        verdict: row.verdict,
-      };
-      if (bucket === undefined) casesBySubmission.set(row.submissionId, [testCase]);
-      else bucket.push(testCase);
+        minPoints: row.minPoints,
+        maxTotal: row.maxTotal,
+        sumPoints: row.sumPoints,
+        sumTotal: row.sumTotal,
+      });
     }
 
     return rows.map((row) => ({
@@ -1997,7 +2042,7 @@ export class ContestAccessService {
       date: row.date,
       verdict: row.verdict,
       state: row.state,
-      cases: casesBySubmission.get(row.submissionId) ?? [],
+      subtasks: subtasksBySubmission.get(row.submissionId) ?? [],
     }));
   }
 

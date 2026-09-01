@@ -1,4 +1,9 @@
-import type { ContestInput, ProblemSpec, SubmissionSpec, TestCaseSpec } from '@duckoj/contest-formats';
+import type {
+  ContestInput,
+  ProblemSpec,
+  SubmissionSpec,
+  SubtaskSummary,
+} from '@duckoj/contest-formats';
 import { AppError } from '../common/app.error.js';
 
 /**
@@ -64,12 +69,27 @@ export interface ParticipationRow {
   teamName?: string | undefined;
 }
 
-export interface ContestCaseRow {
+/**
+ * One group of one submission's cases, as the fold's `GROUP BY` returns it
+ * (D165) — never an individual case row.
+ *
+ * `caseIndex` and `verdict` are gone with the per-case rows and are not
+ * missed: nothing in `@duckoj/contest-formats` ever read either of them. The
+ * formats reduce cases per group and only ever look at `points` and
+ * `max_points`, which is exactly what makes the reduction safe to perform in
+ * SQL.
+ */
+export interface ContestSubtaskRow {
+  /** `submission_cases.group_index`; `0` is the loose group. */
   groupIndex: number;
-  caseIndex: number;
-  points: number;
-  maxPoints: number;
-  verdict: string | null;
+  /** `min(points)` over the group. */
+  minPoints: number;
+  /** `max(max_points)` over the group. */
+  maxTotal: number;
+  /** `sum(points)` over the group, in `submission_cases.id` order. */
+  sumPoints: number;
+  /** `sum(max_points)` over the group, in `submission_cases.id` order. */
+  sumTotal: number;
 }
 
 export interface ContestSubmissionRow {
@@ -79,8 +99,12 @@ export interface ContestSubmissionRow {
   /** `submissions.verdict`; `null` for an internal error that never got one. */
   verdict: string | null;
   state: string;
-  /** Every case of this submission's **latest attempt**, in insertion order. */
-  cases: ContestCaseRow[];
+  /**
+   * Every group of this submission's **latest attempt**, in first-seen order —
+   * that is, ordered by the least `submission_cases.id` in the group, which is
+   * the order the cases themselves would have arrived in.
+   */
+  subtasks: ContestSubtaskRow[];
 }
 
 export interface ContestRows {
@@ -140,17 +164,18 @@ function datasetOf(problem: ContestProblemRow): ProblemSpec['problem_test_cases'
   return [{ type: 'C', points: problem.datasetTotalPoints }];
 }
 
-function mapCases(cases: ContestCaseRow[]): TestCaseSpec[] {
-  return cases.map((row) => ({
+function mapSubtasks(subtasks: ContestSubtaskRow[]): SubtaskSummary[] {
+  return subtasks.map((row) => ({
     // `submission_cases.group_index` is `0` for an ungrouped case where DMOJ
-    // writes `NULL`. Both formats that look at a batch treat `null` and `0`
-    // identically (`batch ?? 0`, and `batch === null || batch === 0` is
-    // loose), so `0` is the faithful spelling of both.
+    // writes `NULL`, and `SubtaskSummary.batch` carries the same normalised
+    // `0`. Both formats that look at a batch treat `null` and `0` identically
+    // (`batch ?? 0`, and `batch === null || batch === 0` is loose), so `0` is
+    // the faithful spelling of both.
     batch: row.groupIndex,
-    case: row.caseIndex,
-    points: row.points,
-    total: row.maxPoints,
-    status: row.verdict ?? 'IE',
+    minPoints: row.minPoints,
+    maxTotal: row.maxTotal,
+    sumPoints: row.sumPoints,
+    sumTotal: row.sumTotal,
   }));
 }
 
@@ -160,7 +185,13 @@ function mapCases(cases: ContestCaseRow[]): TestCaseSpec[] {
  * - `contest_problems.order` decides which problem gets label `A`/`1`.
  * - `contest_submissions.id` decides `groupByProblem`'s first-seen order,
  *   which `ioi16` sums in — and IEEE addition is not associative.
- * - `submission_cases.id` decides the order loose cases are summed in.
+ * - `submission_cases.id` decides the order loose cases are summed in, and the
+ *   order the groups themselves are folded in. Since D165 that ordering is
+ *   asserted inside the aggregate — `sum(points order by id)` — rather than
+ *   applied to rows on their way out, because an unordered `sum` over
+ *   `double precision` is not deterministic in Postgres at all: a parallel
+ *   aggregate combines partials in worker-completion order, and even a serial
+ *   scan may start mid-table under `synchronize_seqscans`.
  *
  * The service's queries sort on exactly those columns.
  */
@@ -210,7 +241,7 @@ export function mapContest(rows: ContestRows): ContestInput {
       date: row.date.toISOString(),
       result: row.verdict,
       status: STATUS_BY_STATE[row.state] ?? 'D',
-      cases: mapCases(row.cases),
+      subtasks: mapSubtasks(row.subtasks),
     };
   });
 

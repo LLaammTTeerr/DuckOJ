@@ -289,7 +289,9 @@ export async function seedGoldenContest(db: Db, input: ContestInput): Promise<Se
 
   // --- submissions, in fixture order, which becomes contest_submissions.id order ---
   for (const submission of input.submissions) {
-    const cases: TestCaseSpec[] = submission.cases;
+    // Every golden fixture carries raw cases; `SubmissionSpec.cases` became
+    // optional only because the API now supplies `subtasks` instead (D165).
+    const cases: TestCaseSpec[] = submission.cases ?? [];
     const [row] = await db
       .insert(submissions)
       .values({
