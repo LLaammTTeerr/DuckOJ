@@ -47,10 +47,15 @@ import { sql } from 'drizzle-orm';
 import { availableParallelism } from 'node:os';
 import type { Db } from '@duckoj/db';
 import { reclaimExpiredLeases } from '@duckoj/db';
-import type { AdminDashboardResponseDto, ReclaimLeasesResponseDto } from '@duckoj/contracts';
+import type {
+  AdminDashboardResponseDto,
+  AdminMailTestResponseDto,
+  ReclaimLeasesResponseDto,
+} from '@duckoj/contracts';
 import { APP_CONFIG, DB } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
+import { MAILER, type Mailer } from '../mail/mailer.js';
 import { REFUSAL_PREFIX } from '../common/rate-limiter.js';
 import { resolveWorkerCount } from '../cluster.js';
 import { isAdmin, type Actor } from './actor.js';
@@ -71,6 +76,23 @@ export const JUDGE_SILENCE_SECONDS = 90;
 
 /** How many failures the dashboard carries. A readout, not a log. */
 const RECENT_FAILURE_LIMIT = 20;
+
+/**
+ * How long the test-mail action waits before giving up on the transport.
+ *
+ * nodemailer's own connection timeout is minutes, and a host that is
+ * firewalled rather than closed does not refuse — it says nothing. Without a
+ * deadline the admin's request would hang until some proxy gave up on it,
+ * which is the same "no answer at all" this whole slot exists to remove. The
+ * shape is `HealthController`'s `withDeadline`, and the reason is the same
+ * one written out there: a probe's contract is to ANSWER.
+ *
+ * 15 seconds because a real relay answers a `MAIL FROM` in well under one,
+ * and a TLS handshake against a slow host in a few — long enough that a
+ * working-but-sluggish server is not reported as broken, short enough that an
+ * operator gets a verdict rather than a spinner.
+ */
+export const MAIL_TEST_TIMEOUT_MS = 15_000;
 
 /**
  * `capabilities -> 'executors'` as a sorted `string[]`.
@@ -161,9 +183,13 @@ function iso(value: unknown): string | null {
 
 @Injectable()
 export class DashboardService {
+  private readonly logger = new Logger(DashboardService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(REDIS_HEALTH) private readonly redis: RedisHealth,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+    @Inject(MAILER) private readonly mailer: Mailer,
   ) {}
 
   async snapshot(actor: Actor): Promise<AdminDashboardResponseDto> {
@@ -196,8 +222,90 @@ export class DashboardService {
         apiWorkers: resolveWorkerCount(process.env, availableParallelism()),
         judgedConcurrency: this.judgedConcurrency(),
       },
+      mail: this.mail(),
       generatedAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * What this deployment is configured to do with mail (F-40).
+   *
+   * Read off the config and the resolved transport — **no connection is
+   * opened**. This method runs on every 15-second poll of the dashboard, and
+   * a health readout that dials somebody else's relay six times a minute is a
+   * different kind of outage. `sendTestMail` below is where a socket happens,
+   * once, because a human pressed a button.
+   *
+   * `transport` comes from the MAILER the container actually resolved rather
+   * than from `config.smtp` alone, so the panel reports what is running and
+   * not what the configuration implies should be running. They agree today
+   * (`MailModule` picks one from the other) and the panel is the wrong place
+   * to find out that they ever stopped agreeing.
+   *
+   * The password is absent by construction: `authenticated` is a boolean and
+   * there is no field for the secret to leak into.
+   */
+  private mail(): AdminDashboardResponseDto['mail'] {
+    const smtp = this.config.smtp;
+    return {
+      transport: this.mailer.kind,
+      configured: smtp !== null,
+      host: smtp?.host ?? null,
+      port: smtp?.port ?? null,
+      secure: smtp?.secure ?? false,
+      authenticated: (smtp?.user ?? '') !== '',
+      from: this.config.mailFrom,
+    };
+  }
+
+  /**
+   * D156 — opens a real SMTP connection and reports, verbatim, what happened.
+   *
+   * Through the INJECTED mailer, not a transport built here: the point of the
+   * button is to test the thing production uses. A parallel transport
+   * assembled for the test would prove that some SMTP client can reach the
+   * host, which is not the question.
+   *
+   * A refused connection, a rejected credential and an expired certificate
+   * are all 200 with `delivered: false` and the transport's own message. That
+   * is deliberate: the request itself succeeded — the admin asked "can you
+   * send mail" and got a complete, correct answer — and mapping it to a 5xx
+   * would put the diagnosis in a body most clients discard on an error status.
+   * The one genuine 503 is a deployment with nothing to test.
+   */
+  async sendTestMail(actor: Actor, to: string): Promise<AdminMailTestResponseDto> {
+    this.requireAdmin(actor);
+    if (this.mailer.kind !== 'smtp') {
+      throw new AppError(
+        503,
+        'mail_unavailable',
+        'No SMTP host is configured on this deployment, so there is nothing to test. ' +
+          'Set SMTP_HOST in the environment and restart the api service.',
+      );
+    }
+    try {
+      await withDeadline(
+        this.mailer.send({
+          to,
+          subject: 'DuckOJ — thư kiểm tra / test message',
+          text:
+            'Thư này được gửi từ trang quản trị DuckOJ để kiểm tra cấu hình SMTP.\n' +
+            'Nếu bạn nhận được nó, hệ thống gửi thư đang hoạt động.\n\n' +
+            'This message was sent from the DuckOJ admin dashboard to test the SMTP ' +
+            'configuration. If you received it, outbound mail works.\n',
+        }),
+        MAIL_TEST_TIMEOUT_MS,
+      );
+      // The address is logged because an admin sending test mail to an
+      // address is an administrative action on a shared deployment, and the
+      // next admin deserves to see that it happened.
+      this.logger.log(`admin mail test: delivered to ${to}`);
+      return { delivered: true, error: null };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`admin mail test: failed for ${to} — ${message}`);
+      return { delivered: false, error: message };
+    }
   }
 
   /**
@@ -575,4 +683,31 @@ export class DashboardService {
     `);
     return rows.map((row) => ({ purpose: row.purpose, count: num(row.n) }));
   }
+}
+
+
+/**
+ * Resolves with `work`, or rejects once `ms` have passed.
+ *
+ * The same shape and the same reasoning as `HealthController`'s — duplicated
+ * rather than exported from there because `authz/**` must not import a
+ * controller, and eight lines of `Promise.race` is a smaller thing to keep in
+ * two places than a shared module that both a health probe and an
+ * authorization service reach into. `unref()` so a pending deadline never
+ * holds the process open at shutdown; the abandoned send is not cancelled,
+ * because nodemailer offers nothing to cancel it with and its eventual
+ * settlement is harmless — the caller has already been answered.
+ */
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`the SMTP server did not answer within ${String(ms)}ms`)),
+      ms,
+    );
+    timer.unref();
+  });
+  return Promise.race([work, deadline]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }

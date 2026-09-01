@@ -299,6 +299,117 @@ function Stat({
   );
 }
 
+/**
+ * F-40 — the mail panel, and the one button in DuckOJ that dials a mail
+ * server.
+ *
+ * Split out of `Operations` rather than inlined because it owns state the
+ * rest of the page does not: an address the admin is typing, and the result
+ * of an action that can take seconds. Everything it displays comes from the
+ * snapshot the parent already fetched, so it adds no request of its own.
+ *
+ * The unconfigured case is a `role="alert"`, not a grey em dash. Every other
+ * "not told" on this page (`judgedConcurrency`, an idle judge) is a fact
+ * about a reading; this one is a fact about the deployment — mail is the
+ * FIRST line of docs/PROVINCE-READINESS.md, and a province that has not set
+ * it cannot reset a single password.
+ */
+function MailPanel({ mail }: { mail: Dashboard['mail'] }) {
+  const t = useT();
+  const client = useQueryClient();
+  const [address, setAddress] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function sendTest(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { data, error: err } = await api.POST('/admin/mail/test', {
+        body: { to: address },
+      });
+      if (err) {
+        setError(err.detail ?? t('admin.mailTestError'));
+        return;
+      }
+      if (data.delivered) {
+        setNotice(t('admin.mailTestOk', { address }));
+      } else {
+        // The transport's own words, carried to the screen unaltered (D156).
+        // An operator debugging TLS or a rejected credential needs the
+        // server's sentence, and a paraphrase here would throw away the
+        // entire value of having opened the connection.
+        setError(t('admin.mailTestFailed', { error: data.error ?? '' }));
+      }
+      // The panel is configuration, which a send cannot change — but the
+      // rest of the snapshot has aged by however long the SMTP conversation
+      // took, so the page is refreshed rather than left stale beside a new
+      // result.
+      await client.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+    } catch {
+      setError(t('common.networkError'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <h3>{t('admin.mailHeading')}</h3>
+      <p className="muted">{t('admin.mailNote')}</p>
+      {mail.configured ? null : <p role="alert">{t('admin.mailWarning')}</p>}
+      <div className="stats">
+        <Stat
+          label={t('admin.mailTransport')}
+          value={mail.configured ? t('admin.mailConfigured') : t('admin.mailNotConfigured')}
+        />
+        {/* An em dash for a host that does not exist, exactly as the runtime
+            tiles do for a number nobody reported. */}
+        <Stat label={t('admin.mailHost')} value={mail.host ?? '\u2014'} />
+        <Stat label={t('admin.mailPort')} value={mail.port === null ? '\u2014' : String(mail.port)} />
+        <Stat
+          label={t('admin.mailSecure')}
+          value={mail.secure ? t('admin.mailSecureImplicit') : t('admin.mailSecureStartTls')}
+        />
+        <Stat
+          label={t('admin.mailAuth')}
+          value={mail.authenticated ? t('admin.mailAuthYes') : t('admin.mailAuthNo')}
+        />
+        <Stat label={t('admin.mailFrom')} value={mail.from} />
+      </div>
+
+      <h3>{t('admin.mailTestHeading')}</h3>
+      <p className="muted">{t('admin.mailTestNote')}</p>
+      <p>
+        <label>
+          {t('admin.mailTestLabel')}{' '}
+          <input
+            type="email"
+            value={address}
+            disabled={!mail.configured}
+            onChange={(e) => setAddress(e.target.value)}
+          />
+        </label>{' '}
+        {/* Disabled on an unconfigured deployment: there is nothing to test,
+            the server answers 503, and offering the button would be the same
+            "press this and believe it worked" the whole slot exists to end.
+            The warning above says why. */}
+        <button
+          type="button"
+          disabled={busy || !mail.configured || address === ''}
+          onClick={() => void sendTest()}
+        >
+          {busy ? t('admin.mailTestSending') : t('admin.mailTestSend')}
+        </button>
+      </p>
+      {notice ? <p role="status">{notice}</p> : null}
+      {error ? <p role="alert">{error}</p> : null}
+    </>
+  );
+}
+
 function Operations() {
   const t = useT();
   const { locale, timeZone } = useLocale();
@@ -413,6 +524,8 @@ function Operations() {
               title={data.runtime.judgedConcurrency === null ? t('admin.notReported') : undefined}
             />
           </div>
+
+          <MailPanel mail={data.mail} />
 
           <h3>{t('admin.judgesHeading')}</h3>
           {/* Seven columns do not fit a phone, so the table scrolls sideways —

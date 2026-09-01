@@ -3985,6 +3985,16 @@ export interface paths {
                                 apiWorkers: number;
                                 judgedConcurrency: number | null;
                             };
+                            mail: {
+                                /** @enum {string} */
+                                transport: "smtp" | "log";
+                                configured: boolean;
+                                host: string | null;
+                                port: number | null;
+                                secure: boolean;
+                                authenticated: boolean;
+                                from: string;
+                            };
                             generatedAt: string;
                         };
                     };
@@ -4095,6 +4105,115 @@ export interface paths {
                 };
                 /** @description Signed in, but not an admin (`admin_forbidden`), or authenticated by an access token rather than an interactive session (`session_required`) — this route is session-only, exactly like `/auth/tokens` */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/mail/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test message to an address, opening a real SMTP connection — admin only, session only
+         * @description The only route in DuckOJ that dials the configured SMTP server on demand. A failure answers 200 with `delivered: false` and the transport's own error text — the message is the diagnosis, and an error status carrying a generic body would throw it away. A deployment with no SMTP host configured answers 503 `mail_unavailable` instead: there is nothing to test.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** Format: email */
+                        to: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The attempt was made. `delivered` says whether it worked. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            delivered: boolean;
+                            error: string | null;
+                        };
+                    };
+                };
+                /** @description Not signed in */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description Signed in, but not an admin (`admin_forbidden`), or authenticated by an access token rather than an interactive session (`session_required`) — this route is session-only, exactly like `/auth/tokens` */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description No SMTP host is configured on this deployment (`mail_unavailable`) */
+                503: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -4641,6 +4760,26 @@ export interface paths {
                         };
                     };
                 };
+                /** @description D155 — this production deployment has no SMTP transport, so no mail can be sent to anyone (`mail_unavailable`). Decided by the server's own configuration and never by the address in the request, so the 202/503 split says nothing about whether an account exists: every caller gets the same answer for every address. Answered before the lookup, so the timing does not leak either. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
             };
         };
         delete?: never;
@@ -4742,6 +4881,26 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+                /** @description D155 — no SMTP transport on this production deployment (`mail_unavailable`) */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
                 };
             };
         };

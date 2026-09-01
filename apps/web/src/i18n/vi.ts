@@ -119,6 +119,8 @@ export const vi = {
   'auth.forgotTitle': 'Đặt lại mật khẩu',
   'auth.forgotIntro': 'Nhập địa chỉ email bạn đã đăng ký.',
   'auth.forgotSubmit': 'Gửi liên kết đặt lại',
+  'auth.mailUnavailable':
+    'Trang này chưa được cấu hình để gửi thư, nên không thể gửi liên kết đặt lại \u2014 cho địa chỉ này hay bất kỳ địa chỉ nào khác. Vui lòng nhờ quản trị viên cấu hình.',
   'auth.forgotSent':
     'Nếu địa chỉ đó có tài khoản, liên kết đặt lại đang được gửi đi. Liên kết hết hạn sau một giờ.',
   'auth.emailLabel': 'Email',
@@ -804,6 +806,33 @@ export const vi = {
   'admin.apiWorkers': 'Tiến trình API',
   'admin.judgedConcurrency': 'Số luồng chấm',
   'admin.notReported': 'judged chưa báo JUDGED_CONCURRENCY cho API',
+  // F-40 — bảng thư điện tử.
+  'admin.mailHeading': 'Thư điện tử',
+  'admin.mailNote':
+    'Chỉ hiển thị cấu hình — trang này không bao giờ tự kết nối. Hãy dùng phần kiểm tra bên dưới để biết thông tin đăng nhập và đường mạng có thật sự hoạt động không.',
+  'admin.mailTransport': 'Kênh gửi',
+  'admin.mailConfigured': 'SMTP',
+  'admin.mailNotConfigured': 'chưa cấu hình',
+  'admin.mailWarning':
+    'Chưa khai báo SMTP_HOST, nên hệ thống này không gửi được thư nào cả: không đặt lại mật khẩu, không xác nhận địa chỉ. Hãy đặt SMTP_HOST trong môi trường rồi khởi động lại dịch vụ api.',
+  'admin.mailHost': 'Máy chủ',
+  'admin.mailPort': 'Cổng',
+  'admin.mailSecure': 'TLS',
+  'admin.mailSecureImplicit': 'ngầm định (465)',
+  'admin.mailSecureStartTls': 'STARTTLS',
+  'admin.mailAuth': 'Đăng nhập',
+  'admin.mailAuthYes': 'có tên đăng nhập',
+  'admin.mailAuthNo': 'ẩn danh',
+  'admin.mailFrom': 'Người gửi',
+  'admin.mailTestHeading': 'Gửi thư kiểm tra',
+  'admin.mailTestNote':
+    'Gửi ngay một thư qua kênh đang cấu hình. Đây là thao tác duy nhất của DuckOJ có mở kết nối tới máy chủ thư của bạn.',
+  'admin.mailTestLabel': 'Gửi tới',
+  'admin.mailTestSend': 'Gửi thư kiểm tra',
+  'admin.mailTestSending': 'Đang gửi\u2026',
+  'admin.mailTestOk': 'Đã gửi tới {address}. Nếu không thấy thư, hãy kiểm tra hộp thư rác và nhật ký của máy chủ thư.',
+  'admin.mailTestFailed': 'Máy chủ thư từ chối: {error}',
+  'admin.mailTestError': 'Không chạy được phần kiểm tra.',
   'admin.ageSeconds': '{n} giây',
   'admin.ageMinutes': '{n} phút',
   'admin.ageHours': '{n} giờ',

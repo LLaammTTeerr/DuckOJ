@@ -130,6 +130,8 @@ export const en = {
   'auth.forgotTitle': 'Reset your password',
   'auth.forgotIntro': 'Enter the address you signed up with.',
   'auth.forgotSubmit': 'Send reset link',
+  'auth.mailUnavailable':
+    'This site is not set up to send email yet, so no reset link can be sent \u2014 to this address or to any other. Please ask an administrator to configure it.',
   'auth.forgotSent':
     'If that address has an account, a reset link is on its way. It expires in an hour.',
   'auth.emailLabel': 'Email',
@@ -846,6 +848,35 @@ export const en = {
   'admin.apiWorkers': 'API workers',
   'admin.judgedConcurrency': 'Judge concurrency',
   'admin.notReported': 'judged did not report JUDGED_CONCURRENCY to the API',
+  // F-40 — the mail panel. The first thing a province is asked to supply and
+  // the last thing anyone checks, so it says outright what is not configured
+  // rather than leaving it to be discovered by a locked-out teacher.
+  'admin.mailHeading': 'Email',
+  'admin.mailNote':
+    'Configuration only — this page never opens a connection. Use the test below to find out whether the credentials and the network actually work.',
+  'admin.mailTransport': 'Transport',
+  'admin.mailConfigured': 'SMTP',
+  'admin.mailNotConfigured': 'not configured',
+  'admin.mailWarning':
+    'No SMTP host is configured, so this deployment delivers no mail at all: no password resets, no address confirmations. Set SMTP_HOST in the environment and restart the api service.',
+  'admin.mailHost': 'Host',
+  'admin.mailPort': 'Port',
+  'admin.mailSecure': 'TLS',
+  'admin.mailSecureImplicit': 'implicit (465)',
+  'admin.mailSecureStartTls': 'STARTTLS',
+  'admin.mailAuth': 'Sign-in',
+  'admin.mailAuthYes': 'username set',
+  'admin.mailAuthNo': 'anonymous',
+  'admin.mailFrom': 'From',
+  'admin.mailTestHeading': 'Send a test message',
+  'admin.mailTestNote':
+    'Sends one message, now, over the configured transport. This is the only action on DuckOJ that opens a connection to your mail server.',
+  'admin.mailTestLabel': 'Send to',
+  'admin.mailTestSend': 'Send test message',
+  'admin.mailTestSending': 'Sending\u2026',
+  'admin.mailTestOk': 'Sent to {address}. If it does not arrive, check the spam folder and your relay\u2019s logs.',
+  'admin.mailTestFailed': 'The mail server refused it: {error}',
+  'admin.mailTestError': 'Could not run the test.',
   'admin.ageSeconds': '{n} s',
   'admin.ageMinutes': '{n} min',
   'admin.ageHours': '{n} h',

@@ -334,6 +334,37 @@ export const AdminDashboardResponse = z.object({
     apiWorkers: z.number().int(),
     judgedConcurrency: z.number().int().nullable(),
   }),
+  /**
+   * Whether this deployment can send mail (F-40, D156).
+   *
+   * **Configuration state, never a probe.** The dashboard refreshes every 15
+   * seconds and `readyz` runs every 10; dialling an SMTP server on either
+   * would turn a health readout into traffic against somebody else's relay,
+   * and a slow or firewalled host into a page that hangs. The one place a
+   * connection is actually opened is `POST /admin/mail/test`, which a human
+   * presses.
+   *
+   * The host, port and TLS flag are here because this response is admin-only
+   * and session-only, and because "configured" alone does not tell an
+   * operator whether the value they are looking at is the one they meant to
+   * set. **The password is not here and must never be** — `authenticated` is
+   * the whole of what may be said about it.
+   */
+  mail: z.object({
+    /** `smtp` — a real transport — or `log`, which delivers to nothing. */
+    transport: z.enum(['smtp', 'log']),
+    /** `false` means every mail this deployment tries to send is discarded. */
+    configured: z.boolean(),
+    /** `null` when unconfigured; never a guess. */
+    host: z.string().nullable(),
+    port: z.number().int().nullable(),
+    /** Implicit TLS (port 465). `false` on 587, where STARTTLS is used. */
+    secure: z.boolean(),
+    /** Whether `SMTP_USER` is set. The password itself is never reported. */
+    authenticated: z.boolean(),
+    /** The envelope sender and `From:` header, as configured. */
+    from: z.string(),
+  }),
   generatedAt: z.string(),
 });
 export type AdminDashboardResponseDto = z.infer<typeof AdminDashboardResponse>;
@@ -388,5 +419,69 @@ registry.registerPath({
     },
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
+  },
+});
+
+/**
+ * D156 — the one place DuckOJ opens a real SMTP connection on purpose.
+ *
+ * The dashboard panel above says what is CONFIGURED, which is the honest
+ * thing a 15-second poll can say. It cannot say whether the credentials are
+ * right, whether the relay will accept this sender, or whether the port is
+ * open through the province's firewall — and those are exactly the failures
+ * that produce a stack which looks configured and delivers nothing.
+ *
+ * So an admin types an address they own and presses a button. That is the
+ * whole design: a connection is expensive and side-effecting, so it happens
+ * when a human asks for it and never on a timer.
+ */
+export const AdminMailTestRequest = z.object({
+  /**
+   * Where to send it. Required and validated, because the failure this route
+   * exists to surface is indistinguishable from a typo otherwise.
+   */
+  to: z.string().email(),
+});
+export type AdminMailTestRequestDto = z.infer<typeof AdminMailTestRequest>;
+
+export const AdminMailTestResponse = z.object({
+  /** True only when the transport accepted the message for delivery. */
+  delivered: z.boolean(),
+  /**
+   * The transport's own error text, verbatim, or `null` on success.
+   *
+   * **Verbatim is the requirement, not a convenience.** An operator debugging
+   * this is reading `certificate has expired`, `535 5.7.8 Authentication
+   * credentials invalid`, `ECONNREFUSED 10.0.0.5:587` — each of which names
+   * the next thing to do. "Could not send mail" names nothing. The route is
+   * admin-only and session-only, so the audience for this string is the one
+   * person entitled to it.
+   */
+  error: z.string().nullable(),
+});
+export type AdminMailTestResponseDto = z.infer<typeof AdminMailTestResponse>;
+
+registry.registerPath({
+  method: 'post',
+  path: '/admin/mail/test',
+  tags: ['Admin'],
+  summary: 'Send a test message to an address, opening a real SMTP connection — admin only, session only',
+  description:
+    'The only route in DuckOJ that dials the configured SMTP server on demand. A failure answers 200 with ' +
+    '`delivered: false` and the transport\'s own error text — the message is the diagnosis, and an error ' +
+    'status carrying a generic body would throw it away. A deployment with no SMTP host configured answers ' +
+    '503 `mail_unavailable` instead: there is nothing to test.',
+  request: { body: { content: { 'application/json': { schema: AdminMailTestRequest } } } },
+  responses: {
+    200: {
+      description: 'The attempt was made. `delivered` says whether it worked.',
+      content: { 'application/json': { schema: AdminMailTestResponse } },
+    },
+    401: NOT_SIGNED_IN,
+    403: FORBIDDEN,
+    503: {
+      description: 'No SMTP host is configured on this deployment (`mail_unavailable`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });

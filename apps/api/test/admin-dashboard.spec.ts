@@ -21,6 +21,9 @@ import { problems, problemRevisions, submissions } from '@duckoj/db/guarded';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
 import { DashboardService, type RedisHealth } from '../src/authz/dashboard.access.js';
+import { TEST_CONFIG } from './app.harness.js';
+import type { AppConfig } from '../src/config/config.schema.js';
+import type { Mailer } from '../src/mail/mailer.js';
 import { RateLimiter } from '../src/common/rate-limiter.js';
 import type { Actor } from '../src/authz/actor.js';
 import {
@@ -32,6 +35,23 @@ import {
 
 const UP: RedisHealth = { reachable: async () => true };
 const DOWN: RedisHealth = { reachable: async () => false };
+
+/**
+ * F-40 — the mail panel reports CONFIGURATION, and opens no connection, so a
+ * transport that does nothing is a complete stand-in for every case except
+ * `sendTestMail`, which has its own fixtures below.
+ */
+const NO_MAIL: Mailer = { kind: 'log', send: () => Promise.resolve() };
+
+/** The service under test, with the two dependencies these panels ignore. */
+function dashboard(
+  db: Db,
+  redis: RedisHealth = UP,
+  config: AppConfig = TEST_CONFIG,
+  mailer: Mailer = NO_MAIL,
+): DashboardService {
+  return new DashboardService(db, redis, config, mailer);
+}
 
 function admin(userId = 1): Actor {
   return { userId, globalRole: 'admin', via: 'session', scopes: [] };
@@ -100,7 +120,7 @@ describe('GET /admin/dashboard — the queue panel', () => {
       await seedJob(db, { state: 'failed' });
       await seedJob(db, { state: 'done' });
 
-      const { queue } = await new DashboardService(db, UP).snapshot(admin());
+      const { queue } = await dashboard(db).snapshot(admin());
       expect(queue).toMatchObject({ queued: 2, running: 1, expiredLeases: 1, failed: 1 });
       // The OLDEST queued job, not the newest and not the average.
       expect(queue.oldestQueuedSeconds).toBe(300);
@@ -113,7 +133,7 @@ describe('GET /admin/dashboard — the queue panel', () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);
       await seedJob(db, { state: 'done' });
-      const { queue } = await new DashboardService(db, UP).snapshot(admin());
+      const { queue } = await dashboard(db).snapshot(admin());
       expect(queue.oldestQueuedSeconds).toBeNull();
       expect(queue.queued).toBe(0);
     });
@@ -135,7 +155,7 @@ describe('GET /admin/dashboard — the judge panel', () => {
         sql`update judge_nodes set last_seen = now() - interval '200 seconds' where name = 'judge-stale'`,
       );
 
-      const { judges } = await new DashboardService(db, UP).snapshot(admin());
+      const { judges } = await dashboard(db).snapshot(admin());
       expect(judges.map((j) => [j.name, j.online])).toEqual([
         ['judge-live', true],
         ['judge-never', false],
@@ -212,7 +232,7 @@ describe('GET /admin/dashboard — what each judge is carrying (D68, 0027)', () 
         judgeNodeId: two,
       });
 
-      const { judges } = await new DashboardService(db, UP).snapshot(admin());
+      const { judges } = await dashboard(db).snapshot(admin());
       expect(judges.map((j) => [j.name, j.gradingNow, j.gradedLastHour])).toEqual([
         ['judge-1', 1, 1],
         ['judge-2', 0, 0],
@@ -236,7 +256,7 @@ describe('GET /admin/dashboard — what each judge is carrying (D68, 0027)', () 
         .set({ capabilities: { executors: ['PY3', 'CPP17'], languages: ['python3', 'cpp17'] } })
         .where(eq(schema.judgeNodes.name, 'judge-announced'));
 
-      const { judges } = await new DashboardService(db, UP).snapshot(admin());
+      const { judges } = await dashboard(db).snapshot(admin());
 
       // Sorted, so two judges announcing the same set read the same.
       expect(judges.find((j) => j.name === 'judge-announced')?.executors).toEqual(['CPP17', 'PY3']);
@@ -258,7 +278,7 @@ describe('GET /admin/dashboard — what each judge is carrying (D68, 0027)', () 
         .set({ capabilities: { executors: 'CPP17' } })
         .where(eq(schema.judgeNodes.name, 'judge-odd'));
 
-      const { judges } = await new DashboardService(db, UP).snapshot(admin());
+      const { judges } = await dashboard(db).snapshot(admin());
 
       expect(judges[0]?.executors).toEqual([]);
     });
@@ -274,7 +294,7 @@ describe('GET /admin/dashboard — what each judge is carrying (D68, 0027)', () 
       // worse than no count at all.
       await seedJob(db, { state: 'leased', leaseSeconds: 45, workerId: 'w#1', submissionId: live });
 
-      const { judges } = await new DashboardService(db, UP).snapshot(admin());
+      const { judges } = await dashboard(db).snapshot(admin());
       expect(judges).toHaveLength(1);
       expect(judges[0]).toMatchObject({ name: 'judge-1', gradingNow: 0, gradedLastHour: 0 });
     });
@@ -313,7 +333,7 @@ describe('GET /admin/dashboard — blocked jobs (D68)', () => {
         blockedReason: 'no connected judge supports language py3',
       });
 
-      const { blockedJobs, queue } = await new DashboardService(db, UP).snapshot(admin());
+      const { blockedJobs, queue } = await dashboard(db).snapshot(admin());
       expect(blockedJobs).toEqual([
         { reason: 'no connected judge supports language py3', count: 2 },
         { reason: 'no connected judge supports language java', count: 1 },
@@ -328,7 +348,7 @@ describe('GET /admin/dashboard — blocked jobs (D68)', () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);
       await seedJob(db, { state: 'queued' });
-      const { blockedJobs } = await new DashboardService(db, UP).snapshot(admin());
+      const { blockedJobs } = await dashboard(db).snapshot(admin());
       expect(blockedJobs).toEqual([]);
     });
   }, 120_000);
@@ -386,7 +406,7 @@ describe('GET /admin/dashboard — the worker panel', () => {
         submissionId: live,
       });
 
-      const { workers } = await new DashboardService(db, UP).snapshot(admin());
+      const { workers } = await dashboard(db).snapshot(admin());
       expect(workers).toEqual([
         {
           workerId: 'judged-1#1',
@@ -430,7 +450,7 @@ describe('GET /admin/dashboard — the worker panel', () => {
         .where(eq(submissions.id, graded));
       await seedJob(db, { state: 'done', workerId: 'judged-2#1', submissionId: graded });
 
-      const { workers } = await new DashboardService(db, UP).snapshot(admin());
+      const { workers } = await dashboard(db).snapshot(admin());
       expect(workers).toEqual([
         {
           workerId: 'judged-2#1',
@@ -475,7 +495,7 @@ describe('GET /admin/dashboard — the failures panel', () => {
       const firstIe = await insertGradedSubmission(db, { userId, problemId, verdict: 'IE' });
       const secondIe = await insertGradedSubmission(db, { userId, problemId, verdict: 'IE' });
 
-      const { recentFailures } = await new DashboardService(db, UP).snapshot(admin());
+      const { recentFailures } = await dashboard(db).snapshot(admin());
       expect(recentFailures.map((f) => f.submissionId)).toEqual([secondIe, firstIe]);
       expect(recentFailures[0]).toMatchObject({
         problemCode: 'aplusb',
@@ -492,7 +512,7 @@ describe('GET /admin/dashboard — the failures panel', () => {
       for (let i = 0; i < 25; i++) {
         await insertGradedSubmission(db, { userId, problemId, verdict: 'IE' });
       }
-      const { recentFailures } = await new DashboardService(db, UP).snapshot(admin());
+      const { recentFailures } = await dashboard(db).snapshot(admin());
       expect(recentFailures).toHaveLength(20);
     });
   }, 120_000);
@@ -509,7 +529,7 @@ describe('GET /admin/dashboard — the refusals panel', () => {
       await limiter.allow('password_reset', 'a@b.com', 1, 3_600_000);
       await limiter.allow('email_verification', '7', 0, 3_600_000);
 
-      const { refusalsLastHour } = await new DashboardService(db, DOWN).snapshot(admin());
+      const { refusalsLastHour } = await dashboard(db, DOWN).snapshot(admin());
       expect(refusalsLastHour).toEqual([
         { purpose: 'password_reset', count: 2 },
         { purpose: 'email_verification', count: 1 },
@@ -522,7 +542,7 @@ describe('GET /admin/dashboard — the refusals panel', () => {
       const limiter = new RateLimiter(db);
       await limiter.allow('login', 'x', 0, 3_600_000);
       await db.execute(sql`update rate_events set created_at = now() - interval '61 minutes'`);
-      const { refusalsLastHour } = await new DashboardService(db, DOWN).snapshot(admin());
+      const { refusalsLastHour } = await dashboard(db, DOWN).snapshot(admin());
       expect(refusalsLastHour).toEqual([]);
     });
   }, 120_000);
@@ -531,9 +551,9 @@ describe('GET /admin/dashboard — the refusals panel', () => {
 describe('GET /admin/dashboard — dependencies and runtime', () => {
   it('reports Redis as it found it, and the API worker count in effect', async () => {
     await withTestDb(async (db) => {
-      const down = await new DashboardService(db, DOWN).snapshot(admin());
+      const down = await dashboard(db, DOWN).snapshot(admin());
       expect(down.dependencies).toEqual({ database: 'up', redis: 'down' });
-      const up = await new DashboardService(db, UP).snapshot(admin());
+      const up = await dashboard(db).snapshot(admin());
       expect(up.dependencies.redis).toBe('up');
       expect(up.runtime.apiWorkers).toBeGreaterThanOrEqual(1);
       expect(Number.isInteger(up.runtime.apiWorkers)).toBe(true);
@@ -546,22 +566,91 @@ describe('GET /admin/dashboard — dependencies and runtime', () => {
       try {
         delete process.env.JUDGED_CONCURRENCY;
         expect(
-          (await new DashboardService(db, UP).snapshot(admin())).runtime.judgedConcurrency,
+          (await dashboard(db).snapshot(admin())).runtime.judgedConcurrency,
         ).toBeNull();
         process.env.JUDGED_CONCURRENCY = '3';
         expect(
-          (await new DashboardService(db, UP).snapshot(admin())).runtime.judgedConcurrency,
+          (await dashboard(db).snapshot(admin())).runtime.judgedConcurrency,
         ).toBe(3);
         // Garbage is "not told", not a 500: this knob does not govern the
         // process reading it.
         process.env.JUDGED_CONCURRENCY = 'lots';
         expect(
-          (await new DashboardService(db, UP).snapshot(admin())).runtime.judgedConcurrency,
+          (await dashboard(db).snapshot(admin())).runtime.judgedConcurrency,
         ).toBeNull();
       } finally {
         if (previous === undefined) delete process.env.JUDGED_CONCURRENCY;
         else process.env.JUDGED_CONCURRENCY = previous;
       }
+    });
+  }, 120_000);
+});
+
+describe('GET /admin/dashboard — the mail panel (F-40)', () => {
+  const configured: AppConfig = {
+    ...TEST_CONFIG,
+    smtp: { host: 'smtp.resend.com', port: 465, secure: true, user: 'resend', password: 're_abc' },
+    mailFrom: 'Tỉnh OJ <oj@so-gd.example>',
+  };
+
+  it('says plainly that an unconfigured deployment delivers nothing', async () => {
+    await withTestDb(async (db) => {
+      // TEST_CONFIG has no SMTP host — the shape of every stack this campaign
+      // has deployed, and the one the province was being asked to trust.
+      const { mail } = await dashboard(db).snapshot(admin());
+      expect(mail).toEqual({
+        transport: 'log',
+        configured: false,
+        host: null,
+        port: null,
+        secure: false,
+        authenticated: false,
+        from: TEST_CONFIG.mailFrom,
+      });
+    });
+  }, 120_000);
+
+  it('reports the host, port and TLS an operator set, so they can check them', async () => {
+    await withTestDb(async (db) => {
+      const smtp: Mailer = { kind: 'smtp', send: () => Promise.resolve() };
+      const { mail } = await dashboard(db, UP, configured, smtp).snapshot(admin());
+      expect(mail).toEqual({
+        transport: 'smtp',
+        configured: true,
+        host: 'smtp.resend.com',
+        port: 465,
+        secure: true,
+        authenticated: true,
+        from: 'Tỉnh OJ <oj@so-gd.example>',
+      });
+    });
+  }, 120_000);
+
+  it('never carries the password anywhere in the response', async () => {
+    await withTestDb(async (db) => {
+      const smtp: Mailer = { kind: 'smtp', send: () => Promise.resolve() };
+      const snapshot = await dashboard(db, UP, configured, smtp).snapshot(admin());
+      // The whole response, not just the panel: a secret that leaked into
+      // some other field would still be a secret on an admin's screen and in
+      // their browser cache.
+      expect(JSON.stringify(snapshot)).not.toContain('re_abc');
+    });
+  }, 120_000);
+
+  it('opens no connection while polling — the panel is configuration only', async () => {
+    await withTestDb(async (db) => {
+      // A transport that throws if anything asks it to send. The dashboard
+      // refreshes every 15 seconds; a panel that dialled would be traffic
+      // against somebody else's relay four times a minute.
+      const explodes: Mailer = {
+        kind: 'smtp',
+        send: () => {
+          throw new Error('the dashboard poll opened an SMTP connection');
+        },
+      };
+      await expect(
+        dashboard(db, UP, configured, explodes).snapshot(admin()),
+      ).resolves.toBeDefined();
     });
   }, 120_000);
 });
@@ -576,7 +665,7 @@ describe('POST /admin/grading/reclaim', () => {
         workerId: 'judged-1#1',
       });
       await seedJob(db, { state: 'leased', leaseSeconds: 30, workerId: 'judged-1#2' });
-      const service = new DashboardService(db, UP);
+      const service = dashboard(db);
 
       const first = await service.reclaimLeases(admin());
       expect(first).toEqual({ reclaimed: 1, jobIds: [lapsed] });
@@ -590,7 +679,7 @@ describe('POST /admin/grading/reclaim', () => {
 
   it('refuses a non-admin', async () => {
     await withTestDb(async (db) => {
-      const service = new DashboardService(db, UP);
+      const service = dashboard(db);
       await expect(service.reclaimLeases(plainUser())).rejects.toMatchObject({
         code: 'admin_forbidden',
       });
@@ -629,10 +718,40 @@ describe('the admin dashboard over HTTP', () => {
         expect(reclaimed.status).toBe(200);
         expect(reclaimed.body).toEqual({ reclaimed: 0, jobIds: [] });
 
+        // F-40 — the mail panel travels with the rest of the snapshot, and
+        // this app is built from TEST_CONFIG, which configures no SMTP.
+        expect(res.body.mail).toEqual({
+          transport: 'log',
+          configured: false,
+          host: null,
+          port: null,
+          secure: false,
+          authenticated: false,
+          from: TEST_CONFIG.mailFrom,
+        });
+
+        // D156 — and the test-mail action refuses honestly on that same
+        // deployment: there is no transport to test, so 503 rather than a
+        // button that reports success against a log line.
+        const mailTest = await adminAgent
+          .post('/api/v1/admin/mail/test')
+          .send({ to: 'quantri@so-gd.example' });
+        expect(mailTest.status).toBe(503);
+        expect(mailTest.body.code).toBe('mail_unavailable');
+
+        // A malformed address is refused by the pipe, before any of that.
+        const badAddress = await adminAgent
+          .post('/api/v1/admin/mail/test')
+          .send({ to: 'not-an-address' });
+        expect(badAddress.status).toBe(422);
+
         const plain = request.agent(app.getHttpServer());
         await registerAndLogin(plain, 'dash-plain');
         expect((await plain.get('/api/v1/admin/dashboard')).status).toBe(403);
         expect((await plain.post('/api/v1/admin/grading/reclaim')).status).toBe(403);
+        expect(
+          (await plain.post('/api/v1/admin/mail/test').send({ to: 'a@b.example' })).status,
+        ).toBe(403);
 
         // Anonymous never gets as far as the admin check.
         expect((await request(app.getHttpServer()).get('/api/v1/admin/dashboard')).status).toBe(
@@ -640,6 +759,13 @@ describe('the admin dashboard over HTTP', () => {
         );
         expect(
           (await request(app.getHttpServer()).post('/api/v1/admin/grading/reclaim')).status,
+        ).toBe(401);
+        expect(
+          (
+            await request(app.getHttpServer())
+              .post('/api/v1/admin/mail/test')
+              .send({ to: 'a@b.example' })
+          ).status,
         ).toBe(401);
       } finally {
         await app.close();

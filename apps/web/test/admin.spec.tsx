@@ -59,7 +59,33 @@ const DASHBOARD = {
   refusalsLastHour: [],
   dependencies: { database: 'up', redis: 'up' },
   runtime: { apiWorkers: 4, judgedConcurrency: 1 },
+  // F-40. "Healthy" includes mail: a fixture that left this unconfigured
+  // would put a `role="alert"` on every case in this file, which is exactly
+  // the point — an unconfigured mailer is an alarm, not a blank.
+  mail: {
+    transport: 'smtp',
+    configured: true,
+    host: 'smtp.example',
+    port: 587,
+    secure: false,
+    authenticated: true,
+    from: 'DuckOJ <no-reply@duckoj.local>',
+  },
   generatedAt: '2026-08-29T10:00:00Z',
+};
+
+/** The same dashboard on a deployment that can send no mail at all. */
+const NO_MAIL_DASHBOARD = {
+  ...DASHBOARD,
+  mail: {
+    transport: 'log',
+    configured: false,
+    host: null,
+    port: null,
+    secure: false,
+    authenticated: false,
+    from: 'DuckOJ <no-reply@duckoj.local>',
+  },
 };
 
 function serve(role: string, contests = [CONTEST], dashboard: unknown = DASHBOARD) {
@@ -419,6 +445,74 @@ describe('AdminPage operations dashboard (D47)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  /**
+   * F-40 — the mail panel and the test-send button.
+   *
+   * The failure being closed is the quietest one in this codebase: a page
+   * that says a mail was sent by a deployment which sends none. So the
+   * assertions are about what an operator SEES — an alarm, a disabled
+   * button, and the mail server's own words on failure.
+   */
+  it('raises an alarm when this deployment can send no mail at all', async () => {
+    serve('admin', [CONTEST], NO_MAIL_DASHBOARD);
+    wrap(<AdminPage />);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/SMTP_HOST/);
+    expect(screen.getByText('chưa cấu hình')).toBeInTheDocument();
+  });
+
+  it('will not offer a test send there is nothing to test', async () => {
+    serve('admin', [CONTEST], NO_MAIL_DASHBOARD);
+    wrap(<AdminPage />);
+    // Disabled rather than absent: the button is where an operator looks
+    // after fixing `.env`, and hiding it would hide the whole feature.
+    expect(await screen.findByRole('button', { name: /Gửi thư kiểm tra/ })).toBeDisabled();
+  });
+
+  it('shows the host, port and sender an operator configured', async () => {
+    serve('admin');
+    wrap(<AdminPage />);
+    expect(await screen.findByText('smtp.example')).toBeInTheDocument();
+    expect(screen.getByText('587')).toBeInTheDocument();
+    expect(screen.getByText('DuckOJ <no-reply@duckoj.local>')).toBeInTheDocument();
+    // The panel never receives a password, so there is none to render.
+    expect(screen.getByText('có tên đăng nhập')).toBeInTheDocument();
+  });
+
+  it('sends a test message to the address typed, and says where it went', async () => {
+    serve('admin');
+    post.mockResolvedValue({ data: { delivered: true, error: null } });
+    wrap(<AdminPage />);
+
+    await userEvent.type(
+      await screen.findByLabelText(/Gửi tới/),
+      'quantri@so-gd.example',
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Gửi thư kiểm tra/ }));
+
+    expect(post).toHaveBeenCalledWith('/admin/mail/test', {
+      body: { to: 'quantri@so-gd.example' },
+    });
+    expect(await screen.findByRole('status')).toHaveTextContent('quantri@so-gd.example');
+  });
+
+  it("puts the mail server's own error text on screen, not a paraphrase", async () => {
+    serve('admin');
+    // The string an operator has to act on. A UI that replaced it with
+    // "could not send" would throw away the only fact the round trip bought.
+    post.mockResolvedValue({
+      data: { delivered: false, error: '535 5.7.8 Authentication credentials invalid' },
+    });
+    wrap(<AdminPage />);
+
+    await userEvent.type(await screen.findByLabelText(/Gửi tới/), 'quantri@so-gd.example');
+    await userEvent.click(screen.getByRole('button', { name: /Gửi thư kiểm tra/ }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '535 5.7.8 Authentication credentials invalid',
+    );
   });
 
   it('polls every fifteen seconds, so a stale board is never left on screen', async () => {
