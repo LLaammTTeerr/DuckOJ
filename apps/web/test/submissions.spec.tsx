@@ -2,8 +2,14 @@ import type { ReactElement } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RouterContextProvider, createMemoryHistory, createRootRoute, createRoute, createRouter } from '@tanstack/react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  RouterContextProvider,
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} from '@tanstack/react-router';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/api.js';
 import { SubmissionsPage } from '../src/routes/submissions.js';
 
@@ -15,6 +21,66 @@ vi.mock('../src/api.js', () => ({
 
 const mockedGet = vi.mocked(api.GET);
 
+/**
+ * The `languages` rows the column reads its display names from (F-39). The
+ * list used to print `languageKey` verbatim, which only looked like a word
+ * while `cpp17` was the only row.
+ */
+const LANGUAGE_ROWS = [
+  {
+    key: 'cpp17',
+    name: 'C++17',
+    extension: 'cpp',
+    isActive: true,
+    timeMultiplierPct: 100,
+    memoryExtraKb: 0,
+  },
+  {
+    key: 'python3',
+    name: 'Python 3',
+    extension: 'py',
+    isActive: true,
+    timeMultiplierPct: 300,
+    memoryExtraKb: 32768,
+  },
+];
+
+/**
+ * Answers queued for `GET /submissions`, oldest first.
+ *
+ * The page now makes TWO requests — the list and the language catalogue — so
+ * a bare `mockResolvedValueOnce` is no longer safe: `mockResolvedValueOnce`
+ * hands its value to whichever call arrives next, regardless of path, and the
+ * catalogue query would silently eat the page a test had queued for the list.
+ * Routing by path first, and only then consuming the queue, keeps every
+ * `answerOnce` below meaning exactly what `mockResolvedValueOnce` used to.
+ */
+let queued: unknown[] = [];
+let standing: unknown = { data: { items: [], nextCursor: null } };
+
+function installMock(): void {
+  queued = [];
+  standing = { data: { items: [], nextCursor: null } };
+  mockedGet.mockImplementation((path: unknown) => {
+    if (path === '/languages') return Promise.resolve({ data: { items: LANGUAGE_ROWS } });
+    return Promise.resolve(queued.length > 0 ? queued.shift() : standing);
+  });
+}
+
+/** One answer for the next `GET /submissions` — `mockResolvedValueOnce`. */
+function answerOnce(value: unknown): void {
+  queued.push(value);
+}
+
+/** The answer for every `GET /submissions` — `mockResolvedValue`. */
+function answerAlways(value: unknown): void {
+  standing = value;
+}
+
+beforeEach(() => {
+  installMock();
+});
+
 afterEach(() => {
   mockedGet.mockReset();
 });
@@ -22,8 +88,14 @@ afterEach(() => {
 // `SubmissionsPage` renders a `<Link to="/problems/$code">` per row, same
 // reason `problems.spec.tsx` needs one: `<Link>` throws outside a router.
 const testRootRoute = createRootRoute();
-const testProblemRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/problems/$code' });
-const testContestRoute = createRoute({ getParentRoute: () => testRootRoute, path: '/contests/$key' });
+const testProblemRoute = createRoute({
+  getParentRoute: () => testRootRoute,
+  path: '/problems/$code',
+});
+const testContestRoute = createRoute({
+  getParentRoute: () => testRootRoute,
+  path: '/contests/$key',
+});
 const testRouter = createRouter({
   routeTree: testRootRoute.addChildren([testProblemRoute, testContestRoute]),
   history: createMemoryHistory({ initialEntries: ['/submissions'] }),
@@ -71,7 +143,7 @@ const SUBMISSION_B = {
 
 describe('SubmissionsPage', () => {
   it('renders a row per submission, verdict as a badge, and points as points/maxPoints', async () => {
-    mockedGet.mockResolvedValueOnce({
+    answerOnce({
       data: { items: [SUBMISSION_A, SUBMISSION_B], nextCursor: null },
       error: undefined,
       response: new Response(),
@@ -85,6 +157,9 @@ describe('SubmissionsPage', () => {
 
     // SUBMISSION_A: a real AC verdict, using the shared .badge glyph system.
     expect(within(rows[1]!).getByText('AC')).toHaveClass('badge', 'ac');
+    // F-39: the language column names the row rather than printing its key.
+    expect(within(rows[1]!).getByText('C++17')).toBeInTheDocument();
+    expect(within(rows[1]!).queryByText('cpp17')).toBeNull();
     expect(within(rows[1]!).getByText('100/100')).toBeInTheDocument();
 
     // SUBMISSION_B: still grading — no verdict, no points, both render as
@@ -103,7 +178,7 @@ describe('SubmissionsPage', () => {
     // caption is now the visible label, tied to its box by `htmlFor` so
     // clicking it focuses the field (a screen reader's experience is
     // unchanged: the same string was already its accessible name).
-    mockedGet.mockResolvedValueOnce({
+    answerOnce({
       data: { items: [SUBMISSION_A], nextCursor: null },
       error: undefined,
       response: new Response(),
@@ -134,7 +209,7 @@ describe('SubmissionsPage', () => {
     // two causes and they want opposite actions — nothing submitted yet
     // (go and solve something) versus a filter that matched nothing (clear
     // it) — and the old line could not tell them apart.
-    mockedGet.mockResolvedValue({
+    answerAlways({
       data: { items: [], nextCursor: null },
       error: undefined,
       response: new Response(),
@@ -161,7 +236,7 @@ describe('SubmissionsPage', () => {
   });
 
   it('links each row to its problem', async () => {
-    mockedGet.mockResolvedValueOnce({
+    answerOnce({
       data: { items: [SUBMISSION_A], nextCursor: null },
       error: undefined,
       response: new Response(),
@@ -169,11 +244,14 @@ describe('SubmissionsPage', () => {
 
     renderWithClient(<SubmissionsPage />);
 
-    expect(await screen.findByRole('link', { name: 'aplusb' })).toHaveAttribute('href', '/problems/aplusb');
+    expect(await screen.findByRole('link', { name: 'aplusb' })).toHaveAttribute(
+      'href',
+      '/problems/aplusb',
+    );
   });
 
   it('links the id to the detail page and the user to their profile', async () => {
-    mockedGet.mockResolvedValueOnce({
+    answerOnce({
       data: { items: [SUBMISSION_A], nextCursor: null },
       error: undefined,
       response: new Response(),
@@ -181,7 +259,10 @@ describe('SubmissionsPage', () => {
 
     renderWithClient(<SubmissionsPage />);
 
-    expect(await screen.findByRole('link', { name: '42' })).toHaveAttribute('href', '/submissions/42');
+    expect(await screen.findByRole('link', { name: '42' })).toHaveAttribute(
+      'href',
+      '/submissions/42',
+    );
     expect(screen.getByRole('link', { name: SUBMISSION_A.username })).toHaveAttribute(
       'href',
       `/users/${SUBMISSION_A.username}`,
@@ -189,7 +270,7 @@ describe('SubmissionsPage', () => {
   });
 
   it('links a contest submission to its contest and leaves a practice row unlinked', async () => {
-    mockedGet.mockResolvedValueOnce({
+    answerOnce({
       data: { items: [SUBMISSION_A, SUBMISSION_B], nextCursor: null },
       error: undefined,
       response: new Response(),
@@ -209,7 +290,7 @@ describe('SubmissionsPage', () => {
   });
 
   it('labels a team submission with "(đội <team>)" beside the submitter (D117)', async () => {
-    mockedGet.mockResolvedValueOnce({
+    answerOnce({
       data: {
         items: [{ ...SUBMISSION_A, username: 'bob', teamName: 'Đội Rồng' }],
         nextCursor: null,
@@ -227,26 +308,31 @@ describe('SubmissionsPage', () => {
   });
 
   it('seeds the filters from the deep link, and queries with them from the first request', async () => {
-    mockedGet.mockResolvedValue({
+    answerAlways({
       data: { items: [], nextCursor: null },
       error: undefined,
       response: new Response(),
     } as never);
 
-    renderWithClient(<SubmissionsPage initialProblem="aplusb" initialUser="kim" initialContest="spring" />);
+    renderWithClient(
+      <SubmissionsPage initialProblem="aplusb" initialUser="kim" initialContest="spring" />,
+    );
     await screen.findByText(/Không có bài nộp nào khớp bộ lọc/);
 
-    const [, options] = mockedGet.mock.calls[0] as unknown as [
-      string,
-      { params: { query: Record<string, string> } },
-    ];
+    // The FIRST `/submissions` call, not the first call outright: the page
+    // also fetches `/languages` for the column's display names (F-39), and
+    // which of the two React starts first is not this test's business.
+    const call = (mockedGet.mock.calls as unknown as [string, unknown][]).find(
+      ([path]) => path === '/submissions',
+    );
+    const [, options] = call as [string, { params: { query: Record<string, string> } }];
     expect(options.params.query.problem).toBe('aplusb');
     expect(options.params.query.user).toBe('kim');
     expect(options.params.query.contest).toBe('spring');
   });
 
   it('re-queries with a problem filter when the problem field changes', async () => {
-    mockedGet.mockResolvedValue({
+    answerAlways({
       data: { items: [SUBMISSION_A], nextCursor: null },
       error: undefined,
       response: new Response(),
@@ -264,7 +350,7 @@ describe('SubmissionsPage', () => {
   });
 
   it('re-queries with a verdict filter when the verdict select changes', async () => {
-    mockedGet.mockResolvedValue({
+    answerAlways({
       data: { items: [SUBMISSION_A], nextCursor: null },
       error: undefined,
       response: new Response(),
@@ -282,17 +368,16 @@ describe('SubmissionsPage', () => {
   });
 
   it('appends the next page instead of replacing the first on "load more"', async () => {
-    mockedGet
-      .mockResolvedValueOnce({
-        data: { items: [SUBMISSION_A], nextCursor: 'cursor-1' },
-        error: undefined,
-        response: new Response(),
-      } as never)
-      .mockResolvedValueOnce({
-        data: { items: [SUBMISSION_B], nextCursor: null },
-        error: undefined,
-        response: new Response(),
-      } as never);
+    answerOnce({
+      data: { items: [SUBMISSION_A], nextCursor: 'cursor-1' },
+      error: undefined,
+      response: new Response(),
+    });
+    answerOnce({
+      data: { items: [SUBMISSION_B], nextCursor: null },
+      error: undefined,
+      response: new Response(),
+    });
 
     renderWithClient(<SubmissionsPage />);
     await screen.findByText('42');
@@ -306,7 +391,7 @@ describe('SubmissionsPage', () => {
   });
 
   it('shows an error state when the request fails', async () => {
-    mockedGet.mockResolvedValueOnce({
+    answerOnce({
       data: undefined,
       error: { type: 'about:blank', title: 'Unauthorized', status: 401, code: 'not_signed_in' },
       response: new Response(),

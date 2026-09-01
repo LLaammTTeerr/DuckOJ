@@ -4,11 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
 import { SubmitForm, VerdictPanel, problemCodeFromSearch } from '../src/routes/submit.js';
 
+const LANGUAGES = [{ key: 'cpp17', name: 'C++17', timeMs: 1000, memoryKb: 65536 }];
+
 describe('SubmitForm', () => {
   it('submits the entered source and language', async () => {
     const onSubmit = vi.fn(async () => true);
     render(
-      <SubmitForm onSubmit={onSubmit} languages={['cpp17']} busy={false} problemCode="aplusb" />,
+      <SubmitForm onSubmit={onSubmit} languages={LANGUAGES} busy={false} problemCode="aplusb" />,
     );
 
     // D84 replaced the <textarea> with CodeMirror, so there is no form
@@ -28,7 +30,7 @@ describe('SubmitForm', () => {
   });
 
   it('disables the button while a submission is in flight', async () => {
-    render(<SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy problemCode="aplusb" />);
+    render(<SubmitForm onSubmit={vi.fn()} languages={LANGUAGES} busy problemCode="aplusb" />);
     // The NAME changes while it is busy (D148) — a button that still reads
     // "Nộp bài" and does nothing is indistinguishable, on a slow link, from a
     // page that ignored the click. Disabled is still the half that makes a
@@ -53,8 +55,22 @@ describe('VerdictPanel', () => {
             points: 1,
             maxPoints: 3,
             cases: [
-              { groupIndex: 0, caseIndex: 0, verdict: 'AC', skipped: false, timeMs: 4, memoryKb: 900 },
-              { groupIndex: 0, caseIndex: 1, verdict: 'WA', skipped: false, timeMs: 5, memoryKb: 900 },
+              {
+                groupIndex: 0,
+                caseIndex: 0,
+                verdict: 'AC',
+                skipped: false,
+                timeMs: 4,
+                memoryKb: 900,
+              },
+              {
+                groupIndex: 0,
+                caseIndex: 1,
+                verdict: 'WA',
+                skipped: false,
+                timeMs: 5,
+                memoryKb: 900,
+              },
               { groupIndex: 0, caseIndex: 2, verdict: null, skipped: true, timeMs: 0, memoryKb: 0 },
             ],
           } as never
@@ -71,9 +87,7 @@ describe('VerdictPanel', () => {
   it('announces the state and verdict in a live region (WCAG 4.1.3)', () => {
     render(
       <VerdictPanel
-        submission={
-          { state: 'done', verdict: 'AC', points: 3, maxPoints: 3, cases: [] } as never
-        }
+        submission={{ state: 'done', verdict: 'AC', points: 3, maxPoints: 3, cases: [] } as never}
       />,
     );
     // The verdict arrives asynchronously (polled/streamed) after the reader
@@ -111,7 +125,14 @@ describe('VerdictPanel compile errors', () => {
     render(
       <VerdictPanel
         submission={
-          { state: 'done', verdict: 'CE', points: 0, maxPoints: 0, compileOutput: 'error: expected ;', cases: [] } as never
+          {
+            state: 'done',
+            verdict: 'CE',
+            points: 0,
+            maxPoints: 0,
+            compileOutput: 'error: expected ;',
+            cases: [],
+          } as never
         }
       />,
     );
@@ -122,7 +143,9 @@ describe('VerdictPanel compile errors', () => {
   it('leaves a genuine internal error labelled IE, not a compile error', () => {
     render(
       <VerdictPanel
-        submission={{ state: 'errored', verdict: 'IE', compileOutput: 'judge exploded', cases: [] } as never}
+        submission={
+          { state: 'errored', verdict: 'IE', compileOutput: 'judge exploded', cases: [] } as never
+        }
       />,
     );
     expect(screen.getByText('IE', { selector: 'strong' })).toBeInTheDocument();
@@ -149,7 +172,9 @@ describe('SubmitForm — the button tells the truth', () => {
     // On contest day that is two rows on the board and D80's rate limit
     // answering the second one.
     const onSubmit = vi.fn(() => new Promise<boolean>(() => undefined));
-    render(<SubmitForm onSubmit={onSubmit} languages={['cpp17']} busy={false} problemCode="aplusb" />);
+    render(
+      <SubmitForm onSubmit={onSubmit} languages={LANGUAGES} busy={false} problemCode="aplusb" />,
+    );
     await screen.findByLabelText(/Mã nguồn/);
     editorWith('int main(){}');
 
@@ -160,7 +185,7 @@ describe('SubmitForm — the button tells the truth', () => {
   });
 
   it('says it is submitting, not just going grey', async () => {
-    render(<SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy problemCode="aplusb" />);
+    render(<SubmitForm onSubmit={vi.fn()} languages={LANGUAGES} busy problemCode="aplusb" />);
     const button = await screen.findByRole('button', { name: /Đang nộp/ });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute('aria-busy', 'true');
@@ -168,7 +193,7 @@ describe('SubmitForm — the button tells the truth', () => {
 
   it('refuses a file too big to be a solution instead of freezing the tab', async () => {
     render(
-      <SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy={false} problemCode="aplusb" />,
+      <SubmitForm onSubmit={vi.fn()} languages={LANGUAGES} busy={false} problemCode="aplusb" />,
     );
     await screen.findByLabelText(/Mã nguồn/);
     const picker = screen.getByLabelText(/Mở tệp/) as HTMLInputElement;
@@ -186,7 +211,7 @@ describe('SubmitForm — the button tells the truth', () => {
 
   it('names the Ctrl/Cmd+Enter shortcut where the editor is, not in a help page', async () => {
     render(
-      <SubmitForm onSubmit={vi.fn()} languages={['cpp17']} busy={false} problemCode="aplusb" />,
+      <SubmitForm onSubmit={vi.fn()} languages={LANGUAGES} busy={false} problemCode="aplusb" />,
     );
     expect(await screen.findByText(/Ctrl\/Cmd \+ Enter/)).toBeInTheDocument();
   });

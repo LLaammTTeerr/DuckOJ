@@ -35,7 +35,8 @@ export const en = {
   'settings.displayName': 'Display name',
   'settings.locale': 'Language',
   'settings.localeAuto': 'Follow my browser',
-  'settings.localeHint': 'A language chosen here follows your account onto every device, and the emails DuckOJ sends you are written in it.',
+  'settings.localeHint':
+    'A language chosen here follows your account onto every device, and the emails DuckOJ sends you are written in it.',
   'settings.timezone': 'Time zone',
   'settings.timezoneAuto': 'Follow my browser',
   'settings.timezoneHint': 'Every date and time on the site is shown in this zone.',
@@ -73,7 +74,8 @@ export const en = {
   'form.submitting': 'Submitting…',
   'form.creating': 'Creating…',
   'common.networkError': 'Could not reach the server. Check your connection and try again.',
-  'common.serverError': 'The server had a problem answering. Nothing you did caused it — try again in a moment.',
+  'common.serverError':
+    'The server had a problem answering. Nothing you did caused it — try again in a moment.',
   'common.signInRequired': 'Sign in to see this page.',
   'common.forbidden': 'You do not have permission to see this.',
   'common.retry': 'Try again',
@@ -227,7 +229,8 @@ export const en = {
   'problem.limits': 'Limits: {time} / {memory}',
   'problem.pdf': 'PDF',
   'problem.stats': 'Statistics',
-  'problem.statsSummary': '{total} submissions · {attempted} people tried · {solved} solved · {rate} accepted',
+  'problem.statsSummary':
+    '{total} submissions · {attempted} people tried · {solved} solved · {rate} accepted',
   'problem.statsFirstSolver': 'First solved by',
   'problem.statsColUser': 'User',
   'problem.statsColTime': 'Time',
@@ -250,7 +253,8 @@ export const en = {
   // ── discussion (D109) ─────────────────────────────────────────────────
   'discussion.title': 'Discussion',
   'discussion.empty': 'No comments yet. Be the first to start the discussion.',
-  'discussion.hiddenDuringContest': 'The discussion is hidden while you are competing in a contest that uses this problem. It will appear once the contest is over.',
+  'discussion.hiddenDuringContest':
+    'The discussion is hidden while you are competing in a contest that uses this problem. It will appear once the contest is over.',
   'discussion.composerPlaceholder': 'Write a comment (Markdown supported)…',
   'discussion.replyPlaceholder': 'Write a reply…',
   'discussion.composerLabel': 'New comment',
@@ -290,7 +294,8 @@ export const en = {
     'Rejudge every submission of {code}? Their current verdicts are discarded.',
   'problemEdit.rejudgeAll': 'Rejudge all submissions',
   'problemEdit.clone': 'Clone',
-  'problemEdit.cloneHint': 'Create a new problem from this one: the statement, the editorial (unpublished), the tags, the difficulty and the published revision\u2019s test data. The copy is private.',
+  'problemEdit.cloneHint':
+    'Create a new problem from this one: the statement, the editorial (unpublished), the tags, the difficulty and the published revision\u2019s test data. The copy is private.',
   'problemEdit.cloneCode': 'New problem code',
   'problemEdit.cloneName': 'New name (blank keeps this one)',
   'problemEdit.cloneButton': 'Clone',
@@ -334,16 +339,21 @@ export const en = {
   'submit.practice': 'Practice submission — this does not count toward any contest.',
   'submit.title': 'Submit a solution — {code}',
   'submit.language': 'Language',
+  // D154 — the limits ACTUALLY in force for the selected language, not the
+  // ones the statement quotes: Python gets a multiplier and a memory floor.
+  'submit.limitsForLanguage': 'This language gets {time} s and {memory} MB.',
   'submit.sourceCode': 'Source code',
   // The editor (D84). `{size}`/`{max}` are character counts, matching the
   // contract's own `z.string().max()`, which counts UTF-16 code units.
   'submit.sourceSize': '{size} / {max} characters',
-  'submit.sourceTooLarge': 'The source is longer than the {max}-character limit. Trim it before submitting.',
+  'submit.sourceTooLarge':
+    'The source is longer than the {max}-character limit. Trim it before submitting.',
   'submit.editorHint': 'Ctrl/Cmd + Enter submits · Tab indents',
   'submit.draftRestored': 'Restored the draft you left here.',
   'submit.uploadFile': 'Open a file',
   'submit.uploadFailed': 'That file could not be read.',
-  'submit.fileTooLarge': 'That file is far too large to be a solution — the limit is {max} characters.',
+  'submit.fileTooLarge':
+    'That file is far too large to be a solution — the limit is {max} characters.',
   'submit.fontSmaller': 'Smaller editor text',
   'submit.fontLarger': 'Larger editor text',
   'submit.submit': 'Submit',
@@ -472,7 +482,8 @@ export const en = {
   'contest.certificatesTop': 'Down to rank',
   'contest.seats': 'Seat slips (PDF)',
   'similarity.title': 'Duplicate-source check',
-  'similarity.caution': 'A high score is a reason to look at the two programs, never a verdict. Two students taught the same technique can score high and be innocent. This report is visible to the organisers only.',
+  'similarity.caution':
+    'A high score is a reason to look at the two programs, never a verdict. Two students taught the same technique can score high and be innocent. This report is visible to the organisers only.',
   'similarity.threshold': 'Threshold',
   'similarity.run': 'Run the check',
   'similarity.loadError': 'Could not load the duplicate-source report.',
@@ -481,7 +492,8 @@ export const en = {
   'similarity.running': 'Checking… this page refreshes itself.',
   'similarity.failed': 'The last check failed. Try running it again.',
   'similarity.finished': 'Checked {when} — {people} participants, threshold {threshold}.',
-  'similarity.truncated': 'A problem had more matching pairs than the report can hold; only the highest-scoring ones are listed.',
+  'similarity.truncated':
+    'A problem had more matching pairs than the report can hold; only the highest-scoring ones are listed.',
   'similarity.none': 'No pair reached the threshold.',
   'similarity.colProblem': 'Problem',
   'similarity.colPair': 'Participants',
@@ -510,7 +522,8 @@ export const en = {
   // ── contest clarifications and announcements (D31) ────────────────────
   'clar.title': 'Q&A / Announcements',
   'clar.loadError': 'Could not load the Q&A.',
-  'clar.empty': 'Nothing yet. If the statement is unclear, ask the organisers below — every competitor sees the answer.',
+  'clar.empty':
+    'Nothing yet. If the statement is unclear, ask the organisers below — every competitor sees the answer.',
   'clar.truncated': 'Showing the 200 most recent only; older entries were left out.',
   'clar.announcement': 'Announcement',
   'clar.question': 'Question',
@@ -557,12 +570,14 @@ export const en = {
   'contestNew.rowPartial': 'Problem {n} partial credit',
   'contestNew.addProblem': 'Add problem',
   'contestNew.orgs': 'Restrict to organizations',
-  'contestNew.orgsHint': 'Only members of the organizations you tick may join. Tick none and anyone who can see the contest may enter.',
+  'contestNew.orgsHint':
+    'Only members of the organizations you tick may join. Tick none and anyone who can see the contest may enter.',
   'contestNew.orgsNone': 'You do not own or administer any organization.',
   'contestNew.orgsError': 'Could not load your organizations.',
   'contestNew.create': 'Create contest',
   'contestNew.cloneTitle': 'Clone a contest',
-  'contestNew.cloneIntro': 'Copied from {key}. The format, its config, the points precision, the freeze, the problem list (with labels and points) and the organizations are copied; participants, submissions and clarifications are not. The copy is private.',
+  'contestNew.cloneIntro':
+    'Copied from {key}. The format, its config, the points precision, the freeze, the problem list (with labels and points) and the organizations are copied; participants, submissions and clarifications are not. The copy is private.',
   'contestNew.cloneFormat': 'Format: {format}',
   'contestNew.cloneFreeze': 'Frozen for the last {minutes} minutes',
   'contestNew.cloneProblems': 'Problems: {list}',
@@ -571,10 +586,12 @@ export const en = {
   'contestNew.cloneSubmit': 'Clone the contest',
   'contestNew.cloneNameSuggestion': '{name} (copy)',
   'contestNew.badPoints': 'Problem {code}: points must be a non-negative number.',
-  'contestNew.errKeyFormat': 'Lower-case letters, digits, - and _ only, 2 to 64 characters, starting with a letter or digit.',
+  'contestNew.errKeyFormat':
+    'Lower-case letters, digits, - and _ only, 2 to 64 characters, starting with a letter or digit.',
   'contestNew.errEndBeforeStart': 'The contest must end after it starts.',
   'contestNew.createError': 'Could not create the contest.',
-  'contestNew.badFreeze': 'The freeze window must be a whole number of minutes, and shorter than the contest.',
+  'contestNew.badFreeze':
+    'The freeze window must be a whole number of minutes, and shorter than the contest.',
 
   'contestEdit.saveFailed': 'Could not save this contest.',
   'contestEdit.title': 'Edit {key}',
@@ -707,7 +724,8 @@ export const en = {
   // ── notifications ─────────────────────────────────────────────────────
   'notifications.title': 'Notifications',
   'notifications.gate': 'Sign in to see notifications.',
-  'notifications.empty': 'No notifications yet. Answers to your questions and news from your school arrive here.',
+  'notifications.empty':
+    'No notifications yet. Answers to your questions and news from your school arrive here.',
   'notifications.emptyAction': 'See the contests',
   'notifications.markAllRead': 'Mark all read ({count})',
   'notifications.markAllReadError': 'Could not mark them read.',
@@ -764,13 +782,13 @@ export const en = {
   'admin.totpReset': 'Disable two-factor',
   'admin.totpConfirm':
     'Disable two-factor authentication for {username}? They will then sign in with their password alone.',
-  'admin.totpDone': 'Two-factor authentication is off for {username}. They can enrol again from their security page.',
+  'admin.totpDone':
+    'Two-factor authentication is off for {username}. They can enrol again from their security page.',
   'admin.totpError': 'Could not reset two-factor authentication.',
   // D47 — the operations dashboard. Every label here names a number an
   // operator has to act on, so they are nouns, not sentences.
   'admin.dashHeading': 'Operations',
-  'admin.dashNote':
-    'A live snapshot, refreshed every 15 seconds. Nothing here is cached.',
+  'admin.dashNote': 'A live snapshot, refreshed every 15 seconds. Nothing here is cached.',
   'admin.dashError': 'Could not load the dashboard.',
   'admin.dashUpdated': 'Updated {time}',
   'admin.queueHeading': 'Grading queue',
@@ -805,6 +823,8 @@ export const en = {
   'admin.colWorker': 'Worker',
   'admin.colNowGrading': 'Now grading',
   'admin.colGradedHour': 'Graded (1 h)',
+  'admin.colExecutors': 'Executors',
+  'admin.executorsUnknown': 'not announced',
   'admin.colIeHour': 'Internal errors (1 h)',
   'admin.noWorkers': 'No worker has claimed a job.',
   'admin.failuresHeading': 'Recent infrastructure failures',
@@ -830,7 +850,8 @@ export const en = {
   'admin.ageMinutes': '{n} min',
   'admin.ageHours': '{n} h',
   'password.title': 'Change your password',
-  'password.forced': 'This account was created for you by your school, with a password you did not choose. Pick your own before going on.',
+  'password.forced':
+    'This account was created for you by your school, with a password you did not choose. Pick your own before going on.',
   'password.current': 'Current password',
   'password.new': 'New password',
   'password.confirm': 'Repeat the new password',
@@ -844,7 +865,8 @@ export const en = {
   'password.signedOut': 'Sign in to change your password.',
   'nav.password': 'Password',
   'import.title': 'Import students',
-  'import.hint': 'One line per student: username, full name, and an email address if they have one. A header row is optional. At most 2000 at a time.',
+  'import.hint':
+    'One line per student: username, full name, and an email address if they have one. A header row is optional. At most 2000 at a time.',
   'import.file': 'Choose a CSV file',
   'import.csv': 'Student list',
   'import.check': 'Check the list',
@@ -864,7 +886,8 @@ export const en = {
   'import.colPassword': 'Password',
   'import.noEmail': 'none',
   'import.credentials': 'Accounts created',
-  'import.credentialsWarning': 'These passwords are shown once and are stored nowhere. Print or save them now — nothing can recover them later. Each student must choose their own password when they first sign in.',
+  'import.credentialsWarning':
+    'These passwords are shown once and are stored nowhere. Print or save them now — nothing can recover them later. Each student must choose their own password when they first sign in.',
   'import.download': 'Download CSV',
   'import.print': 'Print',
   'import.copyHint': 'Or copy the list from here:',
@@ -883,7 +906,8 @@ export const en = {
   'sets.name': 'Name',
   'sets.description': 'Description',
   'sets.deadline': 'Deadline',
-  'sets.deadlineHint': 'Leave empty for no deadline. Work submitted after it is still shown, marked late.',
+  'sets.deadlineHint':
+    'Leave empty for no deadline. Work submitted after it is still shown, marked late.',
   'sets.save': 'Save',
   'sets.saveError': 'Could not save the set.',
   'sets.delete': 'Withdraw this set',
@@ -961,7 +985,8 @@ export const en = {
   'progress.heatmapDay': '{date}: {n} submissions',
   'progress.byTag': 'By topic',
   'progress.byDifficulty': 'By difficulty',
-  'progress.noBars': 'Nothing counted yet — a problem joins these bars once its contest window has closed.',
+  'progress.noBars':
+    'Nothing counted yet — a problem joins these bars once its contest window has closed.',
   'progress.colTag': 'Topic',
   'progress.colDifficulty': 'Difficulty',
   'progress.colSolved': 'Solved',
@@ -1051,7 +1076,8 @@ export const en = {
   'monitor.judgesNote': 'The whole fleet, not this contest’s share of it.',
   'monitor.unanswered': 'Questions unanswered',
   'monitor.refusals': 'Submits refused (10 min)',
-  'monitor.refusalsNote': 'Across the whole site: the submission limit counts per person, not per contest.',
+  'monitor.refusalsNote':
+    'Across the whole site: the submission limit counts per person, not per contest.',
   'monitor.ageSeconds': '{n} s',
   'monitor.ageMinutes': '{n} min',
   'monitor.ageHours': '{n} h',
@@ -1089,7 +1115,8 @@ export const en = {
   'teams.slug': 'Slug',
   'teams.name': 'Name',
   'teams.members': 'Members',
-  'teams.membersHint': 'Usernames, separated by commas or spaces. Everyone named must already be a member of this organization.',
+  'teams.membersHint':
+    'Usernames, separated by commas or spaces. Everyone named must already be a member of this organization.',
   'teams.save': 'Save',
   'teams.saveError': 'Could not save the team.',
   'teams.signInFirst': 'Sign in to see this team.',

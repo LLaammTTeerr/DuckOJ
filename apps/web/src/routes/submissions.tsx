@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
@@ -8,8 +8,10 @@ import { formatPoints } from '../format.js';
 import { verdictToken } from './submit.js';
 import { formatTimestamp, useLocale, useT, verdictName } from '../i18n/index.js';
 import { usePhoneLayout } from '../nav.js';
+import { languagesQueryOptions, namingFor } from '../languages.js';
 
-type Submission = paths['/submissions']['get']['responses'][200]['content']['application/json']['items'][number];
+type Submission =
+  paths['/submissions']['get']['responses'][200]['content']['application/json']['items'][number];
 // `NonNullable` twice: once to strip `?`'s implicit `undefined` off the
 // query-parameters object itself, once more to strip it off `verdict`'s own
 // type (an optional query param, `Verdict | undefined`) down to just the
@@ -17,7 +19,9 @@ type Submission = paths['/submissions']['get']['responses'][200]['content']['app
 // represented locally as `undefined`, so the codes-only type is what
 // distinguishes "a code" from "nothing selected" instead of conflating two
 // different `undefined`s.
-type VerdictCode = NonNullable<NonNullable<paths['/submissions']['get']['parameters']['query']>['verdict']>;
+type VerdictCode = NonNullable<
+  NonNullable<paths['/submissions']['get']['parameters']['query']>['verdict']
+>;
 
 const VERDICTS: VerdictCode[] = ['AC', 'WA', 'TLE', 'MLE', 'OLE', 'RTE', 'IR', 'CE', 'IE'];
 
@@ -58,6 +62,10 @@ export function SubmissionsPage({
   const [user, setUser] = useState(initialUser);
   const [contest, setContest] = useState(initialContest);
   const [verdict, setVerdict] = useState<VerdictCode | undefined>(undefined);
+
+  // Shared, session-long and cached (see `languagesQueryOptions`); the list
+  // renders the key verbatim until it resolves, which is what it always did.
+  const languages = useQuery(languagesQueryOptions);
 
   const query = useInfiniteQuery({
     queryKey: ['submissions', problem, user, contest, verdict],
@@ -105,7 +113,9 @@ export function SubmissionsPage({
           says what it is and when it was printed. */}
       <div className="print-only">
         {t('submissions.title')} ·{' '}
-        {t('print.printedOn', { date: formatTimestamp(new Date().toISOString(), locale, timeZone) })}
+        {t('print.printedOn', {
+          date: formatTimestamp(new Date().toISOString(), locale, timeZone),
+        })}
       </div>
       <h1>{t('submissions.title')}</h1>
 
@@ -140,7 +150,9 @@ export function SubmissionsPage({
       <select
         id="submissions-verdict"
         value={verdict ?? ''}
-        onChange={(e) => setVerdict(e.target.value === '' ? undefined : (e.target.value as VerdictCode))}
+        onChange={(e) =>
+          setVerdict(e.target.value === '' ? undefined : (e.target.value as VerdictCode))
+        }
       >
         <option value="">{t('submissions.any')}</option>
         {/* Each option is the CODE — that is what a competitor scans a
@@ -166,92 +178,95 @@ export function SubmissionsPage({
             ? {}
             : { tabIndex: 0, role: 'region', 'aria-label': t('submissions.tableLabel') })}
         >
-        <table className="card-rows">
-          <thead>
-            <tr>
-              <th className="num">{t('submissions.colId')}</th>
-              <th>{t('submissions.colProblem')}</th>
-              <th>{t('submissions.colContest')}</th>
-              <th>{t('submissions.colUser')}</th>
-              <th>{t('submissions.colLanguage')}</th>
-              <th>{t('submissions.colVerdict')}</th>
-              <th className="num">{t('submissions.colPoints')}</th>
-              <th>{t('submissions.colWhen')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {submissions.map((s: Submission) => (
-              <tr key={s.id}>
-                <td className="num" data-col="id" data-label={t('submissions.colId')}>
-                  <Link to="/submissions/$id" params={{ id: String(s.id) }}>
-                    {s.id}
-                  </Link>
-                </td>
-                <td data-col="problem" data-label={t('submissions.colProblem')}>
-                  <Link to="/problems/$code" params={{ code: s.problemCode }}>
-                    {s.problemCode}
-                  </Link>
-                </td>
-                {/* Which contest the attempt was made INTO, never the
+          <table className="card-rows">
+            <thead>
+              <tr>
+                <th className="num">{t('submissions.colId')}</th>
+                <th>{t('submissions.colProblem')}</th>
+                <th>{t('submissions.colContest')}</th>
+                <th>{t('submissions.colUser')}</th>
+                <th>{t('submissions.colLanguage')}</th>
+                <th>{t('submissions.colVerdict')}</th>
+                <th className="num">{t('submissions.colPoints')}</th>
+                <th>{t('submissions.colWhen')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {submissions.map((s: Submission) => (
+                <tr key={s.id}>
+                  <td className="num" data-col="id" data-label={t('submissions.colId')}>
+                    <Link to="/submissions/$id" params={{ id: String(s.id) }}>
+                      {s.id}
+                    </Link>
+                  </td>
+                  <td data-col="problem" data-label={t('submissions.colProblem')}>
+                    <Link to="/problems/$code" params={{ code: s.problemCode }}>
+                      {s.problemCode}
+                    </Link>
+                  </td>
+                  {/* Which contest the attempt was made INTO, never the
                     contests that merely contain the problem: `contestKey` is
                     the `contest_submissions` row. A practice submission takes
                     the same em dash every other empty cell on this table
                     uses. The contest's NAME is the label — contest names are
                     content and are never translated. */}
-                <td
-                  data-col="contest"
-                  data-label={t('submissions.colContest')}
-                  {...(s.contestKey ? {} : { 'data-empty': 'true' })}
-                >
-                  {s.contestKey ? (
-                    <Link to="/contests/$key" params={{ key: s.contestKey }}>
-                      {s.contestLabel ?? s.contestKey}
-                    </Link>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                {/* D117: a team submission is labelled "nộp bởi <member>
+                  <td
+                    data-col="contest"
+                    data-label={t('submissions.colContest')}
+                    {...(s.contestKey ? {} : { 'data-empty': 'true' })}
+                  >
+                    {s.contestKey ? (
+                      <Link to="/contests/$key" params={{ key: s.contestKey }}>
+                        {s.contestLabel ?? s.contestKey}
+                      </Link>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  {/* D117: a team submission is labelled "nộp bởi <member>
                     (đội <team>)" — one team is one entity, so every member
                     shares the row. `teamName` is null for practice and
                     individual entries; a team name is content, never
                     translated. */}
-                <td data-col="user" data-label={t('submissions.colUser')}>
-                  <Link to="/users/$username" params={{ username: s.username }}>
-                    {s.username}
-                  </Link>
-                  {s.teamName ? ` (${t('submission.teamLabel', { name: s.teamName })})` : ''}
-                </td>
-                <td data-col="language" data-label={t('submissions.colLanguage')}>{s.languageKey}</td>
-                <td data-col="verdict" data-label={t('submissions.colVerdict')}>
-                  {/* D23: a frozen row is a row whose verdict is being
+                  <td data-col="user" data-label={t('submissions.colUser')}>
+                    <Link to="/users/$username" params={{ username: s.username }}>
+                      {s.username}
+                    </Link>
+                    {s.teamName ? ` (${t('submission.teamLabel', { name: s.teamName })})` : ''}
+                  </td>
+                  {/* The name, not the key — see `routes/submission.tsx` (F-39). */}
+                  <td data-col="language" data-label={t('submissions.colLanguage')}>
+                    {namingFor(languages.data ?? [], s.languageKey).name}
+                  </td>
+                  <td data-col="verdict" data-label={t('submissions.colVerdict')}>
+                    {/* D23: a frozen row is a row whose verdict is being
                       withheld, which is a different thing from one that has
                       no verdict yet — `?` rather than the pending `—`, with
                       the reason on hover. Same neutral `pend` token: there is
                       no colour to give it without leaking the verdict. */}
-                  <span
-                    className={`badge ${verdictToken(s.verdict)}`}
-                    {...(s.frozen
-                      ? { title: t('submission.frozen') }
-                      : s.verdict
-                        ? { title: verdictName(t, s.verdict) }
-                        : {})}
-                  >
-                    {s.frozen ? '?' : (s.verdict ?? '—')}
-                  </span>
-                </td>
-                <td className="num" data-col="points" data-label={t('submissions.colPoints')}>
-                  {typeof s.points === 'number' && typeof s.maxPoints === 'number'
-                    ? `${formatPoints(s.points)}/${formatPoints(s.maxPoints)}`
-                    : '—'}
-                </td>
-                <td data-col="when" data-label={t('submissions.colWhen')}>
-                  {formatTimestamp(s.createdAt, locale, timeZone)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    <span
+                      className={`badge ${verdictToken(s.verdict)}`}
+                      {...(s.frozen
+                        ? { title: t('submission.frozen') }
+                        : s.verdict
+                          ? { title: verdictName(t, s.verdict) }
+                          : {})}
+                    >
+                      {s.frozen ? '?' : (s.verdict ?? '—')}
+                    </span>
+                  </td>
+                  <td className="num" data-col="points" data-label={t('submissions.colPoints')}>
+                    {typeof s.points === 'number' && typeof s.maxPoints === 'number'
+                      ? `${formatPoints(s.points)}/${formatPoints(s.maxPoints)}`
+                      : '—'}
+                  </td>
+                  <td data-col="when" data-label={t('submissions.colWhen')}>
+                    {formatTimestamp(s.createdAt, locale, timeZone)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : !query.isLoading && !query.isError ? (
         // `role="status"`: the list re-runs as the reader types in a filter,

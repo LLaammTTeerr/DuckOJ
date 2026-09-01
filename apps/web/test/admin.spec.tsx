@@ -64,8 +64,10 @@ const DASHBOARD = {
 
 function serve(role: string, contests = [CONTEST], dashboard: unknown = DASHBOARD) {
   get.mockImplementation((path: string) => {
-    if (path === '/auth/me') return Promise.resolve({ data: { username: 'root', displayName: 'Root', globalRole: role } });
-    if (path === '/contests') return Promise.resolve({ data: { items: contests, nextCursor: null } });
+    if (path === '/auth/me')
+      return Promise.resolve({ data: { username: 'root', displayName: 'Root', globalRole: role } });
+    if (path === '/contests')
+      return Promise.resolve({ data: { items: contests, nextCursor: null } });
     if (path === '/admin/dashboard') return Promise.resolve({ data: dashboard });
     return Promise.resolve({ data: undefined });
   });
@@ -262,11 +264,33 @@ describe('AdminPage operations dashboard (D47)', () => {
       ...DASHBOARD,
       queue: { queued: 3, running: 1, expiredLeases: 2, failed: 0, oldestQueuedSeconds: 300 },
       judges: [
-        { name: 'judge0', driver: 'dmoj', lastSeen: '2026-08-29T09:59:30Z', online: true, gradingNow: 1, gradedLastHour: 9 },
-        { name: 'judge1', driver: 'dmoj', lastSeen: null, online: false, gradingNow: 0, gradedLastHour: 0 },
+        {
+          name: 'judge0',
+          driver: 'dmoj',
+          lastSeen: '2026-08-29T09:59:30Z',
+          online: true,
+          gradingNow: 1,
+          gradedLastHour: 9,
+          executors: ['CPP17'],
+        },
+        {
+          name: 'judge1',
+          driver: 'dmoj',
+          lastSeen: null,
+          online: false,
+          gradingNow: 0,
+          gradedLastHour: 0,
+          executors: [],
+        },
       ],
       workers: [
-        { workerId: 'judged-1#1', currentSubmissionId: 42, currentJobId: 7, gradedLastHour: 9, internalErrorsLastHour: 1 },
+        {
+          workerId: 'judged-1#1',
+          currentSubmissionId: 42,
+          currentJobId: 7,
+          gradedLastHour: 9,
+          internalErrorsLastHour: 1,
+        },
       ],
       recentFailures: [
         {
@@ -316,8 +340,11 @@ describe('AdminPage operations dashboard (D47)', () => {
     expect(screen.queryByText('0 giây')).toBeNull();
   });
 
-  it('admits it was not told judged\'s concurrency instead of printing a guess', async () => {
-    serve('admin', [CONTEST], { ...DASHBOARD, runtime: { apiWorkers: 4, judgedConcurrency: null } });
+  it("admits it was not told judged's concurrency instead of printing a guess", async () => {
+    serve('admin', [CONTEST], {
+      ...DASHBOARD,
+      runtime: { apiWorkers: 4, judgedConcurrency: null },
+    });
     wrap(<AdminPage />);
     // An em dash, not a blank and not a word in the number column: a cell
     // left empty in a row of counts reads as zero threads. The reason rides
@@ -356,7 +383,10 @@ describe('AdminPage operations dashboard (D47)', () => {
 
   it('reports a dashboard that will not load instead of rendering empty panels', async () => {
     get.mockImplementation((path: string) => {
-      if (path === '/auth/me') return Promise.resolve({ data: { username: 'root', displayName: 'Root', globalRole: 'admin' } });
+      if (path === '/auth/me')
+        return Promise.resolve({
+          data: { username: 'root', displayName: 'Root', globalRole: 'admin' },
+        });
       if (path === '/contests') return Promise.resolve({ data: { items: [], nextCursor: null } });
       if (path === '/admin/dashboard') return Promise.resolve({ error: { detail: 'nope' } });
       return Promise.resolve({ data: undefined });
@@ -414,6 +444,10 @@ describe('AdminPage judge throughput and blocked jobs (D68)', () => {
       online: true,
       gradingNow: 1,
       gradedLastHour: 12,
+      // F-39: the executors this judge announced at handshake. The panel now
+      // has a column for them, because a judge can be online, healthy and
+      // idle while the queue waits on a language it cannot run.
+      executors: ['CPP17', 'PY3'],
     },
     {
       name: 'judge-2',
@@ -422,6 +456,8 @@ describe('AdminPage judge throughput and blocked jobs (D68)', () => {
       online: true,
       gradingNow: 0,
       gradedLastHour: 0,
+      // Announced nothing — not the same claim as "can run nothing".
+      executors: [],
     },
   ];
 
@@ -434,6 +470,24 @@ describe('AdminPage judge throughput and blocked jobs (D68)', () => {
     expect(screen.getByRole('row', { name: /judge-2/ })).toHaveTextContent('0');
     expect(screen.getByRole('columnheader', { name: 'Đang chấm' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Đã chấm (1 giờ)' })).toBeInTheDocument();
+  });
+
+  /**
+   * F-39. `judge_nodes.capabilities` had been written on every handshake
+   * since D68 and read by nothing, so this panel could show an operator a
+   * judge that was online, healthy and idle beside a queue full of jobs it
+   * had never announced an executor for — which is how this deployment ran
+   * one language for two weeks without anyone seeing why.
+   */
+  it('names the executors each judge announced, and says so when it announced none', async () => {
+    serve('admin', [CONTEST], { ...DASHBOARD, judges: JUDGES });
+    wrap(<AdminPage />);
+
+    expect(await screen.findByRole('row', { name: /judge-1/ })).toHaveTextContent('CPP17, PY3');
+    expect(screen.getByRole('columnheader', { name: 'Bộ thực thi' })).toBeInTheDocument();
+    // A word, not an empty cell: a blank reads as "no data" rather than as
+    // "this judge has never told us".
+    expect(screen.getByRole('row', { name: /judge-2/ })).toHaveTextContent('chưa báo');
   });
 
   it('shows a blocked job with the reason the queue gave, verbatim', async () => {

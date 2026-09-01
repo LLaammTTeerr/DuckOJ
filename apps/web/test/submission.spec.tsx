@@ -54,13 +54,60 @@ const DETAIL = {
   memoryKb: 1024,
   compileOutput: null,
   cases: [
-    { groupIndex: 0, caseIndex: 1, verdict: 'AC', skipped: false, timeMs: 12, memoryKb: 1024, points: 100, maxPoints: 100, feedback: null },
+    {
+      groupIndex: 0,
+      caseIndex: 1,
+      verdict: 'AC',
+      skipped: false,
+      timeMs: 12,
+      memoryKb: 1024,
+      points: 100,
+      maxPoints: 100,
+      feedback: null,
+    },
   ],
   contestKey: null,
   contestLabel: null,
   createdAt: '2026-08-01T00:00:00Z',
   judgedAt: '2026-08-01T00:00:05Z',
 };
+
+/**
+ * The `languages` rows this page now reads its display name and its download
+ * extension from (F-39). Before it, both were hard-coded here and in the
+ * component; `SOURCE_EXTENSIONS` guessed at `py3` and `java`, neither of
+ * which any migration ever seeded, and would have downloaded the row that WAS
+ * seeded — `python3` — as `.txt`.
+ */
+const LANGUAGE_ROWS = [
+  {
+    key: 'cpp17',
+    name: 'C++17',
+    extension: 'cpp',
+    isActive: true,
+    timeMultiplierPct: 100,
+    memoryExtraKb: 0,
+  },
+  {
+    key: 'python3',
+    name: 'Python 3',
+    extension: 'py',
+    isActive: true,
+    timeMultiplierPct: 300,
+    memoryExtraKb: 32768,
+  },
+];
+
+/**
+ * Answers `/languages` from `LANGUAGE_ROWS` and every other path with
+ * `detail`. The page now makes two different requests, so a single
+ * `mockResolvedValue` would hand the language query a submission.
+ */
+function mockApi(detail: unknown): void {
+  get.mockImplementation((path: string) =>
+    Promise.resolve(path === '/languages' ? { data: { items: LANGUAGE_ROWS } } : { data: detail }),
+  );
+}
 
 afterEach(() => {
   get.mockReset();
@@ -69,6 +116,32 @@ afterEach(() => {
 });
 
 describe('SubmissionPage', () => {
+  // F-39. The page printed `languageKey` verbatim, which only looked like a
+  // word while `cpp17` was the only row — `cpp20` reads as a filename.
+  it('names the language, rather than printing its key', async () => {
+    mockApi({ ...DETAIL, languageKey: 'python3' });
+    wrap(<SubmissionPage id={42} />);
+
+    expect(await screen.findByText(/Python 3/)).toBeInTheDocument();
+    expect(screen.queryByText(/python3/)).toBeNull();
+  });
+
+  // The `/languages` query is a convenience, not a dependency: a submission
+  // page that could not render because a second request failed would be a
+  // worse page than one that falls back to the key it always showed.
+  it('falls back to the key when the language catalogue does not load', async () => {
+    get.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === '/languages'
+          ? { data: undefined, error: {} }
+          : { data: { ...DETAIL, languageKey: 'python3' } },
+      ),
+    );
+    wrap(<SubmissionPage id={42} />);
+
+    expect(await screen.findByText(/python3/)).toBeInTheDocument();
+  });
+
   it('shows verdict, cases and the source verbatim', async () => {
     get.mockResolvedValue({ data: DETAIL });
     wrap(<SubmissionPage id={42} />);
@@ -183,10 +256,12 @@ describe('SubmissionPage', () => {
       expect(screen.queryByText(/Đã sao chép/)).toBeNull();
     });
 
+    // The extension is the `languages` row's own `extension` column now, not
+    // a map in this file. `scratch` matches no row, and a source of unknown
+    // language is safest downloaded as plain text.
     for (const [languageKey, ext] of [
       ['cpp17', 'cpp'],
-      ['py3', 'py'],
-      ['java', 'java'],
+      ['python3', 'py'],
       ['scratch', 'txt'],
     ] as const) {
       it(`downloads the source as submission-42.${ext} for ${languageKey}`, async () => {
@@ -200,7 +275,7 @@ describe('SubmissionPage', () => {
         ) {
           clicks.push({ href: this.href, download: this.download });
         });
-        get.mockResolvedValue({ data: { ...DETAIL, languageKey } });
+        mockApi({ ...DETAIL, languageKey });
         wrap(<SubmissionPage id={42} />);
 
         await userEvent.click(await screen.findByRole('button', { name: /^Tải xuống$/ }));

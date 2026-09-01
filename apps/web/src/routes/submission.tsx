@@ -16,22 +16,29 @@ import { meQueryOptions } from '../me.js';
 import { LoadError } from '../states.js';
 import { VerdictPanel, type SubmissionDetail } from './submit.js';
 import { formatTimestamp, useLocale, useT } from '../i18n/index.js';
+import { languagesQueryOptions, namingFor } from '../languages.js';
 
-type SubmissionDiff = paths['/submissions/{id}/diff']['get']['responses'][200]['content']['application/json'];
+type SubmissionDiff =
+  paths['/submissions/{id}/diff']['get']['responses'][200]['content']['application/json'];
 
-// D123 — the file extension a downloaded source takes, per language key. The
-// keys are the API's own `languageKey` values (the same ones submit.tsx and
-// the DTO use); anything without a mapping downloads as plain `.txt` rather
-// than guessing. Exact keys, not a prefix match: `cpp17` is `cpp`, but a
-// future `cpp20` would be its own decision, not a silent inheritance.
-const SOURCE_EXTENSIONS: Record<string, string> = { cpp17: 'cpp', py3: 'py', java: 'java' };
-function sourceExtension(languageKey: string): string {
-  return SOURCE_EXTENSIONS[languageKey] ?? 'txt';
-}
+// D123's `SOURCE_EXTENSIONS` map lived here — `{ cpp17: 'cpp', py3: 'py',
+// java: 'java' }` — and its own comment predicted its failure: "a future
+// `cpp20` would be its own decision, not a silent inheritance". F-39 added
+// four such futures at once, and two of the map's three keys (`py3`, `java`)
+// were guesses at rows that were never seeded, while the row that WAS seeded
+// (`python3`) would have downloaded as `.txt`.
+//
+// `languages.extension` is a real column, it is on the wire, and it is the
+// setter's own answer. `namingFor` reads it, so the map is gone rather than
+// extended (D154).
 
 export function SubmissionPage({ id }: { id: number }) {
   const client = useQueryClient();
   const me = useQuery(meQueryOptions);
+  // One cached entry for the whole session (see `languagesQueryOptions`).
+  // Its absence degrades to the old behaviour — the key printed verbatim and
+  // a `.txt` download — rather than blocking the page on it.
+  const languages = useQuery(languagesQueryOptions);
   const [rejudgeError, setRejudgeError] = useState<string | null>(null);
   // D21: the rejudge answers with the rated contests it touched, and does NOT
   // replay their ratings — nothing else in the product will say so, so the
@@ -78,7 +85,8 @@ export function SubmissionPage({ id }: { id: number }) {
   // the id — the diff itself is fetched on demand below. Gated on the source
   // being readable at all: comparing against a submission whose source is
   // withheld (D27) could never render, so the toggle is not offered.
-  const sourceVisible = query.data !== undefined && !query.data.sourceHidden && query.data.source !== null;
+  const sourceVisible =
+    query.data !== undefined && !query.data.sourceHidden && query.data.source !== null;
   const previous = useQuery({
     queryKey: ['submission-previous', id],
     enabled: idIsUsable && sourceVisible,
@@ -142,6 +150,10 @@ export function SubmissionPage({ id }: { id: number }) {
   if (query.error) return <LoadError error={query.error} onRetry={() => void query.refetch()} />;
   if (!query.data) return null;
   const s = query.data;
+  // The name to print and the extension to download as, from the API's own
+  // `languages` rows. Total: an unresolved query answers with the key and
+  // `txt`, which is exactly what this page did before F-39.
+  const naming = namingFor(languages.data ?? [], s.languageKey);
 
   // D123. Both tools act only on source already on screen — no API call, no
   // new route. They are rendered only when `sourceVisible`, so `s.source` is
@@ -170,7 +182,7 @@ export function SubmissionPage({ id }: { id: number }) {
     try {
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `submission-${String(s.id)}.${sourceExtension(s.languageKey)}`;
+      anchor.download = `submission-${String(s.id)}.${naming.extension}`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -188,10 +200,12 @@ export function SubmissionPage({ id }: { id: number }) {
         <Link to="/problems/$code" params={{ code: s.problemCode }}>
           {s.problemCode}
         </Link>{' '}
-        {/* `languageKey` is the API's own enum value, and `ms`/`KB` are unit
-            symbols — neither is translated (see i18n/en.ts). The timestamp
-            now follows the active locale rather than the browser's. */}· {s.languageKey} ·{' '}
-        {formatTimestamp(s.createdAt, locale, timeZone)}
+        {/* The language's NAME (`C++17`, `Python 3`), not its key: the key is
+            an opaque identifier that only looked like a word while `cpp17`
+            was the only one (F-39). Still untranslated — a language's name is
+            a proper noun — as are the `ms`/`KB` unit symbols. The timestamp
+            follows the active locale rather than the browser's. */}
+        · {naming.name} · {formatTimestamp(s.createdAt, locale, timeZone)}
         {s.timeMs !== null ? ` · ${String(s.timeMs)} ms` : ''}
         {s.memoryKb !== null ? ` · ${String(s.memoryKb)} KB` : ''}
       </p>
@@ -201,8 +215,7 @@ export function SubmissionPage({ id }: { id: number }) {
           team's contest submission, so the page names who submitted it. Team
           names are content and are never translated. */}
       <p>
-        {t('submission.submittedBy')}:{' '}
-        {/* Decorative chip beside the submitter's name (D122). */}
+        {t('submission.submittedBy')}: {/* Decorative chip beside the submitter's name (D122). */}
         <Avatar name={s.username} size={20} />{' '}
         <Link to="/users/$username" params={{ username: s.username }}>
           {s.username}
@@ -325,7 +338,11 @@ function DiffView({ diff }: { diff: SubmissionDiff }) {
           </span>
           {hunk.lines.map((line, lineIndex) => {
             const cls =
-              line.op === 'added' ? 'diff-line diff-added' : line.op === 'removed' ? 'diff-line diff-removed' : 'diff-line';
+              line.op === 'added'
+                ? 'diff-line diff-added'
+                : line.op === 'removed'
+                  ? 'diff-line diff-removed'
+                  : 'diff-line';
             const glyph = line.op === 'added' ? '+' : line.op === 'removed' ? '−' : ' ';
             const label =
               line.op === 'added'

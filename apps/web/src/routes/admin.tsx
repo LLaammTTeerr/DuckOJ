@@ -27,10 +27,18 @@ import { api } from '../api.js';
 import { apiError } from '../api-error.js';
 import { LoadError, useLastError } from '../states.js';
 import { meQueryOptions } from '../me.js';
-import { formatRelative, formatTimestamp, globalRoleLabel, useLocale, useT, type TFunction } from '../i18n/index.js';
+import {
+  formatRelative,
+  formatTimestamp,
+  globalRoleLabel,
+  useLocale,
+  useT,
+  type TFunction,
+} from '../i18n/index.js';
 import { verdictToken } from './submit.js';
 
-type Contest = paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
+type Contest =
+  paths['/contests']['get']['responses'][200]['content']['application/json']['items'][number];
 type GrantResult =
   paths['/admin/users/{username}']['patch']['responses'][200]['content']['application/json'];
 type Dashboard = paths['/admin/dashboard']['get']['responses'][200]['content']['application/json'];
@@ -79,8 +87,7 @@ function GrantRole() {
           <input value={username} onChange={(e) => setUsername(e.target.value)} />
         </label>{' '}
         <label>
-          {t('common.role')}{' '}
-          {/* The `value`s are the API's own enum; only the labels are words. */}
+          {t('common.role')} {/* The `value`s are the API's own enum; only the labels are words. */}
           <select value={role} onChange={(e) => setRole(e.target.value as typeof role)}>
             <option value="user">{t('globalRole.user')}</option>
             <option value="setter">{t('globalRole.setter')}</option>
@@ -246,7 +253,6 @@ function ResetTotp() {
   );
 }
 
-
 /**
  * D47 — the operations dashboard.
  *
@@ -276,7 +282,15 @@ function agePhrase(t: TFunction, seconds: number): string {
  * an em dash alone says "nothing here", and the reader deserves to be told
  * WHY there is nothing (D47: a null is "judged never said", not "zero").
  */
-function Stat({ label, value, title }: { label: string; value: string; title?: string | undefined }) {
+function Stat({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: string;
+  title?: string | undefined;
+}) {
   return (
     <div className="stat">
       <span>{label}</span>
@@ -401,7 +415,7 @@ function Operations() {
           </div>
 
           <h3>{t('admin.judgesHeading')}</h3>
-          {/* Six columns do not fit a phone, so the table scrolls sideways —
+          {/* Seven columns do not fit a phone, so the table scrolls sideways —
               and unlike the lists elsewhere in the app it holds no link or
               button, so without a tab stop the columns off the right edge are
               unreachable from a keyboard (WCAG 2.1.1). Same wrapper the
@@ -409,49 +423,69 @@ function Operations() {
           {data.judges.length === 0 ? (
             <p className="muted">{t('admin.noJudges')}</p>
           ) : (
-            <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('admin.judgesHeading')}>
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('admin.colJudge')}</th>
-                  <th>{t('admin.colDriver')}</th>
-                  <th>{t('admin.colLastSeen')}</th>
-                  <th>{t('admin.colStatus')}</th>
-                  {/* Counts, not links: a machine grading two things has no
+            <div
+              className="grid-scroll"
+              tabIndex={0}
+              role="region"
+              aria-label={t('admin.judgesHeading')}
+            >
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t('admin.colJudge')}</th>
+                    <th>{t('admin.colDriver')}</th>
+                    <th>{t('admin.colLastSeen')}</th>
+                    <th>{t('admin.colStatus')}</th>
+                    {/* Counts, not links: a machine grading two things has no
                       one submission to point at, and the drill-down from a
                       judge is the worker table below. Its own column header
                       (`colJudgeGrading`) rather than the worker table's
                       `colNowGrading`, which labels a submission link. */}
-                  <th className="num">{t('admin.colJudgeGrading')}</th>
-                  <th className="num">{t('admin.colGradedHour')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.judges.map((judge) => (
-                  <tr key={judge.name}>
-                    <td>{judge.name}</td>
-                    <td>{judge.driver}</td>
-                    <td>
-                      {/* Its own key, not `common.never` ("chưa dùng" —
+                    <th className="num">{t('admin.colJudgeGrading')}</th>
+                    <th className="num">{t('admin.colGradedHour')}</th>
+                    {/* F-39. The question this column answers is the one that
+                      cost two weeks: a judge can be online, healthy and
+                      idle, and still be unable to run the language a queue
+                      full of submissions is waiting on. The executors are
+                      the judge's OWN names, as it announced them. */}
+                    <th>{t('admin.colExecutors')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.judges.map((judge) => (
+                    <tr key={judge.name}>
+                      <td>{judge.name}</td>
+                      <td>{judge.driver}</td>
+                      <td>
+                        {/* Its own key, not `common.never` ("chưa dùng" —
                           never USED): a judge that has never handshaken has
                           never CONNECTED, which is a different sentence. */}
-                      {judge.lastSeen === null
-                        ? t('admin.judgeNever')
-                        : formatRelative(judge.lastSeen, locale)}
-                    </td>
-                    {/* A word, not a colour: this table is read on a phone in
+                        {judge.lastSeen === null
+                          ? t('admin.judgeNever')
+                          : formatRelative(judge.lastSeen, locale)}
+                      </td>
+                      {/* A word, not a colour: this table is read on a phone in
                         a corridor, and `.badge` is the verdict system. */}
-                    <td>{judge.online ? t('admin.judgeOnline') : t('admin.judgeOffline')}</td>
-                    {/* Zero, never a blank: a judge that is up and taking
+                      <td>{judge.online ? t('admin.judgeOnline') : t('admin.judgeOffline')}</td>
+                      {/* Zero, never a blank: a judge that is up and taking
                         none of the work is exactly what these two columns
                         exist to show, and an empty cell reads as "no data"
                         rather than "none". */}
-                    <td className="num">{judge.gradingNow}</td>
-                    <td className="num">{judge.gradedLastHour}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <td className="num">{judge.gradingNow}</td>
+                      <td className="num">{judge.gradedLastHour}</td>
+                      {/* Empty is a real answer and gets a word: a judge that
+                        predates capability recording, or has not handshaken
+                        since, announced nothing — which is not the same as
+                        announcing that it can run nothing. */}
+                      <td>
+                        {judge.executors.length === 0
+                          ? t('admin.executorsUnknown')
+                          : judge.executors.join(', ')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
@@ -490,38 +524,43 @@ function Operations() {
           {data.workers.length === 0 ? (
             <p className="muted">{t('admin.noWorkers')}</p>
           ) : (
-            <div className="grid-scroll" tabIndex={0} role="region" aria-label={t('admin.workersHeading')}>
-            <table>
-              <thead>
-                <tr>
-                  <th>{t('admin.colWorker')}</th>
-                  <th>{t('admin.colNowGrading')}</th>
-                  <th className="num">{t('admin.colGradedHour')}</th>
-                  <th className="num">{t('admin.colIeHour')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.workers.map((worker) => (
-                  <tr key={worker.workerId}>
-                    <td>{worker.workerId}</td>
-                    <td>
-                      {worker.currentSubmissionId === null ? (
-                        t('common.none')
-                      ) : (
-                        <Link
-                          to="/submissions/$id"
-                          params={{ id: String(worker.currentSubmissionId) }}
-                        >
-                          {`#${String(worker.currentSubmissionId)}`}
-                        </Link>
-                      )}
-                    </td>
-                    <td className="num">{worker.gradedLastHour}</td>
-                    <td className="num">{worker.internalErrorsLastHour}</td>
+            <div
+              className="grid-scroll"
+              tabIndex={0}
+              role="region"
+              aria-label={t('admin.workersHeading')}
+            >
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t('admin.colWorker')}</th>
+                    <th>{t('admin.colNowGrading')}</th>
+                    <th className="num">{t('admin.colGradedHour')}</th>
+                    <th className="num">{t('admin.colIeHour')}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.workers.map((worker) => (
+                    <tr key={worker.workerId}>
+                      <td>{worker.workerId}</td>
+                      <td>
+                        {worker.currentSubmissionId === null ? (
+                          t('common.none')
+                        ) : (
+                          <Link
+                            to="/submissions/$id"
+                            params={{ id: String(worker.currentSubmissionId) }}
+                          >
+                            {`#${String(worker.currentSubmissionId)}`}
+                          </Link>
+                        )}
+                      </td>
+                      <td className="num">{worker.gradedLastHour}</td>
+                      <td className="num">{worker.internalErrorsLastHour}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
@@ -563,9 +602,7 @@ function Operations() {
                         {failure.verdict ?? failure.state}
                       </span>
                     </td>
-                    <td>
-                      {formatRelative(failure.judgedAt ?? failure.createdAt, locale)}
-                    </td>
+                    <td>{formatRelative(failure.judgedAt ?? failure.createdAt, locale)}</td>
                   </tr>
                 ))}
               </tbody>

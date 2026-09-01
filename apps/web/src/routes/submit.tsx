@@ -1,11 +1,5 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-} from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { CreateSubmissionRequest } from '@duckoj/contracts';
 import type { paths } from '@duckoj/sdk';
@@ -84,6 +78,25 @@ export interface SubmitValues {
 }
 
 /**
+ * One option in the language picker, with the limits THIS problem gives it
+ * (D154).
+ *
+ * The limits are carried, not derived: the server resolved them with the
+ * same `effectiveLimits` the judge enforces with, and a picker that
+ * multiplied a base limit by a multiplier here would be a second
+ * implementation of the number that decides a verdict.
+ */
+export interface SubmitLanguage {
+  key: string;
+  /** The row's human name — `C++17`, `Python 3` — not the opaque key. */
+  name: string;
+  /** Milliseconds this language actually gets on this problem. */
+  timeMs: number;
+  /** Kilobytes this language actually gets on this problem. */
+  memoryKb: number;
+}
+
+/**
  * Presentational only: props in, callback out. No server access, so it is
  * testable on its own.
  *
@@ -94,7 +107,13 @@ export interface SubmitValues {
  */
 export function SubmitForm(props: {
   onSubmit: (values: SubmitValues) => Promise<boolean> | boolean;
-  languages: string[];
+  /**
+   * The languages this problem accepts, in the order they are offered. The
+   * caller has already dropped the ones this problem refuses (D154) and the
+   * inactive ones; an empty array renders a picker with nothing in it, which
+   * is the honest rendering of a problem with no published revision.
+   */
+  languages: SubmitLanguage[];
   /**
    * A submission is IN FLIGHT — and nothing else (D148).
    *
@@ -110,8 +129,9 @@ export function SubmitForm(props: {
   problemCode: string;
 }) {
   const t = useT();
-  const firstLanguage = props.languages[0] ?? '';
+  const firstLanguage = props.languages[0]?.key ?? '';
   const [languageKey, setLanguageKey] = useState(firstLanguage);
+  const selected = props.languages.find((lang) => lang.key === languageKey);
 
   /**
    * The buffer's opening contents, decided once: a draft left behind on a
@@ -225,19 +245,44 @@ export function SubmitForm(props: {
       <label htmlFor="language">{t('submit.language')}</label>
       <select
         id="language"
+        aria-describedby={selected ? 'language-limits' : undefined}
         value={languageKey}
         onChange={(e) => {
           changeLanguage(e.target.value);
         }}
       >
-        {/* The option text is the API's own language key (`cpp17`), which is
-            an identifier, not a word — untranslated on purpose. */}
+        {/* The option text is the row's NAME (`C++17`, `Python 3`), not its
+            key. Both come from the server; the key is an opaque identifier
+            and was the only thing on offer while `cpp17` was the only
+            language, which made the distinction invisible. With five rows a
+            pupil picks by the name their teacher used. Untranslated on
+            purpose all the same — a language's name is a proper noun. */}
         {props.languages.map((lang) => (
-          <option key={lang} value={lang}>
-            {lang}
+          <option key={lang.key} value={lang.key}>
+            {lang.name}
           </option>
         ))}
       </select>
+      {/* D154 — the limits IN FORCE for the language now selected, which for
+          Python are not the limits the statement quotes. Shown here rather
+          than only on the problem page because this is the screen where the
+          language is chosen, and a pupil switching to Python needs to see the
+          budget change with it.
+
+          Wired to the picker with `aria-describedby` rather than made a
+          `role="status"` live region: it is not an event, it is a standing
+          description of the option now chosen, and this page already has a
+          live region (the restored-draft notice) that a second one would
+          compete with. A screen reader reads it on focus and re-reads it when
+          the selection changes, which is exactly the moment it matters. */}
+      {selected ? (
+        <p className="muted" id="language-limits">
+          {t('submit.limitsForLanguage', {
+            time: (selected.timeMs / 1000).toFixed(selected.timeMs % 1000 === 0 ? 0 : 1),
+            memory: String(Math.round(selected.memoryKb / 1024)),
+          })}
+        </p>
+      ) : null}
       <label htmlFor="source">{t('submit.sourceCode')}</label>
       <div className="editor-tools">
         <label className="file-pick">
@@ -294,7 +339,9 @@ export function SubmitForm(props: {
         <span>{t('submit.sourceSize', { size: source.length, max: MAX_SOURCE_CHARS })}</span>{' '}
         <span className="muted">{t('submit.editorHint')}</span>
       </p>
-      {tooLarge ? <p role="alert">{t('submit.sourceTooLarge', { max: MAX_SOURCE_CHARS })}</p> : null}
+      {tooLarge ? (
+        <p role="alert">{t('submit.sourceTooLarge', { max: MAX_SOURCE_CHARS })}</p>
+      ) : null}
       {uploadError ? <p role="alert">{uploadError}</p> : null}
       {/* D148 — `disabled` here is the state of the WORLD (a submission in
           flight, a source past the ceiling the `role="alert"` above just
@@ -391,39 +438,39 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
       <div role="status">
         <p>{t('submit.status', { state: stateLabel })}</p>
         {submission.frozen ? (
-        // D23. Checked BEFORE the verdict branches, not after: a frozen
-        // submission arrives with `verdict: null`, so without this it would
-        // render as nothing at all and read as "not graded yet".
-        <p>
-          {t('submit.verdict')}{' '}
-          <strong className="badge pend" title={t('submission.frozen')}>
-            ?
-          </strong>
-        </p>
-      ) : isCompileError ? (
-        <p>
-          {t('submit.verdict')}{' '}
-          {/* The one verdict rendered by its long name rather than its code:
+          // D23. Checked BEFORE the verdict branches, not after: a frozen
+          // submission arrives with `verdict: null`, so without this it would
+          // render as nothing at all and read as "not graded yet".
+          <p>
+            {t('submit.verdict')}{' '}
+            <strong className="badge pend" title={t('submission.frozen')}>
+              ?
+            </strong>
+          </p>
+        ) : isCompileError ? (
+          <p>
+            {t('submit.verdict')}{' '}
+            {/* The one verdict rendered by its long name rather than its code:
               a compile error never has a per-case grid to explain it, so the
               name is all the reader gets. */}
-          <strong className="badge ce">{t('verdict.CE')}</strong>
-        </p>
-      ) : submission.verdict ? (
-        <p>
-          {t('submit.verdict')}{' '}
-          <strong
-            className={`badge ${verdictToken(submission.verdict)}`}
-            title={verdictName(t, submission.verdict)}
-          >
-            {submission.verdict}
-          </strong>
-          {typeof submission.points === 'number' && typeof submission.maxPoints === 'number' ? (
-            <small>
-              {' '}
-              — {formatPoints(submission.points)}/{formatPoints(submission.maxPoints)}
-            </small>
-          ) : null}
-        </p>
+            <strong className="badge ce">{t('verdict.CE')}</strong>
+          </p>
+        ) : submission.verdict ? (
+          <p>
+            {t('submit.verdict')}{' '}
+            <strong
+              className={`badge ${verdictToken(submission.verdict)}`}
+              title={verdictName(t, submission.verdict)}
+            >
+              {submission.verdict}
+            </strong>
+            {typeof submission.points === 'number' && typeof submission.maxPoints === 'number' ? (
+              <small>
+                {' '}
+                — {formatPoints(submission.points)}/{formatPoints(submission.maxPoints)}
+              </small>
+            ) : null}
+          </p>
         ) : null}
       </div>
       {submission.compileOutput ? (
@@ -453,8 +500,7 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
             >
               <span aria-hidden="true">{i + 1}</span>
               <span className="sr-only">
-                {t('submit.case', { group: c.groupIndex, index: c.caseIndex })}:{' '}
-                {caseLabel(t, c)}
+                {t('submit.case', { group: c.groupIndex, index: c.caseIndex })}: {caseLabel(t, c)}
               </span>
             </li>
           ))}
@@ -474,12 +520,25 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
 // URL, and the API answered a perfectly valid request for a different
 // problem than the one on screen. Found by Task 13, browsing the live stack.
 //
-// The language list stays fixed: `cpp17` is still the only language with a
-// driver key that reaches a real dmoj executor (see scripts/seed-problem.ts's
-// `languageDriverKeys` insert), and there is still no language catalog
-// endpoint to populate it from.
 export const DEFAULT_PROBLEM_CODE = 'aplusb';
-const LANGUAGES = ['cpp17'];
+
+/**
+ * What the picker offers before — or instead of — the problem's own answer.
+ *
+ * Not a guess at the catalogue: it is the ONE language this judge has run
+ * since it came up, and it exists so that a page whose `/problems/:code`
+ * request is still in flight, or failed, still has a working submit box
+ * rather than an empty `<select>` (D143's reasoning about a loading state
+ * that removes the thing you came for). Its limits are the pre-D154
+ * defaults, and they are correct for `cpp17`, which is the only language a
+ * multiplier does not move.
+ *
+ * The real list is `ProblemDetail.languageLimits`, resolved server-side per
+ * problem, and it replaces this the moment the query resolves.
+ */
+const FALLBACK_LANGUAGES: SubmitLanguage[] = [
+  { key: 'cpp17', name: 'C++17', timeMs: 1000, memoryKb: 65536 },
+];
 
 /**
  * The problem this page submits against, read from `?problem=<code>`.
@@ -814,6 +873,41 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
    */
   const [cooldown, setCooldown] = useState(0);
 
+  /**
+   * The problem's own per-language limits (D154). Shares `['problem', code]`
+   * with `routes/problem.tsx` on purpose: a pupil arriving here from the
+   * statement has already paid for this response, and the cache hit means
+   * the picker is populated on the first paint rather than after a spinner.
+   *
+   * A failure is not surfaced: this page's job is to accept a submission,
+   * and it can still do that against `FALLBACK_LANGUAGES`. The statement
+   * page is where a problem that cannot be loaded is reported.
+   */
+  const limits = useQuery({
+    queryKey: ['problem', problemCode],
+    queryFn: async () =>
+      read(
+        await api.GET('/problems/{code}', { params: { path: { code: problemCode } } }),
+        t('problem.loadError'),
+        [404],
+      ),
+    retry: false,
+  });
+
+  // `allowed: false` is a setter saying this problem refuses this language,
+  // and the picker must OMIT it rather than offer a choice the API answers
+  // 404 to. An empty result — no published revision — falls back rather than
+  // rendering an empty picker.
+  const offered = (limits.data?.languageLimits ?? [])
+    .filter((lang) => lang.allowed)
+    .map((lang) => ({
+      key: lang.languageKey,
+      name: lang.languageName,
+      timeMs: lang.timeMs,
+      memoryKb: lang.memoryKb,
+    }));
+  const languages = offered.length > 0 ? offered : FALLBACK_LANGUAGES;
+
   useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setTimeout(() => setCooldown((left) => Math.max(0, left - 1)), 1_000);
@@ -843,7 +937,10 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
   const fetchSubmission = useCallback(
     async (id: number) => {
       try {
-        const data = read(await api.GET('/submissions/{id}', { params: { path: { id } } }), t('submission.notFound'));
+        const data = read(
+          await api.GET('/submissions/{id}', { params: { path: { id } } }),
+          t('submission.notFound'),
+        );
         if (data && submissionIdRef.current === id) {
           setSubmission(data);
         }
@@ -869,7 +966,13 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
     setLiveDegraded(degraded);
   }, []);
 
-  useSubmissionSocket(submissionId, fetchSubmission, terminalRef, handleSubscriptionError, handleDegraded);
+  useSubmissionSocket(
+    submissionId,
+    fetchSubmission,
+    terminalRef,
+    handleSubscriptionError,
+    handleDegraded,
+  );
 
   /**
    * Answers whether the API ACCEPTED the submission — the form clears its
@@ -951,12 +1054,14 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
       {/* Disabled for as long as pressing it can only be refused (D80). */}
       <SubmitForm
         onSubmit={handleSubmit}
-        languages={LANGUAGES}
+        languages={languages}
         busy={busy}
         disabled={cooldown > 0}
         problemCode={problemCode}
       />
-      {cooldown > 0 ? <p role="status">{t('submit.cooldown', { seconds: String(cooldown) })}</p> : null}
+      {cooldown > 0 ? (
+        <p role="status">{t('submit.cooldown', { seconds: String(cooldown) })}</p>
+      ) : null}
       {submitError ? <p role="alert">{submitError}</p> : null}
       {/* Only while there is still something to wait for. Once the verdict
           is in, "updates are slow" describes nothing — the answer is on the

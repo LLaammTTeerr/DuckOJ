@@ -30,7 +30,8 @@ export const vi = {
   'settings.displayName': 'Tên hiển thị',
   'settings.locale': 'Ngôn ngữ',
   'settings.localeAuto': 'Theo trình duyệt',
-  'settings.localeHint': 'Ngôn ngữ chọn ở đây đi theo tài khoản của bạn trên mọi thiết bị, và các email DuckOJ gửi cho bạn cũng dùng ngôn ngữ này.',
+  'settings.localeHint':
+    'Ngôn ngữ chọn ở đây đi theo tài khoản của bạn trên mọi thiết bị, và các email DuckOJ gửi cho bạn cũng dùng ngôn ngữ này.',
   'settings.timezone': 'Múi giờ',
   'settings.timezoneAuto': 'Theo trình duyệt',
   'settings.timezoneHint': 'Mọi ngày giờ trên trang đều hiển thị theo múi giờ này.',
@@ -65,7 +66,8 @@ export const vi = {
   'form.submitting': 'Đang nộp…',
   'form.creating': 'Đang tạo…',
   'common.networkError': 'Không kết nối được máy chủ. Kiểm tra đường truyền rồi thử lại.',
-  'common.serverError': 'Máy chủ đang gặp sự cố khi trả lời. Không phải do bạn — hãy thử lại sau giây lát.',
+  'common.serverError':
+    'Máy chủ đang gặp sự cố khi trả lời. Không phải do bạn — hãy thử lại sau giây lát.',
   'common.signInRequired': 'Đăng nhập để xem trang này.',
   'common.forbidden': 'Bạn không có quyền xem nội dung này.',
   'common.retry': 'Thử lại',
@@ -135,7 +137,8 @@ export const vi = {
   'auth.verifySubmit': 'Xác nhận địa chỉ',
   'auth.verifyDone': 'Đã xác nhận địa chỉ.',
   'auth.registerTitle': 'Tạo tài khoản',
-  'auth.registerIntro': 'Một tên đăng nhập, một địa chỉ email và một mật khẩu bạn chưa dùng ở nơi khác.',
+  'auth.registerIntro':
+    'Một tên đăng nhập, một địa chỉ email và một mật khẩu bạn chưa dùng ở nơi khác.',
   'auth.registerSubmit': 'Đăng ký',
   'auth.registerLink': 'Chưa có tài khoản? Đăng ký',
   'auth.haveAccount': 'Đã có tài khoản? Đăng nhập',
@@ -213,7 +216,8 @@ export const vi = {
   'problem.limits': 'Giới hạn: {time} / {memory}',
   'problem.pdf': 'PDF',
   'problem.stats': 'Thống kê',
-  'problem.statsSummary': '{total} lượt nộp · {attempted} người thử · {solved} người giải được · {rate} được chấp nhận',
+  'problem.statsSummary':
+    '{total} lượt nộp · {attempted} người thử · {solved} người giải được · {rate} được chấp nhận',
   'problem.statsFirstSolver': 'Người giải đầu tiên',
   'problem.statsColUser': 'Thí sinh',
   'problem.statsColTime': 'Thời gian',
@@ -236,7 +240,8 @@ export const vi = {
   // ── discussion (D109) ─────────────────────────────────────────────────
   'discussion.title': 'Thảo luận',
   'discussion.empty': 'Chưa có bình luận nào. Hãy là người mở đầu thảo luận.',
-  'discussion.hiddenDuringContest': 'Phần thảo luận bị ẩn trong khi bạn đang thi một kỳ thi có sử dụng bài này. Nó sẽ hiện ra khi kỳ thi kết thúc.',
+  'discussion.hiddenDuringContest':
+    'Phần thảo luận bị ẩn trong khi bạn đang thi một kỳ thi có sử dụng bài này. Nó sẽ hiện ra khi kỳ thi kết thúc.',
   'discussion.composerPlaceholder': 'Viết bình luận (hỗ trợ Markdown)…',
   'discussion.replyPlaceholder': 'Viết phản hồi…',
   'discussion.composerLabel': 'Bình luận mới',
@@ -272,11 +277,11 @@ export const vi = {
   'problemEdit.editorialPublished': 'Xuất bản lời giải',
   'problemEdit.editorialHint':
     'Người đang thi bài này chưa thấy lời giải, trừ khi đã AC. Hết giờ thi thì ai cũng xem được.',
-  'problemEdit.rejudgeConfirm':
-    'Chấm lại toàn bộ bài nộp của {code}? Kết quả hiện tại sẽ bị hủy.',
+  'problemEdit.rejudgeConfirm': 'Chấm lại toàn bộ bài nộp của {code}? Kết quả hiện tại sẽ bị hủy.',
   'problemEdit.rejudgeAll': 'Chấm lại toàn bộ bài nộp',
   'problemEdit.clone': 'Nhân bản',
-  'problemEdit.cloneHint': 'Tạo bài mới từ bài này: đề bài, lời giải (chưa công bố), nhãn, độ khó và bộ test của phiên bản đang công bố. Bài mới ở chế độ riêng tư.',
+  'problemEdit.cloneHint':
+    'Tạo bài mới từ bài này: đề bài, lời giải (chưa công bố), nhãn, độ khó và bộ test của phiên bản đang công bố. Bài mới ở chế độ riêng tư.',
   'problemEdit.cloneCode': 'Mã bài mới',
   'problemEdit.cloneName': 'Tên bài mới (để trống thì giữ nguyên)',
   'problemEdit.cloneButton': 'Nhân bản',
@@ -315,6 +320,9 @@ export const vi = {
   'submit.practice': 'Bài nộp luyện tập — không tính vào kỳ thi nào.',
   'submit.title': 'Nộp bài giải — {code}',
   'submit.language': 'Ngôn ngữ',
+  // D154 — giới hạn THỰC SỰ áp cho ngôn ngữ đang chọn, không phải giới hạn
+  // đề bài ghi: Python được nhân hệ số và cộng thêm bộ nhớ nền.
+  'submit.limitsForLanguage': 'Ngôn ngữ này được {time} giây và {memory} MB.',
   'submit.sourceCode': 'Mã nguồn',
   // Trình soạn thảo (D84). `{size}`/`{max}` đếm theo ký tự, đúng như
   // `z.string().max()` của contract.
@@ -447,7 +455,8 @@ export const vi = {
   'contest.certificatesTop': 'Cấp tới hạng',
   'contest.seats': 'Phiếu dự thi (PDF)',
   'similarity.title': 'Kiểm tra trùng lặp',
-  'similarity.caution': 'Điểm cao là lý do để xem lại hai bài làm, không phải là kết luận. Hai học sinh được dạy cùng một kỹ thuật vẫn có thể giống nhau mà không gian lận. Báo cáo này chỉ ban tổ chức mới xem được.',
+  'similarity.caution':
+    'Điểm cao là lý do để xem lại hai bài làm, không phải là kết luận. Hai học sinh được dạy cùng một kỹ thuật vẫn có thể giống nhau mà không gian lận. Báo cáo này chỉ ban tổ chức mới xem được.',
   'similarity.threshold': 'Ngưỡng',
   'similarity.run': 'Chạy kiểm tra',
   'similarity.loadError': 'Không tải được báo cáo trùng lặp.',
@@ -456,7 +465,8 @@ export const vi = {
   'similarity.running': 'Đang kiểm tra… trang sẽ tự cập nhật.',
   'similarity.failed': 'Lần kiểm tra trước bị lỗi. Hãy chạy lại.',
   'similarity.finished': 'Đã kiểm tra {when} — {people} thí sinh, ngưỡng {threshold}.',
-  'similarity.truncated': 'Có bài số cặp trùng vượt quá sức chứa của báo cáo; chỉ liệt kê những cặp giống nhau nhất.',
+  'similarity.truncated':
+    'Có bài số cặp trùng vượt quá sức chứa của báo cáo; chỉ liệt kê những cặp giống nhau nhất.',
   'similarity.none': 'Không có cặp nào đạt ngưỡng.',
   'similarity.colProblem': 'Bài',
   'similarity.colPair': 'Thí sinh',
@@ -485,7 +495,8 @@ export const vi = {
   // ── hỏi đáp và thông báo trong kỳ thi (D31) ───────────────────────────
   'clar.title': 'Hỏi đáp / Thông báo',
   'clar.loadError': 'Không tải được phần hỏi đáp.',
-  'clar.empty': 'Chưa có gì. Nếu đề chưa rõ, hãy hỏi ban tổ chức ở dưới — câu trả lời sẽ đến với mọi thí sinh.',
+  'clar.empty':
+    'Chưa có gì. Nếu đề chưa rõ, hãy hỏi ban tổ chức ở dưới — câu trả lời sẽ đến với mọi thí sinh.',
   'clar.truncated': 'Chỉ hiển thị 200 mục mới nhất; các mục cũ hơn đã được lược bớt.',
   'clar.announcement': 'Thông báo',
   'clar.question': 'Câu hỏi',
@@ -530,12 +541,14 @@ export const vi = {
   'contestNew.rowPartial': 'Điểm thành phần bài {n}',
   'contestNew.addProblem': 'Thêm bài',
   'contestNew.orgs': 'Giới hạn theo tổ chức',
-  'contestNew.orgsHint': 'Chỉ thành viên của các tổ chức được chọn mới tham gia được. Không chọn tổ chức nào thì ai thấy kỳ thi cũng vào được.',
+  'contestNew.orgsHint':
+    'Chỉ thành viên của các tổ chức được chọn mới tham gia được. Không chọn tổ chức nào thì ai thấy kỳ thi cũng vào được.',
   'contestNew.orgsNone': 'Bạn không sở hữu hay quản trị tổ chức nào.',
   'contestNew.orgsError': 'Không tải được danh sách tổ chức của bạn.',
   'contestNew.create': 'Tạo kỳ thi',
   'contestNew.cloneTitle': 'Nhân bản kỳ thi',
-  'contestNew.cloneIntro': 'Sao chép từ {key}. Thể thức, cấu hình, độ chính xác điểm, thời gian đóng băng, danh sách bài (kèm nhãn và điểm) và các trường được sao chép; người thi, bài nộp, hỏi đáp thì không. Bản sao ở chế độ riêng tư.',
+  'contestNew.cloneIntro':
+    'Sao chép từ {key}. Thể thức, cấu hình, độ chính xác điểm, thời gian đóng băng, danh sách bài (kèm nhãn và điểm) và các trường được sao chép; người thi, bài nộp, hỏi đáp thì không. Bản sao ở chế độ riêng tư.',
   'contestNew.cloneFormat': 'Thể thức: {format}',
   'contestNew.cloneFreeze': 'Đóng băng {minutes} phút cuối',
   'contestNew.cloneProblems': 'Bài: {list}',
@@ -544,7 +557,8 @@ export const vi = {
   'contestNew.cloneSubmit': 'Nhân bản kỳ thi',
   'contestNew.cloneNameSuggestion': '{name} (bản sao)',
   'contestNew.badPoints': 'Bài {code}: điểm phải là số không âm.',
-  'contestNew.errKeyFormat': 'Chỉ gồm chữ thường, chữ số, - và _; từ 2 đến 64 ký tự, bắt đầu bằng chữ hoặc số.',
+  'contestNew.errKeyFormat':
+    'Chỉ gồm chữ thường, chữ số, - và _; từ 2 đến 64 ký tự, bắt đầu bằng chữ hoặc số.',
   'contestNew.errEndBeforeStart': 'Kỳ thi phải kết thúc sau khi bắt đầu.',
   'contestNew.createError': 'Không tạo được kỳ thi.',
   'contestNew.badFreeze': 'Thời gian đóng băng phải là số phút nguyên và ngắn hơn kỳ thi.',
@@ -648,8 +662,7 @@ export const vi = {
   'security.badCode': 'Mã này không hợp lệ.',
   'security.disableError': 'Không tắt được xác thực hai lớp.',
   'security.scanThis': 'Quét mã này',
-  'security.scanNote':
-    'Thêm vào ứng dụng xác thực — quét mã, hoặc nhập chuỗi bí mật bằng tay.',
+  'security.scanNote': 'Thêm vào ứng dụng xác thực — quét mã, hoặc nhập chuỗi bí mật bằng tay.',
   'security.secret': 'Chuỗi bí mật: ',
   'security.confirm': 'Xác nhận',
   'security.confirmNote':
@@ -676,7 +689,8 @@ export const vi = {
   // ── notifications ─────────────────────────────────────────────────────
   'notifications.title': 'Thông báo',
   'notifications.gate': 'Đăng nhập để xem thông báo.',
-  'notifications.empty': 'Chưa có thông báo nào. Câu trả lời cho câu hỏi của bạn và tin từ trường sẽ hiện ở đây.',
+  'notifications.empty':
+    'Chưa có thông báo nào. Câu trả lời cho câu hỏi của bạn và tin từ trường sẽ hiện ở đây.',
   'notifications.emptyAction': 'Xem các kỳ thi',
   'notifications.markAllRead': 'Đánh dấu đã đọc tất cả ({count})',
   'notifications.markAllReadError': 'Không đánh dấu đã đọc được.',
@@ -767,6 +781,8 @@ export const vi = {
   'admin.colWorker': 'Tiến trình',
   'admin.colNowGrading': 'Đang chấm',
   'admin.colGradedHour': 'Đã chấm (1 giờ)',
+  'admin.colExecutors': 'Bộ thực thi',
+  'admin.executorsUnknown': 'chưa báo',
   'admin.colIeHour': 'Lỗi hệ thống (1 giờ)',
   'admin.noWorkers': 'Chưa tiến trình nào nhận việc.',
   'admin.failuresHeading': 'Lỗi hạ tầng gần đây',
@@ -792,7 +808,8 @@ export const vi = {
   'admin.ageMinutes': '{n} phút',
   'admin.ageHours': '{n} giờ',
   'password.title': 'Đổi mật khẩu',
-  'password.forced': 'Tài khoản này do trường lập cho bạn, với mật khẩu bạn không tự chọn. Hãy đặt mật khẩu của riêng bạn trước khi tiếp tục.',
+  'password.forced':
+    'Tài khoản này do trường lập cho bạn, với mật khẩu bạn không tự chọn. Hãy đặt mật khẩu của riêng bạn trước khi tiếp tục.',
   'password.current': 'Mật khẩu hiện tại',
   'password.new': 'Mật khẩu mới',
   'password.confirm': 'Nhập lại mật khẩu mới',
@@ -806,7 +823,8 @@ export const vi = {
   'password.signedOut': 'Hãy đăng nhập để đổi mật khẩu.',
   'nav.password': 'Mật khẩu',
   'import.title': 'Nhập danh sách học sinh',
-  'import.hint': 'Mỗi học sinh một dòng: tên đăng nhập, họ tên, và email nếu có. Dòng tiêu đề là tuỳ chọn. Tối đa 2000 dòng mỗi lần.',
+  'import.hint':
+    'Mỗi học sinh một dòng: tên đăng nhập, họ tên, và email nếu có. Dòng tiêu đề là tuỳ chọn. Tối đa 2000 dòng mỗi lần.',
   'import.file': 'Chọn tệp CSV',
   'import.csv': 'Danh sách học sinh',
   'import.check': 'Kiểm tra danh sách',
@@ -826,7 +844,8 @@ export const vi = {
   'import.colPassword': 'Mật khẩu',
   'import.noEmail': 'không có',
   'import.credentials': 'Đã tạo tài khoản',
-  'import.credentialsWarning': 'Các mật khẩu này chỉ hiện một lần và không được lưu ở đâu cả. Hãy in hoặc lưu ngay — sau này không thể khôi phục. Mỗi học sinh phải tự đặt mật khẩu riêng khi đăng nhập lần đầu.',
+  'import.credentialsWarning':
+    'Các mật khẩu này chỉ hiện một lần và không được lưu ở đâu cả. Hãy in hoặc lưu ngay — sau này không thể khôi phục. Mỗi học sinh phải tự đặt mật khẩu riêng khi đăng nhập lần đầu.',
   'import.download': 'Tải CSV',
   'import.print': 'In',
   'import.copyHint': 'Hoặc sao chép danh sách từ đây:',
@@ -1012,7 +1031,8 @@ export const vi = {
   'monitor.judgesNote': 'Toàn bộ hệ thống chấm, không riêng kỳ thi này.',
   'monitor.unanswered': 'Câu hỏi chưa trả lời',
   'monitor.refusals': 'Lượt nộp bị từ chối (10 phút)',
-  'monitor.refusalsNote': 'Trên toàn hệ thống: giới hạn nộp bài tính theo người, không theo kỳ thi.',
+  'monitor.refusalsNote':
+    'Trên toàn hệ thống: giới hạn nộp bài tính theo người, không theo kỳ thi.',
   'monitor.ageSeconds': '{n} giây',
   'monitor.ageMinutes': '{n} phút',
   'monitor.ageHours': '{n} giờ',
@@ -1026,7 +1046,8 @@ export const vi = {
   'monitor.colProgress': 'Tỉ lệ đạt',
   'monitor.barLabel': '{accepted} trên {submitted} lượt nộp được chấp nhận',
   'monitor.feedHeading': 'Bài nộp mới nhất',
-  'monitor.feedNote': 'Năm mươi bài gần nhất, kèm kết quả thật — đóng băng bảng điểm không giấu gì với ban tổ chức.',
+  'monitor.feedNote':
+    'Năm mươi bài gần nhất, kèm kết quả thật — đóng băng bảng điểm không giấu gì với ban tổ chức.',
   'monitor.noFeed': 'Chưa ai nộp bài.',
   'monitor.colTime': 'Thời điểm',
   'monitor.colVerdict': 'Kết quả',
@@ -1050,7 +1071,8 @@ export const vi = {
   'teams.slug': 'Định danh',
   'teams.name': 'Tên đội',
   'teams.members': 'Thành viên',
-  'teams.membersHint': 'Tên tài khoản, cách nhau bởi dấu phẩy hoặc khoảng trắng. Mọi người được nêu đều phải là thành viên của tổ chức này.',
+  'teams.membersHint':
+    'Tên tài khoản, cách nhau bởi dấu phẩy hoặc khoảng trắng. Mọi người được nêu đều phải là thành viên của tổ chức này.',
   'teams.save': 'Lưu',
   'teams.saveError': 'Không lưu được đội.',
   'teams.signInFirst': 'Đăng nhập để xem đội này.',
