@@ -21,7 +21,7 @@ import {
   UpdateOrgRequest,
   type AddOrgMemberRequestDto,
   type CreateOrgRequestDto,
-  type OrgJoinRequestListDto,
+  type OrgJoinRequestPageDto,
   type OrgJoinResultDto,
   type OrgMemberImportPreviewDto,
   type OrgMemberImportRequestDto,
@@ -117,13 +117,20 @@ export class OrgsController {
     return result;
   }
 
+  /**
+   * A PAGE since D181, where it used to be the whole queue in one array. It
+   * is the same `PaginationQuery` the roster above takes, validated by the
+   * same pipe — this route was the one list in the API that took no query
+   * parameters at all.
+   */
   @Get(':slug/requests')
   @RequireScope('orgs:write')
   requests(
     @CurrentActor() actor: Actor,
     @Param('slug') slug: string,
-  ): Promise<OrgJoinRequestListDto> {
-    return this.orgs.listRequests(actor, slug);
+    @Query(new ZodValidationPipe(PaginationQuery)) query: PaginationQueryDto,
+  ): Promise<OrgJoinRequestPageDto> {
+    return this.orgs.listRequests(actor, slug, query);
   }
 
   @Post(':slug/requests/:id/approve')

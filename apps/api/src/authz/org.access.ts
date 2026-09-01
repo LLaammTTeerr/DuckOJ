@@ -6,7 +6,7 @@ import { schema, type Db } from '@duckoj/db';
 import type {
   AddOrgMemberRequestDto,
   CreateOrgRequest,
-  OrgJoinRequestListDto,
+  OrgJoinRequestPageDto,
   OrgJoinResultDto,
   OrgMemberDto,
   OrgMemberPageDto,
@@ -433,8 +433,36 @@ export class OrgAccessService {
   }
 
   /** Pending requests, oldest first. Owner or admin. */
-  async listRequests(actor: Actor, slug: string): Promise<OrgJoinRequestListDto> {
+  /**
+   * **Bounded since D181.** This had no `.limit()`, no cursor and no query
+   * parameters at all — the only list in this API of which that was true. It
+   * answered every pending request a school held, and `RequestsQueue`
+   * rendered every one into a single `<table>`: for a school that opens
+   * enrolment to a province, 219 kB of JSON and five thousand `<tr>` on the
+   * page a teacher opens to approve three people. The statement was always
+   * healthy (an index scan on `org_join_requests_pending_idx` merge-joined to
+   * `users_pkey`); what was missing was the bound.
+   *
+   * **`asc(id)` is kept, and that is the ruling.** A queue is answered from
+   * its front, so oldest-first IS the decider's order — D177's newest-first
+   * argument is about a list somebody TAILS and does not transfer to a FIFO.
+   * The cursor therefore matches the order with the same `gt`/`asc` pair and
+   * the same `parseCursor` helper the roster beside it uses, which is what
+   * makes it impossible for the walk to skip or repeat a row.
+   *
+   * A decided request leaves the page — the predicate is `state = 'pending'`
+   * — so a decider working the queue watches it shorten under them rather
+   * than paging past rows they have already answered. That is the behaviour a
+   * queue wants, and it is why the cursor is on `id` rather than a row
+   * offset.
+   */
+  async listRequests(
+    actor: Actor,
+    slug: string,
+    page: PaginationQueryDto,
+  ): Promise<OrgJoinRequestPageDto> {
     const { row } = await this.loadForEdit(actor, slug);
+    const after = parseCursor(page.cursor);
     const rows = await this.db
       .select({
         id: orgJoinRequests.id,
@@ -443,9 +471,24 @@ export class OrgAccessService {
       })
       .from(orgJoinRequests)
       .innerJoin(schema.users, eq(schema.users.id, orgJoinRequests.userId))
-      .where(and(eq(orgJoinRequests.orgId, row.id), eq(orgJoinRequests.state, 'pending')))
-      .orderBy(asc(orgJoinRequests.id));
-    return rows.map((r) => ({ id: r.id, username: r.username, createdAt: r.createdAt.toISOString() }));
+      .where(
+        and(
+          eq(orgJoinRequests.orgId, row.id),
+          eq(orgJoinRequests.state, 'pending'),
+          gt(orgJoinRequests.id, after),
+        ),
+      )
+      .orderBy(asc(orgJoinRequests.id))
+      .limit(page.limit + 1);
+
+    const kept = rows.slice(0, page.limit);
+    const items = kept.map((r) => ({
+      id: r.id,
+      username: r.username,
+      createdAt: r.createdAt.toISOString(),
+    }));
+    const nextCursor = rows.length > page.limit ? String(items.at(-1)!.id) : null;
+    return { items, nextCursor };
   }
 
   /** Approve or reject. Both the membership and the audit row, or neither. */

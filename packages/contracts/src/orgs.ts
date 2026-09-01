@@ -121,8 +121,25 @@ export const OrgJoinRequest = z.object({
 });
 export type OrgJoinRequestDto = z.infer<typeof OrgJoinRequest>;
 
-export const OrgJoinRequestList = z.array(OrgJoinRequest);
-export type OrgJoinRequestListDto = z.infer<typeof OrgJoinRequestList>;
+/**
+ * **A page, not the array it used to be (D181).**
+ *
+ * `GET /orgs/{slug}/requests` was the only list in this API with no bound at
+ * all: no `limit`, no cursor, no query parameters. It returned every pending
+ * request a school held, and the web panel rendered every one of them into
+ * one `<table>`. A school that opens enrolment to a province — which the
+ * org-import contract already sizes a roster at — makes that a 219 kB
+ * response and five thousand `<tr>` on the page a teacher opens to approve
+ * three people. The statement itself is healthy and no index helps; the
+ * missing thing was the bound.
+ *
+ * **The FIFO order is kept.** A queue is worked oldest first, and that is the
+ * decider's own order — D177's argument for newest-first is about a list
+ * someone TAILS and does not transfer here. So the cursor is `asc(id)`, the
+ * same grammar and the same helper the roster beside it uses.
+ */
+export const OrgJoinRequestPage = cursorPage(OrgJoinRequest);
+export type OrgJoinRequestPageDto = z.infer<typeof OrgJoinRequestPage>;
 
 /**
  * What `POST /orgs/:slug/join` did.
@@ -360,12 +377,16 @@ registry.registerPath({
   method: 'get',
   path: '/orgs/{slug}/requests',
   tags: ['Organizations'],
-  request: { params: OrgSlugParam },
+  request: { params: OrgSlugParam, query: PaginationQuery },
   summary: 'Pending join requests (owner or admin)',
+  description:
+    'A page, oldest first — a queue is worked from its front. This used to answer the WHOLE queue ' +
+    'in one array with no limit and no cursor, which is a 219 kB response for a school that has ' +
+    'opened enrolment to a province (D181).',
   responses: {
     200: {
-      description: 'The pending requests, oldest first',
-      content: { 'application/json': { schema: OrgJoinRequestList } },
+      description: 'A page of pending requests, oldest first',
+      content: { 'application/json': { schema: OrgJoinRequestPage } },
     },
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,

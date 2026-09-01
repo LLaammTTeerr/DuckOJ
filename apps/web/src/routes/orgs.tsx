@@ -30,7 +30,7 @@ type Org = paths['/orgs']['get']['responses'][200]['content']['application/json'
 type Member =
   paths['/orgs/{slug}/members']['get']['responses'][200]['content']['application/json']['items'][number];
 type JoinRequest =
-  paths['/orgs/{slug}/requests']['get']['responses'][200]['content']['application/json'][number];
+  paths['/orgs/{slug}/requests']['get']['responses'][200]['content']['application/json']['items'][number];
 
 /**
  * The join policy, twice: a short label for a table cell and a full sentence
@@ -256,16 +256,32 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
   const t = useT();
   const client = useQueryClient();
   const [error, setError] = useState<string | null>(null);
-  const requests = useQuery({
+  // **A page since D181.** This endpoint had no bound at all — no limit, no
+  // cursor — and this panel rendered every row it answered into one table: a
+  // school that opens enrolment to a province put five thousand `<tr>` on the
+  // page a teacher opens to approve three people. The queue is now walked
+  // twenty-five at a time, oldest first, which is the order a queue is
+  // answered in and is unchanged.
+  const requests = useInfiniteQuery({
     queryKey: ['org-requests', slug],
-    queryFn: async (): Promise<JoinRequest[]> => {
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
       // This queue is rendered only for an owner or an admin, so there is no
       // status here that means "nothing to decide" — an empty queue is a 200
-      // with an empty array. A swallowed failure read as exactly that, and a
+      // with an empty page. A swallowed failure read as exactly that, and a
       // decider watching an empty screen has no reason to look again.
-      return read(await api.GET('/orgs/{slug}/requests', { params: { path: { slug } } }), t('org.requestsLoadError')) ?? [];
+      const query: { cursor?: string } = {};
+      if (pageParam !== undefined) query.cursor = pageParam;
+      return read(
+        await api.GET('/orgs/{slug}/requests', { params: { path: { slug }, query } }),
+        t('org.requestsLoadError'),
+      );
     },
+    getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
   });
+  const rows: JoinRequest[] | undefined = requests.data
+    ? requests.data.pages.flatMap((page) => page?.items ?? [])
+    : undefined;
 
   async function decide(id: number, approve: boolean): Promise<void> {
     const path = approve ? '/orgs/{slug}/requests/{id}/approve' : '/orgs/{slug}/requests/{id}/reject';
@@ -283,14 +299,14 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
   // watching this space, and the empty one is the reassuring reading. Say
   // which it is.
   if (requests.isError) return <p role="alert">{t('org.requestsLoadError')}</p>;
-  if (!requests.data || requests.data.length === 0) return null;
+  if (!rows || rows.length === 0) return null;
   return (
     <>
       <h2>{t('org.requests')}</h2>
       {error ? <p role="alert">{error}</p> : null}
       <table>
         <tbody>
-          {requests.data.map((req) => (
+          {rows.map((req) => (
             <tr key={req.id}>
               <td>
                 <Link to="/users/$username" params={{ username: req.username }}>
@@ -309,6 +325,17 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
           ))}
         </tbody>
       </table>
+      {requests.hasNextPage ? (
+        <p>
+          <button
+            type="button"
+            onClick={() => void requests.fetchNextPage()}
+            disabled={requests.isFetchingNextPage}
+          >
+            {t('common.loadMore')}
+          </button>
+        </p>
+      ) : null}
     </>
   );
 }

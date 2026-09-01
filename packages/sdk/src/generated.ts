@@ -5896,10 +5896,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Pending join requests (owner or admin) */
+        /**
+         * Pending join requests (owner or admin)
+         * @description A page, oldest first — a queue is worked from its front. This used to answer the WHOLE queue in one array with no limit and no cursor, which is a 219 kB response for a school that has opened enrolment to a province (D181).
+         */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                };
                 header?: never;
                 path: {
                     slug: string;
@@ -5908,18 +5914,21 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description The pending requests, oldest first */
+                /** @description A page of pending requests, oldest first */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
-                            id: number;
-                            username: string;
-                            /** Format: date-time */
-                            createdAt: string;
-                        }[];
+                            items: {
+                                id: number;
+                                username: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                            }[];
+                            nextCursor: string | null;
+                        };
                     };
                 };
                 /** @description Not signed in */

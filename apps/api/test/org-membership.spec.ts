@@ -160,7 +160,10 @@ describe('joining', () => {
 
         const pending = await owner.get('/api/v1/orgs/reqorg/requests');
         expect(pending.status).toBe(200);
-        expect(pending.body).toHaveLength(1);
+        // `.items` since D181: the queue answers a bounded PAGE, not the
+        // whole of itself in one array.
+        expect(pending.body.items).toHaveLength(1);
+        expect(pending.body.nextCursor).toBeNull();
       } finally {
         await app.close();
       }
@@ -176,13 +179,13 @@ describe('joining', () => {
         const joiner = await signIn(app, db, 'rejjoiner');
 
         await joiner.post('/api/v1/orgs/rejorg/join');
-        const [first] = (await owner.get('/api/v1/orgs/rejorg/requests')).body as { id: number }[];
+        const [first] = (await owner.get('/api/v1/orgs/rejorg/requests')).body.items as { id: number }[];
         expect((await owner.post(`/api/v1/orgs/rejorg/requests/${String(first!.id)}/reject`)).status).toBe(200);
 
         // A rejection is a decision about a moment, not a ban — which is why
         // the uniqueness index is partial on `state = 'pending'`.
         expect((await joiner.post('/api/v1/orgs/rejorg/join')).status).toBe(202);
-        expect((await owner.get('/api/v1/orgs/rejorg/requests')).body).toHaveLength(1);
+        expect((await owner.get('/api/v1/orgs/rejorg/requests')).body.items).toHaveLength(1);
       } finally {
         await app.close();
       }
@@ -214,7 +217,7 @@ describe('deciding a request', () => {
         await makeOrg(owner, 'decorg', 'request');
         const joiner = await signIn(app, db, 'decjoiner');
         await joiner.post('/api/v1/orgs/decorg/join');
-        const [pending] = (await owner.get('/api/v1/orgs/decorg/requests')).body as { id: number }[];
+        const [pending] = (await owner.get('/api/v1/orgs/decorg/requests')).body.items as { id: number }[];
 
         const approved = await owner.post(`/api/v1/orgs/decorg/requests/${String(pending!.id)}/approve`);
         expect(approved.status).toBe(200);

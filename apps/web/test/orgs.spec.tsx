@@ -74,7 +74,10 @@ function serve(
     if (path === '/orgs/{slug}') return Promise.resolve({ data: orgRow });
     if (path === '/orgs/{slug}/members')
       return Promise.resolve({ data: { items: members, nextCursor: null } });
-    if (path === '/orgs/{slug}/requests') return Promise.resolve({ data: requests });
+    // A cursor PAGE since D181, where this endpoint used to answer the whole
+    // queue in one unbounded array.
+    if (path === '/orgs/{slug}/requests')
+      return Promise.resolve({ data: { items: requests, nextCursor: null } });
     return Promise.resolve({ data: undefined });
   });
 }
@@ -410,7 +413,8 @@ describe('the org lists past one page (D180)', () => {
       if (path === '/orgs/{slug}') return Promise.resolve({ data: { ...ORG, myRole: 'owner' } });
       if (path === '/orgs/{slug}/members')
         return Promise.resolve({ data: { items: MEMBERS, nextCursor: null } });
-      if (path === '/orgs/{slug}/requests') return Promise.resolve({ data: [] });
+      if (path === '/orgs/{slug}/requests')
+        return Promise.resolve({ data: { items: [], nextCursor: null } });
       if (path === '/contests') {
         const query =
           (init?.params as { query?: { org?: string; cursor?: string } } | undefined)?.query ?? {};
@@ -435,5 +439,58 @@ describe('the org lists past one page (D180)', () => {
       { org: 'hanoi', cursor: undefined },
       { org: 'hanoi', cursor: '25' },
     ]);
+  });
+});
+
+/**
+ * The join queue is a page now, and the panel can work it to the end (D181).
+ *
+ * `GET /orgs/{slug}/requests` was the only list in the API with no bound at
+ * all, and this panel rendered every row it answered into one `<table>`.
+ * Bounding it without giving the panel a way onward would have turned an
+ * unusable page into a queue a decider cannot empty, so the two halves ship
+ * together — and the assertion is the same one D177 established: the second
+ * request carries the FIRST page's cursor.
+ */
+describe('the join queue past one page (D181)', () => {
+  it('walks the rest of the queue with the cursor the server issued', async () => {
+    const cursors: (string | undefined)[] = [];
+    const waiting = Array.from({ length: 25 }, (_, i) => ({
+      id: i + 1,
+      username: `hoc-sinh-${String(i + 1)}`,
+      createdAt: '2026-09-01T00:00:00Z',
+    }));
+    get.mockImplementation((path: string, init?: Record<string, unknown>) => {
+      if (path === '/auth/me')
+        return Promise.resolve({ data: { username: 'owner-person', displayName: 'Owner' } });
+      if (path === '/orgs/{slug}') return Promise.resolve({ data: { ...ORG, myRole: 'owner' } });
+      if (path === '/orgs/{slug}/members')
+        return Promise.resolve({ data: { items: MEMBERS, nextCursor: null } });
+      if (path === '/orgs/{slug}/requests') {
+        const cursor = (init?.params as { query?: { cursor?: string } } | undefined)?.query?.cursor;
+        cursors.push(cursor);
+        return Promise.resolve({
+          data:
+            cursor === undefined
+              ? { items: waiting, nextCursor: '25' }
+              : {
+                  items: [
+                    { id: 26, username: 'hoc-sinh-26', createdAt: '2026-09-01T00:00:00Z' },
+                  ],
+                  nextCursor: null,
+                },
+        });
+      }
+      return Promise.resolve({ data: undefined });
+    });
+    wrap(<OrgPage slug="hanoi" />);
+
+    expect(await screen.findByText('hoc-sinh-1')).toBeInTheDocument();
+    expect(screen.queryByText('hoc-sinh-26')).toBeNull();
+
+    await userEvent.click(await screen.findByRole('button', { name: /tải thêm|load more/i }));
+    expect(await screen.findByText('hoc-sinh-26')).toBeInTheDocument();
+    expect(screen.getByText('hoc-sinh-1')).toBeInTheDocument();
+    expect(cursors).toEqual([undefined, '25']);
   });
 });
