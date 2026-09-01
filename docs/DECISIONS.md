@@ -9364,3 +9364,148 @@ headline, red with the walk stopped after one page; `notifications.spec.ts`
 `notifications.spec.tsx`, red with the extra row not fetched and with the line
 deleted.*
 
+
+## D188 — The pupil directory is not a public download: `GET /users` requires an actor, and the WALK is metered per account
+
+F-51 measured it and did not change it, which was right: against the live host,
+with no cookie and no token,
+
+```
+GET /api/v1/users?limit=100   → 100 items, nextCursor present
+ten consecutive requests      → 200 200 200 200 200 200 200 200 200 200
+```
+
+Five requests take all 461 accounts, each row carrying `username`,
+`displayName`, `country`, `rating`, `maxRating`, `globalRole` and `createdAt`.
+On this rehearsal host that is generated data. On a province's host it is every
+pupil's real name, most of them children, downloadable by anyone who knows the
+URL. The endpoint had no rate limiter and never had one — D16 meters login and
+D26 meters registration, and neither is in this path.
+
+**Individual visibility is not the question and is not touched.** A judge is a
+public thing: `GET /users/{username}`, `/progress` and `/rating` stay
+`@Public()`, D46's rank ramp hangs off exactly those, and a profile linked from
+a scoreboard must open for a stranger. What is ruled on is **bulk** — the
+difference between looking a person up and downloading the school.
+
+### The ruling
+
+`GET /users` loses `@Public()` and keeps `@RequireScope('users:read')` — exactly
+one marker, so `route-marker-coverage.spec.ts` is satisfied, and the refusal is
+`AuthGuard`'s existing **401 `authentication_required`**, the same one `GET
+/submissions` has always answered. No 403 is introduced for a read.
+
+**The discriminating fact is the caller inventory, and it was enumerated rather
+than assumed.** `GET /users` (the list) has **exactly one caller in the entire
+product**: `FindAccount` in `apps/web/src/routes/admin.tsx`, the admin role-grant
+and TOTP-reset lookup F-51 added. It is signed in as an admin, it always sends
+`q`, and it **never sends a cursor** — the `findMore` line beside it is a hint
+paragraph, not a "load more" button. The MCP server's one `users:read` tool is
+`me_progress`, not the list; the `oj` CLI does not touch it; the three person
+pickers F-51 shipped ride `GET /orgs/{slug}/members`, not this route. So the
+gate costs every existing caller **nothing**.
+
+**Not `@SessionOnly()`.** This is an API as well as a website, and a token
+carrying `users:read` is a named, revocable principal — which is exactly what an
+anonymous caller is not.
+
+### What it costs a legitimate user, stated plainly
+
+An anonymous visitor loses a directory **no page in this product renders**;
+there is no `/users` screen. A scripted consumer must hold a session or a token.
+And since registration is open (metered per IP by D26), a determined party can
+still make an account — so the gate's real yield is **attribution and
+revocability**, not impossibility. That is the honest claim and it is the one
+being made: the roster stops being an anonymous download and becomes something a
+named account did, in `rate_events`, revocably.
+
+### The alternatives, and why they lost
+
+- **"Public page, private cursor"** — serve page one to anyone, refuse the
+  cursor. Rejected: it leaves anonymous `q`-harvesting wide open with no
+  attribution (100 rows per query, and D185's fold just made that cheap), and
+  the page-one it preserves is one no screen in this product displays. It buys
+  presentation, not privacy.
+- **"Scope the list to the caller's org"** — rejected on D185's own reasoning:
+  teaching `GET /users` about organizations publishes "who belongs to this
+  school", a private school's roster included, through a route with no
+  organization gate. The org-scoped list already exists and is already gated —
+  `GET /orgs/{slug}/members`, behind `findVisibleOrgRow`.
+- **Trimming the fields instead** — see below. It closes nothing, because the
+  disclosure was the bulk.
+
+### The meter: the walk, keyed on the account, never on an address
+
+`USER_WALK_PURPOSE = 'user_walk'`, **20 pages per hour per account**, in D13's
+DB-backed `RateLimiter` (correct across all four `API_WORKERS`, deterministic in
+tests) with D16's split — `retryAfterSeconds` then `record`, so a **refused
+request records nothing and the window drains** rather than a caller pinning
+themselves against the wall. Refusal is 429 `user_walk_rate_limited` with
+`Retry-After` in whole seconds, per RFC 9110, through `AppError`'s headers bag.
+**No migration**: `rate_events.purpose` is plain text by design, so **0048 is
+still unconsumed**.
+
+**Only a request carrying `cursor` is counted, and this is the load-bearing
+choice.** A request without one answers the same first page however often it is
+asked; that is a lookup. A cursor is the only way to advance, so counting
+cursor-bearing requests bounds a sweep *exactly* — and a search box, which never
+sends one, is **structurally incapable** of spending the budget.
+
+The alternative was metering every request, and the arithmetic kills it. The one
+caller is a keystroke-driven box with no debounce: a ceiling low enough to bound
+enumeration (say 30 per 15 min) locks an admin out halfway through typing a
+name, and a ceiling high enough for the box (~300 per 15 min) still lets a caller
+harvest a hundred rows per distinct `q` underneath it. That is D16's
+self-lockout risk taken on for no bound at all.
+
+**The key is `user:<id>` and never an IP, and the NAT case is why.** A school
+computer room is one address and thirty pupils. An IP-keyed meter hands the room
+**one budget between them** and shuts the last arrivals out in the middle of a
+contest — worse than the problem it solves, and precisely D16's self-lockout
+generalised to a whole classroom. Requiring an actor is what *makes* the
+per-account key available: thirty pupils behind one address are thirty separate
+windows, and the meter never sees an address at all. **The gate and the meter are
+one ruling, not two.**
+
+Twenty is a judgement, not a measurement — one constant, exactly as D16 says of
+its three. Nothing in this product pages this endpoint at all, so twenty is
+generous for every articulated use; at the endpoint's maximum page of 100 it is
+2 000 rows an hour, so a province's 25 000 accounts take half a working day and
+leave a `rate_events` trail under one user id the whole way.
+
+**The residual, named rather than papered over:** a signed-in caller can still
+harvest up to `limit` rows per distinct `q` without touching the walk budget.
+That is accepted — it is attributable and revocable, which the anonymous walk
+was not — and it is what a tighter search meter would have to address, at the
+cost of the admin box.
+
+### The fields, since the brief asked
+
+`globalRole` and `createdAt` **stay**, for the same reason twice: `UserProfile`
+is `UserSummary.extend(...)`, so both are already served one account at a time,
+to anyone, by the still-public `GET /users/{username}`. Trimming the list would
+fork the two DTOs and buy nothing an attacker cannot get by naming a username
+they already have. `globalRole` is a setter/admin badge the profile renders and
+the admin lookup shows beside a name so "yes, that is the person" is answerable
+at all; `createdAt` is a join date every judge prints. Neither is a moderation
+fact — that is `status`, which has never been on this list.
+
+**D26 is not undone.** Its oracle is the **email**, and nothing here answers
+"does this email have an account": no email is served, `username_taken` is still
+a 409 because a username is public on every scoreboard, and the 401 is
+credential-shaped, not account-shaped.
+
+**No web change was needed, and that was verified rather than assumed.** The one
+caller is signed in (never sees the 401) and never sends a cursor (never sees the
+429), so D145's "name the failure, offer the next move" and D18's two catalogues
+have no new string to carry. Had any surface been able to reach either refusal,
+both would have been required.
+
+*Ruled by the implementer during the F-52 slot, no human available to consult.
+Cost if wrong: one decorator and one `if` (reverting is a two-line diff), and a
+constant. Tests:
+`apps/api/test/user-list-enumeration.spec.ts` — the anonymous walk that used to
+reach the whole roster, the signed-in teacher and the `users:read` token that
+still can, the walk cap with its `Retry-After` and its D47 marker, forty
+searches that spend nothing, and two accounts behind one NAT address each
+getting a whole budget. Red before the change: 3 of 7.*
