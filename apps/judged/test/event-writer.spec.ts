@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 import { problems, problemRevisions, submissions, submissionCases } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
+import { summariseCases } from '@duckoj/contest-formats';
 import { EventWriter } from '../src/event-writer.js';
 import { JobStore, type ClaimedJob } from '../src/job-store.js';
 import { withTestDb } from './db.harness.js';
@@ -84,6 +85,158 @@ describe('EventWriter', () => {
       expect(row?.state).toBe('done');
       expect(row?.verdict).toBe('AC');
       expect(publish).toHaveBeenCalledWith(submissionId);
+    });
+  }, 120_000);
+
+  it("summarises the attempt's cases onto the submission when it finishes (D165)", async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+
+      // Two loose cases and a two-case batch, with fractional points spread
+      // across magnitudes: the loose pair sums IN ORDER, the batch takes
+      // min(points) and max(total). Integer points would make the sum
+      // associative and could not tell a wrong order from a right one.
+      const cases = [
+        { groupIndex: 0, caseIndex: 0, points: 1e-4, maxPoints: 20 },
+        { groupIndex: 0, caseIndex: 1, points: 1e-4, maxPoints: 20 },
+        { groupIndex: 1, caseIndex: 2, points: 2 ** 40, maxPoints: 30 },
+        { groupIndex: 1, caseIndex: 3, points: 7 / 3, maxPoints: 40 },
+      ];
+      for (const testCase of cases) {
+        await writer.apply(job, {
+          type: 'caseResult',
+          groupIndex: testCase.groupIndex,
+          caseIndex: testCase.caseIndex,
+          verdict: 'AC',
+          skipped: false,
+          flags: [],
+          timeMs: 1,
+          memoryKb: 1,
+          points: testCase.points,
+          maxPoints: testCase.maxPoints,
+          feedback: '',
+        });
+      }
+      await writer.apply(job, {
+        type: 'finished',
+        verdict: 'AC',
+        points: 1,
+        maxPoints: 1,
+        timeMs: 3,
+        memoryKb: 900,
+      });
+
+      const [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      // Compared against the reference summariser over the same cases in the
+      // same order, field by field with `Object.is` — the fold divides by
+      // these numbers, and a scoreboard a fraction of a point out is a wrong
+      // scoreboard (D36).
+      const expected = summariseCases(
+        cases.map((testCase) => ({
+          batch: testCase.groupIndex,
+          case: testCase.caseIndex,
+          points: testCase.points,
+          total: testCase.maxPoints,
+          status: 'AC',
+        })),
+      );
+      const stored = row?.subtaskSummary as typeof expected | null | undefined;
+      expect(stored).toBeDefined();
+      expect(stored).not.toBeNull();
+      expect(stored!.length).toBe(expected.length);
+      for (const [index, want] of expected.entries()) {
+        const got = stored![index]!;
+        expect(got.batch).toBe(want.batch);
+        for (const key of ['minPoints', 'maxTotal', 'sumPoints', 'sumTotal'] as const) {
+          expect(
+            Object.is(got[key], want[key]),
+            `group ${String(index)} ${key}: stored ${String(got[key])} vs ${String(want[key])}`,
+          ).toBe(true);
+        }
+      }
+      // And the loose sum really is order-sensitive on this input, so the
+      // assertion above is testing something.
+      expect(1e-4 + 1e-4 + 2 ** 40).not.toBe(2 ** 40 + 1e-4 + 1e-4);
+    });
+  }, 120_000);
+
+  it('summarises an empty attempt as an empty list, never as null (D165)', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+
+      await writer.apply(job, { type: 'compileError', message: 'no' });
+
+      const [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      // Null means "ask the case rows"; a compile error has none and never
+      // will, so a null here would send the fold to the residue read forever.
+      expect(row?.subtaskSummary).toEqual([]);
+    });
+  }, 120_000);
+
+  it('summarises the latest attempt only, when an earlier one left rows behind (D165)', async () => {
+    await withTestDb(async (db) => {
+      const store = new JobStore(db);
+      const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
+      const { submissionId, job } = await seedSubmissionAndJob(db, store);
+
+      await writer.apply(job, {
+        type: 'caseResult',
+        groupIndex: 0,
+        caseIndex: 0,
+        verdict: 'WA',
+        skipped: false,
+        flags: [],
+        timeMs: 1,
+        memoryKb: 1,
+        points: 11,
+        maxPoints: 20,
+        feedback: '',
+      });
+      await writer.apply(job, {
+        type: 'finished',
+        verdict: 'WA',
+        points: 11,
+        maxPoints: 20,
+        timeMs: 1,
+        memoryKb: 1,
+      });
+
+      // A reclaim bumps the attempt without deleting the first attempt's rows
+      // — the regrade path, not the rejudge path.
+      await db.execute(sql`update grading_jobs set lease_until = now() - interval '1 second'`);
+      const second = (await store.claim('worker-b'))!;
+      await writer.apply(second, {
+        type: 'caseResult',
+        groupIndex: 0,
+        caseIndex: 0,
+        verdict: 'AC',
+        skipped: false,
+        flags: [],
+        timeMs: 1,
+        memoryKb: 1,
+        points: 20,
+        maxPoints: 20,
+        feedback: '',
+      });
+      await writer.apply(second, {
+        type: 'finished',
+        verdict: 'AC',
+        points: 20,
+        maxPoints: 20,
+        timeMs: 1,
+        memoryKb: 1,
+      });
+
+      const [row] = await db.select().from(submissions).where(eq(submissions.id, submissionId));
+      // 20, not 11 and not 31: both attempts' rows are in the table and the
+      // fold reads the highest attempt, so the summary must too.
+      expect(row?.subtaskSummary).toEqual([
+        { batch: 0, minPoints: 20, maxTotal: 20, sumPoints: 20, sumTotal: 20 },
+      ]);
     });
   }, 120_000);
 

@@ -11,6 +11,7 @@
     "dev": "tsx watch src/main.ts"
   },
   "dependencies": {
+    "@duckoj/contest-formats": "workspace:^",
     "@duckoj/db": "workspace:^",
     "@duckoj/judge-protocol": "workspace:^",
     "@duckoj/observability": "workspace:^",

@@ -179,6 +179,9 @@ importers:
 
   apps/judged:
     dependencies:
+      '@duckoj/contest-formats':
+        specifier: workspace:^
+        version: link:../../packages/contest-formats
       '@duckoj/db':
         specifier: workspace:^
         version: link:../../packages/db

@@ -1,5 +1,6 @@
-import { and, eq, sql } from 'drizzle-orm';
-import { submissions } from '@duckoj/db/guarded';
+import { and, asc, eq, sql } from 'drizzle-orm';
+import { submissionCases, submissions } from '@duckoj/db/guarded';
+import { summariseCases } from '@duckoj/contest-formats';
 
 import { noteContestVerdict, schema, type Db } from '@duckoj/db';
 import type { GradingEvent } from '@duckoj/judge-protocol';
@@ -219,6 +220,7 @@ export class EventWriter {
     job: ClaimedJob,
     values: { state: 'done' | 'errored'; verdict: string } & Record<string, unknown>,
   ): Promise<void> {
+    const { attempt } = job;
     await this.db.transaction(async (tx) => {
       const [before] = await tx
         .select({ state: submissions.state, verdict: submissions.verdict })
@@ -227,9 +229,51 @@ export class EventWriter {
         .for('update');
       if (!before) return;
 
+      // D165. The summary is written by the SAME fenced UPDATE that writes the
+      // verdict, from the cases this attempt actually graded, read inside this
+      // transaction. Three properties fall out of that placement and none of
+      // them would survive a separate statement:
+      //
+      // - it inherits D29's fencing for free — a superseded attempt's write
+      //   matches no row, so it can neither set a verdict nor a summary;
+      // - there is no window in which a submission is terminal with a verdict
+      //   and no summary, or the reverse;
+      // - it is `summariseCases` — the same function the scoreboard fold would
+      //   have applied to the same rows in the same order — so equality with
+      //   the fold it replaces is by construction rather than by test. The
+      //   silent counter drift the rejudge path once had was drift in state
+      //   that was INCREMENTED; this is state that is REPLACED, from its own
+      //   source, in one statement.
+      const cases = await tx
+        .select({
+          groupIndex: submissionCases.groupIndex,
+          points: submissionCases.points,
+          maxPoints: submissionCases.maxPoints,
+        })
+        .from(submissionCases)
+        .where(
+          and(eq(submissionCases.submissionId, submissionId), eq(submissionCases.attempt, attempt)),
+        )
+        .orderBy(asc(submissionCases.id));
+
       const applied = await tx
         .update(submissions)
-        .set(values as Partial<typeof submissions.$inferInsert>)
+        .set({
+          ...(values as Partial<typeof submissions.$inferInsert>),
+          subtaskSummary: summariseCases(
+            cases.map((row) => ({
+              batch: row.groupIndex,
+              // `case` and `status` are required by `TestCaseSpec` and read by
+              // nothing: the summariser only ever looks at the batch and the
+              // two point values. Filling them with constants is honest here
+              // in a way it would not be if anything downstream read them.
+              case: 0,
+              points: row.points,
+              total: row.maxPoints,
+              status: 'AC',
+            })),
+          ),
+        })
         .where(this.fencedById(submissionId, job))
         .returning({ id: submissions.id });
       if (applied.length === 0) return;
