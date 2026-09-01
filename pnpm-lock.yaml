@@ -274,6 +274,9 @@ importers:
       '@duckoj/glicko2':
         specifier: workspace:^
         version: link:../../packages/glicko2
+      '@duckoj/language-limits':
+        specifier: workspace:^
+        version: link:../../packages/language-limits
       '@duckoj/sdk':
         specifier: workspace:^
         version: link:../../packages/sdk

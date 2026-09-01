@@ -247,7 +247,7 @@ export function SubmissionPage({ id }: { id: number }) {
       {reRate.length > 0 ? (
         <p role="status">{t('rejudge.reRate', { keys: reRate.join(', ') })}</p>
       ) : null}
-      <VerdictPanel submission={s} />
+      <VerdictPanel submission={s} languageName={naming.name} />
       <h2>{t('submission.source')}</h2>
       {/* D27: `sourceHidden` rather than `source === null`, so "withheld
           during a contest" never reads as "this submission was empty". */}

@@ -450,7 +450,22 @@ function caseTitle(t: TFunction, c: SubmissionCase): string {
  * responsible for keeping `submission` fresh (see `SubmitPage` below) — this
  * component only renders a snapshot.
  */
-export function VerdictPanel(props: { submission: SubmissionDetail }) {
+export function VerdictPanel(props: {
+  submission: SubmissionDetail;
+  /**
+   * The language's display name for D160's waiting line, when the caller
+   * already has it.
+   *
+   * A prop rather than a query of this component's own: both callers have
+   * already paid for the answer (the submit page from
+   * `ProblemDetail.languageLimits`, the submission page from `/languages`),
+   * and a `useQuery` here would make a presentational panel require a
+   * `QueryClientProvider` in every test that renders it. Absent, the key is
+   * printed — which is what every submission surface did before F-39 and is
+   * still honest.
+   */
+  languageName?: string | undefined;
+}) {
   const t = useT();
   const { submission } = props;
   // `compileOutput` is NOT a compile-failure flag — it's a free-text channel
@@ -488,6 +503,26 @@ export function VerdictPanel(props: { submission: SubmissionDetail }) {
           noise. (loop-b20 a11y) */}
       <div role="status">
         <p>{t('submit.status', { state: stateLabel })}</p>
+        {/* D160 — "queued" is true and, for a job no connected judge can
+            grade, useless. D68 has recorded the reason on the job since it
+            existed; until now the only thing that ever read it was the admin
+            dashboard, so a pupil whose language nothing could run waited at
+            "đang chờ" with no way to learn why.
+
+            Inside this same `role="status"` region as the state it qualifies,
+            so a screen reader gets the two together rather than announcing a
+            second live region over the first. The sentence names the LANGUAGE
+            — the pupil's own choice, already on this page — and never the
+            fleet: the server sends one boolean, not the internal reason
+            string, so nothing here can say how many judges exist or what any
+            of them can run. */}
+        {submission.awaitingCapableJudge ? (
+          <p className="muted">
+            {t('submit.awaitingJudge', {
+              language: props.languageName ?? submission.languageKey,
+            })}
+          </p>
+        ) : null}
         {submission.frozen ? (
           // D23. Checked BEFORE the verdict branches, not after: a frozen
           // submission arrives with `verdict: null`, so without this it would
@@ -1122,7 +1157,15 @@ export function SubmitPage(props: { problemCode: string; contestKey?: string }) 
           {t('submit.liveSlow')}
         </p>
       ) : null}
-      {submission ? <VerdictPanel submission={submission} /> : null}
+      {submission ? (
+        <VerdictPanel
+          submission={submission}
+          // The name the picker used for the language this attempt was made
+          // in — `languages` is `offered` or the fallback, and `namingFor`'s
+          // rule applies either way: an unmatched key prints itself.
+          languageName={languages.find((lang) => lang.key === submission.languageKey)?.name}
+        />
+      ) : null}
     </section>
   );
 }

@@ -22,6 +22,7 @@
     "@duckoj/api-prefix": "workspace:^",
     "@duckoj/contracts": "workspace:^",
     "@duckoj/glicko2": "workspace:^",
+    "@duckoj/language-limits": "workspace:^",
     "@duckoj/sdk": "workspace:^",
     "@duckoj/statement-samples": "workspace:^",
     "@lezer/highlight": "^1.2.3",

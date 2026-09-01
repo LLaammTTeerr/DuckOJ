@@ -45,6 +45,55 @@ describe('VerdictPanel', () => {
     expect(screen.getByText(/Đang biên dịch/)).toBeInTheDocument();
   });
 
+  /**
+   * D160 — the one sentence a pupil whose language nothing can grade never
+   * got. `blocked_reason` has existed on the job since D68 and, until this
+   * slot, was read only by the admin dashboard.
+   */
+  it('says what a stuck queue is waiting for, and nothing about the fleet', () => {
+    render(
+      <VerdictPanel
+        submission={
+          {
+            state: 'queued',
+            languageKey: 'python3',
+            verdict: null,
+            cases: [],
+            awaitingCapableJudge: true,
+          } as never
+        }
+        languageName="Python 3"
+      />,
+    );
+    // The LANGUAGE — the pupil's own choice — never the reason string, which
+    // says how many judges are connected and what they can run.
+    expect(screen.getByText(/máy chấm chạy được Python 3/)).toBeInTheDocument();
+    expect(screen.queryByText(/no connected judge/)).not.toBeInTheDocument();
+    // Still queued (D68): the job runs the instant a capable judge connects,
+    // so the wait is explained rather than ended with a verdict nobody earned.
+    expect(screen.getByText(/Đang xếp hàng/)).toBeInTheDocument();
+  });
+
+  it('stays quiet on an ordinary queued submission', () => {
+    render(
+      <VerdictPanel
+        submission={
+          {
+            state: 'queued',
+            languageKey: 'cpp17',
+            verdict: null,
+            cases: [],
+            awaitingCapableJudge: false,
+          } as never
+        }
+      />,
+    );
+    // A healthy queue is the common case, and a warning that fires on every
+    // submission's first second is a warning nobody reads on the day it is
+    // true.
+    expect(screen.queryByText(/máy chấm chạy được/)).not.toBeInTheDocument();
+  });
+
   it('shows the verdict and each case once grading finishes', () => {
     render(
       <VerdictPanel

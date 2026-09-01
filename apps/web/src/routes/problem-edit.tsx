@@ -8,6 +8,7 @@ import { tagsQueryOptions } from '../tags.js';
 import { useLocale, useT, tagName } from '../i18n/index.js';
 import { CodeAlert, type CodeAlertState } from '../states.js';
 import { ProblemTestDataTab } from './problem-testdata.js';
+import { ProblemLanguageLimitsTab } from './problem-language-limits.js';
 import { useDirtyGuard } from '../forms.js';
 
 type ProblemDetail = paths['/problems/{code}']['get']['responses'][200]['content']['application/json'];
@@ -158,7 +159,7 @@ export function ProblemEditPage(props: { code?: string }) {
   // (D87) builds a package for a problem that must already exist — it needs
   // a `code` to open a draft against — so it is not offered while creating
   // one, exactly as `tags`, `difficulty` and the editorial are not.
-  const [tab, setTab] = useState<'details' | 'testdata'>('details');
+  const [tab, setTab] = useState<'details' | 'testdata' | 'langlimits'>('details');
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<CodeAlertState>(null);
   const [saved, setSaved] = useState(false);
@@ -407,11 +408,23 @@ export function ProblemEditPage(props: { code?: string }) {
           </button>{' '}
           <button type="button" onClick={() => setTab('testdata')} disabled={tab === 'testdata'}>
             {t('problemEdit.tabTestData')}
+          </button>{' '}
+          {/* D159. A third tab rather than a block on the details form: this
+              edits a different table through a different route, it saves on
+              its own button, and folding it into the details PATCH would make
+              one failed save able to lose the other half's typing. */}
+          <button
+            type="button"
+            onClick={() => setTab('langlimits')}
+            disabled={tab === 'langlimits'}
+          >
+            {t('problemEdit.tabLanguageLimits')}
           </button>
         </nav>
       ) : null}
 
       {isEdit && tab === 'testdata' ? <ProblemTestDataTab code={props.code!} /> : null}
+      {isEdit && tab === 'langlimits' ? <ProblemLanguageLimitsTab code={props.code!} /> : null}
 
       {tab === 'details' ? (
         <>

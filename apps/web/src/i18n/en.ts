@@ -1042,6 +1042,31 @@ export const en = {
   // of a package: limits, checker, cases, then one round of uploads.
   'problemEdit.tabDetails': 'Details',
   'problemEdit.tabTestData': 'Test data',
+  'problemEdit.tabLanguageLimits': 'Language limits',
+  'langLimits.heading': 'Language limits',
+  'langLimits.intro':
+    'Each language gets this problem\u2019s limits, multiplied by a percentage and with a memory floor added. Leaving a box empty means inherit the language default \u2014 not 0.',
+  'langLimits.noRevision':
+    'This problem has no published revision, so there are no authored limits to adjust yet. You can still set the multiplier, the addend and whether a language is allowed.',
+  'langLimits.base': 'The problem\u2019s authored limits: {time} s and {memory} MB.',
+  'langLimits.language': 'Language',
+  'langLimits.timeColumn': 'Time (%)',
+  'langLimits.memoryColumn': 'Extra memory (KB)',
+  'langLimits.allowedColumn': 'Allowed',
+  'langLimits.resultColumn': 'Result',
+  'langLimits.inherit': 'Inherits: {value}',
+  'langLimits.result': '{time} s and {memory} MB',
+  'langLimits.notAllowed': 'Not allowed \u2014 this problem refuses this language',
+  'langLimits.allowedLabel': 'Allow submissions in {name}',
+  'langLimits.timeLabel': 'Time multiplier for {name}, as a percentage',
+  'langLimits.memoryLabel': 'Extra memory for {name}, in KB',
+  'langLimits.timeRange':
+    'The time multiplier must be between {min}% and {max}%. To refuse a language outright, clear \u201cAllowed\u201d \u2014 never set a limit of 0.',
+  'langLimits.memoryRange': 'Extra memory must be between {min} KB and {max} KB.',
+  'langLimits.saved': 'Language limits saved.',
+  'langLimits.saveFailed': 'Could not save the language limits.',
+  'submit.awaitingJudge':
+    'Waiting for a judge that can run {language}. The submission is still queued and will be graded as soon as one is available.',
   'testData.title': 'Test data',
   'testData.intro':
     'Everything here stays in your browser until you create a revision. Nothing is uploaded as you type.',

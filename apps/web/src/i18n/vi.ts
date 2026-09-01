@@ -995,6 +995,31 @@ export const vi = {
   // D87 — tab dữ liệu chấm của màn hình sửa bài.
   'problemEdit.tabDetails': 'Thông tin',
   'problemEdit.tabTestData': 'Dữ liệu chấm',
+  'problemEdit.tabLanguageLimits': 'Giới hạn theo ngôn ngữ',
+  'langLimits.heading': 'Giới hạn theo ngôn ngữ',
+  'langLimits.intro':
+    'Mỗi ngôn ngữ nhận giới hạn của đề bài, nhân với một tỉ lệ phần trăm và cộng thêm một mức bộ nhớ nền. Để trống một ô nghĩa là kế thừa mặc định của ngôn ngữ — không phải 0.',
+  'langLimits.noRevision':
+    'Đề bài chưa có phiên bản được xuất bản, nên chưa có giới hạn gốc để tính. Bạn vẫn có thể đặt tỉ lệ, mức cộng và việc cho phép ngôn ngữ.',
+  'langLimits.base': 'Giới hạn gốc của đề: {time} giây và {memory} MB.',
+  'langLimits.language': 'Ngôn ngữ',
+  'langLimits.timeColumn': 'Thời gian (%)',
+  'langLimits.memoryColumn': 'Bộ nhớ cộng thêm (KB)',
+  'langLimits.allowedColumn': 'Cho phép',
+  'langLimits.resultColumn': 'Kết quả',
+  'langLimits.inherit': 'Kế thừa: {value}',
+  'langLimits.result': '{time} giây và {memory} MB',
+  'langLimits.notAllowed': 'Không cho phép nộp bằng ngôn ngữ này',
+  'langLimits.allowedLabel': 'Cho phép nộp bằng {name}',
+  'langLimits.timeLabel': 'Tỉ lệ thời gian cho {name}, tính theo phần trăm',
+  'langLimits.memoryLabel': 'Bộ nhớ cộng thêm cho {name}, tính theo KB',
+  'langLimits.timeRange':
+    'Tỉ lệ thời gian phải từ {min}% đến {max}%. Muốn cấm hẳn một ngôn ngữ thì bỏ chọn "Cho phép", đừng đặt giới hạn bằng 0.',
+  'langLimits.memoryRange': 'Bộ nhớ cộng thêm phải từ {min} KB đến {max} KB.',
+  'langLimits.saved': 'Đã lưu giới hạn theo ngôn ngữ.',
+  'langLimits.saveFailed': 'Không lưu được giới hạn theo ngôn ngữ.',
+  'submit.awaitingJudge':
+    'Đang đợi một máy chấm chạy được {language}. Bài nộp vẫn nằm trong hàng đợi và sẽ được chấm ngay khi có máy phù hợp.',
   'testData.title': 'Dữ liệu chấm',
   'testData.intro':
     'Mọi thứ ở đây nằm trong trình duyệt cho tới khi bạn tạo phiên bản. Không có gì được tải lên khi bạn đang gõ.',
