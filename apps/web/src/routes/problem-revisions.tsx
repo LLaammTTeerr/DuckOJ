@@ -148,6 +148,20 @@ export function ProblemRevisionsPage(props: { code: string }) {
         return;
       }
       await client.invalidateQueries({ queryKey: ['problem-revisions', code] });
+      // Not only this table. Publishing is the write that moves `timeMs`,
+      // `memoryKb`, `testCount`, `totalPoints`, `checkerKind` and
+      // `hasPublishedRevision` on `ProblemDetail`, and that lives under
+      // `['problem', code]` — a different first element, so the invalidation
+      // above never matched it (F-42's `'org-teams'` / `'org-team'` shape).
+      // The reader it was leaving behind is the pupil on `/problems/{code}` or
+      // in the submit box, quoted the limits of the revision this call just
+      // superseded — which is precisely the moment D87 built this screen for,
+      // a setter republishing a corrected test set.
+      //
+      // `['problems']` is a prefix of the filtered catalogue key, which prints
+      // the time and memory columns from the same source.
+      await client.invalidateQueries({ queryKey: ['problem', code] });
+      await client.invalidateQueries({ queryKey: ['problems'] });
     } catch {
       setPublishError({ message: t('common.networkError') });
     } finally {
