@@ -75,7 +75,16 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
   async function refresh(): Promise<void> {
     setCreating(false);
     setEditing(null);
+    // BOTH keys. The summary list carries a member COUNT; the names on each
+    // row — and the edit form's prefill — come from `TeamMembers`' own query
+    // under `['org-team', slug, teamSlug]`, and an invalidation matches by
+    // key PREFIX, so `['org-teams', slug]` never touched it. A teacher who
+    // added a pupil saw the count move to 2 and the names stay at one; worse,
+    // re-opening the form prefilled from that stale roster, and `members`
+    // REPLACES the whole roster — so the next save wrote the pre-edit list
+    // back and dropped the pupil who had just been added.
     await client.invalidateQueries({ queryKey: teamsKey(slug) });
+    await client.invalidateQueries({ queryKey: ['org-team', slug] });
   }
 
   async function disband(teamSlug: string): Promise<void> {
