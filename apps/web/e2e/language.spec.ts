@@ -157,6 +157,30 @@ function limitsRow(page: Page, name: string) {
 
 let admin: { username: string; password: string };
 
+/**
+ * The fixture is a PUBLIC problem while the walks need it — a pupil has to be
+ * able to see it — and a public problem is on the list a province browses. So
+ * it is closed again here rather than left on that list until somebody runs
+ * `scripts/cleanup-test-data.ts`. In `afterAll` so it happens even when a walk
+ * above failed, which is exactly when it would otherwise be forgotten.
+ */
+test.afterAll(async () => {
+  if (admin === undefined) return;
+  const ctx = await playwrightRequest.newContext({
+    baseURL: ORIGIN,
+    extraHTTPHeaders: { Origin: ORIGIN },
+  });
+  await ctx.post('/api/v1/auth/login', {
+    headers: SAME_ORIGIN,
+    data: { usernameOrEmail: admin.username, password: admin.password },
+  });
+  await ctx.patch(`/api/v1/problems/${CODE}`, {
+    headers: SAME_ORIGIN,
+    data: { visibility: 'private' },
+  });
+  await ctx.dispose();
+});
+
 /* ── 1 — the fixture, and the menu every pupil is shown ──────────────── */
 
 test('journey 1 — the picker offers five languages and preselects C++17, by link and from the statement', async ({

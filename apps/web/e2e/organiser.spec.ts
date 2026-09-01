@@ -233,8 +233,12 @@ test('journey 1 — the monitor’s numbers are the API’s numbers, and the fee
     data: {
       key: MONITOR_KEY,
       name: `FE42 theo dõi ${RUN}`,
+      // Started two minutes ago so entrants can join and submit with no
+      // wait; twelve minutes long, which is more than this walk needs and
+      // keeps a test round off the province's contest list for the rest of
+      // the afternoon.
       startTime: new Date(now - 2 * 60_000).toISOString(),
-      endTime: new Date(now + 60 * 60_000).toISOString(),
+      endTime: new Date(now + 12 * 60_000).toISOString(),
       format: 'icpc',
       visibility: 'public',
       problems: [{ code: 'aplusb', points: 100 }],
@@ -459,7 +463,7 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
       key: TEAM_KEY,
       name: `FE42 đồng đội ${RUN}`,
       startTime: new Date(now - 2 * 60_000).toISOString(),
-      endTime: new Date(now + 60 * 60_000).toISOString(),
+      endTime: new Date(now + 12 * 60_000).toISOString(),
       format: 'icpc',
       participationMode: 'team',
       maxTeamSize: 3,
