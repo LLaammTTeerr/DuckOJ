@@ -9509,3 +9509,212 @@ reach the whole roster, the signed-in teacher and the `users:read` token that
 still can, the walk cap with its `Retry-After` and its D47 marker, forty
 searches that spend nothing, and two accounts behind one NAT address each
 getting a whole budget. Red before the change: 3 of 7.*
+
+## D191 — A public school's roster is a PAGE, not a walk: an anonymous reader keeps page one and loses the sweep, and the walk spends D188's budget
+
+F-52 measured this one and deliberately left it. Re-measured against the live
+edge at `007540a`, with no cookie and no token:
+
+```
+GET /api/v1/orgs?limit=100                 → 27 orgs, ALL public, 1 request
+GET /api/v1/orgs/probe-org/members?limit=100 → 200; username, displayName, role, joinedAt
+the walk over every public org             → 80 distinct pupils, 28 requests
+GET /api/v1/orgs/probe-org/members?q=probe   → 200, anonymously
+```
+
+The import contract advertises a **5 000-pupil** roster, so 80 is a property of
+this rehearsal host, not of the endpoint.
+
+### Why D188 does not simply repeat here
+
+D188's gate cost nothing because `GET /users` had **exactly one caller** and no
+screen rendered it. The caller inventory for the roster is different, and it was
+enumerated rather than assumed:
+
+| Caller | Sends | Signed in? |
+| --- | --- | --- |
+| `OrgPage`'s roster, `apps/web/src/routes/orgs.tsx` | page, `q`, and `cursor` via "load more" | **not necessarily** |
+| `MemberFinder`, `apps/web/src/routes/teams.tsx` | `q` only, never a cursor | yes — org staff on a team form |
+| `apps/mcp` | — | no reference to `/orgs` at all |
+| `apps/oj` (CLI) | — | no reference |
+| `scripts/rehearsal.ts` | `POST`, not this read | yes |
+
+**The discriminating fact: `/orgs/$slug` has no route guard** (`router.tsx`
+registers it with no `beforeLoad`), so a public school's page — roster, search
+box and "load more" — renders for a stranger today. And D56 makes `public` a
+**deliberate setting**: an organization marked that way was marked so by someone
+who wanted it seen. Requiring a session would break a legitimate choice.
+
+The neighbours were checked with the same anonymous curl rather than reasoned
+about: `GET /orgs/{slug}/teams`, `/sets`, `/sets/{set}/progress` and `/requests`
+are **all 401 already**, so this roster is the *only* anonymous read of a list
+of people left on the judge.
+
+### The ruling
+
+**An anonymous caller gets a page. Not a walk, and not a search.**
+
+- `nextCursor` is **always `null`** for an anonymous reader. Handing out a
+  cursor and then refusing it would be a contradiction, so one is never handed
+  out.
+- `cursor` from an anonymous caller → **401 `authentication_required`**, the
+  same refusal `GET /submissions` and (since D188) `GET /users` answer. Not a
+  403: a read a caller may not do says 401 or 404. Not a silently truncated
+  page: that is D187's exact sin.
+- `q` from an anonymous caller → **the same 401, and this is not
+  belt-and-braces.** D185's search matches a **word prefix** of the folded
+  username or display name, so a caller who cannot advance can still
+  reconstitute a whole roster by iterating prefixes. Closing the cursor while
+  leaving anonymous `q` open would have been theatre.
+- Everything else is unchanged: page one of a public school is still served to
+  anyone, `findVisibleOrgRow` still 404s a private one, and no field is
+  withheld.
+
+**No page-size cap for anonymous callers, deliberately.** A smaller anonymous
+`limit` would have to be either a silent trim (D187's sin again) or a 422
+refusing a limit the contract advertises, and it buys nothing: **one fixed,
+non-advancing page defeats exhaustion at any page size.** The bound is "the same
+rows however often you ask", not "few rows".
+
+### The trim is `nextCursor`, and that is the whole answer to the brief's tension
+
+The brief asked whether trimming the payload could serve both sides. It can —
+but the field that mattered was never `displayName` or `joinedAt`. Every column
+here is **already public one row at a time**: `GET /users/{username}` serves
+`displayName` to anyone, and D185 added it precisely so a roster minted by a
+bulk import (a column of `hs000123`) is readable by the teacher who has to use
+it, with D122's initials computed from it. Trimming those would cost the
+legitimate reader the whole point of D185 and close nothing, because **the
+disclosure was the bulk** — and `nextCursor` is what made the bulk reachable.
+So the roster still shows who is in the school; it stops being a
+machine-readable list of every pupil.
+
+### The meter: D188's, not a second one
+
+The walk is metered **for a signed-in caller who holds no role in that
+organization**, under `USER_WALK_PURPOSE` — the **same purpose, limit, window
+and key** `GET /users` spends, now in `apps/api/src/authz/walk.meter.ts` and
+re-exported from `user.access.ts` unchanged. Two budgets would have meant a
+caller who exhausted their twenty pages of the directory still had twenty more
+of **every school in the province**: the same sweep with one extra step in it.
+One window, one `rate_events` trail, one 429 code for a client to handle
+(`user_walk_rate_limited`, `Retry-After` in whole seconds, D47 refusal marker,
+D16's split so a refused request records nothing and the window drains).
+
+The purpose keeps the name `user_walk` although it now covers two routes:
+`rate_events` on the live host already holds rows under it, and renaming a
+plain-text purpose orphans every one of them and its refusal markers for
+nothing. What is counted did not change — pages of a list of users.
+
+**Members of the organization, and global admins, are exempt.** This is the
+half that keeps the ruling honest. The import contract advertises a
+5 000-pupil school; at 25 rows a page that is **two hundred presses of "load
+more"**, and metering the teacher at twenty pages an hour is D16's self-lockout
+on a real screen — exactly the failure D188 refused to buy on the admin lookup,
+bought here instead. A caller with no standing in the school has no such page to
+render and is precisely the sweep this bounds.
+
+**The residual that creates, named rather than papered over:** on an `open`
+organization a harvester can join and become exempt. Accepted. Appearing on a
+roster is attribution of the strongest kind available, and removal revokes it —
+and it is the reason this is stated as a bound on strangers rather than as
+impossibility, exactly as D188 stated its own.
+
+### The alternatives, and why they lost
+
+- **Require an actor, as D188 did for `/users`.** Rejected on the caller
+  inventory: unlike `/users`, this list *is* rendered to anonymous visitors, on
+  a page with no route guard, for organizations whose owners chose `public`.
+  The gate that cost nothing there costs a real, deliberate choice here.
+- **Trim the fields instead of the cursor.** Rejected above: it takes D185's
+  readable roster away from the teacher and leaves the sweep intact, because
+  usernames alone still enumerate a school.
+- **Scope the roster to members only.** That is what a `private` organization
+  already is, and `findVisibleOrgRow` already enforces it. Applying it to a
+  public one deletes the setting rather than honouring it.
+- **A smaller anonymous page.** See above — a silent cap or a contradicted
+  contract, for a bound the fixed page already provides.
+- **A separate roster budget.** Demonstrated red: it re-opens the province
+  sweep at twenty pages per school.
+
+### The web, where F-52 needed nothing and this needs three things
+
+Both new states are **reachable from a real screen**, unlike D188's, so D18 and
+D145 apply rather than being noted as inapplicable:
+
+1. **The trimmed state is said.** `OrgPage` hides the search box from a
+   signed-out visitor (a control that always 401s is worse than no control) and
+   prints `org.rosterSignedOut` in both catalogues. D187's lesson: without it, a
+   five-thousand-pupil school reads as a school of twenty-five.
+2. **429 gets a sentence.** `headlineKey` in `states.tsx` had no case for it, so
+   a refused walk would have fallen through to the caller's own fallback and
+   told a teacher **"Không có tổ chức này"** — D145's first measured bug, on a
+   new status. `common.tooManyRequests`, both languages; not retryable, and the
+   sentence *is* the next move.
+3. **The roster query had no error state at all.** `org.error` got a
+   `LoadError`; a failing `members` query — including a refused `fetchNextPage`
+   — vanished, and the empty state then said "No visible members", a claim about
+   the school the server never answered. Now `LoadError` below the table, so a
+   refused "load more" keeps the pages already loaded.
+
+*Ruled by the implementer during the F-53 slot, no human available to consult.
+Cost if wrong: one `if` in `listMembers` and one line trimming `nextCursor`
+(reverting is a small diff); no migration — 0048 is still unconsumed. Tests:
+`apps/api/test/org-roster-enumeration.spec.ts` (8) and the D191 block of
+`apps/web/test/orgs.spec.tsx` (3). Red before the change: **5 of 8** for the
+pre-D191 shape; **1 of 8** with anonymous `q` left open; **1 of 8** without the
+member exemption; **2 of 8** with an address-keyed meter; **3 of 8** with a
+second, parallel budget. Web: 1 of 25 for each of the missing 429 sentence and
+the missing signed-out notice.*
+
+## D192 — `GET /contests` is left exactly as it is, and this is the argument for it rather than an omission
+
+Measured live, anonymously, at `007540a`: **146 contests in 2 requests** at
+`limit=100`, cursor on `id`, no meter. Structurally the same walk D188 and D191
+just bounded, so it was put through the same three questions instead of being
+waved past.
+
+**Who reads it?** Three real callers, and two of them are anonymous by design:
+the web `/contests` list (a judge's front door), `apps/mcp`'s `contests_list`
+tool (`contests:read`), and `apps/oj`. A list of upcoming rounds that a visitor
+must sign in to see is a judge nobody can enter.
+
+**What should an anonymous caller get?** All of it. **The rows are events, not
+people.** `ContestSummary` carries a key, a name, a window, a format and the
+organizations a round is restricted to — facts a contest exists in order to
+publish. Private contests are already excluded by `contest.visibility.ts`
+before the page is built, and D56's org restriction governs who may **join**, not
+who may look. There is no pupil in this payload; nothing here is a child's name.
+
+**What is metered?** Nothing, and nothing should be. The harm D188 and D191
+bound is *bulk disclosure of people*, and metering a walk that discloses none of
+them would cost the MCP tool and the anonymous front page for no privacy at all.
+146 rows growing by a handful a term is not a table that outruns two requests.
+
+`GET /orgs` gets the same verdict for the same reason and is recorded here
+rather than as its own decision: 27 rows, one request, and the rows are
+**institutions advertising themselves** — D186 rebuilt that list's cursor
+alphabetically *for* the province reader looking a school up by name. What it
+publishes is exactly what a school marked `public` asked to publish. The
+organization list is how the roster ruling above stays honest: the school is
+findable, and its pupils are not downloadable.
+
+**F-52's residual, and this slot's verdict on it.** F-52 left open that a
+*signed-in* account can harvest up to `limit` rows per distinct `q` on
+`GET /users` without touching the walk budget. **It stays open, and the line is
+attribution, not volume.** On `/users` every searcher is now a named,
+revocable principal (D188), so the residual is a thing an account *did*,
+recorded and reversible; closing it needs a search meter, which costs the admin
+lookup its box for a bound a determined caller beats by varying `q`. On the
+roster it did **not** stay open, because there the searcher could be **nobody at
+all** — and that, not the row count, is the difference. This slot therefore
+tightens the residual on the surface where it was anonymous and leaves it
+untouched where D188 already made it attributable.
+
+*Ruled by the implementer during the F-53 slot, no human available to consult.
+Cost if wrong: nothing was changed, so the cost is a later slot doing the work
+this one argued against. No test: a decision to leave two endpoints alone is
+pinned by the absence of a diff, and inventing a spec that asserts `GET
+/contests` is 200 to a stranger would only re-assert `contest-visibility.spec.ts`.*
+
+**D193 was not needed and is not used.**
