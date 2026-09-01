@@ -11,6 +11,7 @@ import { EditorView } from '@codemirror/view';
 import type { ReactElement } from 'react';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const post = vi.fn();
@@ -27,8 +28,14 @@ vi.mock('@tanstack/react-router', () => ({
 
 const { SubmitPage } = await import('../src/routes/submit.js');
 
+// `SubmitPage` reads the problem's per-language limits through TanStack
+// Query now (F-39/D154), so it needs a client in scope. The query is
+// deliberately not stubbed here: this file is about the contest banner and
+// D80's cooldown, and an unanswered catalogue leaves the picker on its
+// `cpp17` fallback — exactly the shape these tests were written against.
 function wrap(ui: ReactElement) {
-  return render(ui);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
 describe('SubmitPage', () => {

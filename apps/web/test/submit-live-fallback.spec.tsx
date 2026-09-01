@@ -15,6 +15,7 @@
 import type { ReactElement } from 'react';
 import { EditorView } from '@codemirror/view';
 import { act, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const post = vi.fn();
@@ -68,9 +69,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** How many times the page has POLLED the submission — not `/problems`. */
+function pollCount(): number {
+  return get.mock.calls.filter(([path]) => path === '/submissions/{id}').length;
+}
+
 /** Types a solution into the editor and presses the button. */
 async function submit(ui: ReactElement): Promise<void> {
-  render(ui);
+  // See submit-contest.spec.tsx: SubmitPage reads `/problems/:code` for its
+  // per-language limits (F-39/D154) and so needs a client in scope.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
   const content = await screen.findByLabelText(/Mã nguồn/);
   const view = EditorView.findFromDOM(content.closest('.cm-editor') as HTMLElement)!;
   act(() => {
@@ -90,7 +99,10 @@ describe('a verdict still arrives when the live channel never opens (D152)', () 
 
     // Nothing yet: the page is entitled to a few seconds of hoping.
     expect(screen.queryByText(/Đang cập nhật chậm/)).toBeNull();
-    expect(get).not.toHaveBeenCalled();
+    // No POLL yet — scoped to the submission route rather than `get` as a
+    // whole, because the page also asks `/problems/:code` for its
+    // per-language limits on mount (F-39/D154) and that is not a poll.
+    expect(pollCount()).toBe(0);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(6_000);
