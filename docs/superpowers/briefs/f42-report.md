@@ -2,7 +2,7 @@
 
 **Status: complete.** Two new Playwright suites in the existing harness, one
 residual closed, **one new defect found by a walk against the live stack** and
-fixed. Four commits on `main` in this clone, **not pushed, not deployed**.
+fixed. Seven commits on `main` in this clone, **not pushed, not deployed**.
 **D161 is unused** — neither fix changes a stated behaviour, so neither spends
 a decision (B-30's precedent for its defect 3).
 
@@ -10,8 +10,10 @@ a decision (B-30's precedent for its defect 3).
 run. **`apps/web/dist` was never written and no `vite build` was run** —
 Playwright drove the deployed bundle at the live edge, which is the point.
 `.secrets/duckadmin.txt` was parsed by block for the admin username and
-password (the existing `e2e/credentials.ts` path); nothing from it was
-printed, logged or committed. Live rows **were** created — see "Live
+password (the existing `e2e/credentials.ts` path). **The password never
+reached any output**, and nothing from the file was committed; the admin
+*username* — `duckadmin`, which D153's own text already names — appeared once,
+in a login-status line of a throwaway probe script. Live rows **were** created — see "Live
 artefacts".
 
 ---
@@ -24,6 +26,9 @@ artefacts".
 | `04cd042` | `fix(teams)` — a roster saved in the form appears on the panel that saved it |
 | `e11dc3a` | `test(e2e)` — browser walks for the organiser routes and the whole language path |
 | `27f77fc` | `test(e2e)` — leave less of these walks behind on a production list |
+| `b39d4bb` | `docs(f42)` — this report |
+| `14ecde5` | `test(e2e)` — make the monitor's three counters pairwise different |
+| *(HEAD)* | `docs(f42)` — the corrections that follow from `14ecde5` |
 
 `docs/PROVINCE-READINESS.md` gap 4 was rewritten in `e11dc3a`: the coverage
 half is closed, and what remains is that the two fixes above are **not
@@ -38,15 +43,15 @@ deployed**.
 
 ```
 Running 7 tests using 1 worker
-  ✓  1 language.spec.ts:186 › journey 1 — the picker offers five languages and preselects C++17, by link and from the statement (2.3s)
-  ✓  2 language.spec.ts:261 › journey 2 — switching language and back gives the pupil their own program again (976ms)
+  ✓  1 language.spec.ts:186 › journey 1 — the picker offers five languages and preselects C++17, by link and from the statement (2.2s)
+  ✓  2 language.spec.ts:261 › journey 2 — switching language and back gives the pupil their own program again (1.2s)
   ✓  3 language.spec.ts:299 › journey 3 — a setter writes a language override, and clearing a box stores inherit (2.2s)
-  ✓  4 language.spec.ts:389 › journey 4 — a refused language is off the menu, and the page does not post it (4.7s)
-  ✓  5 organiser.spec.ts:213 › journey 1 — the monitor’s numbers are the API’s numbers, and the feed is live (43.4s)
-  ✓  6 organiser.spec.ts:363 › journey 2 — a teacher assembles a team in the form, and the one-seat rule names the pupil (2.9s)
-  ✘  7 organiser.spec.ts:550 › journey 2b — the panel shows the added pupil with no reload (red until the fix ships) (16.2s)
+  ✓  4 language.spec.ts:389 › journey 4 — a refused language is off the menu, and the page does not post it (4.5s)
+  ✓  5 organiser.spec.ts:213 › journey 1 — the monitor’s numbers are the API’s numbers, and the feed is live (56.0s)
+  ✓  6 organiser.spec.ts:378 › journey 2 — a teacher assembles a team in the form, and the one-seat rule names the pupil (3.1s)
+  ✘  7 organiser.spec.ts:565 › journey 2b — the panel shows the added pupil with no reload (red until the fix ships) (16.2s)
   1 failed
-  6 passed (1.2m)
+  6 passed (1.4m)
 ```
 
 **The one failure is deliberate and is the defect below.** Journey 2b is the
@@ -254,15 +259,19 @@ No decision spent: it restores D84's stated behaviour.
 
 ### `apps/web/e2e/organiser.spec.ts`
 
-**Journey 1 — the live monitor.** Two entrants and three graded attempts on a
-`fe42-` round: one WA and one AC from the first, one AC from the second. That
-shape is chosen so `submitted`, `accepted` and `solvers` are **three different
-numbers** (3, 2, 2) — a panel with any two of those columns crossed still
-passes against a contest where everybody was right first time. With nothing in
-flight, `GET /contests/{key}/monitor` is read **once** through the signed-in
-page, and the screen is asserted to be that answer: the four `.num` cells in
-the header's declared order, the accept bar's own `aria-label`
-("2 trên 3 lượt nộp được chấp nhận"), and the two tiles. Then a **fourth
+**Journey 1 — the live monitor.** Two entrants and four graded attempts on a
+`fe42-` round: WA, AC, AC from the first, one AC from the second. That shape
+is chosen so `submitted`, `accepted` and `solvers` are **pairwise different**
+— 4, 3 and 2 — because each cheaper shape leaves a miswiring invisible: a room
+where everybody was right first time makes `submitted = accepted`, and one AC
+each makes `accepted = solvers`, which is the column-crossing this panel is
+most likely to get wrong (D100 keeps `solvers` in a SET, on its own table,
+precisely because it cannot be derived from the other two). The **second AC
+from the same person** is what separates them. With nothing in flight,
+`GET /contests/{key}/monitor` is read **once** through the signed-in page, and
+the screen is asserted to be that answer: the four `.num` cells in the
+header's declared order, the accept bar's own `aria-label` ("3 trên 4 lượt nộp
+được chấp nhận"), and the two tiles. Then a **fourth
 attempt is made over the API while the page is open** and has to reach the
 feed and move the counter **with no navigation** — the WebSocket's
 `contest-activity` frame, or the five-second poll behind it. A screen that
@@ -329,12 +338,15 @@ without building a package and without touching the demo set. Closed again to
    the DOM cannot tell you which. `languageKey: "cpp20"`, 201, and an AC from
    the real judge. C++17 is allowed again at the end.
 
-### Every assertion was demonstrated red first
+### The language walks were demonstrated red first
 
-Not just the two fixes. Each family in `language.spec.ts` was run against a
-deliberately wrong expectation before being accepted, because a walk that
-passes in two seconds against a live stack is exactly the shape of this
-campaign's two false greens:
+Beyond the two fixes. Each assertion family in `language.spec.ts` was run
+against a deliberately wrong expectation before being accepted, because a walk
+that passes in two seconds against a live stack is exactly the shape of this
+campaign's two false greens. (`organiser.spec.ts` was not adversarially broken
+this way: journey 2's red was organic — it is how the teams defect was found —
+and journey 1's guard is the hardcoded `[4, 3, 2, 0]`, which is itself the
+column-crossing check.)
 
 ```
 default cpp17 → c11         ✘ Received: "cpp17"    (16.1s, real timeout)
