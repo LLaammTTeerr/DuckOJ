@@ -249,11 +249,16 @@ test('journey 1 — the monitor’s numbers are the API’s numbers, and the fee
     `create contest: ${String(created.status())} ${await created.text()}`,
   ).toBe(true);
 
-  // Two entrants, three graded attempts: one AC and one WA from the first, one
-  // AC from the second. That is deliberately a shape in which `submitted`,
-  // `accepted` and `solvers` are three DIFFERENT numbers (3, 2, 2) — a panel
-  // that wired any two of those columns together would still pass against a
-  // contest where everybody was right first time.
+  // Two entrants, four graded attempts: WA then AC then AC from the first, one
+  // AC from the second. That is deliberately the shape in which `submitted`,
+  // `accepted` and `solvers` are three PAIRWISE DIFFERENT numbers — 4, 3 and
+  // 2 — because each of the cheaper shapes leaves a miswiring invisible. A
+  // room where everybody was right first time makes submitted = accepted; one
+  // AC each makes accepted = solvers, and `solvers` reading `accepted` is the
+  // column-crossing this panel is most likely to get wrong (D100 keeps
+  // `solvers` in a SET, on its own table, for exactly the reason it cannot be
+  // derived from the other two). The second AC from the same person is what
+  // separates them.
   const a1 = await actorContext('fe42-a1');
   const a2 = await actorContext('fe42-a2');
   for (const [who, ctx] of [
@@ -268,6 +273,9 @@ test('journey 1 — the monitor’s numbers are the API’s numbers, and the fee
   }
   const attempt = { problemCode: 'aplusb', languageKey: 'cpp17', contestKey: MONITOR_KEY };
   expect((await submitAndGrade(a1, { ...attempt, source: WA_SOURCE })).verdict).toBe('WA');
+  expect((await submitAndGrade(a1, { ...attempt, source: AC_SOURCE })).verdict).toBe('AC');
+  // The same person, accepted a second time: `accepted` moves and `solvers`
+  // must not.
   expect((await submitAndGrade(a1, { ...attempt, source: AC_SOURCE })).verdict).toBe('AC');
   expect((await submitAndGrade(a2, { ...attempt, source: AC_SOURCE })).verdict).toBe('AC');
 
@@ -286,8 +294,8 @@ test('journey 1 — the monitor’s numbers are the API’s numbers, and the fee
   expect(problem, 'the monitor served no row for the contest’s only problem').toBeDefined();
   expect(
     [problem!.submitted, problem!.accepted, problem!.solvers, problem!.pending],
-    'the walk graded 1 WA + 2 AC from 2 people before reading the panel',
-  ).toEqual([3, 2, 2, 0]);
+    'the walk graded 1 WA + 3 AC, two of them from the same person, before reading the panel',
+  ).toEqual([4, 3, 2, 0]);
 
   // The panel, cell by cell against what the API said. `.num` is the class the
   // four counter columns carry, in the order the header declares them.
@@ -313,6 +321,13 @@ test('journey 1 — the monitor’s numbers are the API’s numbers, and the fee
 
   // The tiles. `participantsOnline` is a floor and not a roster (D101) — the
   // point is that the screen prints the number the API served, whatever it is.
+  //
+  // The known flake vector, named rather than designed around: the queue depth
+  // is FLEET-WIDE, so another loop submitting anywhere on this host between
+  // the read above and the assertion below would move it, honestly, and this
+  // line would fail for a reason that is not a bug. The per-problem counters
+  // cannot drift that way — they belong to this contest and every job in it is
+  // already terminal.
   for (const [label, value] of [
     ['Thí sinh đang kết nối', String(served.participantsOnline)],
     ['Đang chờ chấm', String(served.queue.depth)],
