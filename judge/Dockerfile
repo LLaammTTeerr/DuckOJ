@@ -1,13 +1,19 @@
-# Builds a tier1 (C++-only) DMOJ judge image.
+# Builds this deployment's DMOJ judge image: C/C++ (g++ 12), Python 3.11,
+# Free Pascal 3.2.2 and OpenJDK 17. It was a C++-only "tier1" image when this
+# recipe was written and is 1.14 GB now that F-46 added the two toolchains a
+# Vietnamese province teaches; `judge/judge.yml`'s `runtime:` block and
+# `docker-compose.yml`'s `--only-executors` are the other two halves of what
+# it can actually run, and all three must move together.
 #
 # `docker.io/dmoj/judge-tier1` does not exist on Docker Hub, and
 # `dmoj/runtimes-tier1` is a contestant-runtime image with no judge installed
 # in it (verified: `command -v dmoj` is empty, `import dmoj` raises
 # ModuleNotFoundError). `dmoj/judge-small` is real but was last pushed in
-# 2017. Phase 1 is C++-only, so none of the multi-gigabyte official runtime
-# images are needed — this recipe was proven end-to-end by a spike that
-# graded a real C++ submission to AC through the resulting image (431 MB,
-# versus 1.89 GB for runtimes-tier1).
+# 2017. Phase 1 was C++-only, so none of the multi-gigabyte official runtime
+# images were needed — this recipe was proven end-to-end by a spike that
+# graded a real C++ submission to AC through the resulting image (431 MB at
+# the time, versus 1.89 GB for runtimes-tier1; 787 MB once judge-agent and
+# node joined it, 1.14 GB with Pascal and the JDK).
 FROM python:3.11-slim-bookworm AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential libseccomp-dev git ca-certificates \

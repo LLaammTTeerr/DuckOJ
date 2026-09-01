@@ -311,7 +311,7 @@ The image, the Compose change and the migration deploy together on a normal
 changed, which is what makes it re-announce.
 
 1. **The image built the toolchain in.**
-   `podman run --rm --entrypoint bash duckoj_judge:latest -c 'fpc -iV; javac -version'`
+   `podman run --rm --entrypoint bash localhost/duckoj_judge:latest -c 'fpc -iV; javac -version'`
    → `3.2.2` and `javac 17.x`. If this fails, stop: nothing below can pass.
 2. **The migration ran.** `select key, time_multiplier_pct, memory_extra_kb
    from languages order by id` → seven rows, ending `pascal 200 0` and
@@ -329,10 +329,15 @@ changed, which is what makes it re-announce.
    allow-list still suppresses it), no `KeyError` (that would mean a stale
    `runtime:` path).
 5. **A real submission each, end to end.** One Pascal and one Java solution to
-   `aplusb` from the web submit box — the picker must offer both, the limits
-   under it must read 2 s / 250 MB for Pascal and 3 s / 314 MB for Java on a
-   1000 ms / 256000 KB problem, and both must reach `AC`. Nothing before this
-   step proves the grading path; everything before it is proven by
+   `aplusb` from the web submit box — the picker must offer both, and both
+   must reach `AC`. The limits printed under the picker are
+   `ceil(time_ms x pct / 100)` and `memory_kb + extra_kb` off the problem's
+   own authored row, so check them against that row rather than against a
+   number in this report: **live `aplusb` is authored 1000 ms / 65536 KB**, so
+   it must read **2 s / 64 MB for Pascal** and **3 s / 128 MB for Java** (and
+   3 s / 96 MB for Python, unchanged). A problem authored 2000 ms / 262144 KB
+   would read 4 s / 256 MB and 6 s / 320 MB instead. Nothing before this step
+   proves the grading path; everything before it is proven by
    container-backed specs.
 6. **Then, only if 1-5 pass**, the throwaway probe image can go:
    `podman rmi localhost/duckoj-judge:f46-probe` (1.14 GB).
