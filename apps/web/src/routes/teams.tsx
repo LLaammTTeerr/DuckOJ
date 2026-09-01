@@ -17,7 +17,7 @@
  * Nothing here renders for an anonymous visitor: every `/orgs/{slug}/teams`
  * route needs a session, so a query fired without one could only 401.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
@@ -260,19 +260,93 @@ function TeamForm({
       return read(result, t('teams.loadError'));
     },
   });
+  const client = useQueryClient();
   const loaded = existing.data ?? null;
-  const [nextSlug, setNextSlug] = useState<string | null>(null);
-  const [name, setName] = useState<string | null>(null);
-  const [members, setMembers] = useState<string | null>(null);
+  const [slugValue, setNextSlug] = useState('');
+  const [nameValue, setName] = useState('');
+  const [membersValue, setMembers] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * Which team the form was seeded FROM — a slug, not a boolean, on
+   * `problem-edit.tsx`'s rule. `''` is the create form, whose seed is the
+   * empty form.
+   *
+   * This used to be three `x ?? loaded?.x` fallbacks, which reads as a
+   * reseed-when-untouched and is exactly D161's clause A implemented
+   * implicitly — and clause A alone is not a guarantee, which is the whole
+   * finding of that decision. The fallbacks also could not carry a token: a
+   * form whose untouched fields track the cache has no single moment it was
+   * "seeded at" to declare.
+   */
+  const [seededFrom, setSeededFrom] = useState<string | null>(null);
+  /** Every editable field as the TEAM had it (D147), flattened to one string. */
+  const [seed, setSeed] = useState('');
+  /**
+   * The `version` this form was seeded WITH — D161's token, extended here by
+   * D176. `null` on the create form, where there is nothing to overwrite.
+   *
+   * The stake is `members`, which REPLACES the whole roster: a co-admin who
+   * added the third pupil while this form was open has them removed again by a
+   * save that was only meant to fix the team's name. On contest morning that
+   * is a pupil who cannot compete, and nothing failed and nobody was told.
+   */
+  const [seededVersion, setSeededVersion] = useState<string | null>(null);
+  /** A reseed happened: the team moved under an untouched form (D161's clause A). */
+  const [reseeded, setReseeded] = useState(false);
+  /** The last save was refused as a conflict, so the reload offer is on. */
+  const [conflict, setConflict] = useState(false);
 
-  // The stored value until the reader types, so the form can be rendered
-  // before the detail lands without clobbering what they typed afterwards.
-  const slugValue = nextSlug ?? loaded?.slug ?? '';
-  const nameValue = name ?? loaded?.name ?? '';
-  const membersValue =
-    members ?? (loaded ? loaded.members.map((member) => member.username).join(', ') : '');
+  const fingerprint = (a: string, b: string, c: string): string => JSON.stringify([a, b, c]);
+  // ONE `dirty`, read by the reseed below and by nothing else today — but it
+  // has to be one value the moment anything else reads it (D147's rule, and
+  // `contest-edit.tsx`'s).
+  const dirty = fingerprint(slugValue, nameValue, membersValue) !== seed;
+
+  useEffect(() => {
+    const key = teamSlug ?? '';
+    const first = seededFrom !== key;
+    // **D161's clause A.** An already-seeded form takes a newer copy only when
+    // the record moved AND nothing has been typed into it. A dirty form keeps
+    // its typing, keeps its stale token, and is refused by the API instead —
+    // that refusal is the guarantee, and this only keeps it rare.
+    //
+    // A form whose team has not loaded yet is left alone rather than seeded
+    // from nothing: `loaded === null` with a `teamSlug` present is "still
+    // asking", and the render below already refuses to draw an edit form whose
+    // roster never arrived.
+    if (teamSlug !== undefined && loaded === null) return;
+    if (!first && (dirty || (loaded?.version ?? null) === seededVersion)) return;
+    const nextSlugValue = loaded?.slug ?? '';
+    const nextName = loaded?.name ?? '';
+    const nextMembers = loaded ? loaded.members.map((member) => member.username).join(', ') : '';
+    setNextSlug(nextSlugValue);
+    setName(nextName);
+    setMembers(nextMembers);
+    setSeed(fingerprint(nextSlugValue, nextName, nextMembers));
+    setSeededVersion(loaded?.version ?? null);
+    setSeededFrom(key);
+    // Announced, never silent.
+    if (!first) setReseeded(true);
+  }, [loaded, teamSlug, seededFrom, seededVersion, dirty]);
+
+  /**
+   * D161. The admin chose to take the newer roster — explicitly, never
+   * automatically. The refetch is AWAITED before the seed guard reopens, so
+   * the effect above cannot seed synchronously from the stale cache entry.
+   */
+  async function loadNewer(): Promise<void> {
+    setBusy(true);
+    try {
+      await client.invalidateQueries({ queryKey: ['org-team', slug, teamSlug ?? ''] });
+      setConflict(false);
+      setError(null);
+      setReseeded(false);
+      setSeededFrom(null);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function save(): Promise<void> {
     setBusy(true);
@@ -281,13 +355,30 @@ function TeamForm({
       const result = teamSlug
         ? await api.PATCH('/orgs/{slug}/teams/{teamSlug}', {
             params: { path: { slug, teamSlug } },
-            body: { ...body, slug: slugValue },
+            body: {
+              ...body,
+              slug: slugValue,
+              // D161/D176. Omitted rather than sent as `undefined`
+              // (`exactOptionalPropertyTypes` separates the two), and omitted
+              // only when the server declined to give us one — which on this
+              // route means the viewer may not edit, so the PATCH is about to
+              // 403 anyway.
+              ...(seededVersion === null ? {} : { expectedVersion: seededVersion }),
+            },
           })
         : await api.POST('/orgs/{slug}/teams', {
             params: { path: { slug } },
             body: { ...body, slug: slugValue },
           });
       if (result.error) {
+        // D161's refusal, with an offer attached: the one save error an admin
+        // cannot fix by retyping, and the one where what they would lose is
+        // somebody else's roster rather than their own words.
+        if (result.error.code === 'team_version_conflict') {
+          setConflict(true);
+          setError(t('editConflict.team'));
+          return;
+        }
         setError(result.error.detail ?? t('teams.saveError'));
         return;
       }
@@ -336,6 +427,17 @@ function TeamForm({
       </p>
       <p className="muted">{t('teams.membersHint')}</p>
       {error ? <p role="alert">{error}</p> : null}
+      {/* D161. A BUTTON, never an automatic reload: until the admin presses
+          it, the roster they typed is still on screen and still copyable.
+          D148: live unless busy, and it says what it is doing. */}
+      {conflict ? (
+        <p>
+          <button type="button" disabled={busy} aria-busy={busy} onClick={() => void loadNewer()}>
+            {busy ? t('common.loading') : t('editConflict.load')}
+          </button>
+        </p>
+      ) : null}
+      {reseeded ? <p role="status">{t('editConflict.reseeded')}</p> : null}
       <p>
         <button type="button" onClick={() => void save()} disabled={busy}>
           {t('teams.save')}

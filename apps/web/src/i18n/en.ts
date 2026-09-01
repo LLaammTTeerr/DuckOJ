@@ -312,6 +312,16 @@ export const en = {
     'Somebody else saved this problem after you opened this form. Nothing was written, and everything you typed is still here. Load the newer version and apply your change to it.',
   'editConflict.contest':
     'Somebody else saved this contest after you opened this form. Nothing was written, and everything you typed is still here — the problem list included. Load the newer version and apply your change to it.',
+  // D176 — the same sentence for the three other forms the ruling now covers.
+  // Each names the field actually at risk, because that is what tells a
+  // teacher whether they can retype their way out of it: on these forms the
+  // answer is a whole list they did not write.
+  'editConflict.languageLimits':
+    'Somebody else saved this problem’s language limits after you opened this tab. Nothing was written, and everything you typed is still here — but this form sends every language, so saving it now would undo their change.',
+  'editConflict.problemSet':
+    'Somebody else saved this problem set after you opened this form. Nothing was written, and everything you typed is still here — the problem list included. Load the newer version and apply your change to it.',
+  'editConflict.team':
+    'Somebody else saved this team after you opened this form. Nothing was written, and everything you typed is still here — the roster included, which is what saving now would have replaced. Load the newer version and apply your change to it.',
   'editConflict.load': 'Load the newer version',
   'editConflict.reseeded':
     'This was changed elsewhere while the form was open, so it now shows the newer version. You had not typed anything, so nothing was lost.',

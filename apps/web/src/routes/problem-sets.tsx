@@ -15,7 +15,7 @@
  * `/orgs/{slug}/sets` needs a session, so a query that fired without one
  * could only 401.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { API_PREFIX } from '@duckoj/api-prefix';
@@ -202,15 +202,112 @@ function SetForm({
   onCancel?: () => void;
 }) {
   const t = useT();
-  const [setSlug, setSetSlug] = useState(existing?.slug ?? '');
-  const [name, setName] = useState(existing?.name ?? '');
-  const [description, setDescription] = useState(existing?.description ?? '');
-  const [deadline, setDeadline] = useState(toLocalInput(existing?.deadline ?? null));
-  const [picked, setPicked] = useState<PickedProblem[]>(
-    existing?.items.map((item) => ({ code: item.code, name: item.name, points: item.points })) ?? [],
-  );
+  const client = useQueryClient();
+  const [setSlug, setSetSlug] = useState('');
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [deadline, setDeadline] = useState('');
+  const [picked, setPicked] = useState<PickedProblem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * Which set the form was seeded FROM — a slug, not a boolean, on
+   * `problem-edit.tsx`'s rule: if the prop changes under a reused component
+   * instance, a boolean stays true and the form keeps the previous set's
+   * problem list, then saves it over the new one's.
+   *
+   * `''` is the create form, whose seed is the empty form. That is why this
+   * used to be five `useState` initializers and now is not: an initializer
+   * runs once and then ignores its input forever, which is precisely the
+   * seed-once half of the defect D161 exists for.
+   */
+  const [seededFrom, setSeededFrom] = useState<string | null>(null);
+  /** Every editable field as the SET had it (D147), flattened to one string. */
+  const [seed, setSeed] = useState('');
+  /**
+   * The `version` this form was seeded WITH — D161's token, extended here by
+   * D176. `null` on the create form, where there is nothing to overwrite.
+   *
+   * The stake is `problems`: this form holds the whole list and sends the
+   * whole list, so a co-teacher who assigned next week's problem while it was
+   * open has it removed again by a save that was only meant to fix the
+   * deadline. Nothing fails and nobody is told.
+   */
+  const [seededVersion, setSeededVersion] = useState<string | null>(null);
+  /** A reseed happened: the set moved under an untouched form (D161's clause A). */
+  const [reseeded, setReseeded] = useState(false);
+  /** The last save was refused as a conflict, so the reload offer is on. */
+  const [conflict, setConflict] = useState(false);
+
+  const fingerprint = (value: {
+    setSlug: string;
+    name: string;
+    description: string;
+    deadline: string;
+    picked: readonly PickedProblem[];
+  }): string =>
+    JSON.stringify([
+      value.setSlug,
+      value.name,
+      value.description,
+      value.deadline,
+      value.picked.map((problem) => [problem.code, problem.points]),
+    ]);
+  // ONE `dirty`, so the reseed below and any future leave guard cannot drift.
+  const dirty =
+    fingerprint({ setSlug, name, description, deadline, picked }) !== seed;
+
+  useEffect(() => {
+    const key = existing?.slug ?? '';
+    const first = seededFrom !== key;
+    // **D161's clause A.** An already-seeded form takes a newer copy only
+    // when the record moved AND nothing has been typed into it. The `!dirty`
+    // half is load-bearing: reseeding a form somebody has typed into would be
+    // the same data loss with the victims swapped, so a dirty form keeps its
+    // typing, keeps its stale token, and is refused by the API instead.
+    if (!first && (dirty || (existing?.version ?? null) === seededVersion)) return;
+    const next = {
+      setSlug: existing?.slug ?? '',
+      name: existing?.name ?? '',
+      description: existing?.description ?? '',
+      deadline: toLocalInput(existing?.deadline ?? null),
+      picked:
+        existing?.items.map((item) => ({
+          code: item.code,
+          name: item.name,
+          points: item.points,
+        })) ?? [],
+    };
+    setSetSlug(next.setSlug);
+    setName(next.name);
+    setDescription(next.description);
+    setDeadline(next.deadline);
+    setPicked(next.picked);
+    setSeed(fingerprint(next));
+    setSeededVersion(existing?.version ?? null);
+    setSeededFrom(key);
+    // Announced, never silent: nothing was lost, and saying so is what stops a
+    // teacher who looked away from concluding the site ate their draft.
+    if (!first) setReseeded(true);
+  }, [existing, seededFrom, seededVersion, dirty]);
+
+  /**
+   * D161. The teacher chose to take the newer version — explicitly, never
+   * automatically. The refetch is AWAITED before the seed guard reopens, so
+   * the effect above cannot seed synchronously from the stale cache entry.
+   */
+  async function loadNewer(): Promise<void> {
+    setBusy(true);
+    try {
+      await client.invalidateQueries({ queryKey: ['org-set', slug] });
+      setConflict(false);
+      setError(null);
+      setReseeded(false);
+      setSeededFrom(null);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function save(): Promise<void> {
     setBusy(true);
@@ -224,13 +321,31 @@ function SetForm({
       const result = existing
         ? await api.PATCH('/orgs/{slug}/sets/{setSlug}', {
             params: { path: { slug, setSlug: existing.slug } },
-            body: { ...body, slug: setSlug },
+            body: {
+              ...body,
+              slug: setSlug,
+              // D161/D176. Omitted rather than sent as `undefined`
+              // (`exactOptionalPropertyTypes` separates the two), and omitted
+              // only when the server declined to give us one — which on this
+              // route means the viewer may not edit, so the PATCH is about to
+              // 403 anyway.
+              ...(seededVersion === null ? {} : { expectedVersion: seededVersion }),
+            },
           })
         : await api.POST('/orgs/{slug}/sets', {
             params: { path: { slug } },
             body: { ...body, slug: setSlug },
           });
       if (result.error) {
+        // D161's refusal, with an offer attached: it is the one save error a
+        // teacher cannot fix by retyping. Ahead of the `detail` line below,
+        // because the server's sentence is about the API and this one is about
+        // what is on their screen.
+        if (result.error.code === 'problem_set_version_conflict') {
+          setConflict(true);
+          setError(t('editConflict.problemSet'));
+          return;
+        }
         // The server's own wording, verbatim: a per-problem refusal names
         // the row in `fields`, and its `detail` is already a sentence.
         setError(result.error.detail ?? t('sets.saveError'));
@@ -268,6 +383,18 @@ function SetForm({
       <p className="muted">{t('sets.deadlineHint')}</p>
       <ProblemPicker picked={picked} onChange={setPicked} />
       {error ? <p role="alert">{error}</p> : null}
+      {/* D161. A BUTTON, never an automatic reload: until the teacher presses
+          it, everything they typed — the problem list included — is still on
+          screen and still copyable. D148: live unless busy, and it says what
+          it is doing. */}
+      {conflict ? (
+        <p>
+          <button type="button" disabled={busy} aria-busy={busy} onClick={() => void loadNewer()}>
+            {busy ? t('common.loading') : t('editConflict.load')}
+          </button>
+        </p>
+      ) : null}
+      {reseeded ? <p role="status">{t('editConflict.reseeded')}</p> : null}
       <p>
         {/* D148 — a homework set with twenty problems in it is not an
             instant save. */}

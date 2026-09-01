@@ -296,6 +296,13 @@ export const vi = {
     'Một người khác đã lưu bài tập này sau khi bạn mở biểu mẫu. Chưa ghi gì cả, và mọi thứ bạn vừa gõ vẫn còn đây. Hãy tải bản mới nhất rồi áp dụng thay đổi của bạn lên đó.',
   'editConflict.contest':
     'Một người khác đã lưu kỳ thi này sau khi bạn mở biểu mẫu. Chưa ghi gì cả, và mọi thứ bạn vừa gõ vẫn còn đây — kể cả danh sách bài. Hãy tải bản mới nhất rồi áp dụng thay đổi của bạn lên đó.',
+  // D176 — xem bản tiếng Anh.
+  'editConflict.languageLimits':
+    'Một người khác đã lưu giới hạn ngôn ngữ của bài tập này sau khi bạn mở thẻ này. Chưa ghi gì cả, và mọi thứ bạn vừa gõ vẫn còn đây — nhưng biểu mẫu này gửi tất cả các ngôn ngữ, nên lưu lúc này sẽ xoá thay đổi của họ.',
+  'editConflict.problemSet':
+    'Một người khác đã lưu bộ bài tập này sau khi bạn mở biểu mẫu. Chưa ghi gì cả, và mọi thứ bạn vừa gõ vẫn còn đây — kể cả danh sách bài. Hãy tải bản mới nhất rồi áp dụng thay đổi của bạn lên đó.',
+  'editConflict.team':
+    'Một người khác đã lưu đội này sau khi bạn mở biểu mẫu. Chưa ghi gì cả, và mọi thứ bạn vừa gõ vẫn còn đây — kể cả danh sách thành viên, thứ mà lưu lúc này sẽ ghi đè. Hãy tải bản mới nhất rồi áp dụng thay đổi của bạn lên đó.',
   'editConflict.load': 'Tải bản mới nhất',
   'editConflict.reseeded':
     'Bản ghi này vừa được người khác sửa trong lúc biểu mẫu đang mở, nên biểu mẫu đã hiển thị bản mới nhất. Bạn chưa gõ gì nên không mất gì cả.',

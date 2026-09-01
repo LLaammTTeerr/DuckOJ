@@ -31,11 +31,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mockedGet = vi.fn();
 const mockedPatch = vi.fn();
+const mockedPut = vi.fn();
 const { blocker, navigate } = vi.hoisted(() => ({ blocker: vi.fn(), navigate: vi.fn() }));
 vi.mock('../src/api.js', () => ({
   api: {
     GET: (...a: unknown[]) => mockedGet(...a),
     POST: vi.fn(),
+    // `PUT` is the language-limits tab's verb — the only form in this app that
+    // sends one (D159).
+    PUT: (...a: unknown[]) => mockedPut(...a),
+    DELETE: vi.fn(),
     PATCH: (...a: unknown[]) => mockedPatch(...a),
   },
 }));
@@ -47,6 +52,9 @@ vi.mock('@tanstack/react-router', () => ({
 
 const { ProblemEditPage } = await import('../src/routes/problem-edit.js');
 const { ContestEditPage } = await import('../src/routes/contest-edit.js');
+const { ProblemLanguageLimitsTab } = await import('../src/routes/problem-language-limits.js');
+const { ProblemSetPage } = await import('../src/routes/problem-sets.js');
+const { OrgTeams } = await import('../src/routes/teams.js');
 
 function walk(): { client: QueryClient; mount: (ui: ReactElement) => ReturnType<typeof render> } {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -59,6 +67,7 @@ function walk(): { client: QueryClient; mount: (ui: ReactElement) => ReturnType<
 afterEach(() => {
   mockedGet.mockReset();
   mockedPatch.mockReset();
+  mockedPut.mockReset();
   blocker.mockReset();
   navigate.mockReset();
 });
@@ -254,6 +263,264 @@ describe('the contest edit form while a co-organiser is saving (D161)', () => {
     // row they deleted is still deleted on screen, waiting for them to decide.
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Mã bài 1')).toHaveValue('aplusb');
+    expect(screen.getByRole('button', { name: RELOAD })).toBeTruthy();
+  });
+});
+
+/**
+ * D176 — the same two clauses, on the three other forms that have the shape.
+ *
+ * Each walk is the one the ruling is about: the form is seeded, somebody else
+ * saves, and the field at risk is a whole LIST the person at this keyboard
+ * never typed — every language's row, the set's problem list, the team's
+ * roster. That is what makes these different from a text box: the loss is
+ * invisible on screen, because the form is showing exactly what it was given.
+ *
+ * One `QueryClient` across each walk, real keys, and `invalidateQueries` for
+ * the refetch — `edit-form-stale-seed.spec.tsx`'s shape, and the only shape in
+ * which this class of defect is visible at all.
+ */
+
+const LANG_CONFLICT = /Một người khác đã lưu giới hạn ngôn ngữ/;
+/**
+ * The C++ multiplier box, by its own `aria-label` rather than by the language
+ * name: the name appears on the row header AND on all three of that row's
+ * labels, so a regex over it matches five elements and finds nothing.
+ */
+const TIME_CPP = 'Tỉ lệ thời gian cho C++17, tính theo phần trăm';
+const SET_CONFLICT = /Một người khác đã lưu bộ bài tập này/;
+const TEAM_CONFLICT = /Một người khác đã lưu đội này/;
+
+const LANGUAGE_SETTINGS = {
+  base: { timeMs: 1000, memoryKb: 256_000 },
+  languages: [
+    {
+      languageKey: 'cpp17',
+      languageName: 'C++17',
+      defaultTimeMultiplierPct: 100,
+      defaultMemoryExtraKb: 0,
+      timeMultiplierPct: null,
+      memoryExtraKb: null,
+      allowed: true,
+    },
+    {
+      languageKey: 'python3',
+      languageName: 'Python 3',
+      defaultTimeMultiplierPct: 300,
+      defaultMemoryExtraKb: 32_768,
+      timeMultiplierPct: null,
+      memoryExtraKb: null,
+      allowed: true,
+    },
+  ],
+  version: 'v1',
+};
+
+describe("the language-limits tab while a co-setter is saving (D176)", () => {
+  it('takes the newer overrides when nothing has been typed, and says that it did', async () => {
+    const server: Record<string, unknown> = {
+      ...LANGUAGE_SETTINGS,
+      languages: LANGUAGE_SETTINGS.languages.map((lang) => ({ ...lang })),
+    };
+    mockedGet.mockImplementation((path: string) => {
+      if (path === '/problems/{code}/language-limits') {
+        return Promise.resolve({
+          data: { ...server, languages: (server.languages as unknown[]).map((l) => ({ ...(l as object) })) },
+        });
+      }
+      return Promise.resolve({ data: undefined, error: { code: 'not_mocked' } });
+    });
+    const { client, mount } = walk();
+
+    mount(<ProblemLanguageLimitsTab code="aplusb" />);
+    const cpp = await screen.findByLabelText(TIME_CPP);
+    await waitFor(() => expect(cpp).toHaveValue(null));
+
+    // The co-setter refuses Python and raises C++'s multiplier. Before clause
+    // A this tab kept showing the pre-save numbers, and the next save PUT them
+    // back over the top.
+    server.languages = [
+      { ...LANGUAGE_SETTINGS.languages[0]!, timeMultiplierPct: 150 },
+      { ...LANGUAGE_SETTINGS.languages[1]!, allowed: false },
+    ];
+    server.version = 'v2';
+    await client.invalidateQueries({ queryKey: ['problem-language-limits', 'aplusb'] });
+
+    await waitFor(() => expect(screen.getByLabelText(TIME_CPP)).toHaveValue(150));
+    expect(screen.getByText(RESEEDED)).toBeTruthy();
+  });
+
+  it('sends the version it was seeded with, and offers the newer one when the save is refused', async () => {
+    const user = userEvent.setup();
+    const server: Record<string, unknown> = {
+      ...LANGUAGE_SETTINGS,
+      languages: LANGUAGE_SETTINGS.languages.map((lang) => ({ ...lang })),
+    };
+    mockedGet.mockImplementation((path: string) => {
+      if (path === '/problems/{code}/language-limits') {
+        return Promise.resolve({
+          data: { ...server, languages: (server.languages as unknown[]).map((l) => ({ ...(l as object) })) },
+        });
+      }
+      return Promise.resolve({ data: undefined, error: { code: 'not_mocked' } });
+    });
+    mockedPut.mockImplementation(() =>
+      Promise.resolve({ data: undefined, error: { code: 'language_limits_version_conflict' } }),
+    );
+    const { mount } = walk();
+
+    mount(<ProblemLanguageLimitsTab code="aplusb" />);
+    const cpp = await screen.findByLabelText(TIME_CPP);
+    await waitFor(() => expect(cpp).toBeTruthy());
+    // The setter raises C++'s multiplier. Their tab still holds `allowed: true`
+    // for Python — the co-setter's refusal, about to be PUT away.
+    await user.type(cpp, '150');
+    await user.click(screen.getByRole('button', { name: 'Lưu' }));
+
+    await waitFor(() => expect(mockedPut).toHaveBeenCalled());
+    const body = (mockedPut.mock.calls[0]![1] as { body: Record<string, unknown> }).body;
+    expect(body.expectedVersion).toBe('v1');
+
+    expect(await screen.findByText(LANG_CONFLICT)).toBeTruthy();
+    // The setter's own typing is still on screen: the reload is a button, and
+    // until they press it nothing has been taken from them.
+    expect(screen.getByLabelText(TIME_CPP)).toHaveValue(150);
+    const reload = screen.getByRole('button', { name: RELOAD });
+
+    server.languages = [
+      { ...LANGUAGE_SETTINGS.languages[0]!, timeMultiplierPct: 200 },
+      { ...LANGUAGE_SETTINGS.languages[1]!, allowed: false },
+    ];
+    server.version = 'v2';
+    await user.click(reload);
+    await waitFor(() => expect(screen.getByLabelText(TIME_CPP)).toHaveValue(200));
+    expect(screen.queryByRole('button', { name: RELOAD })).toBeNull();
+  });
+});
+
+const SET_DETAIL = {
+  slug: 'tuan-1',
+  name: 'Tuần 1',
+  description: null,
+  deadline: null,
+  itemCount: 1,
+  solvedCount: 0,
+  createdAt: '2026-01-01T00:00:00Z',
+  items: [
+    { code: 'aplusb', name: 'A Plus B', order: 0, points: 100, visible: true, me: null },
+    { code: 'xau', name: 'Xau', order: 1, points: 100, visible: true, me: null },
+  ],
+  version: 'v1',
+};
+
+describe('the problem-set form while a co-teacher is saving (D176)', () => {
+  it('refuses to send the stale problem list back, and keeps it on screen until the teacher chooses', async () => {
+    const user = userEvent.setup();
+    mockedGet.mockImplementation((path: string) => {
+      if (path === '/auth/me')
+        return Promise.resolve({ data: { username: 'teacher', globalRole: 'user' } });
+      if (path === '/orgs/{slug}') return Promise.resolve({ data: { slug: 'thpt', name: 'THPT', myRole: 'owner' } });
+      if (path === '/orgs/{slug}/sets/{setSlug}') {
+        return Promise.resolve({ data: { ...SET_DETAIL, items: SET_DETAIL.items.map((i) => ({ ...i })) } });
+      }
+      return Promise.resolve({ data: undefined, error: { code: 'not_mocked' } });
+    });
+    mockedPatch.mockImplementation(() =>
+      Promise.resolve({ data: undefined, error: { code: 'problem_set_version_conflict' } }),
+    );
+    const { mount } = walk();
+
+    mount(<ProblemSetPage slug="thpt" setSlug="tuan-1" />);
+    await user.click(await screen.findByRole('button', { name: 'Sửa bài tập' }));
+
+    // The teacher drops the second problem and saves. `problems` REPLACES the
+    // whole list, so this body would also take out whatever the co-teacher
+    // added while the form was open.
+    const remove = await screen.findAllByRole('button', { name: 'Bỏ' });
+    await user.click(remove[1]!);
+    await user.click(screen.getByRole('button', { name: 'Lưu' }));
+
+    await waitFor(() => expect(mockedPatch).toHaveBeenCalled());
+    const body = (mockedPatch.mock.calls[0]![1] as { body: Record<string, unknown> }).body;
+    expect(body.expectedVersion).toBe('v1');
+    expect(body.problems).toEqual([{ code: 'aplusb', points: 100 }]);
+
+    expect(await screen.findByText(SET_CONFLICT)).toBeTruthy();
+    // Nothing the teacher did was thrown away: the row they removed is still
+    // removed on screen, waiting for them to decide.
+    expect(screen.getByRole('button', { name: RELOAD })).toBeTruthy();
+  });
+});
+
+const TEAM_DETAIL = {
+  slug: 'doi-1',
+  name: 'Đội 1',
+  orgSlug: 'thpt',
+  orgName: 'THPT',
+  memberCount: 2,
+  createdAt: '2026-01-01T00:00:00Z',
+  inRunningContest: false,
+  members: [
+    { username: 'an', displayName: 'An', joinedAt: '2026-01-01T00:00:00Z' },
+    { username: 'binh', displayName: 'Bình', joinedAt: '2026-01-01T00:00:00Z' },
+  ],
+  contests: [],
+  canEdit: true,
+  version: 'v1',
+};
+
+describe('the team form while a co-admin is saving (D176)', () => {
+  it('refuses to send the stale roster back, and keeps what was typed on screen', async () => {
+    const user = userEvent.setup();
+    mockedGet.mockImplementation((path: string) => {
+      if (path === '/auth/me')
+        return Promise.resolve({ data: { username: 'teacher', globalRole: 'user' } });
+      if (path === '/orgs/{slug}/teams') {
+        return Promise.resolve({
+          data: {
+            items: [
+              {
+                slug: 'doi-1',
+                name: 'Đội 1',
+                orgSlug: 'thpt',
+                orgName: 'THPT',
+                memberCount: 2,
+                createdAt: '2026-01-01T00:00:00Z',
+                inRunningContest: false,
+              },
+            ],
+          },
+        });
+      }
+      if (path === '/orgs/{slug}/teams/{teamSlug}') {
+        return Promise.resolve({ data: { ...TEAM_DETAIL, members: TEAM_DETAIL.members.map((m) => ({ ...m })) } });
+      }
+      return Promise.resolve({ data: undefined, error: { code: 'not_mocked' } });
+    });
+    mockedPatch.mockImplementation(() =>
+      Promise.resolve({ data: undefined, error: { code: 'team_version_conflict' } }),
+    );
+    const { mount } = walk();
+
+    mount(<OrgTeams slug="thpt" canManage />);
+    await user.click(await screen.findByRole('button', { name: 'Sửa' }));
+
+    // The admin fixes the team's NAME only. `members` still carries the roster
+    // of two this form was seeded with — and a co-admin has since added a
+    // third pupil, who this save would drop. On contest morning that is a
+    // pupil who cannot compete.
+    const name = await screen.findByLabelText('Tên đội');
+    await user.clear(name);
+    await user.type(name, 'Đội Một');
+    await user.click(screen.getByRole('button', { name: 'Lưu' }));
+
+    await waitFor(() => expect(mockedPatch).toHaveBeenCalled());
+    const body = (mockedPatch.mock.calls[0]![1] as { body: Record<string, unknown> }).body;
+    expect(body.expectedVersion).toBe('v1');
+    expect(body.members).toEqual(['an', 'binh']);
+
+    expect(await screen.findByText(TEAM_CONFLICT)).toBeTruthy();
+    expect(screen.getByLabelText('Tên đội')).toHaveValue('Đội Một');
     expect(screen.getByRole('button', { name: RELOAD })).toBeTruthy();
   });
 });
