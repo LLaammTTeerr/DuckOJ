@@ -110,8 +110,16 @@ compose profile before a province-wide contest.
    needs verify-before-create.
 3. `/users/me/progress` runs seven aggregates per cold miss, cached per user,
    unmeasured at province size, and the heatmap's day is not sargable (D83).
-4. The new organiser routes — similarity, live monitor, teams — have no
-   Playwright coverage; the web tests mock the SDK.
+4. Two web fixes from F-42 are committed and **not deployed** — the teams
+   panel goes on showing the roster it just replaced (and prefills the next
+   edit from it, which drops a pupil), and the submit editor loses a draft
+   across the mount that corrects an unofferable default. Until the edge
+   ships them, `e2e/organiser.spec.ts` journey 2b is red on purpose.
+   The coverage half of this gap is closed: the live monitor's numbers are
+   asserted against the API and the teams form is driven end to end in
+   `e2e/organiser.spec.ts`, the language picker and F-41's limits form in
+   `e2e/language.spec.ts`, and similarity has had a browser walk since B-14
+   (`features.spec.ts` feature 10).
 5. A team's roster is read live, never frozen; only a banner warns the teacher,
    and same-instant edits rely on an advisory lock (D99, amended F25).
 6. `judged.live` keyed by job id (not attempt) — narrow stale-packet window,
