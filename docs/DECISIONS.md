@@ -9231,8 +9231,11 @@ a picked name makes the form dirty exactly as a typed one does — anything else
 would rebuild the silent-overwrite class D183 has just closed.
 
 *Ruled by the implementer during the F-51 slot, no human available to consult.
-Cost if wrong: a stored generated column (a whole-table rewrite — 431 rows
-live, 0.25 s for 25 000), one widened public response, one new query parameter
+Cost if wrong: a stored generated column (a whole-table rewrite under an
+`AccessExclusiveLock` on `users`, observed in `pg_locks` — 11.4–12.6 ms at the
+live count of 461 accounts, 0.25 s for 25 000; `IF NOT EXISTS`, so a hand
+re-run of the D131/D133 kind is a no-op), one widened public response, one new
+query parameter
 and three React leaves. The column and the widening are breaking to revert;
 the fold expression itself is one function and reverts free. Tests:
 `apps/api/test/user-search-diacritics.spec.ts` (eight cases, real Vietnamese

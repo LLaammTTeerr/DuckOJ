@@ -35,8 +35,9 @@
 -- `users` — observed, not assumed: `pg_locks` reports `AccessExclusiveLock` for
 -- the duration — which blocks every read and write of that table, and therefore
 -- every authenticated request, while it runs. Measured on a copy of the live
--- shape (431 accounts, real Vietnamese display names): **10.9 ms**. On the
--- 25 000-account province copy it was 0.25 s. It is a stall, not an outage, but
+-- shape (461 accounts, real Vietnamese display names): **11.4-12.6 ms** over
+-- four runs. On the 25 000-account province copy it was 0.25 s. A stall, not an
+-- outage, but
 -- it is a stall that queues behind any long transaction already holding a lock
 -- on `users`, so apply it when the judge is not mid-contest.
 --
