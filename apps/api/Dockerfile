@@ -6,6 +6,12 @@ FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/api-prefix/package.json packages/api-prefix/
 COPY packages/db/package.json packages/db/
+# `@duckoj/language-limits` is the one implementation of D154's limit
+# arithmetic, depended on by both the API that DISPLAYS a limit and the judge
+# that ENFORCES one. F-41 added it and did not add this line; the images still
+# built, so only `dockerfile-manifest.spec.ts` noticed, and CI went red for
+# three pushes before anyone read it.
+COPY packages/language-limits/package.json packages/language-limits/
 COPY packages/contest-formats/package.json packages/contest-formats/
 COPY packages/glicko2/package.json packages/glicko2/
 COPY packages/contracts/package.json packages/contracts/

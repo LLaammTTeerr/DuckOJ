@@ -5,6 +5,12 @@ WORKDIR /app
 FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/db/package.json packages/db/
+# `@duckoj/language-limits` is the one implementation of D154's limit
+# arithmetic, depended on by both the API that DISPLAYS a limit and the judge
+# that ENFORCES one. F-41 added it and did not add this line; the images still
+# built, so only `dockerfile-manifest.spec.ts` noticed, and CI went red for
+# three pushes before anyone read it.
+COPY packages/language-limits/package.json packages/language-limits/
 COPY packages/judge-protocol/package.json packages/judge-protocol/
 COPY packages/observability/package.json packages/observability/
 COPY packages/realtime/package.json packages/realtime/
