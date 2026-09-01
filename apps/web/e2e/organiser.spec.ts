@@ -217,6 +217,45 @@ async function submitAndGrade(
 }
 
 /**
+ * The team form's roster box — **by ROLE and accessible name, never by label
+ * text (B-34).**
+ *
+ * `getByLabel` matches the LABEL ELEMENT'S TEXT, and `TeamForm` wraps its
+ * control:
+ *
+ *     <label>Thành viên <textarea …/></label>
+ *
+ * React mirrors a controlled `<textarea>`'s value into the element's CHILD
+ * TEXT NODE — `element.defaultValue = value`, and the HTML spec makes
+ * `defaultValue` the setter for the textarea's child text content — on the
+ * first mount and again on every update. So the moment the box holds a
+ * roster, the label's own `textContent` is `"Thành viên fe42-a1"`, and
+ * `getByLabel('Thành viên', { exact: true })` matches NOTHING. Measured on
+ * the live edge: `label.textContent === "Thành viên fe42-a1"`,
+ * `getByLabel` exact `0`, `getByRole('textbox')` exact `1`.
+ *
+ * That is why journey 2 went red at `e11188d` and 2b with it: `exact: true`
+ * was the right answer to the loose locator matching the org roster's own
+ * "Tìm thành viên" search box as well (2 hits, strict-mode violation), and it
+ * traded that collision for a locator that only ever matches an EMPTY box —
+ * which is why the create form's `fill` kept working and every read of a
+ * seeded box stopped.
+ *
+ * The accessible name is computed by the accname algorithm, which leaves an
+ * embedded control's own value out of its own name, so it is `"Thành viên"`
+ * in every state — empty, seeded or typed-into. It is also what a screen
+ * reader announces, which makes it the honest thing for a walk to assert on.
+ *
+ * `<input>` is not affected: an input's value is a property with no child
+ * text, so `getByLabel('Định danh')` above is fine. The trap is a `<label>`
+ * that WRAPS a `<textarea>`; every other textarea in this app is associated
+ * by `htmlFor`/`id` instead, which is why nothing else in `e2e/` hits it.
+ */
+function rosterBox(page: Page) {
+  return page.getByRole('textbox', { name: 'Thành viên', exact: true });
+}
+
+/**
  * Press Save on the teams form and wait for the roster PATCH to come back,
  * so what follows is asserted against a save that has LANDED rather than
  * against a race with it.
@@ -459,12 +498,14 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   await page.getByRole('button', { name: 'Lập đội' }).click();
   await page.getByLabel('Định danh').fill(FRESH);
   await page.getByLabel('Tên đội').fill(`FE42 Đội mới ${RUN}`);
-  // `exact: true` because F-51 put a member SEARCH box on the same screen,
-  // labelled "Tìm thành viên" — which contains "Thành viên", so the loose
-  // locator matches the team form's textarea and the search input both. The
-  // ambiguity is the walk's to resolve, not the app's: two controls about
-  // members on one screen is correct, and a reader is not confused by them.
-  await page.getByLabel('Thành viên', { exact: true }).fill('fe42-a1');
+  // `rosterBox` rather than `getByLabel`: F-51 put a member SEARCH box on the
+  // same screen labelled "Tìm thành viên", so the loose label locator matched
+  // two controls — and the `exact: true` that fixed THAT matched none at all
+  // as soon as the box held a roster. See `rosterBox` for the bytes. The
+  // ambiguity was always the walk's to resolve, not the app's: two controls
+  // about members on one screen is correct, and a reader is not confused by
+  // them.
+  await rosterBox(page).fill('fe42-a1');
   await page.getByRole('button', { name: 'Lưu' }).click();
 
   const freshRow = page.getByRole('row').filter({ hasText: FRESH });
@@ -479,8 +520,8 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   // teacher types, and exactly the shape that loses a pupil if the form ever
   // renders an empty box over a roster that failed to load.
   await freshRow.getByRole('button', { name: 'Sửa' }).click();
-  await expect(page.getByLabel('Thành viên', { exact: true })).toHaveValue('fe42-a1');
-  await page.getByLabel('Thành viên', { exact: true }).fill('fe42-a1, fe42-a2');
+  await expect(rosterBox(page)).toHaveValue('fe42-a1');
+  await rosterBox(page).fill('fe42-a1, fe42-a2');
   expect(await saveRoster(page, FRESH)).toBe(200);
 
   // The server first, so a trace of a failure here reads "server right,
@@ -606,8 +647,8 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   // renders a field before it holds the roster it is editing (D183), and
   // `test/teams-edit-seed-race.spec.tsx` is what guards that. This line only
   // stops the walk racing a prefill it never meant to be testing.
-  await expect(page.getByLabel('Thành viên', { exact: true })).toHaveValue('fe42-a1, fe42-a2');
-  await page.getByLabel('Thành viên', { exact: true }).fill('fe42-a1, fe42-a2, fe42-c1');
+  await expect(rosterBox(page)).toHaveValue('fe42-a1, fe42-a2');
+  await rosterBox(page).fill('fe42-a1, fe42-a2, fe42-c1');
   expect(await saveRoster(page, ALPHA), 'the one-seat rule answers 409, never 500').toBe(409);
 
   // Scoped to the alert that names the pupil, which is both the assertion and
@@ -640,6 +681,11 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
  * from running. **It has been green since F-42's fix reached the edge**, and
  * the sentence that used to say otherwise is gone rather than left to mislead
  * the next reader about which of these two walks is a known failure.
+ *
+ * It went red once more at `e11188d`, for nothing to do with the panel: the
+ * exact label locator stopped matching a roster box that HELD a roster. See
+ * `rosterBox`. B-34 measured this walk red beside journey 2, which the brief
+ * for that slot had believed was passing — the two failed for one reason.
  *
  * What went wrong: `OrgTeams.refresh()` invalidated `['org-teams', slug]`, the
  * summary list, which carried a member COUNT and no names. The names came from
@@ -677,8 +723,8 @@ test('journey 2b — the panel shows the added pupil with no reload', async ({
   await expect(row.getByRole('link', { name: 'fe42-a1' })).toBeVisible();
 
   await row.getByRole('button', { name: 'Sửa' }).click();
-  await expect(page.getByLabel('Thành viên', { exact: true })).toHaveValue('fe42-a1');
-  await page.getByLabel('Thành viên', { exact: true }).fill('fe42-a1, fe42-a2');
+  await expect(rosterBox(page)).toHaveValue('fe42-a1');
+  await rosterBox(page).fill('fe42-a1, fe42-a2');
   expect(await saveRoster(page, slug)).toBe(200);
 
   // The save landed — asserted against the server, so what follows is about
