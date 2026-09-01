@@ -240,7 +240,8 @@ export class OrgAccessService {
     }
 
     // **The school's own people are not metered on their own roster**, and a
-    // global admin is not metered anywhere. The org-import contract
+    // global admin is not metered on any organization's roster. The org-import
+    // contract
     // advertises a five-thousand-pupil school: that is two hundred presses of
     // "load more" for the teacher who has to find somebody, and metering them
     // at twenty pages an hour would be D16's self-lockout on a real screen —
@@ -252,13 +253,31 @@ export class OrgAccessService {
     // become exempt. Accepted — appearing on the roster is attribution of the
     // strongest kind available, and removal revokes it — and it is why the
     // meter is a bound on strangers rather than a claim of impossibility.
-    const metered = !isAdmin(actor) && (await this.roleIn(actor, row.id)) === null;
+    //
+    // `query.cursor !== undefined` is FIRST for a reason that is not style:
+    // the roster search box fires one request per keystroke, and asking
+    // `roleIn` on each of them would add a SELECT per keypress to a method
+    // whose own comment two screens up brags about answering a page in one
+    // query. A request with no cursor cannot be metered, so it must not pay
+    // to find that out.
+    const metered =
+      query.cursor !== undefined && !isAdmin(actor) && (await this.roleIn(actor, row.id)) === null;
+
+    // Parsed before the meter is consulted, which is D188's ordering said
+    // again: a malformed cursor is a MISTAKE, not a walk, so it is 422
+    // `invalid_cursor` even for a caller who has already spent their budget —
+    // the same answer the identical mistake gets on every sibling list. (For
+    // an anonymous caller the 401 above comes first, because they may not
+    // send a cursor at all and "yours is malformed" would imply a good one
+    // would work.) `rosterOf` parses it again; it is a pure function over a
+    // string and duplicating the call is cheaper than threading the result.
+    parseMemberCursor(query.cursor);
 
     // The SAME budget `GET /users` spends (`walk.meter.ts`), never a parallel
     // one: two budgets would mean a caller who exhausted their twenty pages
     // of the directory still had twenty more of every school, which is the
     // same province-scale sweep with an extra step in it.
-    if (metered && query.cursor !== undefined) {
+    if (metered) {
       const retryAfter = await walkRetryAfter(this.limiter, actor.userId);
       if (retryAfter !== null) throw walkRefused(retryAfter);
     }
@@ -268,7 +287,7 @@ export class OrgAccessService {
     // After the read, so a query that threw costs the caller nothing — and
     // only for a walk, so the roster search box (which never sends a cursor)
     // is structurally incapable of spending the budget, exactly as D188's is.
-    if (metered && query.cursor !== undefined) await recordWalk(this.limiter, actor.userId);
+    if (metered) await recordWalk(this.limiter, actor.userId);
     return page;
   }
 

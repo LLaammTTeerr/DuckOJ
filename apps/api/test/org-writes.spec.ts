@@ -263,16 +263,24 @@ describe('OrgAccessService.listMembers — pagination (D58)', () => {
         await db.insert(orgMembers).values({ orgId: org.id, userId: user.id, role: 'member' });
       }
       const service = new OrgAccessService(db, new NotificationsService(db));
+      // D191 — a WALKER, not an anonymous caller. This test is about keyset
+      // paging, and it passed `null` only because that was the shortest thing
+      // to write; an anonymous reader is now served page one with no cursor
+      // at all (pinned in `org-roster-enumeration.spec.ts`), which would make
+      // this assert the ruling rather than the ordering. A global admin is
+      // exempt from the walk meter, so the three pages below stay about the
+      // seek and nothing else.
+      const reader = actorFor((await insertUser(db, 'pg-reader')).id, 'admin');
 
-      const first = await service.listMembers(null, 'pg-org', { limit: 2 });
+      const first = await service.listMembers(reader, 'pg-org', { limit: 2 });
       expect(first.items.map((m) => m.username)).toEqual(['pg-a', 'pg-b']);
       expect(first.nextCursor).toBe('pg-b');
 
-      const second = await service.listMembers(null, 'pg-org', { limit: 2, cursor: first.nextCursor! });
+      const second = await service.listMembers(reader, 'pg-org', { limit: 2, cursor: first.nextCursor! });
       expect(second.items.map((m) => m.username)).toEqual(['pg-c', 'pg-d']);
       expect(second.nextCursor).toBe('pg-d');
 
-      const third = await service.listMembers(null, 'pg-org', { limit: 2, cursor: second.nextCursor! });
+      const third = await service.listMembers(reader, 'pg-org', { limit: 2, cursor: second.nextCursor! });
       expect(third.items.map((m) => m.username)).toEqual(['pg-e']);
       // The last page says so — a client must not have to issue an extra
       // empty request to discover the roster ended.
@@ -284,10 +292,18 @@ describe('OrgAccessService.listMembers — pagination (D58)', () => {
     await withTestDb(async (db) => {
       await seedOrg(db, { slug: 'pg-bad', name: 'Bad cursor', visibility: 'public' });
       const service = new OrgAccessService(db, new NotificationsService(db));
+      const reader = actorFor((await insertUser(db, 'pg-bad-reader')).id, 'admin');
 
       await expect(
-        service.listMembers(null, 'pg-bad', { limit: 25, cursor: 'x'.repeat(200) }),
+        service.listMembers(reader, 'pg-bad', { limit: 25, cursor: 'x'.repeat(200) }),
       ).rejects.toMatchObject({ status: 422, code: 'invalid_cursor' });
+
+      // D191. An ANONYMOUS caller meets the 401 first, and deliberately so:
+      // they may not send a cursor at all, so answering "yours is malformed"
+      // would imply a well-formed one would have worked.
+      await expect(
+        service.listMembers(null, 'pg-bad', { limit: 25, cursor: 'x'.repeat(200) }),
+      ).rejects.toMatchObject({ status: 401, code: 'authentication_required' });
     });
   }, 120_000);
 

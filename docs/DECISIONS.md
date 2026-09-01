@@ -9557,6 +9557,13 @@ of people left on the judge.
 - `nextCursor` is **always `null`** for an anonymous reader. Handing out a
   cursor and then refusing it would be a contradiction, so one is never handed
   out.
+- **The ordering of the three refusals is itself a ruling.** An anonymous
+  caller meets the **401 first**, before the cursor is even parsed: they may
+  not send one at all, so "yours is malformed" would imply a well-formed one
+  would have worked. A signed-in caller meets **422 `invalid_cursor` before the
+  429**, which is D188's ordering said again — a malformed cursor is a
+  *mistake*, not a walk, and gets the same answer the identical mistake gets on
+  every sibling list, even from a caller who has spent their whole budget.
 - `cursor` from an anonymous caller → **401 `authentication_required`**, the
   same refusal `GET /submissions` and (since D188) `GET /users` answer. Not a
   403: a read a caller may not do says 401 or 404. Not a silently truncated
@@ -9660,12 +9667,16 @@ D145 apply rather than being noted as inapplicable:
 *Ruled by the implementer during the F-53 slot, no human available to consult.
 Cost if wrong: one `if` in `listMembers` and one line trimming `nextCursor`
 (reverting is a small diff); no migration — 0048 is still unconsumed. Tests:
-`apps/api/test/org-roster-enumeration.spec.ts` (8) and the D191 block of
-`apps/web/test/orgs.spec.tsx` (3). Red before the change: **5 of 8** for the
-pre-D191 shape; **1 of 8** with anonymous `q` left open; **1 of 8** without the
-member exemption; **2 of 8** with an address-keyed meter; **3 of 8** with a
-second, parallel budget. Web: 1 of 25 for each of the missing 429 sentence and
-the missing signed-out notice.*
+`apps/api/test/org-roster-enumeration.spec.ts` (9) and the D191 block of
+`apps/web/test/orgs.spec.tsx` (3). **The red demonstrations below were measured
+against the first eight**; the ninth — a malformed cursor answering 422 rather
+than 429 at the wall — was added after the FULL api suite caught the collateral
+two targeted runs could not, and has its own red beside them. Red before the
+change: **5 of 8** for the pre-D191 shape; **1 of 8** with anonymous `q` left
+open; **1 of 8** without the member exemption; **2 of 8** with an address-keyed
+meter; **3 of 8** with a second, parallel budget; **1 of 9** with the cursor
+parsed after the meter instead of before it. Web: 1 of 25 for each of the
+missing 429 sentence and the missing signed-out notice.*
 
 ## D192 — `GET /contests` is left exactly as it is, and this is the argument for it rather than an omission
 

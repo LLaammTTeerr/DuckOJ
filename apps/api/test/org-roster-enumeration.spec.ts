@@ -284,6 +284,37 @@ describe('the roster walk spends D188s budget, and the school is exempt (D191)',
     });
   }, 240_000);
 
+  it('answers a malformed cursor 422 even at the wall — a mistake is not a walk', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const head = await signIn(app, db, 'hieu-truong-9', true);
+        await seedSchool(db, head, 'thpt-hong', USER_WALK_LIMIT + 5);
+        const stranger = await signIn(app, db, 'nguoi-la-3');
+
+        // Spend the whole budget…
+        const first = await stranger.get('/api/v1/orgs/thpt-hong/members?limit=1');
+        let cursor = String(first.body.nextCursor);
+        for (let i = 0; i < USER_WALK_LIMIT; i += 1) {
+          const res = await stranger.get(`/api/v1/orgs/thpt-hong/members?limit=1&cursor=${cursor}`);
+          expect(res.status).toBe(200);
+          cursor = String(res.body.nextCursor);
+        }
+
+        // …and a cursor no username could be is still 422, not 429. D188's
+        // ordering, said again: a malformed cursor is a MISTAKE, and it gets
+        // the same answer the identical mistake gets on every sibling list.
+        const bad = await stranger.get(
+          `/api/v1/orgs/thpt-hong/members?limit=1&cursor=${'x'.repeat(200)}`,
+        );
+        expect(bad.status).toBe(422);
+        expect(bad.body.code).toBe('invalid_cursor');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 240_000);
+
   it('a roster search box can never spend the budget — no cursor, no meter', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);
