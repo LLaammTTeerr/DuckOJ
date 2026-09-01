@@ -10,7 +10,7 @@ import { watchForBrokenRequests, type Allowance } from './watch.js';
 
 /**
  * The language path — the picker every pupil touches on every submission, and
- * the form a setter uses to bend it (loop F-42).
+ * the form a setter uses to bend it (loop F-42, extended by F-47).
  *
  * F-39, F-40 and F-41 all shipped with no Playwright run at all, and B-30's
  * sharpest finding was a *browser* defect proved only in jsdom: the picker
@@ -63,8 +63,16 @@ const PASSWORD = 'fe42-not-a-real-password-2026';
 const CODE = `fe42-ngonngu-${RUN}`;
 const PUPIL = 'fe42-a1';
 
-/** D158's order, read off the live API: the order an operator ADDED them in. */
-const OFFERED = ['cpp17', 'cpp20', 'cpp14', 'c11', 'python3'] as const;
+/**
+ * D158's order, read off the live API: the order an operator ADDED them in
+ * (`problem.access.ts` orders `languageLimits` by `languages.id`), which is
+ * why this is not alphabetical and `GET /languages` — ordered by key — is.
+ *
+ * Seven since F-46's migration 0046. It was five here until F-47, and this
+ * file was the suite F-46 could not run: the two new rows landed on the live
+ * database and nothing in `apps/web/e2e` had heard of them.
+ */
+const OFFERED = ['cpp17', 'cpp20', 'cpp14', 'c11', 'python3', 'pascal', 'java'] as const;
 
 const AC_SOURCE = `#include <iostream>
 int main(){long long a,b;std::cin>>a>>b;std::cout<<a+b<<"\\n";}`;
@@ -183,7 +191,7 @@ test.afterAll(async () => {
 
 /* ── 1 — the fixture, and the menu every pupil is shown ──────────────── */
 
-test('journey 1 — the picker offers five languages and preselects C++17, by link and from the statement', async ({
+test('journey 1 — the picker offers seven languages and preselects C++17, by link and from the statement', async ({
   page,
 }) => {
   const watch = watchForBrokenRequests(page, [NOT_JOINED], CONSOLE_ALLOW);
@@ -227,6 +235,8 @@ test('journey 1 — the picker offers five languages and preselects C++17, by li
   // The names are proper nouns and are what a pupil actually picks by.
   await expect(page.locator('#language')).toContainText('C++17');
   await expect(page.locator('#language')).toContainText('Python 3');
+  await expect(page.locator('#language')).toContainText('Pascal');
+  await expect(page.locator('#language')).toContainText('Java 17');
 
   // D154's budget, for the language now selected. `aplusb`'s clone is
   // 1000 ms / 65536 KB, and Python is the seeded 300 % / +32768 KB.
@@ -446,5 +456,100 @@ test('journey 4 — a refused language is off the menu, and the page does not po
   await expect(page.getByText('Đã lưu giới hạn theo ngôn ngữ.')).toBeVisible();
 
   await adminCtx.dispose();
+  expect(watch.errors, `the submit page reported: ${watch.errors.join(' | ')}`).toEqual([]);
+});
+
+/* ── 5 — Pascal and Java, all the way to a verdict (F-46, F-47) ──────── */
+
+/**
+ * The fixture F-46 could not add.
+ *
+ * F-46 shipped Pascal and Java — the toolchain, the allow-list, migration
+ * 0046's rows and the whole picker/CLI surface — and could prove none of it
+ * end to end, because that needed a deploy. The controller deployed it and
+ * two of the three languages graded. Pascal sat in `queued`: `judged` had
+ * loaded the executor→language mapping at boot, before 0046 inserted the
+ * `pascal` row, and its fallback lowercased the judge's `PAS` into a language
+ * key `pas` that does not exist. The judge could run the program. Nothing
+ * could tell it to.
+ *
+ * That was proved by hand, on the live host, as submissions 881 and 882 on
+ * `aplusb`. This is that proof as a fixture — through the picker a pupil
+ * actually uses, in a real browser, to a real verdict from the real judge.
+ *
+ * **This walk goes GREEN against the deployed edge** — `f5f5ea6`, with all
+ * seven languages proven grading after the controller's restart — unlike
+ * `organiser.spec.ts` journey 2b, which is red by design. What it cannot
+ * prove is the F-47 fix itself: the mapping only reloads in a `judged` the
+ * controller has yet to ship, so what this pins today is that Pascal and Java
+ * grade, and what it pins after the next deploy is that they still do.
+ */
+const PASCAL_AC = `var a, b: int64;
+begin
+  read(a, b);
+  writeln(a + b);
+end.`;
+
+/**
+ * `Main`, because that is the class DMOJ's `JavaExecutor` compiles and runs,
+ * and `long` because a+b in `int` is the classic silent wrong answer.
+ */
+const JAVA_AC = `import java.util.Scanner;
+
+public class Main {
+  public static void main(String[] args) {
+    Scanner in = new Scanner(System.in);
+    System.out.println(in.nextLong() + in.nextLong());
+  }
+}`;
+
+/** D80 meters a pupil at one submission per ten seconds. */
+const METER_WAIT_MS = 11_000;
+
+test('journey 5 — a Pascal and a Java program are graded, through the picker', async ({ page }) => {
+  const watch = watchForBrokenRequests(page, [NOT_JOINED, SUBMIT_METERED], CONSOLE_ALLOW);
+  await signIn(page, PUPIL, PASSWORD);
+
+  async function submitAndGrade(languageKey: string, source: string, budget: string) {
+    // Before the FIRST one too: journey 4 above submits as this same pupil,
+    // and D80's meter does not care that a different walk spent it.
+    await page.waitForTimeout(METER_WAIT_MS);
+    await page.goto(`/submit?problem=${CODE}`);
+    await openSubmit(page);
+    await page.locator('#language').selectOption(languageKey);
+    // D154/D169's budget for this language, on the screen where it is chosen:
+    // Pascal is 200 % / +0 KB and Java 300 % / +64 MB of the clone's
+    // 1000 ms / 65536 KB.
+    await expect(page.locator('#language-limits')).toHaveText(budget);
+
+    await page.locator('.cm-content').fill(source);
+    const [posted] = await Promise.all([
+      page.waitForResponse(
+        (res) => res.request().method() === 'POST' && res.url().endsWith('/api/v1/submissions'),
+      ),
+      page.getByRole('button', { name: 'Nộp bài', exact: true }).click(),
+    ]);
+    expect(posted.status(), `submit ${languageKey}: ${String(posted.status())}`).toBe(201);
+    expect(
+      (posted.request().postDataJSON() as { languageKey: string }).languageKey,
+      'the page must post the language it is showing',
+    ).toBe(languageKey);
+
+    // The assertion that would have failed on 2026-09-01: Pascal stayed
+    // `queued` for as long as anybody watched it, because no connected judge
+    // was believed to speak `pascal`. A verdict is the whole point.
+    await expect(page.locator('.badge'), `${languageKey} never reached a verdict`).toHaveText(
+      'AC',
+      { timeout: 180_000 },
+    );
+    // And the pupil is never left staring at D160's "waiting for a judge that
+    // can run this" on a language the fleet demonstrably runs.
+    await expect(page.getByText('Đang đợi một máy chấm')).toHaveCount(0);
+  }
+
+  await submitAndGrade('pascal', PASCAL_AC, 'Ngôn ngữ này được 2 giây và 64 MB.');
+  await submitAndGrade('java', JAVA_AC, 'Ngôn ngữ này được 3 giây và 128 MB.');
+
+  await page.screenshot({ path: 'e2e/screenshots/f47-pascal-java.png', fullPage: true });
   expect(watch.errors, `the submit page reported: ${watch.errors.join(' | ')}`).toEqual([]);
 });
