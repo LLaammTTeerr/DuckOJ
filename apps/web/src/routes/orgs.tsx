@@ -168,14 +168,34 @@ export function OrgsPage() {
   const t = useT();
   const client = useQueryClient();
   const me = useQuery(meQueryOptions);
-  const query = useQuery({
-    queryKey: ['orgs'],
-    queryFn: async () => {
-      const result = await api.GET('/orgs', {});
+  /**
+   * **Paged since D180.** A plain `useQuery` read `.items` and dropped
+   * `nextCursor`, so the server's page of twenty-five was a ceiling: with 28
+   * schools on the live judge today, **three were already unreachable** from
+   * this page — the front door to every one of them.
+   *
+   * The order is KEPT at `asc(id)`. A reader looking for their own school
+   * wants it by NAME, and that is a real gap — but it is an API change (a
+   * second cursor grammar over `organizations.slug`) plus the search box F-49
+   * argued for the roster, and both are named as follow-ups rather than
+   * smuggled in behind a load-more button. At 28 schools, reachable is the
+   * whole of the defect.
+   */
+  const query = useInfiniteQuery({
+    queryKey: ['orgs', 'list'],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const search: { cursor?: string } = {};
+      if (pageParam !== undefined) search.cursor = pageParam;
+      const result = await api.GET('/orgs', { params: { query: search } });
       if (result.error) throw apiError(result, t('orgs.loadError'));
       return result.data;
     },
+    getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
   });
+  const rows: Org[] | undefined = query.data
+    ? query.data.pages.flatMap((page) => page?.items ?? [])
+    : undefined;
 
   return (
     <section className="panel">
@@ -188,10 +208,8 @@ export function OrgsPage() {
           onRetry={() => void query.refetch()}
         />
       ) : null}
-      {query.data && query.data.items.length === 0 ? (
-        <p className="muted">{t('orgs.empty')}</p>
-      ) : null}
-      {query.data && query.data.items.length > 0 ? (
+      {rows && rows.length === 0 ? <p className="muted">{t('orgs.empty')}</p> : null}
+      {rows && rows.length > 0 ? (
         <div className="table-wrap" tabIndex={0}>
         <table>
           <thead>
@@ -201,7 +219,7 @@ export function OrgsPage() {
             </tr>
           </thead>
           <tbody>
-            {query.data.items.map((org: Org) => (
+            {rows.map((org: Org) => (
               <tr key={org.slug}>
                 <td>
                   <Link to="/orgs/$slug" params={{ slug: org.slug }}>
@@ -214,6 +232,17 @@ export function OrgsPage() {
           </tbody>
         </table>
         </div>
+      ) : null}
+      {query.hasNextPage ? (
+        <p>
+          <button
+            type="button"
+            onClick={() => void query.fetchNextPage()}
+            disabled={query.isFetchingNextPage}
+          >
+            {t('common.loadMore')}
+          </button>
+        </p>
       ) : null}
       {me.data?.globalRole === 'admin' ? (
         <CreateOrgForm onCreated={() => client.invalidateQueries({ queryKey: ['orgs'] })} />
@@ -296,24 +325,37 @@ function RequestsQueue({ slug, onDecided }: { slug: string; onDecided: () => Pro
  */
 function OrgContests({ slug }: { slug: string }) {
   const t = useT();
-  const contests = useQuery({
+  // **Paged since D180.** It read `.items` and dropped `nextCursor`, so a
+  // school's twenty-sixth round was invisible on the school's own page — with
+  // 167 rounds on the live judge, that is not a hypothetical shape. The `org`
+  // filter rides along on every page: page two of "every contest on the
+  // judge" is not page two of "this school's contests".
+  //
+  // `asc(id)` is kept. This section is a school's noticeboard, read top to
+  // bottom, and nothing here is tailed the way a teacher tails the team list.
+  const contests = useInfiniteQuery({
     queryKey: ['org-contests', slug],
-    queryFn: async () => {
-      return read(await api.GET('/contests', { params: { query: { org: slug } } }), t('contests.loadError'))?.items ?? [];
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: { org: string; cursor?: string } = { org: slug };
+      if (pageParam !== undefined) query.cursor = pageParam;
+      return read(await api.GET('/contests', { params: { query } }), t('contests.loadError'));
     },
+    getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
   });
+  const rows = contests.data ? contests.data.pages.flatMap((page) => page?.items ?? []) : undefined;
   // The section still cannot take the roster down with it — that part of the
   // doc comment above stands — but "absent because the school runs none" and
   // "absent because the request failed" are now different renders. They were
   // the same one, which is the shape B-8 called out: a rival school's page
   // reading as "no contests" the moment the list 500s.
   if (contests.isError) return <p role="alert">{t('contests.loadError')}</p>;
-  if (!contests.data || contests.data.length === 0) return null;
+  if (!rows || rows.length === 0) return null;
   return (
     <>
       <h2>{t('org.contests')}</h2>
       <ul>
-        {contests.data.map((contest) => (
+        {rows.map((contest) => (
           <li key={contest.key}>
             <Link to="/contests/$key" params={{ key: contest.key }}>
               {contest.name}
@@ -321,6 +363,17 @@ function OrgContests({ slug }: { slug: string }) {
           </li>
         ))}
       </ul>
+      {contests.hasNextPage ? (
+        <p>
+          <button
+            type="button"
+            onClick={() => void contests.fetchNextPage()}
+            disabled={contests.isFetchingNextPage}
+          >
+            {t('common.loadMore')}
+          </button>
+        </p>
+      ) : null}
     </>
   );
 }

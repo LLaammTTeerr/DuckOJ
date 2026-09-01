@@ -137,6 +137,47 @@ describe('OrgSets', () => {
     expect(await screen.findByRole('button', { name: 'Giao bài tập' })).toBeTruthy();
   });
 
+  /**
+   * D180. `OrgSets` read `.items` and dropped `nextCursor`, so homework set
+   * #26 was invisible to the class it was assigned to — the same defect D177
+   * fixed on the teams panel beside it, deliberately left in place then.
+   *
+   * The order is KEPT at `asc(id)`: a homework list is read as the sequence a
+   * course was taught in, and the deadline column is what a pupil scans. The
+   * reader who needs the newest first is the teacher who just assigned one,
+   * and they are looking at the form that created it.
+   */
+  it('reaches the twenty-sixth homework set with the cursor it was given', async () => {
+    const cursors: (string | undefined)[] = [];
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      ...SUMMARY,
+      slug: `tuan-${String(i + 1)}`,
+      name: `Tuần ${String(i + 1)}`,
+    }));
+    get.mockImplementation((path: string, init?: Record<string, unknown>) => {
+      if (path === '/auth/me') return Promise.resolve({ data: ME });
+      if (path === '/orgs/{slug}/sets') {
+        const cursor = (init?.params as { query?: { cursor?: string } } | undefined)?.query?.cursor;
+        cursors.push(cursor);
+        return Promise.resolve({
+          data:
+            cursor === undefined
+              ? { items: many, nextCursor: '25' }
+              : { items: [{ ...SUMMARY, slug: 'tuan-26', name: 'Tuần 26' }], nextCursor: null },
+        });
+      }
+      return Promise.resolve({ data: undefined });
+    });
+    wrap(<OrgSets slug="hanoi" canManage={false} />);
+
+    expect(await screen.findByText('Tuần 1')).toBeTruthy();
+    expect(screen.queryByText('Tuần 26')).toBeNull();
+    await userEvent.click(await screen.findByRole('button', { name: /tải thêm|load more/i }));
+    expect(await screen.findByText('Tuần 26')).toBeTruthy();
+    expect(screen.getByText('Tuần 1')).toBeTruthy();
+    expect(cursors).toEqual([undefined, '25']);
+  });
+
   it('never asks for the sets of a school while signed out', async () => {
     serve({ '/orgs/{slug}/sets': { items: [SUMMARY], nextCursor: null } }, undefined);
     wrap(<OrgSets slug="hanoi" canManage={false} />);

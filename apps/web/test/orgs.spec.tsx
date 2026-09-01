@@ -352,3 +352,88 @@ describe('CreateOrgForm — the button tells the truth', () => {
     expect(screen.getByLabelText(/^Định danh$/)).toHaveValue('hanoi');
   });
 });
+
+/**
+ * The two org-page lists that could not reach page two (D180).
+ *
+ * `GET /orgs` and `GET /contests?org=` both page at twenty-five and both hand
+ * out a `nextCursor`; `OrgsPage` and `OrgContests` read `.items` and dropped
+ * it. On the live judge that is **3 of 28 schools already unreachable** on the
+ * front page today, and a school's twenty-sixth round invisible on its own
+ * page. Same defect, same fix, same assertion as D177's teams panel: the
+ * second request must carry the FIRST page's cursor.
+ */
+describe('the org lists past one page (D180)', () => {
+  it('OrgsPage reaches the twenty-sixth school with the cursor it was given', async () => {
+    const cursors: (string | undefined)[] = [];
+    const page1 = Array.from({ length: 25 }, (_, i) => ({
+      ...ORG,
+      slug: `truong-${String(i + 1)}`,
+      name: `Trường ${String(i + 1)}`,
+    }));
+    get.mockImplementation((path: string, init?: Record<string, unknown>) => {
+      if (path === '/auth/me') return Promise.resolve({ data: { username: 'ai-do' } });
+      if (path === '/orgs') {
+        const cursor = (init?.params as { query?: { cursor?: string } } | undefined)?.query?.cursor;
+        cursors.push(cursor);
+        return Promise.resolve({
+          data:
+            cursor === undefined
+              ? { items: page1, nextCursor: '53' }
+              : { items: [{ ...ORG, slug: 'truong-26', name: 'Trường 26' }], nextCursor: null },
+        });
+      }
+      return Promise.resolve({ data: undefined });
+    });
+    wrap(<OrgsPage />);
+
+    expect(await screen.findByText('Trường 1')).toBeInTheDocument();
+    expect(screen.queryByText('Trường 26')).toBeNull();
+
+    await userEvent.click(await screen.findByRole('button', { name: /tải thêm|load more/i }));
+    expect(await screen.findByText('Trường 26')).toBeInTheDocument();
+    expect(screen.getByText('Trường 1')).toBeInTheDocument();
+    expect(cursors).toEqual([undefined, '53']);
+    expect(screen.queryByRole('button', { name: /tải thêm|load more/i })).toBeNull();
+  });
+
+  it("OrgContests reaches a school's twenty-sixth round, and keeps the org filter on page two", async () => {
+    const asks: { org?: string | undefined; cursor?: string | undefined }[] = [];
+    const rounds = (from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, i) => ({
+        key: `vong-${String(from + i)}`,
+        name: `Vòng ${String(from + i)}`,
+      }));
+    get.mockImplementation((path: string, init?: Record<string, unknown>) => {
+      if (path === '/auth/me')
+        return Promise.resolve({ data: { username: 'owner-person', displayName: 'Owner' } });
+      if (path === '/orgs/{slug}') return Promise.resolve({ data: { ...ORG, myRole: 'owner' } });
+      if (path === '/orgs/{slug}/members')
+        return Promise.resolve({ data: { items: MEMBERS, nextCursor: null } });
+      if (path === '/orgs/{slug}/requests') return Promise.resolve({ data: [] });
+      if (path === '/contests') {
+        const query =
+          (init?.params as { query?: { org?: string; cursor?: string } } | undefined)?.query ?? {};
+        asks.push({ org: query.org, cursor: query.cursor });
+        return Promise.resolve({
+          data:
+            query.cursor === undefined
+              ? { items: rounds(1, 25), nextCursor: '25' }
+              : { items: rounds(26, 26), nextCursor: null },
+        });
+      }
+      return Promise.resolve({ data: undefined });
+    });
+    wrap(<OrgPage slug="hanoi" />);
+
+    expect(await screen.findByText('Vòng 1')).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: /tải thêm|load more/i }));
+    expect(await screen.findByText('Vòng 26')).toBeInTheDocument();
+    // The filter has to ride along: page two of "every contest on the judge"
+    // is not page two of "this school's contests".
+    expect(asks).toEqual([
+      { org: 'hanoi', cursor: undefined },
+      { org: 'hanoi', cursor: '25' },
+    ]);
+  });
+});

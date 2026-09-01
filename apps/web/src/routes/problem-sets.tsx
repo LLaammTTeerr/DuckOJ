@@ -433,19 +433,35 @@ export function OrgSets({ slug, canManage }: { slug: string; canManage: boolean 
   // Silent on failure, exactly as `OrgContests` is and for the same reason:
   // this section sits above the roster on somebody else's page, and a failed
   // list must not take that page down or stack a second alert on it.
-  const sets = useQuery({
+  // **Paged since D180.** It read `.items` and dropped `nextCursor`, so
+  // homework set #26 was invisible to the class it was assigned to — the same
+  // defect D177 fixed on the teams panel beside it, and deliberately left in
+  // place then.
+  //
+  // `asc(id)` is kept: a homework list is read as the sequence the course was
+  // taught in, and the deadline column is what a pupil scans. The reader who
+  // wants the newest first is the teacher who has just assigned one, and they
+  // are looking at the form that created it.
+  const sets = useInfiniteQuery({
     queryKey: setsKey(slug),
     enabled: me.data != null,
-    queryFn: async () => {
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
       // NOT `data?.items ?? []`. openapi-fetch RESOLVES on an HTTP error, so
       // that spelling turned every 500 into an empty array — and this panel
       // renders an empty array as `sets.empty`, "Chưa có bài tập nào": a
       // pupil told their teacher has assigned them nothing (B-8's swallow,
       // one more survivor, found by the D143 sweep).
-      const result = await api.GET('/orgs/{slug}/sets', { params: { path: { slug } } });
-      return read(result, t('sets.loadError'))?.items ?? [];
+      const query: { cursor?: string } = {};
+      if (pageParam !== undefined) query.cursor = pageParam;
+      const result = await api.GET('/orgs/{slug}/sets', { params: { path: { slug }, query } });
+      return read(result, t('sets.loadError'));
     },
+    getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
   });
+  const rows: SetSummary[] | undefined = sets.data
+    ? sets.data.pages.flatMap((page) => page?.items ?? [])
+    : undefined;
 
   async function refresh(): Promise<void> {
     setAssigning(false);
@@ -453,7 +469,7 @@ export function OrgSets({ slug, canManage }: { slug: string; canManage: boolean 
   }
 
   if (!me.data) return null;
-  if (!canManage && (sets.data === undefined || sets.data.length === 0)) return null;
+  if (!canManage && (rows === undefined || rows.length === 0)) return null;
 
   return (
     <>
@@ -465,8 +481,9 @@ export function OrgSets({ slug, canManage }: { slug: string; canManage: boolean 
           onRetry={() => void sets.refetch()}
         />
       ) : null}
-      {sets.data && sets.data.length === 0 ? <p className="muted">{t('sets.empty')}</p> : null}
-      {sets.data && sets.data.length > 0 ? (
+      {rows && rows.length === 0 ? <p className="muted">{t('sets.empty')}</p> : null}
+      {rows && rows.length > 0 ? (
+        <div className="table-wrap" tabIndex={0}>
         <table>
           <thead>
             <tr>
@@ -476,7 +493,7 @@ export function OrgSets({ slug, canManage }: { slug: string; canManage: boolean 
             </tr>
           </thead>
           <tbody>
-            {sets.data.map((set: SetSummary) => (
+            {rows.map((set: SetSummary) => (
               <tr key={set.slug}>
                 <td>
                   <Link to="/orgs/$slug/sets/$setSlug" params={{ slug, setSlug: set.slug }}>
@@ -495,6 +512,18 @@ export function OrgSets({ slug, canManage }: { slug: string; canManage: boolean 
             ))}
           </tbody>
         </table>
+        </div>
+      ) : null}
+      {sets.hasNextPage ? (
+        <p>
+          <button
+            type="button"
+            onClick={() => void sets.fetchNextPage()}
+            disabled={sets.isFetchingNextPage}
+          >
+            {t('common.loadMore')}
+          </button>
+        </p>
       ) : null}
       {canManage && !assigning ? (
         <p>

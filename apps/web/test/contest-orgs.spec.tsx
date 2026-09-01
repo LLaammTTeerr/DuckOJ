@@ -103,6 +103,46 @@ describe('the organization picker', () => {
   });
 
   /**
+   * D180 — the picker walks every page rather than stopping at 101 schools.
+   *
+   * This one is NOT the "load more" the other five got, and that is the
+   * ruling. A checkbox fieldset is a form control: a school the setter owns
+   * but that sits past a page they never pressed a button to reach is a
+   * restriction they cannot apply, and there is no scroll position or empty
+   * state to tell them so. The list is walked to exhaustion inside the query,
+   * bounded by a page cap so a bad `nextCursor` cannot spin forever.
+   */
+  it('walks past the first page so a school at position 101 can still be picked', async () => {
+    const cursors: (string | undefined)[] = [];
+    const filler = Array.from({ length: 100 }, (_, i) => ({
+      id: 100 + i,
+      slug: `khac-${String(i)}`,
+      name: `Trường khác ${String(i)}`,
+      myRole: null,
+    }));
+    get.mockImplementation((path: string, init?: Record<string, unknown>) => {
+      if (path === '/auth/me') return Promise.resolve({ data: SETTER });
+      if (path === '/orgs') {
+        const cursor = (init?.params as { query?: { cursor?: string } } | undefined)?.query?.cursor;
+        cursors.push(cursor);
+        return Promise.resolve({
+          data:
+            cursor === undefined
+              ? { items: filler, nextCursor: '199' }
+              : { items: ORGS.items, nextCursor: null },
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+    wrap(<ContestNewPage />);
+
+    // The school on page two is offered, with no button to press for it.
+    expect(await screen.findByLabelText(/Lê Hồng Phong/)).toBeInTheDocument();
+    expect(cursors).toEqual([undefined, '199']);
+    expect(screen.queryByRole('button', { name: /tải thêm|load more/i })).toBeNull();
+  });
+
+  /**
    * A failed `GET /orgs` says so, instead of claiming the setter belongs to
    * nothing.
    *

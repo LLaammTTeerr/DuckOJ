@@ -25,27 +25,64 @@ interface PickableOrg {
 }
 
 /**
- * One page of 100 is deliberate and not a paginator: this is a form control,
- * and a setter who owns more than a hundred organizations has a different
- * problem than a missing "next" button. A stored slug the list does not
- * contain is still rendered (see `OrgPicker`), so nothing silently drops.
+ * How many pages of 100 this control will walk before it gives up.
+ *
+ * Not a page size and not a product limit: a stop so that a `nextCursor` the
+ * server never stops issuing — a bug, a proxy replaying a response — cannot
+ * spin this loop forever on a setter's contest form. Fifty thousand schools
+ * is two orders of magnitude past a province.
+ */
+const PICKER_MAX_PAGES = 500;
+
+/**
+ * **The whole list, walked (D180).** This used to ask for one page of 100 and
+ * stop, with a comment calling that deliberate: "a setter who owns more than
+ * a hundred organizations has a different problem than a missing next
+ * button". The comment was answering the wrong question. The page is not
+ * "organizations the setter owns" — it is EVERY organization visible to them,
+ * their own included, and `mine` is computed from it below. So a setter who
+ * owns exactly one school still loses it the moment the judge's 101st
+ * organization sorts ahead of it, and the control gives no sign: there is no
+ * scroll position, no empty state and no button, only a checkbox that is not
+ * there.
+ *
+ * A "load more" button — the fix the other five surfaces got — would be the
+ * wrong shape here. A form control has to offer the whole option set at the
+ * moment it is read; an option behind a press the setter has no reason to
+ * make is an option they cannot apply. So the cursor is walked to exhaustion
+ * inside the query, bounded by `PICKER_MAX_PAGES`.
+ *
+ * A stored slug the list does not contain is still rendered (see
+ * `OrgPicker`), so nothing silently drops even if the walk is capped.
  */
 export const orgsQueryOptions = {
   queryKey: ['orgs', 'picker'] as const,
   queryFn: async (): Promise<PickableOrg[]> => {
-    const result = await api.GET('/orgs', { params: { query: { limit: 100 } } });
-    // `throw`, never `?? []`. `openapi-fetch` resolves rather than rejects on
-    // an HTTP error, so reading only `data` made every failure — a 500, an
-    // expired session, a proxy hiccup — indistinguishable from an empty
-    // roster: `useQuery` saw no error, the picker's own error line could
-    // never render, and what the setter read instead was `orgsNone`, "you do
-    // not own or administer any organization". That is a false statement
-    // about their own account on the one screen where believing it means
-    // shipping a provincial contest with no restriction at all. `apiError`
-    // also carries the status, so `retryTransientOnly` retries a 500 and
-    // leaves a 403 alone.
-    if (result.error) throw apiError(result, 'orgs');
-    return result.data?.items ?? [];
+    const all: PickableOrg[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < PICKER_MAX_PAGES; page += 1) {
+      const query: { limit: number; cursor?: string } = { limit: 100 };
+      if (cursor !== undefined) query.cursor = cursor;
+      const result = await api.GET('/orgs', { params: { query } });
+      // `throw`, never `?? []`. `openapi-fetch` resolves rather than rejects on
+      // an HTTP error, so reading only `data` made every failure — a 500, an
+      // expired session, a proxy hiccup — indistinguishable from an empty
+      // roster: `useQuery` saw no error, the picker's own error line could
+      // never render, and what the setter read instead was `orgsNone`, "you do
+      // not own or administer any organization". That is a false statement
+      // about their own account on the one screen where believing it means
+      // shipping a provincial contest with no restriction at all. `apiError`
+      // also carries the status, so `retryTransientOnly` retries a 500 and
+      // leaves a 403 alone. A failure on page four is still a failure: the
+      // whole query rejects rather than returning three pages as if they were
+      // the answer.
+      if (result.error) throw apiError(result, 'orgs');
+      all.push(...(result.data?.items ?? []));
+      const next = result.data?.nextCursor ?? null;
+      if (next === null) break;
+      cursor = next;
+    }
+    return all;
   },
 };
 
