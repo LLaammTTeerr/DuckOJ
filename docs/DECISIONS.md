@@ -9728,4 +9728,75 @@ this one argued against. No test: a decision to leave two endpoints alone is
 pinned by the absence of a diff, and inventing a spec that asserts `GET
 /contests` is 200 to a stranger would only re-assert `contest-visibility.spec.ts`.*
 
-**D193 was not needed and is not used.**
+---
+
+## D193 — `getByLabel` reads the LABEL'S TEXT, and a `<label>` that wraps a controlled `<textarea>` contains that textarea's value
+
+Journey 2 of the organiser walk went red at `e11188d` on `element(s) not
+found` for the team form's roster box, on a team it had created moments
+earlier. The brief read that as B-33's finding recurring — D183 renders no
+field until the form is seeded, so an absent field looks like a seed that
+never happened. **It was not the app.** The controller's own trace shows
+`GET /orgs/fe42-truong/teams/fe42-moi-…` answering **200 in 10.3 ms** on the
+click, and the failure snapshot 15 s later shows the form fully mounted with
+`textbox "Thành viên": fe42-a1`. The field was there the whole time; the
+locator could not see it.
+
+**The mechanism.** `TeamForm` wraps its control —
+`<label>Thành viên <textarea …/></label>` — and React mirrors a controlled
+textarea's value into the element's **child text node**: `initTextarea` and
+`updateTextarea` both run `element.defaultValue = value`, and the HTML spec
+makes `defaultValue` the setter for a textarea's child text content. So the
+DOM is literally `<label>Thành viên <textarea>fe42-a1</textarea></label>`, and
+Playwright's `elementText()` — which walks a node's text children — reads the
+label as `"Thành viên fe42-a1"`. `getByLabel('Thành viên', { exact: true })`
+matches **nothing** the moment the box holds a roster.
+
+Measured on the live edge (a scratch spec, since deleted, dumping every
+`<label>` on the org page):
+
+```
+A — edit form on a PRE-EXISTING team   labelTextContent "Thành viên fe42-a1"
+B0 — CREATE form, boxes still empty    labelTextContent "Thành viên "
+B1 — CREATE form, after fill           labelTextContent "Thành viên fe42-a1"
+B2 — EDIT form, team created just now  labelTextContent "Thành viên fe42-a1"
+   getByLabel exact = 0   getByLabel loose = 2   getByRole textbox exact = 1
+```
+
+**That is the whole asymmetry the brief was reading as a product bug.** The
+create form's `fill` worked because it ran against an EMPTY box, whose label
+text is still `"Thành viên"`; every read of a SEEDED box failed. Nothing about
+"created in this session" was involved — journey 2b, on a team that existed
+before the page loaded, is red for the identical reason and was measured red
+in this slot, contradicting the brief's belief that it passed.
+
+**The rule: locate a form control by ROLE AND ACCESSIBLE NAME, not by label
+text.** `getByRole('textbox', { name: 'Thành viên', exact: true })` is `1` in
+every state above, because the accname algorithm leaves an embedded control's
+own value out of its own name — and it is what a screen reader announces, so a
+walk that asserts on it asserts on what the reader is told. `getByLabel` stays
+fine for `<input>`, whose value is a property with no child text, which is why
+`Định danh` and `Tên đội` beside it never broke.
+
+**Why this bit here and nowhere else.** `teams.tsx`'s three fields are the only
+wrapping labels in the app that a walk reaches with an exact label locator;
+every other textarea — `problem-edit.tsx`, `problem-testdata.tsx`,
+`orgs.tsx`'s and this same file's own `MemberFinder` — is associated by
+`htmlFor`/`id`, so its label element holds nothing but its own words. The app
+is **not** changed for this: the wrapping label is valid HTML, the accessible
+name is correct, and no reader is affected. The walk is what was wrong, and the
+walk is what was fixed.
+
+**`exact: true` was still the right call at `e11188d`**, and this is not a
+revert of it: the loose locator matched two controls (the roster textarea and
+the org roster's own `Tìm thành viên` search box, a strict-mode violation), and
+`exact` traded that collision for a locator that only ever matches an empty
+box. `getByRole` answers both at once.
+
+*Ruled by the implementer during the B-34 slot, no human available to consult.
+Cost if wrong: a walk locator that is harder to read than `getByLabel`. Pinned
+by the walk itself, red at `e11188d` on both journey 2 and journey 2b and green
+after — the deployed bundle is unchanged, so the browser is an honest
+instrument for both halves here.*
+
+**D194 is not used.**
