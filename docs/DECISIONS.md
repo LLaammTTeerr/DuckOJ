@@ -8019,3 +8019,160 @@ one violation of each in its one-of-each fixture. Red→green: correcting
 submission 4's stored `sumPoints` to the 20 its rows sum to, and giving
 submission 2 the `[]` it should carry, drops both ids from the reported set
 (`expected [ …(23) ] to deeply equal [ …(25) ]`).*
+
+## D169 — Pascal pays 200 % and no memory; Java pays 300 % and +64 MB, and Java inverts D154 in both columns
+
+F-39 gave this judge five languages and D154 gave them honest limits, but it
+stopped where the **image** stopped: C++ and Python needed no new toolchain,
+Pascal and Java do. That is not an afterthought for the audience this system
+is for — a generation of this province's informatics teachers learned and
+still teach Pascal, school rounds still accept it, and Java is taught in upper
+secondary. A judge that cannot run either is a judge some schools cannot use.
+
+`judge/Dockerfile` now installs `fp-compiler` and `openjdk-17-jdk-headless`
+(both `--no-install-recommends`, which is load-bearing: the recommends pull
+fp-docs/fp-ide and the non-headless JDK), `judge/judge.yml`'s `runtime:` block
+is regenerated from that image's own `dmoj-autoconf -V`, and
+`docker-compose.yml`'s `--only-executors` is widened on **both** judge
+services. Migration 0046 seeds the rows. All four deploy together: the rows
+alone are two languages nobody can grade (D160), the flag alone is a judge
+announcing executors that fail their own self-test.
+
+**The executor names are what the image announces, not what a brief guessed** —
+F-39's own lesson, re-collected. Free Pascal is **`PAS`**, not `PASCAL`; the
+JDK executor is **`JAVA`** (javac 17.0.20.1). `JAVA8` ships in the image and is
+**unusable** — its autoconf answers "Could not find JVM" because its
+`jvm_regex` wants a java-8 tree — so nothing maps to it and it stays off the
+allow-list. Read out of `localhost/duckoj-judge:f46-probe`, a throwaway tag:
+
+```
+Self-testing JAVA:   Success [0.054s, 39900 KB]  javac 17.0.20.1
+Self-testing PAS:    Success [0.002s,   196 KB]  fpc 3.2.2
+AVAILABLE: AWK C C11 CPP03 CPP11 CPP14 CPP17 CPP20 GAS64 JAVA NODEJS PAS PY3 SED TEXT
+```
+
+### Measured on this image, under the judge's own sandbox and clock
+
+Every number below is `TracedPopen.execution_time` / `max_memory` — the same
+instruments the grader reports a verdict with — for the same program written
+four ways, compiled by this judge's own executors, against a C++17 baseline.
+Three runs each; spread under 5 %.
+
+| workload | C++17 | Pascal | Java | Python 3 |
+|---|---|---|---|---|
+| empty program | 0.002 s / 1.3 MB | **0.002 s / 0.20 MB** | **0.055 s / 39.9 MB** | 0.078 s / 14.8 MB |
+| 2e7 modular-arithmetic loop | 0.049 s | 0.067 s (1.37x) | 0.112 s | 1.97 s |
+| sieve to 1e7 | 0.022 s | 0.023 s (1.05x) | 0.088 s | — |
+| read 1e6 integers | 0.043 s | 0.046 s (1.07x) | 0.079 s | — |
+| sort 2e6 elements | 0.148 s | 0.158 s (1.07x) | 0.73 s (boxed `Integer`) | — |
+| read 5e5 lines | 0.021 s | 0.058 s (2.7x) | 0.110 s | — |
+
+**Pascal: 200 %, +0 KB.** It is native code and it behaves like it — 1.05x on
+the sieve, 1.07x on integer input and on sorting, 1.37x on the tight modular
+loop. 200 % dominates all of those with margin, and costs the fleet at most 2x
+the authored limit on a language that is otherwise as fast as C++ — nothing
+like Python's exposure. The one workload it does **not** cover is
+line-oriented string input at 2.7x, where the C++ baseline is 21 ms and no
+realistic problem sets a limit that tight; the setter's override is there for
+the problem that does. **The addend is zero because Pascal's floor is 196-204
+KB — an order of magnitude BELOW C++'s 1.3 MB.** A token addend "to be safe"
+would be inventing a cost that does not exist.
+
+**Java: 300 %, +65536 KB — and Java is the reverse of D154's case in both
+columns.** D154 generalised from an interpreter: *time is proportional, memory
+is a fixed floor.* Java is neither.
+
+- **Its time cost is dominated by a FIXED toll.** An empty `main` costs
+  **0.055 s** of judged CPU at every heap size tested, and nothing in
+  judge-server subtracts it — the submission is charged for JVM start. Beyond
+  it, Java's *marginal* cost is ordinary: 1.2x C++ on the arithmetic loop, 1.5x
+  on the sieve, **0.56x** on integer input (`StreamTokenizer` beats `scanf`),
+  2.5x on lines, and 5.2x only on the boxed-`Integer` `ArrayList` a beginner
+  reaches for first. The schema has no time addend, so the multiplier has to
+  pay a fixed cost, and what it can pay depends on the authored limit: at 300 %
+  a 1000 ms problem grants 3000 ms, which is the 55 ms toll plus a 2.9x
+  marginal factor. Every revision in this deployment is authored at 1000 ms or
+  2000 ms (70 of 70), so 300 % is honest for all of them; below ~110 ms of
+  authored limit no multiplier can cover the toll and the setter needs the
+  override.
+- **Its memory cost is PROPORTIONAL, which is what the addend cannot express.**
+  `JavaExecutor.launch` swaps the memory limit out of the tracer (`memory=0`,
+  so RSS is never enforced) and passes it as **`-Xmx<limit>K`**: the limit
+  becomes the *heap cap*, the JVM's ~40 MB of non-heap RSS is never charged,
+  and MLE arrives as `OutOfMemoryError`, not as a tracer kill. Measured, the
+  smallest surviving `-Xmx` for a live `int[N]`:
+
+  | live data | smallest surviving Xmx | ratio |
+  |---|---|---|
+  | 3906 KB | 6144 KB | 1.57 |
+  | 7812 KB | 12288 KB | 1.57 |
+  | 15625 KB | 24576 KB | 1.57 |
+  | 31250 KB | 49152 KB | 1.57 |
+  | 62500 KB | 98304 KB | 1.57 |
+
+  Constant to two decimals across sixteen-fold, with **no fixed component** —
+  it is SerialGC's generational geometry (a single live array must fit the old
+  generation, ~2/3 of the heap), not a floor. So the honest addend is not "the
+  runtime's floor" that D159 describes; it is **the proportional shortfall,
+  sized against the limits this deployment actually authors**: 51 of 70
+  revisions are 1000 ms / 64 MB, 13 are 128 MB, 6 are 256 MB. **+64 MB** makes
+  a 64 MB problem grant 128 MB, i.e. 1.57x of 81 MB of live data — more than
+  the C++ budget itself, so on the modal problem Java can hold everything C++
+  can. On a 128 MB problem it covers 98 % of the budget, on a 256 MB problem
+  79 %, and the override covers the rest. That is **narrowing D159 by one
+  clause**: the addend means "a fixed memory cost this runtime imposes", and
+  for a runtime that *replaces* the limit with a heap cap the fixed cost it
+  must buy is generational headroom. It is still bounded by D159's 1 GiB and
+  by one grade at a time (D29), so the worst resident case on the judge box is
+  320 MB.
+
+**Two consequences an operator should not read as bugs.** A Java submission
+reports ~40 MB of memory on a problem whose limit is 64 MB even when it
+allocates nothing, because the reported number is RSS and the enforced number
+is the heap cap; and nothing in `apps/judged` re-derives a verdict from
+reported memory (checked), so a report above the limit never becomes an MLE by
+itself.
+
+*Ruled by the implementer during the F-46 slot, no human available to consult.
+Cost if a multiplier is wrong: one line of SQL in a one-line migration, no
+schema change and no data loss, with the per-problem override available in
+both directions meanwhile. The live database was not written; the image was
+built only to the throwaway tag `localhost/duckoj-judge:f46-probe` and no
+container was recreated.*
+
+## D170 — An editor mode may carry a starter and no grammar, and Pascal is not worth a new dependency
+
+`modeForLanguage` answers two questions at once — which grammar highlights the
+buffer, and what an empty buffer is pre-filled with — and until F-46 every
+mode answered both or neither. Pascal answers them differently: there is no
+Lezer Pascal parser in the `@codemirror/lang-*` family, so plain text really
+is the honest rendering, but a Free Pascal starter is something we can be
+exactly right about.
+
+Pinning `pascal` at `plain` (which is what F-39's spec asserted) would have
+thrown the starter away, because `plain`'s whole meaning is "we know nothing
+about this key" and its template is deliberately `''`. So `pascal` is a mode
+with a template and no grammar, and `grammarFor` falls through to the same
+empty extension list `plain` gets.
+
+**`@codemirror/legacy-modes` was considered and declined.** It ships a
+StreamLanguage Pascal that would work. It is also a new runtime dependency and
+a new bundle chunk on the submit page's critical path, for syntax colour in
+one language, in a slot that may not run the web build to measure what it
+costs. If a province asks for it, it is a one-import change behind the same
+`React.lazy` boundary the editor already has.
+
+The starter itself is measured rather than styled: `{$mode objfpc}{$H+}` is
+the first line, because without it FPC's `string` is a 255-character
+ShortString and a longer `readln` truncates in silence — which is exactly how
+this slot's own Pascal benchmark first hung. And while in the file, the Java
+starter's comment was corrected: it claimed the class name `Main` was "a hard
+requirement of the java driver", and it is not — judge-server's
+`java_executor.find_class` derives the class name from the source and names
+the file after it. What the driver does reject is a `package` declaration and
+a non-public main class.
+
+*Ruled by the implementer during the F-46 slot, no human available to consult.
+Cost if wrong: one `if` and one template string. Tests:
+`apps/web/test/editor.spec.tsx` pins the mode, the starter's `{$H+}` and the
+fact that an unknown key still gets nothing.*
