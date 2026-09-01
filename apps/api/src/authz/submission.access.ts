@@ -654,6 +654,23 @@ export class SubmissionAccessService {
               asc(submissionCases.attempt),
             );
 
+    // D160 — "waiting for a judge that can run this language", the only
+    // thing `blocked_reason` (D68) has ever been able to say and the only
+    // reader it has ever had was the admin dashboard.
+    //
+    // Read as its own indexed lookup rather than joined into the statement
+    // above, because `grading_jobs.submission_id` is not unique: a rejudge
+    // normally UPDATEs the job in place, but `RejudgeAccessService` inserts a
+    // fresh one for a submission whose job went missing, and a plain join
+    // would then return two rows and silently duplicate the submission.
+    //
+    // Skipped entirely unless the submission is still `queued`: that is the
+    // only state in which the answer can be `true`, and it is the rare one —
+    // this route is polled hardest by the submit page, where every poll after
+    // the first is against a submission that is compiling, grading or done.
+    const awaitingCapableJudge =
+      row.state === 'queued' ? await this.isAwaitingCapableJudge(id) : false;
+
     // The freeze (D23), applied last, over a fully-built response. Building
     // the masked shape by NOT fetching would put half of "what a freeze
     // hides" in this method's control flow; masking a finished DTO keeps the
@@ -688,6 +705,7 @@ export class SubmissionAccessService {
       createdAt: row.createdAt.toISOString(),
       judgedAt: row.judgedAt ? row.judgedAt.toISOString() : null,
       frozen: false,
+      awaitingCapableJudge,
       sourceHidden: false,
     };
 
@@ -700,6 +718,41 @@ export class SubmissionAccessService {
       ? maskHiddenSource(detail)
       : detail;
     return isSubmissionFrozen(actor, row, freezeCtx, now) ? maskFrozenDetail(shown) : shown;
+  }
+
+  /**
+   * Whether this submission's grading job is queued with `blocked_reason`
+   * set — "no connected judge speaks its language" (D68, D160).
+   *
+   * The reason STRING never leaves this method. It is written by `judged` for
+   * an operator, it names a language key inside a sentence about the fleet,
+   * and it will grow other cases; what the caller gets is the one bit a pupil
+   * needs. The client renders that bit as "waiting for a judge that can run
+   * <their language>", built from `languageKey`, which is the pupil's own
+   * choice and already on the response — so nothing here discloses how many
+   * judges are connected, what any of them can run, or anything at all about
+   * another user.
+   *
+   * `state = 'queued'` is re-checked rather than assumed: `JobStore.claim`
+   * clears `blocked_reason` in the same UPDATE that claims, but a job that
+   * finished while this request was in flight must not be reported as
+   * waiting.
+   *
+   * The newest job wins. Ordinarily there is exactly one per submission —
+   * `RejudgeAccessService` UPDATEs it in place — and the second row only
+   * exists on its repair path, where the new job is the live one.
+   */
+  private async isAwaitingCapableJudge(submissionId: number): Promise<boolean> {
+    const [job] = await this.db
+      .select({
+        state: schema.gradingJobs.state,
+        blockedReason: schema.gradingJobs.blockedReason,
+      })
+      .from(schema.gradingJobs)
+      .where(eq(schema.gradingJobs.submissionId, submissionId))
+      .orderBy(desc(schema.gradingJobs.id))
+      .limit(1);
+    return job !== undefined && job.state === 'queued' && job.blockedReason !== null;
   }
 
   /**

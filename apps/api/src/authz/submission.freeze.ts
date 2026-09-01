@@ -370,6 +370,13 @@ export function maskFrozenDetail(detail: SubmissionDetailDto): SubmissionDetailD
     memoryKb: null,
     compileOutput: null,
     cases: [],
+    // D160. `state` survives above and this does not, which is the line
+    // between them: `state: 'queued'` says grading has not finished, which
+    // the scoreboard's `pending` count already announces. WHY it has not
+    // finished is a fact about the fleet, attached to somebody else's
+    // in-flight submission — and the viewer it was added for can never be
+    // here, because a freeze never applies to a viewer's own submission.
+    awaitingCapableJudge: false,
     frozen: true,
   };
 }

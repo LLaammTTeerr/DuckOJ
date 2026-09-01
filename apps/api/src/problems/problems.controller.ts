@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Res,
   StreamableFile,
@@ -24,6 +25,7 @@ import {
   ProblemListQueryParse,
   RevisionVersionParam,
   UpdateCommentRequest,
+  UpdateProblemLanguageLimitsRequest,
   UpdateProblemRequest,
   type AttachRevisionRequestDto,
   type CloneProblemRequestDto,
@@ -34,12 +36,14 @@ import {
   type ProblemCommentDto,
   type ProblemCommentPageDto,
   type ProblemDetailDto,
+  type ProblemLanguageLimitSettingsDto,
   type ProblemListQueryDto,
   type ProblemPageDto,
   type ProblemStatsDto,
   type RevisionSummaryDto,
   type RevisionVersionResponseDto,
   type UpdateCommentRequestDto,
+  type UpdateProblemLanguageLimitsRequestDto,
   type UpdateProblemRequestDto,
 } from '@duckoj/contracts';
 import { ZodValidationPipe } from '../common/zod.pipe.js';
@@ -231,6 +235,38 @@ export class ProblemsController {
     @Body(new UpdateProblemBodyPipe()) body: UpdateProblemRequestDto,
   ): Promise<ProblemDetailDto> {
     return this.problems.update(actor, code, body);
+  }
+
+  /**
+   * The per-language limit overrides, read and written (D159).
+   *
+   * `problems:write` on BOTH, and no `@Public()` on either. Editing a
+   * problem's language limits is editing the problem — the same scope
+   * `PATCH /problems/:code` carries — and the read here is the load half of
+   * that one form, not a second thing a viewer might want: what a pupil is
+   * shown is the RESOLVED limits on `GET /problems/:code`, which is
+   * `@Public()` and stays that way. `ProblemAccessService.loadForEdit`
+   * decides who may act, 404 before 403, so an invisible problem never
+   * discloses itself through this route either.
+   */
+  @Get(':code/language-limits')
+  @RequireScope('problems:write')
+  languageLimits(
+    @CurrentActor() actor: Actor,
+    @Param('code') code: string,
+  ): Promise<ProblemLanguageLimitSettingsDto> {
+    return this.problems.getLanguageLimitSettings(actor, code);
+  }
+
+  @Put(':code/language-limits')
+  @RequireScope('problems:write')
+  replaceLanguageLimits(
+    @CurrentActor() actor: Actor,
+    @Param('code') code: string,
+    @Body(new ZodValidationPipe(UpdateProblemLanguageLimitsRequest))
+    body: UpdateProblemLanguageLimitsRequestDto,
+  ): Promise<ProblemLanguageLimitSettingsDto> {
+    return this.problems.replaceLanguageLimits(actor, code, body);
   }
 
   @Post(':code/revisions')

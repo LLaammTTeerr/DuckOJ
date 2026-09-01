@@ -25,6 +25,8 @@ import {
   type EditorialResponseDto,
   type ProblemDetailDto,
   type ProblemLanguageLimitDto,
+  type ProblemLanguageLimitSettingsDto,
+  type UpdateProblemLanguageLimitsRequestDto,
   type ProblemMeDto,
   type ProblemMyStatusDto,
   type ProblemMemberDto,
@@ -723,6 +725,170 @@ export class ProblemAccessService {
         allowed: tuning.allowed,
       };
     });
+  }
+
+  /**
+   * The overrides as their EDITOR sees them (D159): the inputs, not the
+   * result.
+   *
+   * `loadForEdit`, so the authorisation is not a second rule — an invisible
+   * problem 404s before anything else is decided and a visible-but-uneditable
+   * one 403s, which is exactly what `PATCH /problems/:code` does. Editing a
+   * problem's language limits is editing the problem.
+   *
+   * `base` is the published revision's authored limits or `null`, on
+   * `loadLanguageLimits`' rule: with no revision there is nothing to adjust,
+   * and inventing a base to multiply would be a limit nobody wrote. The
+   * overrides are still editable in that state — a setter may say "Python is
+   * refused here" before the tests exist — the form simply cannot preview a
+   * number.
+   */
+  async getLanguageLimitSettings(
+    actor: Actor | null,
+    code: string,
+  ): Promise<ProblemLanguageLimitSettingsDto> {
+    const { problem } = await this.loadForEdit(actor, code);
+    return this.loadLanguageLimitSettings(problem.id);
+  }
+
+  private async loadLanguageLimitSettings(
+    problemId: number,
+  ): Promise<ProblemLanguageLimitSettingsDto> {
+    const [published] = await this.db
+      .select({ timeMs: problemRevisions.timeMs, memoryKb: problemRevisions.memoryKb })
+      .from(problemRevisions)
+      .where(
+        and(eq(problemRevisions.problemId, problemId), eq(problemRevisions.state, 'published')),
+      )
+      .limit(1);
+
+    const rows = await this.db
+      .select({
+        key: schema.languages.key,
+        name: schema.languages.name,
+        defaultTimeMultiplierPct: schema.languages.timeMultiplierPct,
+        defaultMemoryExtraKb: schema.languages.memoryExtraKb,
+        overrideTimePct: schema.problemLanguageLimits.timeMultiplierPct,
+        overrideMemoryExtraKb: schema.problemLanguageLimits.memoryExtraKb,
+        allowed: schema.problemLanguageLimits.allowed,
+      })
+      .from(schema.languages)
+      .leftJoin(
+        schema.problemLanguageLimits,
+        and(
+          eq(schema.problemLanguageLimits.languageId, schema.languages.id),
+          eq(schema.problemLanguageLimits.problemId, problemId),
+        ),
+      )
+      .where(eq(schema.languages.isActive, true))
+      // The same order as `loadLanguageLimits` and for the same reason
+      // (D158): this form and the pupil's picker must read the same way down,
+      // or a setter checking their work against the submit box compares two
+      // differently-ordered lists.
+      .orderBy(asc(schema.languages.id));
+
+    return {
+      base:
+        published === undefined ? null : { timeMs: published.timeMs, memoryKb: published.memoryKb },
+      languages: rows.map((row) => ({
+        languageKey: row.key,
+        languageName: row.name,
+        defaultTimeMultiplierPct: row.defaultTimeMultiplierPct,
+        defaultMemoryExtraKb: row.defaultMemoryExtraKb,
+        // Straight through, NULL and all. This is the one place in the
+        // codebase that must not resolve the override over the default:
+        // `resolveLanguageTuning` would turn "inherit" into the inherited
+        // number, and the form could then never put a field back to inherit.
+        timeMultiplierPct: row.overrideTimePct,
+        memoryExtraKb: row.overrideMemoryExtraKb,
+        // No row at all is `allowed: true` — the column is `not null` and
+        // absence means "nothing was said", which is permission.
+        allowed: row.allowed ?? true,
+      })),
+    };
+  }
+
+  /**
+   * Replaces the whole set of overrides (D159).
+   *
+   * A replacement, on `members`/`orgSlugs`' rule in `update`: the form renders
+   * every active language at once so it always knows the whole answer, and a
+   * partial write would leave a setter unable to remove an override that is
+   * on their screen.
+   *
+   * A row that inherits both columns and allows the language is stored as NO
+   * ROW. It is byte-identical in every reader — `resolveLanguageTuning`
+   * answers the same tuning for `null` as for `{ null, null, true }` — and
+   * keeping it would leave `problem_language_limits` accumulating a row per
+   * (problem, language) for every problem anybody ever opened this form on.
+   *
+   * The bounds are validated by `ZodValidationPipe` before this is reached
+   * AND by a CHECK in the database (migration 0043) after it. Three layers,
+   * because the form is not the only way in and neither is this route.
+   */
+  async replaceLanguageLimits(
+    actor: Actor | null,
+    code: string,
+    body: UpdateProblemLanguageLimitsRequestDto,
+  ): Promise<ProblemLanguageLimitSettingsDto> {
+    const { problem } = await this.loadForEdit(actor, code);
+
+    const seen = new Set<string>();
+    for (const limit of body.limits) {
+      if (seen.has(limit.languageKey)) {
+        throw new AppError(
+          422,
+          'language_duplicated',
+          `The language \`${limit.languageKey}\` appears more than once.`,
+        );
+      }
+      seen.add(limit.languageKey);
+    }
+
+    // Only ACTIVE languages, matching what the read above offers. A key that
+    // is unknown or deactivated is refused rather than ignored: silently
+    // dropping it would tell a setter their "Python is refused here" was
+    // saved when nothing was written.
+    const active = await this.db
+      .select({ id: schema.languages.id, key: schema.languages.key })
+      .from(schema.languages)
+      .where(eq(schema.languages.isActive, true));
+    const idByKey = new Map(active.map((row) => [row.key, row.id]));
+    for (const key of seen) {
+      if (!idByKey.has(key)) {
+        throw new AppError(422, 'language_not_found', `No active language has the key \`${key}\`.`);
+      }
+    }
+
+    const rows = body.limits
+      // The row that says nothing is no row (see the doc comment above).
+      .filter(
+        (limit) =>
+          limit.timeMultiplierPct !== null || limit.memoryExtraKb !== null || !limit.allowed,
+      )
+      .map((limit) => ({
+        problemId: problem.id,
+        languageId: idByKey.get(limit.languageKey)!,
+        timeMultiplierPct: limit.timeMultiplierPct,
+        memoryExtraKb: limit.memoryExtraKb,
+        allowed: limit.allowed,
+      }));
+
+    await this.db.transaction(async (tx) => {
+      // Delete-then-insert inside ONE transaction, which is what makes this a
+      // replacement rather than a window in which the problem has no
+      // overrides at all: a concurrent submit either sees the old set whole or
+      // the new set whole.
+      await tx
+        .delete(schema.problemLanguageLimits)
+        .where(eq(schema.problemLanguageLimits.problemId, problem.id));
+      if (rows.length > 0) await tx.insert(schema.problemLanguageLimits).values(rows);
+    });
+
+    // Re-read rather than echo the request: `allowed: true` with both columns
+    // null was just DROPPED, and a response built from the body would report
+    // rows that are not there.
+    return this.loadLanguageLimitSettings(problem.id);
   }
 
   async getVisible(actor: Actor | null, code: string): Promise<ProblemDetailDto> {
