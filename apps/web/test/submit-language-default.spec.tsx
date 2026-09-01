@@ -27,10 +27,12 @@
  *     API answers 404 to.
  */
 import type { ReactElement } from 'react';
-import { render, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EditorView } from '@codemirror/view';
+import { DRAFT_DEBOUNCE_MS, DRAFT_PREFIX, draftKey } from '../src/editor/drafts.js';
 
 const post = vi.fn();
 const get = vi.fn();
@@ -87,7 +89,12 @@ function picker(): HTMLSelectElement {
 beforeEach(() => {
   get.mockReset();
   post.mockReset();
-  globalThis.localStorage.clear();
+  // Only the drafts: `test/setup.ts` seeds the locale into the same store,
+  // and clearing it outright renders this file's Vietnamese assertions in
+  // whatever the fallback happens to be.
+  for (const key of Object.keys(globalThis.localStorage)) {
+    if (key.startsWith(DRAFT_PREFIX)) globalThis.localStorage.removeItem(key);
+  }
 });
 
 describe('the language the submit picker starts on', () => {
@@ -142,5 +149,84 @@ describe('the language the submit picker starts on', () => {
     expect((post.mock.calls[0]![1] as { body: { languageKey: string } }).body.languageKey).toBe(
       'python3',
     );
+  });
+});
+
+/**
+ * The residual B-30 recorded and F-41 could not close: the mount path that
+ * CORRECTS an unofferable default loses the draft waiting in the language it
+ * corrected to, and then files the carried-over buffer over it.
+ *
+ * D158's fix derives the language key from what the server offers, so on a
+ * problem whose `allowed = false` kills the fallback language the key flips
+ * at MOUNT — the catalogue arrives a tick after the first render — without
+ * ever passing through `changeLanguage`, which is where B-30 put the restore.
+ * The opening buffer was decided once, in a `useRef`, against the FALLBACK
+ * language, and nothing ever revisited it.
+ *
+ * It became reachable for the first time in F-41, which gave setters a form
+ * that writes `allowed = false` without SQL. The pupil lands on the one
+ * language the problem still accepts, is shown a C++ starter template they
+ * never asked for, and their half-written Python program is both invisible
+ * and one keystroke from being overwritten.
+ */
+describe('the catalogue arriving late and correcting the default (D84 on the mount path)', () => {
+  /** The lazily-loaded CodeMirror instance, once it is on screen. */
+  async function editorView(): Promise<EditorView> {
+    const content = await screen.findByLabelText(/Mã nguồn/);
+    const view = EditorView.findFromDOM(content.closest('.cm-editor') as HTMLElement);
+    if (!view) throw new Error('the editor did not mount');
+    return view;
+  }
+
+  it('gives back the draft waiting in the language it corrected TO', async () => {
+    localStorage.setItem(draftKey('aplusb', 'python3'), 'print(41)  # unfinished');
+    // A problem that refuses every C++ dialect: the cold mount's fallback
+    // (`cpp17`) is not on offer, so the derived key flips to `python3`.
+    const server = detail(['python3']);
+    get.mockResolvedValue({ data: server, error: undefined, response: new Response() });
+
+    wrap(<SubmitPage problemCode="aplusb" />, clientWith());
+    await waitFor(() => {
+      expect(picker().value).toBe('python3');
+    });
+
+    const view = await editorView();
+    await waitFor(() => {
+      expect(view.state.doc.toString()).toBe('print(41)  # unfinished');
+    });
+    // And the pupil is TOLD, rather than finding code they do not remember
+    // writing (D84's own rule, which `editor.spec.tsx` pins for the ordinary
+    // mount).
+    expect(screen.getByRole('status')).toHaveTextContent('Khôi phục bản nháp');
+  });
+
+  it('does not file the carried-over buffer over that draft', async () => {
+    const pythonKey = draftKey('aplusb', 'python3');
+    localStorage.setItem(pythonKey, 'print(41)  # unfinished');
+    const server = detail(['python3']);
+    get.mockResolvedValue({ data: server, error: undefined, response: new Response() });
+
+    wrap(<SubmitPage problemCode="aplusb" />, clientWith());
+    await waitFor(() => {
+      expect(picker().value).toBe('python3');
+    });
+    const view = await editorView();
+
+    // One keystroke, and the debounce allowed to land. This is the data loss:
+    // against the bug the buffer still holds the C++ starter template, and
+    // this write files it under the PYTHON key, on top of the program the
+    // pupil came back for.
+    vi.useFakeTimers();
+    act(() => {
+      view.dispatch({ changes: { from: view.state.doc.length, insert: '\n' } });
+    });
+    act(() => {
+      vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS * 2);
+    });
+    vi.useRealTimers();
+
+    expect(localStorage.getItem(pythonKey)).toContain('print(41)');
+    expect(localStorage.getItem(pythonKey)).not.toContain('#include');
   });
 });

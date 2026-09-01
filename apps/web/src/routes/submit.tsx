@@ -177,6 +177,56 @@ export function SubmitForm(props: {
 
   const draft = useDraft(props.problemCode, languageKey);
 
+  /**
+   * The language the buffer on screen was opened FOR, which is not always the
+   * language the picker ends up on.
+   *
+   * D158 derives `languageKey` from what the server offers, so on a problem
+   * whose `allowed = false` kills the fallback language the key flips at
+   * MOUNT — the catalogue arrives a tick after the first render — without
+   * ever passing through `changeLanguage`. `opening` above was decided once
+   * against the fallback, so the pupil's draft in the language they were
+   * moved TO was unreachable and the first keystroke filed the carried-over
+   * buffer over it: D84's loss on the one path B-30's fix did not cover, and
+   * reachable for the first time since F-41 gave setters a form that writes
+   * `allowed = false` without SQL.
+   *
+   * The correction applies exactly `changeLanguage`'s rule, below, because it
+   * is the same event seen from the other side.
+   */
+  const openedFor = useRef(firstLanguage);
+  // Read inside the effect without making the effect depend on every
+  // keystroke: this is the buffer as it is NOW, not as it was when the
+  // language last moved.
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+  const flushDraft = draft.flush;
+  useEffect(() => {
+    const previous = openedFor.current;
+    if (previous === languageKey) return;
+    // Claimed before anything below can throw or re-render, so a second run
+    // of this effect is a no-op rather than a second restore.
+    openedFor.current = languageKey;
+    // A write still inside the 500 ms debounce window lands under the key it
+    // was SCHEDULED with — never after the read below, and never under the
+    // language the pupil has just been moved to.
+    flushDraft();
+    const stored = loadDraft(draftKey(props.problemCode, languageKey));
+    if (stored !== null) {
+      setSource(stored);
+      setRestored(true);
+      return;
+    }
+    // Nothing waiting there. A buffer the pupil has not touched is the
+    // fallback language's starter template and they never asked for it, so it
+    // becomes the real language's; anything else is their own work and is
+    // kept, exactly as an explicit switch keeps it.
+    if (sourceRef.current === templateForLanguage(previous)) {
+      setSource(templateForLanguage(languageKey));
+      setRestored(false);
+    }
+  }, [languageKey, props.problemCode, flushDraft]);
+
   const tooLarge = source.length > MAX_SOURCE_CHARS;
   const blocked = props.busy || (props.disabled ?? false) || tooLarge;
 
@@ -252,6 +302,9 @@ export function SubmitForm(props: {
    */
   function changeLanguage(next: string): void {
     setChosen(next);
+    // This switch is handled here, so the mount-correction effect above must
+    // not handle it a second time.
+    openedFor.current = next;
     draft.flush();
     const stored = loadDraft(draftKey(props.problemCode, next));
     if (stored !== null) {
