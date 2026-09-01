@@ -273,9 +273,21 @@ Every new assertion was demonstrated **red** first.
   is the bug wearing the fix's clothes) and that both pages are on screen at
   once. Red with `getNextPageParam: () => undefined`, which is the old
   behaviour exactly: `Unable to find role="button"`.
-- Full `@duckoj/api` and `@duckoj/web` suites, plus `@duckoj/contracts` and
-  `@duckoj/sdk` (both regenerated and committed: `openapi.json`,
-  `packages/sdk/src/generated.ts`). Counts in the closing section.
+- **Full suites of every package touched**, `nice -n 19` and
+  `--no-file-parallelism` throughout:
+
+  | Package | Result |
+  | --- | --- |
+  | `@duckoj/api` | **`Test Files  146 passed (146)` / `Tests  1250 passed (1250)`** |
+  | `@duckoj/web` | **`Test Files  72 passed (72)` / `Tests  770 passed (770)`** |
+  | `@duckoj/contracts` | **`Test Files  9 passed (9)` / `Tests  39 passed (39)`** |
+  | `@duckoj/sdk` | **`Test Files  1 passed (1)` / `Tests  2 passed (2)`** |
+
+  `openapi.json` and `packages/sdk/src/generated.ts` were regenerated from the
+  contract change and committed with it.
+- `typecheck` and `lint` clean for `@duckoj/api`, `@duckoj/web`,
+  `@duckoj/contracts` and `@duckoj/sdk` — lint separately, because a passing
+  `tsc` is not a passing `eslint`.
 - **No e2e was added.** Playwright points at the live edge deployed at
   `925f27a`, which predates both commits, so a walk could only ever show this
   fix red. `apps/web/e2e/organiser.spec.ts` is the walk whose own history
