@@ -278,7 +278,14 @@ export function SubmitForm(props: {
       {selected ? (
         <p className="muted" id="language-limits">
           {t('submit.limitsForLanguage', {
-            time: (selected.timeMs / 1000).toFixed(selected.timeMs % 1000 === 0 ? 0 : 1),
+            // Exact, not `toFixed(1)`: an override of 333 % on a 1001 ms
+            // problem is 3334 ms, and "3.3 s" would be a THIRD number beside
+            // the one shown and the one enforced. `String` renders the
+            // shortest round-trip form, so a whole second is still "3".
+            time: String(selected.timeMs / 1000),
+            // MB is the unit a limit is quoted in, and every seeded value is
+            // a whole number of them; a non-multiple is rounded rather than
+            // given four decimals nobody reads.
             memory: String(Math.round(selected.memoryKb / 1024)),
           })}
         </p>
