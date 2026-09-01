@@ -218,3 +218,50 @@ could not.*
 six containers healthy; 420 users / 59 problems / 137 contests / 816
 submissions; host cold at 46.6 °C, load 0.24; one agent running, per the
 thermal cap.
+
+---
+
+## 2026-09-01 — six slots, and the CI streak I did not read
+
+F-39 languages · F-40 mail · B-30 hunt · F-41 limit authoring · F-42 browser
+walks · B-31 invalidation class · F-43 concurrency. All deployed, all pushed,
+CI green at `6089829`, full Playwright run **76 passed** on that deploy.
+
+**The controller mistake worth recording.** CI was red from `908a6b8` through
+`c68fcf1` — three consecutive pushes. I reported F-41 green while its run was
+still `in_progress` and then never went back. Two more slots were stacked on
+top before F-43's agent surfaced it. The cause was one missing `COPY` line per
+Dockerfile for F-41's new `packages/language-limits`: the images still built,
+so nothing failed loudly, and only `dockerfile-manifest.spec.ts` — a guard
+written for exactly this — noticed. **A guard nobody reads is not a guard.**
+Rule adopted: a push is not reported until its run reports `completed`, and
+the conclusion is quoted, never inferred from the previous commit's.
+
+**The thermal reading worth recording.** Tctl hit **93.0 °C** — the incident
+number — while two container image builds ran back-to-back into a browser
+suite. Nothing was lost, it settled to 48 °C within twenty minutes, and the
+cap is now explicit in every brief: no image build chained straight into a
+suite, and no load test on this host at all.
+
+**The pattern that produced the day's best findings.** Three of the four worst
+defects came from asking a *different question* rather than looking harder at
+the same one:
+
+- Writing the feature summary for an outside reader found the one-language
+  gap that thirteen bug-hunts had not — because enumerating what a thing does
+  is a different question from reviewing what it does wrong.
+- Driving a real browser found a roster form that silently dropped a pupil —
+  because 754 specs mock the SDK, and a mock returns fresh data no matter
+  which cache key was invalidated.
+- Sweeping the *class* behind that one bug found two worse instances, where
+  the edit forms invalidated nothing at all and a setter overwrote their own
+  rewritten statement.
+
+Each was invisible to the technique that preceded it. The lesson is not "test
+harder"; it is that a technique cannot find the defects it is structurally
+blind to, and the cheapest way to see them is to change the instrument.
+
+**Live artefact hygiene:** F-42 left nine contests public by accident and shut
+them by hand; its `afterAll` is now the pattern. D153 naming held everywhere
+else. The atlas artifact is republished after every deploy — seven versions
+today, latest `optimistic-concurrency`.
