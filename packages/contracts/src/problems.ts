@@ -435,6 +435,23 @@ export const ProblemLanguageLimitSettings = z.object({
    * (D158) so the form and the pupil's picker read the same way down.
    */
   languages: z.array(ProblemLanguageLimitSetting),
+  /**
+   * What this caller must send back as `expectedVersion` to be sure their PUT
+   * replaces the state they were shown — D161, extended to this form by D176.
+   *
+   * An opaque hash of the problem's **stored overrides**: exactly what
+   * `UpdateProblemLanguageLimitsRequest` writes, and nothing else. So `base`
+   * and the per-language defaults above it are deliberately *not* in it — a
+   * setter who publishes a revision, or an administrator who retunes a
+   * language deployment-wide, changes what this screen previews without
+   * changing anything this screen can save, and locking a co-author out over
+   * that would be a refusal nobody could explain.
+   *
+   * **Never null**, unlike `ProblemDetail.version`: this whole route is
+   * editor-only (`loadForEdit`, 404 before 403), so a caller who can read this
+   * object can PATCH it by construction.
+   */
+  version: z.string(),
 });
 export type ProblemLanguageLimitSettingsDto = z.infer<typeof ProblemLanguageLimitSettings>;
 
@@ -459,6 +476,25 @@ export const UpdateProblemLanguageLimitsRequest = z.object({
       allowed: true,
     }),
   ),
+  /**
+   * The `version` this client read before it started editing — D161's token,
+   * extended to this form by D176. Present and no longer current is a 409
+   * `language_limits_version_conflict` with **nothing written**.
+   *
+   * The form renders every active language at once and PUTs every one of them
+   * back, so the field at risk is every language's row rather than the box
+   * that was typed in: a co-setter who refused Python while this form was open
+   * has their refusal replaced by an "allowed" the form has been holding since
+   * before it existed. Nothing fails and nobody is told.
+   *
+   * **Absent means unchecked**, as it does on `UpdateProblemRequest`, and for
+   * the same reason: this API is a documented surface with personal access
+   * tokens behind it.
+   *
+   * Note that this schema, alone among the five D176 covers, is **not**
+   * `.strict()` — see the route's description for what that means at deploy.
+   */
+  expectedVersion: z.string().optional(),
 });
 export type UpdateProblemLanguageLimitsRequestDto = z.infer<
   typeof UpdateProblemLanguageLimitsRequest
@@ -921,6 +957,13 @@ registry.registerPath({
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: PROBLEM_NOT_FOUND,
+    409: {
+      description:
+        '`problem_version_conflict` \u2014 the request carried an `expectedVersion` that is no ' +
+        'longer current, so somebody else saved this problem after this client read it. NOTHING ' +
+        'was written (D161).',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
     422: {
       description:
         'The request failed validation, named a tag slug that does not exist, or asked to publish ' +
@@ -984,6 +1027,13 @@ registry.registerPath({
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: PROBLEM_NOT_FOUND,
+    409: {
+      description:
+        '`language_limits_version_conflict` \u2014 the request carried an `expectedVersion` that is ' +
+        'no longer current, so somebody else saved these overrides after this client read them. ' +
+        'NOTHING was written (D161, D176).',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
     422: {
       description:
         'The request failed validation (a bound, or a `languageKey` that is unknown, inactive ' +

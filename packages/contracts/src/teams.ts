@@ -116,6 +116,21 @@ export const TeamDetail = TeamSummary.extend({
    * subtly different from the server's own check.
    */
   canEdit: z.boolean(),
+  /**
+   * What this caller must send back as `expectedVersion` to be sure their
+   * PATCH replaces the state they were shown \u2014 D161, extended to this form
+   * by D176.
+   *
+   * An opaque hash of the team's **stored editable state**: its slug, its name
+   * and its roster. Exactly what `UpdateTeamRequest` writes \u2014 so `contests`
+   * above is deliberately absent, because a team entering a round is not an
+   * edit to the team and must not refuse a rename made in the same minute.
+   *
+   * **`null` when `canEdit` is false**, on that field's own precedent and
+   * gated on the same predicate: a team member who may read the roster has no
+   * PATCH to send it back on.
+   */
+  version: z.string().nullable(),
 });
 export type TeamDetailDto = z.infer<typeof TeamDetail>;
 
@@ -145,6 +160,21 @@ export const UpdateTeamRequest = z
     slug: z.string().regex(TEAM_SLUG).optional(),
     name: z.string().min(1).max(200).optional(),
     members: z.array(z.string().min(1).max(64)).max(TEAM_MAX_MEMBERS).optional(),
+    /**
+     * The `version` this client read before it started editing \u2014 D161's
+     * token, extended to this form by D176. Present and no longer current is a
+     * 409 `team_version_conflict` with **nothing written**.
+     *
+     * The field at risk is `members`, which is the most all-or-nothing field
+     * in this API: it REPLACES the whole roster, so a co-admin who added the
+     * fourth pupil while this form was open has them removed again by a save
+     * that was only meant to fix the team's name. On contest morning that is a
+     * pupil who cannot compete, and nothing failed and nobody was told.
+     *
+     * **Absent means unchecked**, as on `UpdateProblemRequest` and for the
+     * same reason.
+     */
+    expectedVersion: z.string().optional(),
   })
   .strict();
 export type UpdateTeamRequestDto = z.infer<typeof UpdateTeamRequest>;
@@ -261,8 +291,11 @@ registry.registerPath({
     404: TEAM_NOT_FOUND,
     409: {
       description:
-        'This organization already has a team with that slug (`team_slug_taken`), or the new ' +
-        'name is already competing on a board this team is on (`contest_team_name_taken`)',
+        'This organization already has a team with that slug (`team_slug_taken`), the new ' +
+        'name is already competing on a board this team is on (`contest_team_name_taken`), or ' +
+        'the request carried an `expectedVersion` that is no longer current \u2014 somebody else ' +
+        'saved this team after this client read it, and NOTHING was written ' +
+        '(`team_version_conflict`, D161/D176)',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     422: TEAM_VALIDATION_FAILED,

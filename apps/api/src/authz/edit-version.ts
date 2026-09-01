@@ -1,5 +1,6 @@
 /**
- * The concurrency token two edit forms carry — D161.
+ * The concurrency token an edit form carries — D161, extended to every form
+ * with the shape by D176.
  *
  * **The problem it exists for.** `ProblemEditPage` and `ContestEditPage` are
  * whole-object forms: they seed every field from one read and PATCH every
@@ -9,6 +10,16 @@
  * nothing appears on screen, and the site held both versions and threw one
  * away. B-31 closed the case where the stale copy was the teacher's own; this
  * closes the case where it was somebody else's.
+ *
+ * **Five forms have that shape, and four of them are here.** D161 was applied
+ * where the defect was found; D176 asks the question of every form that seeds
+ * once from a cached query and saves by replacement, and admits the ones two
+ * people can plausibly hold open at the same time: the two above, a problem's
+ * per-language limits, a problem set, and a team's roster. `/account/settings`
+ * has the shape and is **deliberately not here** — the only writer of a
+ * person's display name and preferences is that person, so there is no second
+ * holder for the token to protect them from. D176 records what would make that
+ * stop being true.
  *
  * **What the token is.** A SHA-256 over the row's editable state, read in one
  * query — exactly the columns `UpdateProblemRequest` / `UpdateContestRequest`
@@ -226,6 +237,127 @@ export async function contestEditVersion(db: Db, contestId: number): Promise<str
 }
 
 /**
+ * The token for a problem's per-language limit overrides — D176.
+ *
+ * Over exactly what `UpdateProblemLanguageLimitsRequest` writes: one entry per
+ * STORED override row, keyed by the language's `key` rather than its id
+ * (a re-seeded deployment is what changes an id; the key is what the form
+ * sends and what a setter reads).
+ *
+ * **What is deliberately not in it**, and this is the interesting half. The
+ * response this token rides carries `base` — the published revision's authored
+ * limits — and each language's deployment-wide default multiplier and memory
+ * floor. Neither is a field this PUT can write. A setter who publishes a
+ * corrected revision, or an administrator who retunes Python across the whole
+ * judge (D169 did exactly that), changes what this screen *previews* without
+ * changing anything this screen can *save*; a token over them would lock a
+ * co-author out of the overrides over a write they do not own, which is the
+ * failure mode D161 rejected a `version` column to avoid.
+ *
+ * A row that inherits both columns and allows the language is stored as NO ROW
+ * (`replaceLanguageLimits`'s own rule), so it contributes nothing here either
+ * — which is right, and is why the token is over the stored rows rather than
+ * over the request that produced them: two requests that store the same set
+ * are the same state, and neither refuses the other.
+ */
+export async function problemLanguageLimitsVersion(db: Db, problemId: number): Promise<string> {
+  const rows = await db.execute<{ limits: string }>(sql`
+    select coalesce((
+             select string_agg(
+                      l.key || chr(30) || coalesce(pll.time_multiplier_pct::text, '')
+                            || chr(30) || coalesce(pll.memory_extra_kb::text, '')
+                            || chr(30) || pll.allowed::text,
+                      chr(31) order by l.key
+                    )
+               from problem_language_limits pll join languages l on l.id = pll.language_id
+              where pll.problem_id = ${problemId}
+           ), '') as limits
+  `);
+  return digest(['language-limits', problemId, rows[0]?.limits ?? '']);
+}
+
+/**
+ * The token for a problem set — D176.
+ *
+ * Over exactly what `UpdateProblemSetRequest` writes: the four scalars and the
+ * item list with its points and its order. `deadline` is reduced to epoch
+ * milliseconds rather than cast to `text`, for the reason `contestEditVersion`
+ * states — a `timestamptz` renders through the session's `TimeZone`, and this
+ * value is computed on a read in one worker and compared on a write in
+ * another.
+ *
+ * Ordered by `("order", problem_id)`, which is the order every read of this
+ * list uses (`problem_set_items_order_idx`). The item's PROBLEM CODE, not its
+ * id, on `problemEditVersion`'s rule.
+ *
+ * `solvedCount`, `visible` and the `me` cells on `ProblemSetDetail` are not
+ * here and must not be: they move when a pupil submits, and they differ
+ * between two teachers who may both edit this set.
+ */
+export async function problemSetEditVersion(db: Db, setId: number): Promise<string> {
+  const rows = await db.execute<{
+    slug: string;
+    name: string;
+    description: string | null;
+    deadline_ms: string | null;
+    items: string;
+  }>(sql`
+    select ps.slug,
+           ps.name,
+           ps.description,
+           (extract(epoch from ps.deadline) * 1000)::bigint::text as deadline_ms,
+           coalesce((
+             select string_agg(
+                      p.code || chr(30) || psi."order"::text || chr(30) || psi.points::text,
+                      chr(31) order by psi."order", psi.problem_id
+                    )
+               from problem_set_items psi join problems p on p.id = psi.problem_id
+              where psi.set_id = ps.id
+           ), '') as items
+      from problem_sets ps
+     where ps.id = ${setId}
+  `);
+  const row = rows[0];
+  if (!row) return digest(['problem-set', 'gone', setId]);
+  return digest([
+    'problem-set',
+    row.slug,
+    row.name,
+    row.description,
+    row.deadline_ms,
+    row.items,
+  ]);
+}
+
+/**
+ * The token for a team — D176.
+ *
+ * Over exactly what `UpdateTeamRequest` writes: the slug, the name and the
+ * roster, by username and sorted by it.
+ *
+ * `TeamDetail.contests` is deliberately absent. A team entering a round is not
+ * an edit to the team, and a token that moved on it would refuse a rename made
+ * in the same minute as a join — on contest morning, which is precisely when
+ * both happen.
+ */
+export async function teamEditVersion(db: Db, teamId: number): Promise<string> {
+  const rows = await db.execute<{ slug: string; name: string; members: string }>(sql`
+    select t.slug,
+           t.name,
+           coalesce((
+             select string_agg(u.username, chr(31) order by u.username)
+               from team_members tm join users u on u.id = tm.user_id
+              where tm.team_id = t.id
+           ), '') as members
+      from teams t
+     where t.id = ${teamId}
+  `);
+  const row = rows[0];
+  if (!row) return digest(['team', 'gone', teamId]);
+  return digest(['team', row.slug, row.name, row.members]);
+}
+
+/**
  * The refusal — D161.
  *
  * **409, not 422.** Nothing about the request is malformed; the world moved
@@ -239,14 +371,26 @@ export async function contestEditVersion(db: Db, contestId: number): Promise<str
  * the token is a hash, and the pre-image these two tables would need to answer
  * that is history they do not keep.
  */
-export function versionConflict(kind: 'problem' | 'contest'): AppError {
+export type VersionedRecord = 'problem' | 'contest' | 'language_limits' | 'problem_set' | 'team';
+
+/**
+ * What each record is CALLED in the refusal. One table rather than five
+ * sentences: the message differs by one noun, and five copies of one sentence
+ * is five chances for one of them to stop saying "nothing was written".
+ */
+const NOUN: Record<VersionedRecord, string> = {
+  problem: 'this problem',
+  contest: 'this contest',
+  language_limits: "this problem's language limits",
+  problem_set: 'this problem set',
+  team: 'this team',
+};
+
+export function versionConflict(kind: VersionedRecord): AppError {
   return new AppError(
     409,
     `${kind}_version_conflict`,
-    kind === 'problem'
-      ? 'Somebody else saved this problem after you opened it. Nothing was written. ' +
-        'Load the newer version and apply your change to it.'
-      : 'Somebody else saved this contest after you opened it. Nothing was written. ' +
-        'Load the newer version and apply your change to it.',
+    `Somebody else saved ${NOUN[kind]} after you opened it. Nothing was written. ` +
+      'Load the newer version and apply your change to it.',
   );
 }

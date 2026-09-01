@@ -17,7 +17,16 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { eq } from 'drizzle-orm';
-import { contestProblems, contests, problems } from '@duckoj/db/guarded';
+import {
+  contestProblems,
+  contests,
+  problemMembers,
+  problemSetItems,
+  problemSets,
+  problems,
+  teamMembers,
+  teams,
+} from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { buildApp } from './app.harness.js';
 import { withTestDb } from './db.harness.js';
@@ -365,6 +374,399 @@ describe('two organisers editing one contest (D161)', () => {
           .send({ name: 'Vòng tỉnh', expectedVersion: opened.body.version });
         expect(saved.status).toBe(200);
         expect(saved.body.version).not.toBe(opened.body.version);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
+/**
+ * D176 — the same ruling, applied to the three other forms that have the
+ * shape.
+ *
+ * D161 was scoped to the two places the defect was found. The reasoning was
+ * never about problems and contests: it was about **any form that seeds once
+ * from a cached query and saves by replacement**, because that combination
+ * silently overwrites a co-editor's work with a copy the form has been holding
+ * since before they saved.
+ *
+ * Each block below is the same three beats as the two above it — a read that
+ * yields a token, somebody else's save, and then the save that carries the
+ * token from before it — and each asserts on the STORED state rather than on
+ * the response, because "nothing was written" is the promise the 409 makes.
+ */
+
+/** An organization with two owners, which is the whole point of these cases. */
+async function seedOrgWithTwoOwners(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  db: Db,
+  slug: string,
+): Promise<{ anh: ReturnType<typeof request.agent>; binh: ReturnType<typeof request.agent> }> {
+  const root = request.agent(app.getHttpServer());
+  await registerAndLogin(root, `${slug}-root`);
+  await promote(db, `${slug}-root`, 'admin');
+  const created = await root
+    .post('/api/v1/orgs')
+    .send({ slug, name: slug, visibility: 'public', joinPolicy: 'invite' });
+  expect(created.status, JSON.stringify(created.body)).toBe(201);
+
+  const anh = request.agent(app.getHttpServer());
+  const binh = request.agent(app.getHttpServer());
+  await registerAndLogin(anh, `${slug}-anh`);
+  await registerAndLogin(binh, `${slug}-binh`);
+  // BOTH owners. `OrgAccessService.loadForEdit` admits an owner or an admin,
+  // so two people holding this form open is not a hypothetical — it is the
+  // ordinary staffing of a school on this site.
+  for (const name of [`${slug}-anh`, `${slug}-binh`]) {
+    const added = await root
+      .post(`/api/v1/orgs/${slug}/members`)
+      .send({ username: name, role: 'owner' });
+    expect(added.status, JSON.stringify(added.body)).toBe(201);
+  }
+  return { anh, binh };
+}
+
+describe("two setters editing one problem's language limits (D176)", () => {
+  it('refuses the second save, writes nothing, and leaves the first setter’s refusal standing', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const app = await buildApp(db);
+      try {
+        const anh = request.agent(app.getHttpServer());
+        const binh = request.agent(app.getHttpServer());
+        await registerAndLogin(anh, 'd176-ll-anh');
+        await registerAndLogin(binh, 'd176-ll-binh');
+        for (const name of ['d176-ll-anh', 'd176-ll-binh']) {
+          await db.insert(problemMembers).values({
+            problemId: (await db.select({ id: problems.id }).from(problems).where(eq(problems.code, 'aplusb')))[0]!.id,
+            userId: await userIdOf(db, name),
+            role: 'author',
+          });
+        }
+
+        // Anh opens the tab. Her form is seeded from this, and this is the
+        // token it will send back.
+        const anhOpened = await anh.get('/api/v1/problems/aplusb/language-limits');
+        expect(anhOpened.status).toBe(200);
+        const anhVersion: unknown = anhOpened.body.version;
+        expect(typeof anhVersion).toBe('string');
+
+        // Bình decides Python cannot express the intended solution here, and
+        // refuses it. Anh's tab knows nothing about it.
+        //
+        // `python3` is the key migration 0042 seeds it under, and it is
+        // asserted rather than assumed: a map over a key no language has would
+        // store no row at all, leave the token where it was, and make this
+        // whole case pass against code with no check in it.
+        const binhOpened = await binh.get('/api/v1/problems/aplusb/language-limits');
+        expect(
+          binhOpened.body.languages.map((lang: { languageKey: string }) => lang.languageKey),
+        ).toContain('python3');
+        const binhSaved = await binh.put('/api/v1/problems/aplusb/language-limits').send({
+          limits: binhOpened.body.languages.map((lang: { languageKey: string }) => ({
+            languageKey: lang.languageKey,
+            timeMultiplierPct: null,
+            memoryExtraKb: null,
+            allowed: lang.languageKey !== 'python3',
+          })),
+          expectedVersion: binhOpened.body.version,
+        });
+        expect(binhSaved.status, JSON.stringify(binhSaved.body)).toBe(200);
+
+        // Anh raises C++'s multiplier and saves. Her form PUTs every language,
+        // and the Python row it holds still says `allowed: true` — Bình's
+        // refusal, about to be replaced by a copy taken before it existed.
+        const anhSaved = await anh.put('/api/v1/problems/aplusb/language-limits').send({
+          limits: anhOpened.body.languages.map((lang: { languageKey: string }) => ({
+            languageKey: lang.languageKey,
+            timeMultiplierPct: lang.languageKey === 'cpp17' ? 150 : null,
+            memoryExtraKb: null,
+            allowed: true,
+          })),
+          expectedVersion: anhVersion,
+        });
+        expect(anhSaved.status).toBe(409);
+        expect(anhSaved.body.code).toBe('language_limits_version_conflict');
+
+        // The promise the 409 makes, asserted on the STORED rows: Bình's
+        // refusal is still there and Anh's multiplier was not written.
+        const stored = await db
+          .select({
+            key: schema.languages.key,
+            allowed: schema.problemLanguageLimits.allowed,
+            time: schema.problemLanguageLimits.timeMultiplierPct,
+          })
+          .from(schema.problemLanguageLimits)
+          .innerJoin(
+            schema.languages,
+            eq(schema.languages.id, schema.problemLanguageLimits.languageId),
+          );
+        expect(stored).toEqual([{ key: 'python3', allowed: false, time: null }]);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('hands back a token the same tab can save with again, and leaves a PUT that sends none unchecked', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const app = await buildApp(db);
+      try {
+        const anh = request.agent(app.getHttpServer());
+        await registerAndLogin(anh, 'd176-ll-solo');
+        await db.insert(problemMembers).values({
+          problemId: (await db.select({ id: problems.id }).from(problems).where(eq(problems.code, 'aplusb')))[0]!.id,
+          userId: await userIdOf(db, 'd176-ll-solo'),
+          role: 'author',
+        });
+
+        const opened = await anh.get('/api/v1/problems/aplusb/language-limits');
+        // Asserted before anything is compared to it. Without this line every
+        // `toBe(opened.body.version)` below is `undefined === undefined`, and
+        // the case passes against code that serves no token at all — the trap
+        // F-43's own third case fell into and recorded.
+        expect(typeof opened.body.version).toBe('string');
+        const all = opened.body.languages.map((lang: { languageKey: string }) => ({
+          languageKey: lang.languageKey,
+          timeMultiplierPct: null,
+          memoryExtraKb: null,
+          allowed: true,
+        }));
+
+        // A save that stores exactly what was already stored is a NO-OP, not a
+        // conflict — the property a content hash buys that a counter cannot,
+        // and the one that keeps a double-submitted form from refusing
+        // anybody.
+        const noop = await anh
+          .put('/api/v1/problems/aplusb/language-limits')
+          .send({ limits: all, expectedVersion: opened.body.version });
+        expect(noop.status).toBe(200);
+        expect(noop.body.version).toBe(opened.body.version);
+
+        // The response carries the token as it now IS, so the same open tab
+        // can save again. Without that, the next save would 409 against the
+        // write it had just made itself.
+        const second = await anh.put('/api/v1/problems/aplusb/language-limits').send({
+          limits: all.map((row: { languageKey: string }) =>
+            row.languageKey === 'cpp17' ? { ...row, timeMultiplierPct: 150 } : row,
+          ),
+          expectedVersion: noop.body.version,
+        });
+        expect(second.status, JSON.stringify(second.body)).toBe(200);
+        expect(second.body.version).not.toBe(noop.body.version);
+
+        // And the honest weak point, pinned: a client that sends no token is
+        // exactly as exposed as it was before D161 existed. `opened.body
+        // .version` is two saves stale by now and this PUT lands anyway.
+        const unchecked = await anh
+          .put('/api/v1/problems/aplusb/language-limits')
+          .send({ limits: all });
+        expect(unchecked.status).toBe(200);
+        const rows = await db.select().from(schema.problemLanguageLimits);
+        expect(rows).toEqual([]);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
+describe('two teachers editing one problem set (D176)', () => {
+  it('refuses the second save and leaves the problem the first teacher added', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const app = await buildApp(db);
+      try {
+        const { anh, binh } = await seedOrgWithTwoOwners(app, db, 'd176set');
+
+        const made = await anh
+          .post('/api/v1/orgs/d176set/sets')
+          .send({ slug: 'tuan-1', name: 'Tuần 1', problems: [] });
+        expect(made.status, JSON.stringify(made.body)).toBe(201);
+
+        // Anh opens the set to change its deadline.
+        const anhOpened = await anh.get('/api/v1/orgs/d176set/sets/tuan-1');
+        expect(anhOpened.status).toBe(200);
+        const anhVersion: unknown = anhOpened.body.version;
+        expect(typeof anhVersion).toBe('string');
+
+        // Bình adds this week's problem. Anh's form still holds the empty
+        // list.
+        const binhOpened = await binh.get('/api/v1/orgs/d176set/sets/tuan-1');
+        const binhSaved = await binh
+          .patch('/api/v1/orgs/d176set/sets/tuan-1')
+          .send({ problems: [{ code: 'aplusb', points: 100 }], expectedVersion: binhOpened.body.version });
+        expect(binhSaved.status, JSON.stringify(binhSaved.body)).toBe(200);
+
+        const anhSaved = await anh.patch('/api/v1/orgs/d176set/sets/tuan-1').send({
+          name: 'Tuần một',
+          problems: [],
+          expectedVersion: anhVersion,
+        });
+        expect(anhSaved.status).toBe(409);
+        expect(anhSaved.body.code).toBe('problem_set_version_conflict');
+
+        // Asserted on the stored items, not on the response: the problem Bình
+        // assigned is still in the set, and Anh's rename was not written.
+        const items = await db.select({ problemId: problemSetItems.problemId }).from(problemSetItems);
+        expect(items).toHaveLength(1);
+        const [row] = await db.select({ name: problemSets.name }).from(problemSets);
+        expect(row!.name).toBe('Tuần 1');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('serves no token to a pupil reading their homework, and does not move on a write the form does not own', async () => {
+    await withTestDb(async (db) => {
+      await seedProblemAndLanguage(db);
+      const app = await buildApp(db);
+      try {
+        const { anh } = await seedOrgWithTwoOwners(app, db, 'd176set2');
+        const pupil = request.agent(app.getHttpServer());
+        await registerAndLogin(pupil, 'd176set2-pupil');
+        const root = request.agent(app.getHttpServer());
+        await registerAndLogin(root, 'd176set2-admin');
+        await promote(db, 'd176set2-admin', 'admin');
+        const joined = await root
+          .post('/api/v1/orgs/d176set2/members')
+          .send({ username: 'd176set2-pupil', role: 'member' });
+        expect(joined.status).toBe(201);
+
+        const made = await anh
+          .post('/api/v1/orgs/d176set2/sets')
+          .send({ slug: 'tuan-1', name: 'Tuần 1', problems: [{ code: 'aplusb', points: 100 }] });
+        expect(made.status, JSON.stringify(made.body)).toBe(201);
+
+        // A pupil may read their own homework through this route, so the 404
+        // gate is not what withholds the token. `null` is (D161's rule): it is
+        // useless to somebody who cannot PATCH, and it costs a query they
+        // should not pay.
+        const read = await pupil.get('/api/v1/orgs/d176set2/sets/tuan-1');
+        expect(read.status).toBe(200);
+        expect(read.body.version).toBeNull();
+
+        // A write the form does not own does not move the token. The problem's
+        // NAME is on `ProblemSetDetail.items[].name`, and it is not a field
+        // `UpdateProblemSetRequest` can write — so renaming it must not lock
+        // the teacher out of the deadline.
+        const before = await anh.get('/api/v1/orgs/d176set2/sets/tuan-1');
+        await db.update(problems).set({ name: 'A + B, đã đổi tên' }).where(eq(problems.code, 'aplusb'));
+        const after = await anh.get('/api/v1/orgs/d176set2/sets/tuan-1');
+        expect(after.body.items[0].name).toBe('A + B, đã đổi tên');
+        expect(after.body.version).toBe(before.body.version);
+
+        const saved = await anh
+          .patch('/api/v1/orgs/d176set2/sets/tuan-1')
+          .send({ name: 'Tuần một', expectedVersion: before.body.version });
+        expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+});
+
+describe('two admins editing one team roster (D176)', () => {
+  it('refuses the roster save that would drop the pupil the other admin just added', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const { anh, binh } = await seedOrgWithTwoOwners(app, db, 'd176team');
+        const root = request.agent(app.getHttpServer());
+        await registerAndLogin(root, 'd176team-admin');
+        await promote(db, 'd176team-admin', 'admin');
+        for (const name of ['d176team-p1', 'd176team-p2', 'd176team-p3']) {
+          const pupil = request.agent(app.getHttpServer());
+          await registerAndLogin(pupil, name);
+          const added = await root
+            .post('/api/v1/orgs/d176team/members')
+            .send({ username: name, role: 'member' });
+          expect(added.status, JSON.stringify(added.body)).toBe(201);
+        }
+
+        const made = await anh
+          .post('/api/v1/orgs/d176team/teams')
+          .send({ slug: 'doi-1', name: 'Đội 1', members: ['d176team-p1', 'd176team-p2'] });
+        expect(made.status, JSON.stringify(made.body)).toBe(201);
+
+        // Anh opens the team to fix its name.
+        const anhOpened = await anh.get('/api/v1/orgs/d176team/teams/doi-1');
+        expect(anhOpened.status).toBe(200);
+        const anhVersion: unknown = anhOpened.body.version;
+        expect(typeof anhVersion).toBe('string');
+
+        // Bình adds the third pupil. Anh's form still holds the roster of two.
+        const binhOpened = await binh.get('/api/v1/orgs/d176team/teams/doi-1');
+        const binhSaved = await binh.patch('/api/v1/orgs/d176team/teams/doi-1').send({
+          members: ['d176team-p1', 'd176team-p2', 'd176team-p3'],
+          expectedVersion: binhOpened.body.version,
+        });
+        expect(binhSaved.status, JSON.stringify(binhSaved.body)).toBe(200);
+
+        // Anh's save carries the whole roster, because `members` REPLACES it.
+        // On contest morning this is a pupil who cannot compete.
+        const anhSaved = await anh.patch('/api/v1/orgs/d176team/teams/doi-1').send({
+          name: 'Đội Một',
+          members: ['d176team-p1', 'd176team-p2'],
+          expectedVersion: anhVersion,
+        });
+        expect(anhSaved.status).toBe(409);
+        expect(anhSaved.body.code).toBe('team_version_conflict');
+
+        const roster = await db.select({ userId: teamMembers.userId }).from(teamMembers);
+        expect(roster).toHaveLength(3);
+        const [team] = await db.select({ name: teams.name }).from(teams);
+        expect(team!.name).toBe('Đội 1');
+      } finally {
+        await app.close();
+      }
+    });
+  }, 180_000);
+
+  it('serves no token to somebody who may read the roster but not edit it', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const { anh } = await seedOrgWithTwoOwners(app, db, 'd176team2');
+        const root = request.agent(app.getHttpServer());
+        await registerAndLogin(root, 'd176team2-admin');
+        await promote(db, 'd176team2-admin', 'admin');
+        const pupil = request.agent(app.getHttpServer());
+        await registerAndLogin(pupil, 'd176team2-p1');
+        const added = await root
+          .post('/api/v1/orgs/d176team2/members')
+          .send({ username: 'd176team2-p1', role: 'member' });
+        expect(added.status).toBe(201);
+
+        const made = await anh
+          .post('/api/v1/orgs/d176team2/teams')
+          .send({ slug: 'doi-1', name: 'Đội 1', members: ['d176team2-p1'] });
+        expect(made.status, JSON.stringify(made.body)).toBe(201);
+
+        // A pupil ON the team may read it — that is the strongest membership
+        // `get` accepts — and gets no token, gated on the same `canEdit` the
+        // response already carries.
+        const read = await pupil.get('/api/v1/orgs/d176team2/teams/doi-1');
+        expect(read.status).toBe(200);
+        expect(read.body.canEdit).toBe(false);
+        expect(read.body.version).toBeNull();
+
+        // And the round trip an editor makes: the response's own token saves
+        // again from the same open form.
+        const opened = await anh.get('/api/v1/orgs/d176team2/teams/doi-1');
+        const first = await anh
+          .patch('/api/v1/orgs/d176team2/teams/doi-1')
+          .send({ name: 'Đội Một', expectedVersion: opened.body.version });
+        expect(first.status, JSON.stringify(first.body)).toBe(200);
+        expect(first.body.version).not.toBe(opened.body.version);
+        const again = await anh
+          .patch('/api/v1/orgs/d176team2/teams/doi-1')
+          .send({ name: 'Đội Hai', expectedVersion: first.body.version });
+        expect(again.status).toBe(200);
       } finally {
         await app.close();
       }

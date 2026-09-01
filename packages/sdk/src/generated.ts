@@ -8112,6 +8112,26 @@ export interface paths {
                         };
                     };
                 };
+                /** @description `problem_version_conflict` — the request carried an `expectedVersion` that is no longer current, so somebody else saved this problem after this client read it. NOTHING was written (D161). */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
                 /** @description The request failed validation, named a tag slug that does not exist, or asked to publish an empty editorial (`problem_editorial_empty`) */
                 422: {
                     headers: {
@@ -8460,6 +8480,7 @@ export interface paths {
                                 memoryExtraKb: number | null;
                                 allowed: boolean;
                             }[];
+                            version: string;
                         };
                     };
                 };
@@ -8549,6 +8570,7 @@ export interface paths {
                             memoryExtraKb: number | null;
                             allowed: boolean;
                         }[];
+                        expectedVersion?: string;
                     };
                 };
             };
@@ -8573,6 +8595,7 @@ export interface paths {
                                 memoryExtraKb: number | null;
                                 allowed: boolean;
                             }[];
+                            version: string;
                         };
                     };
                 };
@@ -8618,6 +8641,26 @@ export interface paths {
                 };
                 /** @description No such problem, or one the caller may not see — the two are indistinguishable */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description `language_limits_version_conflict` — the request carried an `expectedVersion` that is no longer current, so somebody else saved these overrides after this client read them. NOTHING was written (D161, D176). */
+                409: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -11854,6 +11897,7 @@ export interface paths {
                                     } | null;
                                 } | null;
                             }[];
+                            version: string | null;
                         };
                     };
                 };
@@ -12033,6 +12077,7 @@ export interface paths {
                                     } | null;
                                 } | null;
                             }[];
+                            version: string | null;
                         };
                     };
                 };
@@ -12191,6 +12236,7 @@ export interface paths {
                             /** @default 100 */
                             points?: number;
                         }[];
+                        expectedVersion?: string;
                     };
                 };
             };
@@ -12240,6 +12286,7 @@ export interface paths {
                                     } | null;
                                 } | null;
                             }[];
+                            version: string | null;
                         };
                     };
                 };
@@ -12303,7 +12350,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description This organization already has a set with that slug (`problem_set_slug_taken`) */
+                /** @description This organization already has a set with that slug (`problem_set_slug_taken`), or the request carried an `expectedVersion` that is no longer current — somebody else saved this set after this client read it, and NOTHING was written (`problem_set_version_conflict`, D161/D176) */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -12639,6 +12686,7 @@ export interface paths {
                                 captain: string;
                             }[];
                             canEdit: boolean;
+                            version: string | null;
                         };
                     };
                 };
@@ -12806,6 +12854,7 @@ export interface paths {
                                 captain: string;
                             }[];
                             canEdit: boolean;
+                            version: string | null;
                         };
                     };
                 };
@@ -12980,6 +13029,7 @@ export interface paths {
                         slug?: string;
                         name?: string;
                         members?: string[];
+                        expectedVersion?: string;
                     };
                 };
             };
@@ -13017,6 +13067,7 @@ export interface paths {
                                 captain: string;
                             }[];
                             canEdit: boolean;
+                            version: string | null;
                         };
                     };
                 };
@@ -13080,7 +13131,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description This organization already has a team with that slug (`team_slug_taken`), or the new name is already competing on a board this team is on (`contest_team_name_taken`) */
+                /** @description This organization already has a team with that slug (`team_slug_taken`), the new name is already competing on a board this team is on (`contest_team_name_taken`), or the request carried an `expectedVersion` that is no longer current — somebody else saved this team after this client read it, and NOTHING was written (`team_version_conflict`, D161/D176) */
                 409: {
                     headers: {
                         [name: string]: unknown;

@@ -25,6 +25,7 @@ import type {
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from './actor.js';
+import { problemSetEditVersion, versionConflict } from './edit-version.js';
 import { OrgAccessService, parseMemberCursor } from './org.access.js';
 import { visibleProblemsWhere } from './problem.visibility.js';
 import { contestWindowOpenWhere } from './submission.freeze.js';
@@ -166,7 +167,11 @@ export class ProblemSetAccessService {
     const { row: org, role } = await this.orgs.loadVisibleWithRole(actor, slug);
     if (!isMember(actor, role)) throw setNotFound();
     const set = await this.findSet(org.id, setSlug);
-    return this.detailOf(actor, set);
+    // D176. The same predicate `loadForEdit` applies below, spelled here
+    // because this route deliberately does NOT take that gate: a pupil reads
+    // their own homework through it. Answered by the server rather than
+    // assembled by the client, on `ContestDetail.canEdit`'s precedent.
+    return this.detailOf(actor, set, isAdmin(actor) || role === 'owner' || role === 'admin');
   }
 
   /**
@@ -314,7 +319,10 @@ export class ProblemSetAccessService {
     } catch (error) {
       throw toSetConflict(error);
     }
-    return this.detailOf(actor, await this.findSetById(setId));
+    // The caller has just passed `loadForEdit`, so the token is served: this
+    // is the value the form must hold from here on, or its NEXT save would
+    // carry the pre-save token and 409 against the write it had just made.
+    return this.detailOf(actor, await this.findSetById(setId), true);
   }
 
   /**
@@ -343,6 +351,20 @@ export class ProblemSetAccessService {
 
     try {
       await this.db.transaction(async (tx) => {
+        // D176, first in the transaction and under the set's own lock — see
+        // `ProblemAccessService.update`, which states the reasoning once.
+        // Read outside the lock this would be a check against a state that may
+        // not hold by the time the writes land, which is the whole defect with
+        // a narrower window. A throw here rolls back with nothing written,
+        // which is the promise the 409 makes and which the test asserts on the
+        // stored items rather than on the response.
+        if (patch.expectedVersion !== undefined) {
+          await tx.execute(sql`select id from problem_sets where id = ${set.id} for update`);
+          if ((await problemSetEditVersion(tx, set.id)) !== patch.expectedVersion) {
+            throw versionConflict('problem_set');
+          }
+        }
+
         if (Object.keys(values).length > 0) {
           await tx.update(problemSets).set(values).where(eq(problemSets.id, set.id));
         }
@@ -356,7 +378,7 @@ export class ProblemSetAccessService {
     } catch (error) {
       throw toSetConflict(error);
     }
-    return this.detailOf(actor, await this.findSetById(set.id));
+    return this.detailOf(actor, await this.findSetById(set.id), true);
   }
 
   /** Withdraw a set. The items go with it (`ON DELETE CASCADE`). */
@@ -376,7 +398,11 @@ export class ProblemSetAccessService {
    * pupil sitting a contest that reuses a set problem sees their score on
    * this page before their teacher's grid does.
    */
-  private async detailOf(actor: Actor, set: SetRow): Promise<ProblemSetDetailDto> {
+  private async detailOf(
+    actor: Actor,
+    set: SetRow,
+    canEdit: boolean,
+  ): Promise<ProblemSetDetailDto> {
     const items = await this.itemsOf(set.id);
     const problemIds = items.map((item) => item.problemId);
     const [visible, best] = await Promise.all([
@@ -388,6 +414,13 @@ export class ProblemSetAccessService {
     const solved = cells.filter(isSolved).length;
     return {
       ...toSummary(set, items.length, solved),
+      // D176. Computed from the STORED row and its items, deliberately not
+      // from the object being built here: `visible` below has just been
+      // narrowed to what THIS caller may open, `me` is this caller's own
+      // score, and `solvedCount` moves every time a pupil submits — a token
+      // over any of them would differ between two teachers who may both edit
+      // this set, and would move with no edit at all.
+      version: canEdit ? await problemSetEditVersion(this.db, set.id) : null,
       items: items.map((item, index) => ({
         code: item.code,
         name: item.name,

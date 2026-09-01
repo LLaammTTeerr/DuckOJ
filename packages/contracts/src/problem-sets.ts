@@ -136,6 +136,25 @@ export type ProblemSetPageDto = z.infer<typeof ProblemSetPage>;
 
 export const ProblemSetDetail = ProblemSetSummary.extend({
   items: z.array(ProblemSetItem),
+  /**
+   * What this caller must send back as `expectedVersion` to be sure their
+   * PATCH replaces the state they were shown \u2014 D161, extended to this form
+   * by D176.
+   *
+   * An opaque hash of the set's **stored editable state**: its slug, name,
+   * description and deadline, and its items with their points and their order.
+   * Exactly what `UpdateProblemSetRequest` writes, and nothing else \u2014 so
+   * `solvedCount`, `visible` and every `me` cell below are absent from it, as
+   * they must be: they move when a pupil submits, they differ between two
+   * teachers who may both edit this set, and a token over them would refuse
+   * saves nobody could explain.
+   *
+   * **`null` for a caller who may not edit this set.** `GET
+   * /orgs/{slug}/sets/{setSlug}` serves any member of the organization \u2014 a
+   * pupil reads it to see their own homework \u2014 and the token is useless to
+   * somebody who cannot PATCH.
+   */
+  version: z.string().nullable(),
 });
 export type ProblemSetDetailDto = z.infer<typeof ProblemSetDetail>;
 
@@ -167,6 +186,20 @@ export const UpdateProblemSetRequest = z
     description: z.string().max(16_384).nullable().optional(),
     deadline: Timestamp.nullable().optional(),
     problems: z.array(ProblemSetItemInput).max(PROBLEM_SET_MAX_ITEMS).optional(),
+    /**
+     * The `version` this client read before it started editing \u2014 D161's
+     * token, extended to this form by D176. Present and no longer current is a
+     * 409 `problem_set_version_conflict` with **nothing written**.
+     *
+     * The field at risk is `problems`: the form holds the whole list and sends
+     * the whole list, so a co-teacher who added next week's problem while this
+     * form was open has it removed again by a save that was only meant to fix
+     * the deadline. Nothing fails and nobody is told.
+     *
+     * **Absent means unchecked**, as on `UpdateProblemRequest` and for the
+     * same reason.
+     */
+    expectedVersion: z.string().optional(),
   })
   .strict();
 export type UpdateProblemSetRequestDto = z.infer<typeof UpdateProblemSetRequest>;
@@ -368,7 +401,14 @@ registry.registerPath({
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: SET_NOT_FOUND,
-    409: SET_SLUG_TAKEN,
+    409: {
+      description:
+        'This organization already has a set with that slug (`problem_set_slug_taken`), or the ' +
+        'request carried an `expectedVersion` that is no longer current \u2014 somebody else saved ' +
+        'this set after this client read it, and NOTHING was written ' +
+        '(`problem_set_version_conflict`, D161/D176)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
     422: SET_VALIDATION_FAILED,
   },
 });

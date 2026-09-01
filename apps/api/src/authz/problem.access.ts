@@ -41,7 +41,7 @@ import {
   type UpdateProblemRequestDto,
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
-import { problemEditVersion, versionConflict } from './edit-version.js';
+import { problemEditVersion, problemLanguageLimitsVersion, versionConflict } from './edit-version.js';
 import { AppError } from '../common/app.error.js';
 import { PACKAGE_STORE, type PackageStore } from '../packages/package.store.js';
 import { readPackageSamples, SAMPLES_CACHE_TTL_MS, samplesCacheKey } from '../packages/samples.js';
@@ -801,6 +801,14 @@ export class ProblemAccessService {
     return {
       base:
         published === undefined ? null : { timeMs: published.timeMs, memoryKb: published.memoryKb },
+      // D176. Never null: every caller of this method has come through
+      // `loadForEdit`, so a reader of this object is an editor of it by
+      // construction. Over the STORED overrides only — not over `base` or the
+      // per-language defaults below, which this PUT cannot write and which
+      // move when a revision is published or a language is retuned across the
+      // deployment (D169 did exactly that). A token over those would refuse a
+      // co-setter's save over a write they do not own.
+      version: await problemLanguageLimitsVersion(this.db, problemId),
       languages: rows.map((row) => ({
         languageKey: row.key,
         languageName: row.name,
@@ -886,6 +894,21 @@ export class ProblemAccessService {
       }));
 
     await this.db.transaction(async (tx) => {
+      // D176, first in the transaction and under the PROBLEM's own lock —
+      // `update` above states the reasoning once. The lock is on `problems`
+      // and not on `problem_language_limits` because the set being replaced
+      // may be EMPTY: there is no row to lock when a setter is adding the
+      // first override, and two setters each adding a first override would
+      // both find nothing to wait on. The parent row is the one thing that is
+      // always there, and it is the row `update`'s own check locks, so the two
+      // writers of this problem serialise against each other as well.
+      if (body.expectedVersion !== undefined) {
+        await tx.execute(sql`select id from problems where id = ${problem.id} for update`);
+        if ((await problemLanguageLimitsVersion(tx, problem.id)) !== body.expectedVersion) {
+          throw versionConflict('language_limits');
+        }
+      }
+
       // Delete-then-insert inside ONE transaction, which is what makes this a
       // replacement rather than a window in which the problem has no
       // overrides at all: a concurrent submit either sees the old set whole or

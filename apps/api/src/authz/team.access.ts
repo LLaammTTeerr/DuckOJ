@@ -52,6 +52,7 @@ import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { reseatTeam, toSeatConflict } from './contest.seats.js';
 import { isAdmin, type Actor } from './actor.js';
+import { teamEditVersion, versionConflict } from './edit-version.js';
 import { OrgAccessService } from './org.access.js';
 import { ContestAccessService, canRunContest } from './contest.access.js';
 
@@ -211,7 +212,18 @@ export class TeamAccessService {
     const staff = isAdmin(actor) || role === 'owner' || role === 'admin';
     if (!staff && !members.some((member) => member.userId === actor.userId)) throw teamNotFound();
     const entered = await this.contestsOf(team.id);
-    return toDetail(team, members, staff, entered);
+    // D176, gated on `staff` — the same predicate `canEdit` carries. A team
+    // member who may read the roster has no PATCH to send the token back on.
+    // Over the stored slug, name and roster only: `entered` above moves when
+    // this team joins a round, which is not an edit to the team and must not
+    // refuse a rename made in the same minute.
+    return toDetail(
+      team,
+      members,
+      staff,
+      entered,
+      staff ? await teamEditVersion(this.db, team.id) : null,
+    );
   }
 
   /** Assemble a team. Owner or admin of the organization, or a global admin. */
@@ -235,7 +247,13 @@ export class TeamAccessService {
       throw toTeamConflict(error);
     }
     // A team that was just assembled has entered nothing.
-    return toDetail(await this.findTeamById(teamId), await this.membersOf(teamId), true, []);
+    return toDetail(
+      await this.findTeamById(teamId),
+      await this.membersOf(teamId),
+      true,
+      [],
+      await teamEditVersion(this.db, teamId),
+    );
   }
 
   /**
@@ -291,6 +309,22 @@ export class TeamAccessService {
 
     try {
       await this.db.transaction(async (tx) => {
+        // D176, first in the transaction and under the team's own lock — see
+        // `ProblemAccessService.update`, which states the reasoning once.
+        //
+        // AFTER `assertRosterUnlocked` and the rename guard above,
+        // deliberately, on `ContestAccessService.update`'s precedent: "this
+        // team is in a running contest" and "that name is already on this
+        // board" are facts a reload cannot repair, and telling an admin to
+        // load a newer version first would send them round a loop ending in
+        // the same refusal.
+        if (patch.expectedVersion !== undefined) {
+          await tx.execute(sql`select id from teams where id = ${team.id} for update`);
+          if ((await teamEditVersion(tx, team.id)) !== patch.expectedVersion) {
+            throw versionConflict('team');
+          }
+        }
+
         if (Object.keys(values).length > 0) {
           await tx.update(teams).set(values).where(eq(teams.id, team.id));
         }
@@ -309,11 +343,15 @@ export class TeamAccessService {
     } catch (error) {
       throw toSeatConflict(toTeamConflict(error));
     }
+    // The token as it now is — without it the NEXT save from the same open
+    // form would carry the pre-save value and 409 against the write it had
+    // just made itself.
     return toDetail(
       await this.findTeamById(team.id),
       await this.membersOf(team.id),
       true,
       await this.contestsOf(team.id),
+      await teamEditVersion(this.db, team.id),
     );
   }
 
@@ -801,6 +839,13 @@ function toDetail(
   members: MemberRow[],
   canEdit: boolean,
   contests: TeamContestEntryDto[],
+  /**
+   * D176's token, or `null` for a caller who may not edit. Computed by the
+   * caller (this function is synchronous, and making it async to hide one
+   * query would put a round trip behind a pure mapper) and gated on the same
+   * `canEdit` above it, so the two cannot say different things.
+   */
+  version: string | null,
 ): TeamDetailDto {
   const items: TeamMemberDto[] = members.map((member) => ({
     username: member.username,
@@ -812,6 +857,7 @@ function toDetail(
     members: items,
     contests,
     canEdit,
+    version,
   };
 }
 

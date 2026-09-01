@@ -17371,6 +17371,51 @@
               }
             }
           },
+          "409": {
+            "description": "`problem_version_conflict` — the request carried an `expectedVersion` that is no longer current, so somebody else saved this problem after this client read it. NOTHING was written (D161).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
           "422": {
             "description": "The request failed validation, named a tag slug that does not exist, or asked to publish an empty editorial (`problem_editorial_empty`)",
             "content": {
@@ -18201,11 +18246,15 @@
                           "allowed"
                         ]
                       }
+                    },
+                    "version": {
+                      "type": "string"
                     }
                   },
                   "required": [
                     "base",
-                    "languages"
+                    "languages",
+                    "version"
                   ]
                 }
               }
@@ -18405,6 +18454,9 @@
                         "allowed"
                       ]
                     }
+                  },
+                  "expectedVersion": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -18487,11 +18539,15 @@
                           "allowed"
                         ]
                       }
+                    },
+                    "version": {
+                      "type": "string"
                     }
                   },
                   "required": [
                     "base",
-                    "languages"
+                    "languages",
+                    "version"
                   ]
                 }
               }
@@ -18589,6 +18645,51 @@
           },
           "404": {
             "description": "No such problem, or one the caller may not see — the two are indistinguishable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`language_limits_version_conflict` — the request carried an `expectedVersion` that is no longer current, so somebody else saved these overrides after this client read them. NOTHING was written (D161, D176).",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -25244,6 +25345,12 @@
                           "me"
                         ]
                       }
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -25254,7 +25361,8 @@
                     "itemCount",
                     "solvedCount",
                     "createdAt",
-                    "items"
+                    "items",
+                    "version"
                   ]
                 }
               }
@@ -25696,6 +25804,12 @@
                           "me"
                         ]
                       }
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -25706,7 +25820,8 @@
                     "itemCount",
                     "solvedCount",
                     "createdAt",
-                    "items"
+                    "items",
+                    "version"
                   ]
                 }
               }
@@ -25879,6 +25994,9 @@
                       ]
                     },
                     "maxItems": 200
+                  },
+                  "expectedVersion": {
+                    "type": "string"
                   }
                 },
                 "additionalProperties": false
@@ -26069,6 +26187,12 @@
                           "me"
                         ]
                       }
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -26079,7 +26203,8 @@
                     "itemCount",
                     "solvedCount",
                     "createdAt",
-                    "items"
+                    "items",
+                    "version"
                   ]
                 }
               }
@@ -26221,7 +26346,7 @@
             }
           },
           "409": {
-            "description": "This organization already has a set with that slug (`problem_set_slug_taken`)",
+            "description": "This organization already has a set with that slug (`problem_set_slug_taken`), or the request carried an `expectedVersion` that is no longer current — somebody else saved this set after this client read it, and NOTHING was written (`problem_set_version_conflict`, D161/D176)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -27222,6 +27347,12 @@
                     },
                     "canEdit": {
                       "type": "boolean"
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -27234,7 +27365,8 @@
                     "inRunningContest",
                     "members",
                     "contests",
-                    "canEdit"
+                    "canEdit",
+                    "version"
                   ]
                 }
               }
@@ -27588,6 +27720,12 @@
                     },
                     "canEdit": {
                       "type": "boolean"
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -27600,7 +27738,8 @@
                     "inRunningContest",
                     "members",
                     "contests",
-                    "canEdit"
+                    "canEdit",
+                    "version"
                   ]
                 }
               }
@@ -27745,6 +27884,9 @@
                       "maxLength": 64
                     },
                     "maxItems": 12
+                  },
+                  "expectedVersion": {
+                    "type": "string"
                   }
                 },
                 "additionalProperties": false
@@ -27847,6 +27989,12 @@
                     },
                     "canEdit": {
                       "type": "boolean"
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -27859,7 +28007,8 @@
                     "inRunningContest",
                     "members",
                     "contests",
-                    "canEdit"
+                    "canEdit",
+                    "version"
                   ]
                 }
               }
@@ -28001,7 +28150,7 @@
             }
           },
           "409": {
-            "description": "This organization already has a team with that slug (`team_slug_taken`), or the new name is already competing on a board this team is on (`contest_team_name_taken`)",
+            "description": "This organization already has a team with that slug (`team_slug_taken`), the new name is already competing on a board this team is on (`contest_team_name_taken`), or the request carried an `expectedVersion` that is no longer current — somebody else saved this team after this client read it, and NOTHING was written (`team_version_conflict`, D161/D176)",
             "content": {
               "application/problem+json": {
                 "schema": {
