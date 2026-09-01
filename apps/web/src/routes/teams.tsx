@@ -18,7 +18,7 @@
  * route needs a session, so a query fired without one could only 401.
  */
 import { useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
@@ -63,14 +63,27 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
   // `teams.empty`, telling a teacher their school has no teams on the
   // morning they are looking for one. `read` throws instead, and the failure
   // is reported in this section alone (B-4's rule, B-8's `read`).
-  const teams = useQuery({
+  //
+  // **Paged since D177.** It used to be a plain `useQuery` that read `.items`
+  // and dropped `nextCursor` on the floor, which made the server's page size
+  // a ceiling: a school with twenty-six teams showed twenty-five and offered
+  // no way to the rest. The same `useInfiniteQuery` + "load more" shape the
+  // org roster, the problem list and the submissions list already use.
+  const teams = useInfiniteQuery({
     queryKey: teamsKey(slug),
     enabled: me.data != null,
-    queryFn: async () => {
-      const result = await api.GET('/orgs/{slug}/teams', { params: { path: { slug } } });
-      return read(result, t('teams.listError'))?.items ?? [];
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: { cursor?: string } = {};
+      if (pageParam !== undefined) query.cursor = pageParam;
+      const result = await api.GET('/orgs/{slug}/teams', { params: { path: { slug }, query } });
+      return read(result, t('teams.listError'));
     },
+    getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
   });
+  const rows: TeamSummary[] | undefined = teams.data
+    ? teams.data.pages.flatMap((page) => page?.items ?? [])
+    : undefined;
 
   async function refresh(): Promise<void> {
     setCreating(false);
@@ -106,7 +119,7 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
   // A reader who manages nothing and is on no team sees nothing at all — but
   // a failed read is not "no teams", so the error still gets a heading and a
   // sentence rather than a silently absent section.
-  if (!canManage && !teams.isError && (teams.data === undefined || teams.data.length === 0)) {
+  if (!canManage && !teams.isError && (rows === undefined || rows.length === 0)) {
     return null;
   }
 
@@ -115,7 +128,14 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
   // out would be a second copy of the rule — one that goes wrong the moment
   // the exemption changes. What the banner buys is that a teacher learns the
   // rule BEFORE they open a form and lose what they typed to it.
-  const competing = (teams.data ?? []).filter((team: TeamSummary) => team.inRunningContest);
+  //
+  // It names only the teams LOADED so far — which is what it always did, and
+  // is worth saying now that "loaded" and "all of them" have visibly come
+  // apart: a team competing right now that sits past the pages a teacher has
+  // asked for is not in this banner. Widening it would mean a second query
+  // for a warning, and the refusal that matters is still the server's 409,
+  // which no page position can dodge.
+  const competing = (rows ?? []).filter((team: TeamSummary) => team.inRunningContest);
 
   return (
     <>
@@ -127,54 +147,69 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
       ) : null}
       {actionError ? <p role="alert">{actionError}</p> : null}
       {teams.isError ? <p role="alert">{t('teams.listError')}</p> : null}
-      {teams.data && teams.data.length === 0 ? <p className="muted">{t('teams.empty')}</p> : null}
-      {teams.data && teams.data.length > 0 ? (
-        <table>
-          <thead>
-            <tr>
-              <th>{t('teams.colTeam')}</th>
-              <th>{t('teams.colMembers')}</th>
-              {canManage ? <th /> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {teams.data.map((team: TeamSummary) => (
-              <tr key={team.slug}>
-                <td>
-                  <Link
-                    to="/orgs/$slug/teams/$teamSlug"
-                    params={{ slug, teamSlug: team.slug }}
-                  >
-                    {team.name}
-                  </Link>{' '}
-                  <span className="muted">{team.slug}</span>
-                  {team.inRunningContest ? (
-                    <>
-                      {' '}
-                      <span className="muted">{t('teams.competingNow')}</span>
-                    </>
-                  ) : null}
-                </td>
-                <td>
-                  <TeamMembers slug={slug} teamSlug={team.slug} count={team.memberCount} />
-                </td>
-                {canManage ? (
-                  <td>
-                    <button type="button" onClick={() => setEditing(team.slug)}>
-                      {t('teams.edit')}
-                    </button>{' '}
-                    <button type="button" onClick={() => void disband(team.slug)}>
-                      {t('teams.delete')}
-                    </button>
-                  </td>
-                ) : null}
+      {rows && rows.length === 0 ? <p className="muted">{t('teams.empty')}</p> : null}
+      {rows && rows.length > 0 ? (
+        <div className="table-wrap" tabIndex={0}>
+          <table>
+            <thead>
+              <tr>
+                <th>{t('teams.colTeam')}</th>
+                <th>{t('teams.colMembers')}</th>
+                {canManage ? <th /> : null}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((team: TeamSummary) => (
+                <tr key={team.slug}>
+                  <td>
+                    <Link to="/orgs/$slug/teams/$teamSlug" params={{ slug, teamSlug: team.slug }}>
+                      {team.name}
+                    </Link>{' '}
+                    <span className="muted">{team.slug}</span>
+                    {team.inRunningContest ? (
+                      <>
+                        {' '}
+                        <span className="muted">{t('teams.competingNow')}</span>
+                      </>
+                    ) : null}
+                  </td>
+                  <td>
+                    <TeamMembers slug={slug} teamSlug={team.slug} count={team.memberCount} />
+                  </td>
+                  {canManage ? (
+                    <td>
+                      <button type="button" onClick={() => setEditing(team.slug)}>
+                        {t('teams.edit')}
+                      </button>{' '}
+                      <button type="button" onClick={() => void disband(team.slug)}>
+                        {t('teams.delete')}
+                      </button>
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {teams.hasNextPage ? (
+        <p>
+          <button
+            type="button"
+            onClick={() => void teams.fetchNextPage()}
+            disabled={teams.isFetchingNextPage}
+          >
+            {t('common.loadMore')}
+          </button>
+        </p>
       ) : null}
       {canManage && editing !== null ? (
-        <TeamForm slug={slug} teamSlug={editing} onSaved={refresh} onCancel={() => setEditing(null)} />
+        <TeamForm
+          slug={slug}
+          teamSlug={editing}
+          onSaved={refresh}
+          onCancel={() => setEditing(null)}
+        />
       ) : null}
       {canManage && editing === null && !creating ? (
         <p>
@@ -232,7 +267,9 @@ function TeamMembers({ slug, teamSlug, count }: { slug: string; teamSlug: string
           </Link>
         </span>
       ))}
-      {detail.data.members.length === 0 ? <span className="muted">{t('teams.noMembers')}</span> : null}
+      {detail.data.members.length === 0 ? (
+        <span className="muted">{t('teams.noMembers')}</span>
+      ) : null}
     </>
   );
 }
@@ -415,7 +452,11 @@ function TeamForm({
       <p>
         <label>
           {t('teams.slug')}{' '}
-          <input value={slugValue} onChange={(e) => setNextSlug(e.target.value)} placeholder="doi-1" />
+          <input
+            value={slugValue}
+            onChange={(e) => setNextSlug(e.target.value)}
+            placeholder="doi-1"
+          />
         </label>
         <label>
           {t('teams.name')} <input value={nameValue} onChange={(e) => setName(e.target.value)} />
