@@ -53,11 +53,30 @@ export function refuse(io: Io, error: unknown, fallback: string): never {
   io.fail(fallback);
 }
 
-/** `.cpp` files overwhelmingly mean the default toolchain; anything else is explicit. */
+/**
+ * An extension exactly one seeded `languages` row claims infers that row;
+ * anything else is explicit.
+ *
+ * F-39 seeded four more languages and left this map at three C++ spellings,
+ * so `oj submit main.py` answered "cannot infer a language" for a language
+ * the judge had been running for a fortnight. F-46 extends it rather than
+ * leaving Pascal and Java to repeat that.
+ *
+ * Deliberately still a static map and not a `GET /languages` lookup: this
+ * runs before the submit call and its answer must be the same offline, in a
+ * script, and against a server that is down. `.cpp`/`.cc`/`.cxx` are the one
+ * ambiguous case — `cpp14`, `cpp17` and `cpp20` all claim `cpp` — and
+ * `cpp17` is the default the CLI has always chosen. `--language` overrides
+ * every row here.
+ */
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
   cpp: 'cpp17',
   cc: 'cpp17',
   cxx: 'cpp17',
+  c: 'c11',
+  py: 'python3',
+  pas: 'pascal',
+  java: 'java',
 };
 
 export function inferLanguage(filename: string, explicit: string | undefined, io: Io): string {

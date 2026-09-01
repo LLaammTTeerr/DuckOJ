@@ -39,6 +39,22 @@ describe('inferLanguage', () => {
     expect(inferLanguage('a.cpp', 'python3', io)).toBe('python3');
   });
 
+  /**
+   * F-46. F-39 seeded four more languages and left this map at three C++
+   * spellings, so `oj submit main.py` refused a language the judge had been
+   * running for a fortnight. Every extension exactly one seeded row claims
+   * now infers that row.
+   */
+  it('infers every unambiguous seeded extension', () => {
+    const io = fakeIo();
+    expect(inferLanguage('a.c', undefined, io)).toBe('c11');
+    expect(inferLanguage('a.py', undefined, io)).toBe('python3');
+    expect(inferLanguage('a.pas', undefined, io)).toBe('pascal');
+    expect(inferLanguage('Main.java', undefined, io)).toBe('java');
+    // `.cpp` stays ambiguous between cpp14/cpp17/cpp20 and keeps its default.
+    expect(inferLanguage('a.cxx', undefined, io)).toBe('cpp17');
+  });
+
   it('refuses to guess for an unknown extension', () => {
     expect(() => inferLanguage('a.rs', undefined, fakeIo())).toThrow(/--language/);
   });

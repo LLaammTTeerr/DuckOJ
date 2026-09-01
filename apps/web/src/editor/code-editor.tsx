@@ -48,6 +48,11 @@ function grammarFor(mode: EditorMode): Extension {
   if (mode === 'cpp') return cpp();
   if (mode === 'python') return python();
   if (mode === 'java') return java();
+  // `pascal` lands here with `plain`, and deliberately: there is no Lezer
+  // Pascal parser in the `@codemirror/lang-*` family, and D170 declined a new
+  // dependency for one. The mode still exists, because it carries a starter
+  // template even though it carries no grammar.
+  //
   // Plain text: no grammar at all, rather than a wrong one.
   return [];
 }

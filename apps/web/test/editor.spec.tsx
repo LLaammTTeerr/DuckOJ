@@ -370,7 +370,30 @@ describe('modeForLanguage', () => {
     expect(modeForLanguage('java17')).toBe('java');
     // C# is not C++, and must not be highlighted as it.
     expect(modeForLanguage('csharp')).toBe('plain');
-    expect(modeForLanguage('pascal')).toBe('plain');
-    expect(templateForLanguage('pascal')).toBe('');
+  });
+
+  /**
+   * F-46. `pascal` was pinned here as `plain` with an empty template, which
+   * was true while no judge could compile Pascal and is wrong now that
+   * migration 0046 seeds the row. It is also the first mode with a starter
+   * and no grammar (D170): `plain` cannot express that, because `plain`'s
+   * whole meaning is "we know nothing about this key".
+   */
+  it('gives Pascal a starter even though it has no grammar (D170)', () => {
+    expect(modeForLanguage('pascal')).toBe('pascal');
+    expect(modeForLanguage('PASCAL')).toBe('pascal');
+    // `{$H+}` is the line a beginner most often lacks: without it `string` is
+    // a 255-character ShortString and a longer `readln` truncates in silence.
+    expect(templateForLanguage('pascal')).toContain('{$mode objfpc}{$H+}');
+    expect(templateForLanguage('pascal')).toContain('end.');
+    // Still no grammar to offer, and the fallback must stay plain rather
+    // than borrow a wrong one.
+    expect(templateForLanguage('csharp')).toBe('');
+  });
+
+  it("maps 0046's `java` key, not only D84's hypothetical `java17`", () => {
+    expect(modeForLanguage('java')).toBe('java');
+    expect(templateForLanguage('java')).toContain('public class Main');
+    expect(templateForLanguage('java')).toContain('BufferedReader');
   });
 });
