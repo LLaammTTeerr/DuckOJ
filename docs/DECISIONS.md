@@ -6879,3 +6879,102 @@ and the decision to delete is the operator's. A pattern that is too narrow
 leaves litter a second run removes; a pattern that is too wide is caught by the
 deny assertion, and everything genuinely load-bearing is caught by the refusal
 tier before a row moves.*
+
+## D154 — A language's limits are the problem's, times a whole percent, plus a floor — and the number shown is the number enforced
+
+This judge ran for two weeks with one language row, `cpp17`. Schools in this
+province teach Python first and C++ second, so a pupil who only knows Python
+could not submit at all. Adding the row is data; adding it *honestly* is this
+decision.
+
+**Measured on the running judge, not assumed.** Inside `duckoj_judge_1`, a
+20-million-iteration arithmetic loop costs **0.012 s** under `g++ 12 -O2` and
+**1.322 s** under CPython 3.11.16 — a factor of **110**. CPython's resident
+set before the solution allocates anything is **15044 KB**. Those two numbers
+are the whole basis for what follows.
+
+- **Time is a multiplier; memory is an addend.** An interpreter's time cost is
+  *proportional* — it pays per bytecode, so more work costs proportionally
+  more. Its memory cost is a *floor* — the runtime image is the same 15 MB
+  whether the problem allows 16 MB or 512 MB. Multiplying memory would
+  under-pay the tight problem, where the floor is most of the budget, and hand
+  the generous one hundreds of megabytes it has no use for.
+- **The multiplier is a whole PERCENT stored as an integer, not a float.** The
+  same arithmetic runs in two processes: `apps/api` computes it to DISPLAY a
+  limit and `apps/judged` computes it to ENFORCE one. `ceil(ms * pct / 100)`
+  over integers is bit-identical in both; `ms * 3.0` in IEEE-754 is not
+  something to bet a verdict on. `ceil`, not `round`, because the error is one
+  millisecond and it belongs to the pupil.
+- **`effectiveLimits` exists exactly once,** in `@duckoj/db` — the one package
+  both `apps/api` and `apps/judged` already depend on. Deliberately NOT a
+  fragment of SQL in `JobStore.claim`: that would be a second implementation,
+  in a second language, of the number the API puts on screen. The claim
+  statement selects the *inputs* and the TypeScript does the arithmetic.
+- **`python3` is seeded at 300 % and +32768 KB, and 3 is not 110.** Stated
+  plainly, because the brief asked what goes wrong in each direction. **Too
+  low** and a correct Python solution to a problem with a tight intended
+  bound TLEs anyway; the pupil is told their working program is too slow, and
+  the language is offered without being usable. **Too high** and the judge's
+  wall-clock cost per submission scales with it — a 350-test problem at 1 s
+  becomes 350 s of judge time per Python submission on a single-judge fleet,
+  and a C++ solution that *should* TLE passes when submitted as Python. 110×
+  would make every deep-recursion or heavy-loop problem a denial-of-service on
+  the one judge this province has. 3× is the honest middle: it makes Python
+  work on the problems whose intended solution has slack — which is most of
+  what a school teaches — and does not pretend it makes Python competitive on
+  problems that are about the constant factor. A setter who wants either
+  extreme has the override.
+- **The override is per (problem, language), keyed on the PROBLEM.** The
+  limits it adjusts live on the *revision*, but "Python gets no bonus here" is
+  a statement about the problem, and a per-revision override would be silently
+  dropped by the next `package:build` — exactly when nobody is looking at it.
+  Both numeric columns are nullable and inherit **column by column**: a row
+  that pins the time and says nothing about memory keeps the interpreter
+  floor, because dropping it would MRE every Python submission on a problem
+  that still accepts them.
+- **"Not solvable in Python" is a REFUSAL, not a multiplier of zero.**
+  `allowed = false` answers 404 at submit time and omits the language from the
+  picker. A zero limit would present the refusal as a TLE, teaching the pupil
+  that their correct program was too slow. It is the same 404 as an unknown
+  key and a deactivated one, on the existing rule that a refusal must not
+  become an existence oracle.
+- **The applied limit is what the pupil is shown.** `ProblemDetail` carries a
+  `languageLimits` array resolved server-side by the same function, and the
+  submit box prints the selected language's own numbers. The web app is never
+  handed a multiplier to apply itself.
+
+**Three facts the brief had wrong, found by checking.**
+
+1. **There is no `C17` executor.** The image ships `C` (`-std=c99`) and `C11`
+   (`-std=c11`) and nothing that compiles C17. The row is `c11 -> C11`. A key
+   named `c17` that compiled C11 would be precisely the lie
+   `language_driver_keys` exists to prevent.
+2. **The judge announced one executor because Compose told it to.** The image
+   has carried g++ 12 and CPython 3.11 since day one; `--only-executors CPP17`
+   in `docker-compose.yml` is why `judge_nodes.capabilities` read `["CPP17"]`
+   for two weeks. `judged` dispatches on what a judge ANNOUNCES, so seeding
+   the rows without widening that flag would have left every `python3`
+   submission queued forever. It is widened, not removed — it still suppresses
+   the OBJC self-test failure that reads like a broken judge in the startup
+   log — and it must stay a superset of the `executor_key`s in
+   `language_driver_keys`.
+3. **The mapping was hard-coded, and its own comment predicted this.**
+   `apps/judged/src/main.ts` said a language whose executor is not its key
+   uppercased "must extend BOTH lines here"; `python3 -> PY3` is that
+   language. Both directions now come from `language_driver_keys`, read once
+   at startup — the same table the migration writes, so D68's requirement that
+   the pair stay inverses cannot be broken by hand.
+
+**And one thing an operator could not see.** `judge_nodes.capabilities` had
+been written on every handshake since D68 and read by nothing, so the admin
+dashboard could show a judge that was online, healthy and idle beside a queue
+it had no executor for. The judge panel now has an executors column. That
+absence is how a one-language judge went unnoticed for a fortnight.
+
+*Ruled by the implementer during the F-39 slot, no human available to consult.
+The multipliers are the reversible half — a number in a seeded row, changeable
+by a one-line migration — and the shape is the part worth getting right. Cost
+if 300 % is wrong: submissions graded against a limit that is too generous or
+too tight until it is changed, with no data loss and no schema change either
+way. The live database was not written; the migration and the Compose change
+deploy together, and until they do the seeded rows do not exist.*
