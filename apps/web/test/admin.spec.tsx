@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -609,5 +609,118 @@ describe('AdminPage judge throughput and blocked jobs (D68)', () => {
     // `/kẹt/`, not `/bị chặn/`: the refusals panel two headings down is
     // "Lượt bị chặn bởi giới hạn tần suất", a different thing entirely.
     expect(screen.queryByRole('heading', { name: /kẹt/i })).toBeNull();
+  });
+});
+
+/**
+ * The rating table can reach page two (D180).
+ *
+ * **The defect this pins, and why it is the worst of F-49's six.** `GET
+ * /contests` pages at twenty-five and hands out a `nextCursor`; `RateContests`
+ * used a plain `useQuery`, read `.items` and dropped it. Every other list
+ * F-49 indicted withholds a READ. This one withheld a WRITE: with 167
+ * contests on the live judge, contest #26 onwards had no Rate button on any
+ * screen an administrator could reach, and `limit` cannot rescue it — the
+ * schema's maximum is 100.
+ *
+ * The assertion is not "a button exists". It is that the second request
+ * carries the FIRST page's cursor — a button that re-asks page one is the bug
+ * wearing the fix's clothes — and that the row that arrives is *rateable*,
+ * because a row without its button is the defect in a longer table.
+ */
+describe('AdminPage rating list past one page (D180)', () => {
+  function rounds(from: number, to: number) {
+    return Array.from({ length: to - from + 1 }, (_, i) => ({
+      ...CONTEST,
+      id: from + i,
+      key: `round-${String(from + i)}`,
+      name: `Round ${String(from + i)}`,
+    }));
+  }
+
+  function servePaged(cursors: (string | undefined)[]) {
+    get.mockImplementation((path: string, init?: Record<string, unknown>) => {
+      if (path === '/auth/me')
+        return Promise.resolve({
+          data: { username: 'root', displayName: 'Root', globalRole: 'admin' },
+        });
+      if (path === '/admin/dashboard') return Promise.resolve({ data: DASHBOARD });
+      if (path === '/contests') {
+        const params = init?.params as { query?: { cursor?: string } } | undefined;
+        const cursor = params?.query?.cursor;
+        cursors.push(cursor);
+        return Promise.resolve(
+          cursor === undefined
+            ? { data: { items: rounds(1, 25), nextCursor: '25' } }
+            : { data: { items: rounds(26, 27), nextCursor: null } },
+        );
+      }
+      return Promise.resolve({ data: undefined });
+    });
+  }
+
+  it('offers "load more" and sends the first page’s cursor to reach contest #26', async () => {
+    const cursors: (string | undefined)[] = [];
+    servePaged(cursors);
+    wrap(<AdminPage />);
+
+    expect(await screen.findByText('Round 1')).toBeInTheDocument();
+    expect(screen.queryByText('Round 26')).toBeNull();
+
+    await userEvent.click(await screen.findByRole('button', { name: /tải thêm|load more/i }));
+
+    expect(await screen.findByText('Round 27')).toBeInTheDocument();
+    // The first page is still there — appended, not replaced.
+    expect(screen.getByText('Round 1')).toBeInTheDocument();
+    // ...and page two was asked for with the cursor the server issued.
+    expect(cursors).toEqual([undefined, '25']);
+
+    // The point of the whole item: #26 now has a button that rates it.
+    const rateButtons = screen.getAllByRole('button', { name: /^Bật tính rating$/ });
+    expect(rateButtons).toHaveLength(27);
+    await userEvent.click(rateButtons[26]!);
+    expect(post).toHaveBeenCalledWith('/admin/contests/{key}/rate', {
+      params: { path: { key: 'round-27' } },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /tải thêm|load more/i })).toBeNull();
+    });
+  });
+
+  it('offers nothing more when the judge fits on one page', async () => {
+    serve('admin');
+    wrap(<AdminPage />);
+    await screen.findByRole('button', { name: /^Bật tính rating$/ });
+    expect(screen.queryByRole('button', { name: /tải thêm|load more/i })).toBeNull();
+  });
+
+  /**
+   * D145. A list that will not load used to render `admin.noContests` — "no
+   * contests yet" — which tells an administrator their judge is empty on the
+   * morning the API is down. A refusal is named, and offers the next move.
+   */
+  it('says the list failed rather than claiming the judge has no contests', async () => {
+    get.mockImplementation((path: string) => {
+      if (path === '/auth/me')
+        return Promise.resolve({
+          data: { username: 'root', displayName: 'Root', globalRole: 'admin' },
+        });
+      if (path === '/admin/dashboard') return Promise.resolve({ data: DASHBOARD });
+      if (path === '/contests') return Promise.reject(new Error('offline'));
+      return Promise.resolve({ data: undefined });
+    });
+    wrap(<AdminPage />);
+    // The panel is named, so an operator reading four panels at once knows
+    // which one is down, and the retry is offered because a network failure
+    // is the retryable kind.
+    await waitFor(() => {
+      expect(
+        screen.getAllByRole('alert').some((el) =>
+          /Không tải được danh sách kỳ thi/.test(el.textContent ?? ''),
+        ),
+      ).toBe(true);
+    });
+    expect(screen.queryByText(/Chưa có kỳ thi nào/)).toBeNull();
   });
 });

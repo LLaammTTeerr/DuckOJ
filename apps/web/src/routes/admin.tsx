@@ -19,13 +19,13 @@
  * the console and nothing at all on screen; and without the flag the rating
  * replay is double-clickable.
  */
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError } from '../api-error.js';
-import { LoadError, useLastError } from '../states.js';
+import { LoadError, SkeletonRows, useLastError } from '../states.js';
 import { meQueryOptions } from '../me.js';
 import {
   formatRelative,
@@ -110,14 +110,42 @@ function RateContests() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const contests = useQuery({
-    queryKey: ['contests'],
-    queryFn: async () => {
-      const result = await api.GET('/contests', {});
+  /**
+   * **Paged since D180, and this is the one that blocked a WRITE.** It was a
+   * plain `useQuery` that read `.items` and dropped `nextCursor`, so the
+   * server's page of twenty-five was a ceiling: with 167 contests on the live
+   * judge, contest #26 onwards had no Rate button on any screen an
+   * administrator could reach. A bigger `limit` cannot rescue it — the
+   * schema's maximum is 100 — so it is the cursor or nothing.
+   *
+   * `asc(id)`, the endpoint's unfiltered order, is KEPT: oldest first is
+   * oldest-unrated first, which is the order an admin works this table in —
+   * a round is rated once, shortly after it ends, and the ones still waiting
+   * are the old ones. D177 flipped the teams list because a teacher tails it;
+   * nobody tails this.
+   *
+   * The key is `['contests', 'admin']` rather than `['contests']`, which the
+   * contests LIST page also owns and which now carries a phase filter of its
+   * own: two different requests under one key is one cache entry answering
+   * two questions. `invalidateQueries({ queryKey: ['contests'] })` still
+   * reaches this one — react-query matches key prefixes — so a replay still
+   * refreshes both.
+   */
+  const contests = useInfiniteQuery({
+    queryKey: ['contests', 'admin'],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const query: { cursor?: string } = {};
+      if (pageParam !== undefined) query.cursor = pageParam;
+      const result = await api.GET('/contests', { params: { query } });
       if (result.error) throw apiError(result, t('contests.loadError'));
       return result.data;
     },
+    getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
   });
+  const rows: Contest[] | undefined = contests.data
+    ? contests.data.pages.flatMap((page) => page?.items ?? [])
+    : undefined;
 
   /**
    * One `busy` flag for the whole table rather than one per row: a replay
@@ -159,40 +187,68 @@ function RateContests() {
       <p className="muted">{t('admin.ratedNote')}</p>
       {notice ? <p role="status">{notice}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
-      {contests.data && contests.data.items.length > 0 ? (
-        <table>
-          <thead>
-            <tr>
-              <th>{t('contests.colContest')}</th>
-              <th>{t('admin.colRated')}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {contests.data.items.map((contest: Contest) => (
-              <tr key={contest.key}>
-                <td>
-                  <Link to="/contests/$key" params={{ key: contest.key }}>
-                    {contest.name}
-                  </Link>
-                </td>
-                <td>{contest.isRated ? t('admin.rated') : '—'}</td>
-                <td>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void setRated(contest.key, !contest.isRated)}
-                  >
-                    {contest.isRated ? t('admin.unrate') : t('admin.rate')}
-                  </button>
-                </td>
+      {/* D145. A list that will not load used to fall through to
+          `admin.noContests` — "no contests yet" — which tells an
+          administrator their judge is empty on the morning the API is down.
+          The failure is named, and offers the retry. */}
+      {contests.isError ? (
+        <LoadError
+          error={contests.error}
+          what={t('contests.loadError')}
+          onRetry={() => void contests.refetch()}
+        />
+      ) : null}
+      {/* D143 — the head is drawn WHILE the rows load, so the table does not
+          displace the panels below it when the page lands. */}
+      {contests.isPending || (rows && rows.length > 0) ? (
+        <div className="table-wrap" tabIndex={0}>
+          <table>
+            <thead>
+              <tr>
+                <th>{t('contests.colContest')}</th>
+                <th>{t('admin.colRated')}</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
+            </thead>
+            <tbody>
+              {contests.isPending ? <SkeletonRows rows={6} columns={3} /> : null}
+              {(rows ?? []).map((contest: Contest) => (
+                <tr key={contest.key}>
+                  <td>
+                    <Link to="/contests/$key" params={{ key: contest.key }}>
+                      {contest.name}
+                    </Link>
+                  </td>
+                  <td>{contest.isRated ? t('admin.rated') : '—'}</td>
+                  <td>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void setRated(contest.key, !contest.isRated)}
+                    >
+                      {contest.isRated ? t('admin.unrate') : t('admin.rate')}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {rows && rows.length === 0 && !contests.isError ? (
         <p className="muted">{t('admin.noContests')}</p>
-      )}
+      ) : null}
+      {contests.hasNextPage ? (
+        <p>
+          <button
+            type="button"
+            onClick={() => void contests.fetchNextPage()}
+            disabled={contests.isFetchingNextPage}
+          >
+            {t('common.loadMore')}
+          </button>
+        </p>
+      ) : null}
     </>
   );
 }
