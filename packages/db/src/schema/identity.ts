@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { sql, type SQL, type SQLWrapper } from 'drizzle-orm';
 import {
   bigserial,
   bigint,
@@ -30,6 +30,45 @@ export const oneTimeTokenPurpose = pgEnum('one_time_token_purpose', [
   'password_reset',
   'email_verification',
 ]);
+
+/**
+ * The one definition of "the same name, however it was typed" (D185).
+ *
+ * A Vietnamese reader types `nguyen` and means `Nguyễn`. Nothing in this
+ * codebase may hold a second copy of that rule: the stored column below and
+ * the needle every search builds are folded by THIS function, so a query
+ * string and the row it is meant to find can never be folded differently.
+ *
+ * Four steps, in this order:
+ *
+ *  1. `lower()` — case folding first, so `Đ` reaches the `đ` in step 4.
+ *  2. `normalize(…, NFD)` — every precomposed Vietnamese letter becomes its
+ *     base plus combining marks. Vietnamese needs TWO marks on one vowel
+ *     (`ế` is `e` + circumflex + acute, `ữ` is `u` + horn + tilde), and NFD
+ *     peels both.
+ *  3. strip `U+0300–U+036F` — the combining diacritical marks block, which is
+ *     where every mark step 2 produced lives, the horn (`U+031B`) and the
+ *     breve (`U+0306`) included.
+ *  4. `translate` — `đ` has NO decomposition (it is a letter with a stroke,
+ *     not a letter with a mark), so it is mapped by hand; `-`, `_` and `.`
+ *     become spaces so that a word inside a username is a word (`hs-nguyen`
+ *     is found by `nguyen`, which is the same promise made to a display
+ *     name).
+ *
+ * **`unaccent` was refused, and the reason is not taste.** It is an extension
+ * this database does not have (`pg_extension` holds `plpgsql` and nothing
+ * else) and — decisively — `unaccent(text)` is **STABLE**, not `IMMUTABLE`,
+ * because its dictionary is a file on disk. A STABLE expression may not be
+ * stored in a generated column and may not be indexed. `normalize()` is
+ * `IMMUTABLE` and needs no extension, so it can be, and is.
+ *
+ * The character-class literal is written with `\uXXXX` escapes rather than the
+ * marks themselves: a combining mark in source is invisible, and a reviewer
+ * cannot tell a correct range from a mangled one by looking at it.
+ */
+export function searchFold(expression: SQL | SQLWrapper): SQL<string> {
+  return sql`translate(regexp_replace(normalize(lower(${expression}), NFD), '[\\u0300-\\u036f]', '', 'g'), 'đ-_.', 'd   ')`;
+}
 
 export const users = pgTable(
   'users',
@@ -76,6 +115,25 @@ export const users = pgTable(
      * own password, and `false` says exactly that.
      */
     mustChangePassword: boolean('must_change_password').notNull().default(false),
+    /**
+     * `username` and `display_name`, folded by `searchFold` above, in one
+     * string a `LIKE` can walk (D185, migration 0047).
+     *
+     * **Stored, not computed per row.** Measured on a 25 000-account province
+     * copy, the worst case a search has — a query matching nothing, which is
+     * every typo — cost **172 ms** with the fold applied per row and **4.2 ms**
+     * against this column. The roster search inside one 5 000-pupil school
+     * went from 22–40 ms to 5.5 ms. That factor is the whole justification for
+     * the column; nothing else in this table is denormalised.
+     *
+     * The two fields share one string BY DESIGN: it is what lets a teacher
+     * type either the account name or the person's name into one box and get
+     * an answer, and the separator between them is a space, so the
+     * word-prefix seek below cannot match ACROSS the join.
+     */
+    searchFold: text('search_fold').generatedAlwaysAs(
+      (): SQL => searchFold(sql`${users.username} || ' ' || ${users.displayName}`),
+    ),
     rating: integer('rating'),
     maxRating: integer('max_rating'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

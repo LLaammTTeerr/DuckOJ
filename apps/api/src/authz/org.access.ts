@@ -13,6 +13,7 @@ import type {
   OrgPageDto,
   OrgRoleDto,
   OrgSummaryDto,
+  OrgMemberListQueryDto,
   PaginationQueryDto,
   UpdateOrgRequestDto,
 } from '@duckoj/contracts';
@@ -21,6 +22,7 @@ import { AppError } from '../common/app.error.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { isAdmin, type Actor } from './actor.js';
 import { visibleOrgsWhere } from './org.visibility.js';
+import { nameSearchWhere } from './name-search.js';
 
 /** Postgres SQLSTATE for a unique-constraint violation. */
 /** Advisory-lock namespace for the per-org owner invariant (two-int form). */
@@ -33,7 +35,7 @@ const UNIQUE_VIOLATION = '23505';
  * `limit` matches `PaginationQuery`'s own default, so a write's body and the
  * client's first `GET .../members` describe the same page.
  */
-const ROSTER_FIRST_PAGE: PaginationQueryDto = { limit: 25 };
+const ROSTER_FIRST_PAGE: OrgMemberListQueryDto = { limit: 25 };
 
 /**
  * The longest a username can be (`RegisterRequest`'s own bound), which is
@@ -159,7 +161,7 @@ export class OrgAccessService {
   async listMembers(
     actor: Actor | null,
     slug: string,
-    query: PaginationQueryDto,
+    query: OrgMemberListQueryDto,
   ): Promise<OrgMemberPageDto> {
     const row = await this.findVisibleOrgRow(actor, slug);
     return this.rosterOf(row.id, query);
@@ -715,29 +717,48 @@ export class OrgAccessService {
    * doc comment in `@duckoj/contracts` for why a write answers a bounded
    * page rather than the roster it just changed.
    */
-  private async rosterOf(orgId: number, query: PaginationQueryDto = ROSTER_FIRST_PAGE): Promise<OrgMemberPageDto> {
+  private async rosterOf(
+    orgId: number,
+    query: OrgMemberListQueryDto = ROSTER_FIRST_PAGE,
+  ): Promise<OrgMemberPageDto> {
     const after = parseMemberCursor(query.cursor);
+    // D185. The roster is where a five-thousand-pupil school is actually
+    // read, so it is the surface that needed to be searchable most: without
+    // `q`, finding one pupil is two hundred presses of "load more".
+    //
+    // `q` narrows the page; it does NOT touch the order or the cursor. The
+    // walk is still `asc(users.username)` seeking on a unique column, so a
+    // search can be paged exactly as the unfiltered roster is — and the same
+    // `q` has to ride on every page, which is what the web query key pins.
+    const search =
+      query.q === undefined ? undefined : nameSearchWhere(schema.users.searchFold, query.q);
     const rows = await this.db
       .select({
         username: schema.users.username,
+        displayName: schema.users.displayName,
         role: orgMembers.role,
         joinedAt: orgMembers.joinedAt,
       })
       .from(orgMembers)
       .innerJoin(schema.users, eq(schema.users.id, orgMembers.userId))
       .where(
-        after === null
-          ? eq(orgMembers.orgId, orgId)
-          : and(eq(orgMembers.orgId, orgId), gt(schema.users.username, after)),
+        and(
+          eq(orgMembers.orgId, orgId),
+          after === null ? undefined : gt(schema.users.username, after),
+          search,
+        ),
       )
       .orderBy(asc(schema.users.username))
       // One row past the page, so "is there more" is answered by the same
       // query rather than by a second COUNT that could disagree with it.
       .limit(query.limit + 1);
 
-    const items: OrgMemberDto[] = rows
-      .slice(0, query.limit)
-      .map((r) => ({ username: r.username, role: r.role as OrgRoleDto, joinedAt: r.joinedAt.toISOString() }));
+    const items: OrgMemberDto[] = rows.slice(0, query.limit).map((r) => ({
+      username: r.username,
+      displayName: r.displayName,
+      role: r.role as OrgRoleDto,
+      joinedAt: r.joinedAt.toISOString(),
+    }));
     return {
       items,
       nextCursor: rows.length > query.limit ? items.at(-1)!.username : null,

@@ -54,11 +54,26 @@ export type UserPageDto = z.infer<typeof UserPage>;
 
 export const UserListQuery = PaginationQuery.extend({
   /**
-   * Case-insensitive **prefix** of username or display name.
+   * A **word** of the username or the display name, with Vietnamese
+   * diacritics folded on both sides (D185).
    *
-   * Prefix rather than substring on purpose: `LIKE '%q%'` cannot use an index,
-   * so a two-letter query would sequentially scan every user. The existing
-   * `users_username_lower_idx` serves a prefix directly.
+   * `nguyen` finds `Nguyễn`; `an` finds `Nguyễn Văn An`, because Vietnamese
+   * puts the given name last and that is the word a person is called by; `do`
+   * finds `Đỗ`. Case is folded, `%` and `_` are literals a person typed.
+   *
+   * **The comment that used to be here was wrong and is worth recording.** It
+   * said a prefix was chosen over a substring because "the existing
+   * `users_username_lower_idx` serves a prefix directly". It does not: an
+   * `ILIKE` prefix cannot use a b-tree index at all unless the pattern starts
+   * with a non-alphabetic character, and the `OR` across two columns rules
+   * one out regardless. `EXPLAIN` on the live database answered `Seq Scan on
+   * users` for the old query and always had. What serves this now is
+   * `users.search_fold`, a stored generated column (migration 0047), which is
+   * a real 41x on the case that matters — a query matching nothing, which is
+   * every typo.
+   *
+   * Still not a substring match: `%an%` returns every *Hoàng*, *Lan*,
+   * *Trang* and *Thanh* in a province, which is noise rather than an answer.
    */
   q: z.string().min(1).max(64).optional(),
 });

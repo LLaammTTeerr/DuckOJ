@@ -15,6 +15,7 @@ import type { Response } from 'express';
 import {
   AddOrgMemberRequest,
   CreateOrgRequest,
+  OrgMemberListQuery,
   PaginationQuery,
   OrgMemberImportRequest,
   SetOrgMemberRoleRequest,
@@ -30,6 +31,7 @@ import {
   type SetOrgMemberRoleRequestDto,
   type OrgPageDto,
   type OrgSummaryDto,
+  type OrgMemberListQueryDto,
   type PaginationQueryDto,
   type UpdateOrgRequestDto,
 } from '@duckoj/contracts';
@@ -81,7 +83,7 @@ export class OrgsController {
   listMembers(
     @MaybeActor() actor: Actor | null,
     @Param('slug') slug: string,
-    @Query(new ZodValidationPipe(PaginationQuery)) query: PaginationQueryDto,
+    @Query(new ZodValidationPipe(OrgMemberListQuery)) query: OrgMemberListQueryDto,
   ): Promise<OrgMemberPageDto> {
     return this.orgs.listMembers(actor, slug, query);
   }

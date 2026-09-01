@@ -11366,6 +11366,7 @@
           "Organizations"
         ],
         "summary": "The members of an organization visible to the caller",
+        "description": "A page, ordered by username. `q` finds a person by a word of their username or display name with Vietnamese diacritics folded on both sides — `nguyen` finds `Nguyễn`, and `an` finds `Nguyễn Văn An` by the given name a teacher calls them (D185).",
         "parameters": [
           {
             "schema": {
@@ -11393,6 +11394,16 @@
             "required": false,
             "name": "limit",
             "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "required": false,
+            "name": "q",
+            "in": "query"
           }
         ],
         "responses": {
@@ -11411,6 +11422,9 @@
                           "username": {
                             "type": "string"
                           },
+                          "displayName": {
+                            "type": "string"
+                          },
                           "role": {
                             "type": "string",
                             "enum": [
@@ -11426,6 +11440,7 @@
                         },
                         "required": [
                           "username",
+                          "displayName",
                           "role",
                           "joinedAt"
                         ]
@@ -11553,6 +11568,9 @@
                           "username": {
                             "type": "string"
                           },
+                          "displayName": {
+                            "type": "string"
+                          },
                           "role": {
                             "type": "string",
                             "enum": [
@@ -11568,6 +11586,7 @@
                         },
                         "required": [
                           "username",
+                          "displayName",
                           "role",
                           "joinedAt"
                         ]
@@ -12346,6 +12365,9 @@
                           "username": {
                             "type": "string"
                           },
+                          "displayName": {
+                            "type": "string"
+                          },
                           "role": {
                             "type": "string",
                             "enum": [
@@ -12361,6 +12383,7 @@
                         },
                         "required": [
                           "username",
+                          "displayName",
                           "role",
                           "joinedAt"
                         ]
@@ -12604,6 +12627,9 @@
                           "username": {
                             "type": "string"
                           },
+                          "displayName": {
+                            "type": "string"
+                          },
                           "role": {
                             "type": "string",
                             "enum": [
@@ -12619,6 +12645,7 @@
                         },
                         "required": [
                           "username",
+                          "displayName",
                           "role",
                           "joinedAt"
                         ]
@@ -12862,6 +12889,9 @@
                           "username": {
                             "type": "string"
                           },
+                          "displayName": {
+                            "type": "string"
+                          },
                           "role": {
                             "type": "string",
                             "enum": [
@@ -12877,6 +12907,7 @@
                         },
                         "required": [
                           "username",
+                          "displayName",
                           "role",
                           "joinedAt"
                         ]
@@ -13141,6 +13172,9 @@
                           "username": {
                             "type": "string"
                           },
+                          "displayName": {
+                            "type": "string"
+                          },
                           "role": {
                             "type": "string",
                             "enum": [
@@ -13156,6 +13190,7 @@
                         },
                         "required": [
                           "username",
+                          "displayName",
                           "role",
                           "joinedAt"
                         ]

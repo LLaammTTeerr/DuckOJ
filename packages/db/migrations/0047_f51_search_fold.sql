@@ -1,0 +1,32 @@
+-- F-51 / D185. A teacher types `nguyen` and means `Nguyễn`.
+--
+-- `users.search_fold` is `username || ' ' || display_name` with case, every
+-- Vietnamese diacritic, `đ`, and the separators `-`, `_`, `.` folded away, so
+-- that a search can `LIKE` it directly. The expression is `searchFold()` in
+-- `packages/db/src/schema/identity.ts` and it is the ONLY definition of the
+-- fold — the needle a query builds is folded by the same function, so a typed
+-- name and the row it should find can never be folded differently.
+--
+-- STORED rather than computed per row, and the numbers are why. On a 25 000-
+-- account province copy (400 schools, 30 000 memberships), the worst case a
+-- search has is a query that matches NOTHING, because it must then examine
+-- every row; that is what every typo costs:
+--
+--   global `GET /users?q=`, no match   172 ms per row-fold  ->   4.2 ms stored
+--   one 5 000-pupil school's roster     22-40 ms            ->   5.5 ms stored
+--
+-- A `pg_trgm` GIN index on this column was measured too and REFUSED: it takes
+-- the global no-match case to 0.26 ms but does NOTHING for the roster search
+-- (5.7 ms against 5.5 ms), because that plan is driven by `org_members` and
+-- probes `users` by primary key. It would cost an extension this database does
+-- not have, 1.3 MB against a 3.6 MB table, and write amplification on the
+-- 5 000-row account imports of D61 — to shave 4 ms off a list nothing polls.
+--
+-- `unaccent` was refused for a harder reason than taste: `unaccent(text)` is
+-- STABLE, not IMMUTABLE, so it may not appear in a generated column at all.
+-- `normalize()` is IMMUTABLE and ships with Postgres.
+--
+-- The rewrite this ALTER performs is a whole-table one. The live database
+-- holds 431 accounts; on the 25 000-account copy it took 0.25 s.
+
+ALTER TABLE "users" ADD COLUMN "search_fold" text GENERATED ALWAYS AS (translate(regexp_replace(normalize(lower("users"."username" || ' ' || "users"."display_name"), NFD), '[\u0300-\u036f]', '', 'g'), 'đ-_.', 'd   ')) STORED;

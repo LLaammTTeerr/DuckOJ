@@ -5547,12 +5547,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The members of an organization visible to the caller */
+        /**
+         * The members of an organization visible to the caller
+         * @description A page, ordered by username. `q` finds a person by a word of their username or display name with Vietnamese diacritics folded on both sides — `nguyen` finds `Nguyễn`, and `an` finds `Nguyễn Văn An` by the given name a teacher calls them (D185).
+         */
         get: {
             parameters: {
                 query?: {
                     cursor?: string;
                     limit?: number;
+                    q?: string;
                 };
                 header?: never;
                 path: {
@@ -5571,6 +5575,7 @@ export interface paths {
                         "application/json": {
                             items: {
                                 username: string;
+                                displayName: string;
                                 /** @enum {string} */
                                 role: "owner" | "admin" | "member";
                                 /** Format: date-time */
@@ -5635,6 +5640,7 @@ export interface paths {
                         "application/json": {
                             items: {
                                 username: string;
+                                displayName: string;
                                 /** @enum {string} */
                                 role: "owner" | "admin" | "member";
                                 /** Format: date-time */
@@ -6032,6 +6038,7 @@ export interface paths {
                         "application/json": {
                             items: {
                                 username: string;
+                                displayName: string;
                                 /** @enum {string} */
                                 role: "owner" | "admin" | "member";
                                 /** Format: date-time */
@@ -6160,6 +6167,7 @@ export interface paths {
                         "application/json": {
                             items: {
                                 username: string;
+                                displayName: string;
                                 /** @enum {string} */
                                 role: "owner" | "admin" | "member";
                                 /** Format: date-time */
@@ -6289,6 +6297,7 @@ export interface paths {
                         "application/json": {
                             items: {
                                 username: string;
+                                displayName: string;
                                 /** @enum {string} */
                                 role: "owner" | "admin" | "member";
                                 /** Format: date-time */
@@ -6411,6 +6420,7 @@ export interface paths {
                         "application/json": {
                             items: {
                                 username: string;
+                                displayName: string;
                                 /** @enum {string} */
                                 role: "owner" | "admin" | "member";
                                 /** Format: date-time */

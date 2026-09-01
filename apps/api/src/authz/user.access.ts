@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, count, countDistinct, eq, gt, ilike, or, sql, sum } from 'drizzle-orm';
+import { and, asc, count, countDistinct, eq, gt, sql, sum } from 'drizzle-orm';
 import { problems, submissions } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import type {
@@ -11,8 +11,8 @@ import type {
   UserSummaryDto,
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
-import { likeEscape } from './problem.access.js';
 import { AppError } from '../common/app.error.js';
+import { nameSearchWhere } from './name-search.js';
 import type { Actor } from './actor.js';
 import { frozenSubmissionsWhere } from './submission.freeze.js';
 
@@ -48,18 +48,19 @@ export class UserAccessService {
     // code than the identical mistake anywhere else.
     const after = parseUserCursor(query.cursor);
 
-    // Prefix, not substring: `%q%` cannot use `users_username_lower_idx` and
-    // turns a two-letter query into a scan of the whole user table.
-    const search =
-      query.q === undefined
-        ? undefined
-        : or(
-            // Escaped: `%` and `_` in q are literals a person typed, not
-            // wildcards — q='%' must not match every user (and degrade the
-            // documented index prefix-walk into a full scan).
-            ilike(users.username, `${likeEscape(query.q)}%`),
-            ilike(users.displayName, `${likeEscape(query.q)}%`),
-          );
+    // D185. One rule for "find this person", shared with the org roster:
+    // diacritics folded on both sides, matched at a WORD boundary.
+    //
+    // What was here before was `ILIKE 'q%'` over `username` and
+    // `display_name`, with a comment claiming the prefix "serves
+    // `users_username_lower_idx` directly". It did not, twice over: an
+    // `ILIKE` prefix cannot use a b-tree index at all (Postgres will only
+    // range-rewrite a case-insensitive pattern that starts with a
+    // non-alphabetic character), and the `OR` across two columns rules one
+    // out anyway. `EXPLAIN` on the live database says `Seq Scan on users`
+    // for both `username ILIKE 'ng%'` and `lower(username) LIKE 'ng%'`.
+    // The plan never changed; only the comment was wrong.
+    const search = query.q === undefined ? undefined : nameSearchWhere(users.searchFold, query.q);
 
     const rows = await this.db
       .select(PUBLIC_COLUMNS)

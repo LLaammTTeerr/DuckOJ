@@ -87,10 +87,45 @@ export type UpdateOrgRequestDto = z.infer<typeof UpdateOrgRequest>;
  */
 export const OrgMember = z.object({
   username: z.string(),
+  /**
+   * The person's own name, added by D185 with the roster's search box.
+   *
+   * A roster that serves only usernames is a roster a teacher cannot read: a
+   * school whose accounts were minted by a bulk import (D61) is a page of
+   * `hs000123`, and a search that matches `Nguyễn Văn An` by name could not
+   * show the name it had matched. It is also what D122's deterministic
+   * initials are computed from, so a person picker can show a face.
+   *
+   * Discloses nothing new — `GET /users/{username}` already serves
+   * `displayName` publicly for every account, one request per row.
+   */
+  displayName: z.string(),
   role: OrgRole,
   joinedAt: Timestamp,
 });
 export type OrgMemberDto = z.infer<typeof OrgMember>;
+
+/**
+ * The roster's page, plus "find this person" (D185).
+ *
+ * `q` matches a WORD of the username or the display name with Vietnamese
+ * diacritics folded on both sides, so a teacher types `nguyen` (or `an`, the
+ * given name a pupil is actually called by) and finds `Nguyễn Văn An`. The
+ * rule is `nameSearchWhere` in the API and it is shared, byte for byte, with
+ * `GET /users?q=`.
+ *
+ * **It is a parameter on THIS route rather than an `org=` filter on
+ * `GET /users`, and that is an authorization decision, not a convenience.**
+ * `GET /users` is `@Public()`. Teaching it to filter by organization would
+ * publish "who belongs to this school" — including a PRIVATE school's roster
+ * — through a route with no organization gate on it at all. This route
+ * already runs `findVisibleOrgRow`, the same 404 gate `GET /orgs/{slug}`
+ * uses, so the search inherits exactly the visibility the roster already had.
+ */
+export const OrgMemberListQuery = PaginationQuery.extend({
+  q: z.string().min(1).max(64).optional(),
+});
+export type OrgMemberListQueryDto = z.infer<typeof OrgMemberListQuery>;
 
 /**
  * A **page** of members, never the whole roster (D58).
@@ -338,7 +373,11 @@ registry.registerPath({
   path: '/orgs/{slug}/members',
   tags: ['Organizations'],
   summary: 'The members of an organization visible to the caller',
-  request: { params: OrgSlugParam, query: PaginationQuery },
+  description:
+    'A page, ordered by username. `q` finds a person by a word of their username or display ' +
+    'name with Vietnamese diacritics folded on both sides — `nguyen` finds `Nguyễn`, and `an` ' +
+    'finds `Nguyễn Văn An` by the given name a teacher calls them (D185).',
+  request: { params: OrgSlugParam, query: OrgMemberListQuery },
   responses: {
     200: { description: 'A page of members, sorted by username', content: { 'application/json': { schema: OrgMemberPage } } },
     404: ORG_NOT_FOUND,
