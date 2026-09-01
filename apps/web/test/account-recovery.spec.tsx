@@ -34,6 +34,30 @@ describe('ForgotPasswordPage', () => {
       body: { email: 'someone@example.com' },
     });
   });
+
+  /**
+   * D155 — and when the server cannot send mail at all, the screen says THAT
+   * instead of claiming a link is on its way.
+   */
+  it('does not claim a link was sent by a deployment that sends none', async () => {
+    post.mockResolvedValue({
+      error: { status: 503, code: 'mail_unavailable', detail: 'an English sentence from the API' },
+    });
+    render(<ForgotPasswordPage />);
+    await userEvent.type(screen.getByLabelText(/email/i), 'someone@example.com');
+    await userEvent.click(screen.getByRole('button', { name: /Gửi liên kết đặt lại/ }));
+
+    const alert = await screen.findByRole('alert');
+    // Vietnamese, not the API's English detail (D18) …
+    expect(alert).toHaveTextContent(/chưa được cấu hình để gửi thư/);
+    expect(alert).not.toHaveTextContent('an English sentence from the API');
+    // … and it says the refusal is about the site, not about this address —
+    // otherwise the honesty reads as "your address was rejected", which
+    // would be the membership oracle D26 exists to prevent.
+    expect(alert).toHaveTextContent(/bất kỳ địa chỉ nào khác/);
+    // Nothing that reads as success.
+    expect(screen.queryByRole('status')).toBeNull();
+  });
 });
 
 describe('ResetPasswordPage', () => {

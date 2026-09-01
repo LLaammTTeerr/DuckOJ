@@ -71,9 +71,22 @@ export function ForgotPasswordPage() {
       // The server answers the same way whether or not the account exists, and
       // so does this screen — saying "we sent it" only for real addresses would
       // undo the whole point of that.
+      //
+      // D155 is the one exception, and it is not an exception to that rule:
+      // `mail_unavailable` says this DEPLOYMENT sends no mail to anyone, which
+      // is a fact about the server and identical for every address. It gets
+      // its own sentence rather than `error.detail`, because the API's detail
+      // is English and this app is Vietnamese by default (D18) — and because
+      // the honesty is wasted if it reads as "your address was rejected".
       setOutcome(
         error
-          ? { kind: 'error', message: error.detail ?? t('auth.badEmail') }
+          ? {
+              kind: 'error',
+              message:
+                error.code === 'mail_unavailable'
+                  ? t('auth.mailUnavailable')
+                  : (error.detail ?? t('auth.badEmail')),
+            }
           : { kind: 'done', message: t('auth.forgotSent') },
       );
     } catch {

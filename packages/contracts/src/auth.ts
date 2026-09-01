@@ -319,6 +319,14 @@ registry.registerPath({
       description: 'Not a syntactically valid address',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
+    503: {
+      description:
+        'D155 — this production deployment has no SMTP transport, so no mail can be sent to anyone ' +
+        '(`mail_unavailable`). Decided by the server\'s own configuration and never by the address in the ' +
+        'request, so the 202/503 split says nothing about whether an account exists: every caller gets the ' +
+        'same answer for every address. Answered before the lookup, so the timing does not leak either.',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
   },
 });
 
@@ -336,7 +344,14 @@ registry.registerPath({
   path: '/auth/email/verify/send',
   tags: ['Auth'],
   summary: 'Send an address-confirmation link to the signed-in user',
-  responses: { 202: { description: 'Accepted' }, 401: { description: 'Not signed in' } },
+  responses: {
+    202: { description: 'Accepted' },
+    401: { description: 'Not signed in' },
+    503: {
+      description: 'D155 — no SMTP transport on this production deployment (`mail_unavailable`)',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
+  },
 });
 
 registry.registerPath({

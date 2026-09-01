@@ -93,13 +93,56 @@ export class AccountRecoveryService {
   ) {}
 
   /**
-   * Always succeeds, whether or not the address exists.
+   * D155 — refuses, before anything else happens, when this deployment cannot
+   * actually deliver mail.
+   *
+   * **Why this does not break D26.** The endpoints below are uniform so they
+   * cannot be asked "does this person have an account here". This refusal is
+   * decided by two facts about the SERVER — which transport was resolved at
+   * boot, and whether this is production — and by nothing whatsoever about
+   * the request, so every caller gets the same answer for every address. It
+   * is raised HERE, first, for the half of that property a response body does
+   * not carry: raised after the lookup it would be uniform in content and
+   * non-uniform in timing, and a timing oracle is still an oracle.
+   *
+   * **Why only production.** `LogMailer` is the deliberate default everywhere
+   * else (see its own header): a developer must not need a mail server to
+   * register a user, and neither must a test. There, the log IS the delivery
+   * and the developer is the reader. In production nobody reads it, and the
+   * mail that never arrives is a locked-out teacher on contest day.
+   *
+   * The alternative considered and rejected was to keep answering 202 and put
+   * the honesty only in the log and on the admin dashboard. Both of those are
+   * built too (F-40), and neither reaches the one person who is standing
+   * there watching a screen that says a mail is on its way. A 503 is the
+   * truthful answer to "please send me a mail" from a server that cannot: it
+   * names the server as the broken thing, tells the person to find an
+   * administrator instead of refreshing an inbox for an hour, and says
+   * nothing at all about whether the address is known here.
+   */
+  private requireDeliverableMail(): void {
+    if (this.config.nodeEnv !== 'production' || this.mailer.kind !== 'log') return;
+    throw new AppError(
+      503,
+      'mail_unavailable',
+      'This server is not configured to send email, so no message can be sent. ' +
+        'Please ask an administrator to configure SMTP.',
+    );
+  }
+
+  /**
+   * Always succeeds, whether or not the address exists — unless this server
+   * cannot send mail at all, which is D155's refusal above and is about the
+   * server, not the address.
    *
    * Anything else turns this endpoint into a membership oracle for an email
    * list — "does this person have an account here" is not a question a stranger
    * gets to ask.
    */
   async requestPasswordReset(email: string): Promise<void> {
+    // D155, first: before the limiter, before the lookup, before anything
+    // that could make the refusal depend on the address.
+    this.requireDeliverableMail();
     // Before the user lookup, and keyed by the *asked-for* address: an
     // attacker probing addresses that do not exist burns a window too.
     if (!(await this.limiter.allow('password_reset', email.toLowerCase(), MAIL_LIMIT, MAIL_WINDOW_MS))) {
@@ -172,6 +215,13 @@ export class AccountRecoveryService {
   }
 
   async sendVerification(userId: number): Promise<void> {
+    // D155. Reached from registration too, where `AuthController` already
+    // wraps this call in a try/catch and logs — deliberately, so a mail
+    // outage never turns a successful signup into a 500. So on a mail-less
+    // production stack the account is still created and the operator gets one
+    // ERROR line per registration saying why no verification mail went out,
+    // which is precisely the record that was missing before.
+    this.requireDeliverableMail();
     const [user] = await this.db
       .select({
         email: schema.users.email,
