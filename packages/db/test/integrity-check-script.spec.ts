@@ -153,6 +153,18 @@ async function plantOneOfEach(db: Db): Promise<void> {
     values (1,1,1500,350,0.06,1520,340,0.06,1);
 
     insert into org_join_requests (org_id, user_id, state) values (1,1,'pending');
+    -- D165's derived column. A submission with no case rows summarises to the
+    -- empty list, so 1 and 3 are correct; 2 is left NULL, which is a terminal
+    -- submission the fold must re-read case rows for on every fold forever; and
+    -- 4 carries case rows its stored summary does not describe (sumPoints 40
+    -- where the rows sum to 20) — a scoreboard scoring it twice over.
+    update submissions set subtask_summary = '[]'::jsonb where id in (1,3);
+    insert into submission_cases (submission_id, attempt, group_index, case_index, verdict, time_ms, memory_kb, points, max_points) values
+      (4,1,0,0,'AC',1,1,20,20),
+      (4,1,0,1,'WA',1,1,0,20);
+    update submissions set subtask_summary =
+      '[{"batch":0,"minPoints":0,"maxTotal":20,"sumPoints":40,"sumTotal":40}]'::jsonb where id = 4;
+
     insert into notifications (user_id, kind, payload) values (1,'submission_judged','{"submissionId": 999999}'::jsonb);
     insert into similarity_runs (contest_id, status, threshold, pairs) values
       (1,'finished',0.8,'{"pairs":[{"submissionId":999999,"otherSubmissionId":999998}]}'::jsonb);
@@ -196,6 +208,8 @@ describe('scripts/integrity-check.ts', () => {
           'stats-solvers-not-set-size',
           'submission-job-kind-without-submission',
           'submission-revision-not-of-problem',
+          'submission-summary-disagrees-with-cases',
+          'submission-summary-missing-on-terminal',
           'team-member-not-in-org',
           'team-member-without-seat',
           'team-participation-captain-not-member',

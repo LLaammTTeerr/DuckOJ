@@ -300,6 +300,78 @@ export const CHECKS: readonly Check[] = [
            where x.sid is not null
              and not exists (select 1 from submissions s where s.id = x.sid)`,
   },
+  // D165's derived column, and B-32's reason for auditing it: `subtask_summary`
+  // is the cold scoreboard fold's only input for a finished submission, so a
+  // writer that forgets to maintain it does not fail — it serves a stale score,
+  // silently, to a scoreboard. This asks the rows.
+  //
+  // It reduces the case rows the way migration 0045's backfill does, so it is
+  // NOT an independent check of that migration's arithmetic (B-32 did that
+  // separately, in JavaScript, against `summariseCases`). What it is, is a
+  // forward drift detector for every writer that comes after: the comparison is
+  // per field in `float8`, never through `to_jsonb`, so it does not depend on
+  // this session's `extra_float_digits` the way the backfill did.
+  {
+    id: 'submission-summary-disagrees-with-cases',
+    severity: 'high',
+    what: "submissions whose stored subtask_summary (D165) is not what their latest attempt's case rows reduce to — a wrong scoreboard reported as a right one",
+    sql: `with terminal as (
+              select s.id, s.subtask_summary
+                from submissions s
+               where s.state in ('done', 'errored')
+                 and jsonb_typeof(s.subtask_summary) = 'array'
+            ), latest as (
+              select sc.submission_id, max(sc.attempt) as a
+                from submission_cases sc
+                join terminal t on t.id = sc.submission_id
+               group by 1
+            ), want as (
+              select sc.submission_id,
+                     row_number() over (partition by sc.submission_id order by min(sc.id)) - 1 as ord,
+                     sc.group_index,
+                     min(sc.points)                    as min_points,
+                     max(sc.max_points)                as max_total,
+                     sum(sc.points order by sc.id)     as sum_points,
+                     sum(sc.max_points order by sc.id) as sum_total
+                from submission_cases sc
+                join latest la on la.submission_id = sc.submission_id and la.a = sc.attempt
+               group by sc.submission_id, sc.group_index
+            ), got as (
+              select t.id as submission_id,
+                     e.n - 1                          as ord,
+                     (e.value->>'batch')::int         as group_index,
+                     (e.value->>'minPoints')::float8  as min_points,
+                     (e.value->>'maxTotal')::float8   as max_total,
+                     (e.value->>'sumPoints')::float8  as sum_points,
+                     (e.value->>'sumTotal')::float8   as sum_total
+                from terminal t
+                cross join lateral jsonb_array_elements(t.subtask_summary) with ordinality e(value, n)
+            )
+            select 'submission=' || coalesce(w.submission_id, g.submission_id)
+                   || ' group#' || coalesce(w.ord, g.ord)
+                   || ' stored=' || case when g.submission_id is null then 'absent'
+                        else concat_ws('/', g.group_index, g.min_points, g.max_total, g.sum_points, g.sum_total) end
+                   || ' cases='  || case when w.submission_id is null then 'absent'
+                        else concat_ws('/', w.group_index, w.min_points, w.max_total, w.sum_points, w.sum_total) end as detail
+              from want w
+              full outer join got g on g.submission_id = w.submission_id and g.ord = w.ord
+             where g.submission_id is null
+                or w.submission_id is null
+                or g.group_index is distinct from w.group_index
+                or g.min_points  is distinct from w.min_points
+                or g.max_total   is distinct from w.max_total
+                or g.sum_points  is distinct from w.sum_points
+                or g.sum_total   is distinct from w.sum_total`,
+  },
+  {
+    id: 'submission-summary-missing-on-terminal',
+    severity: 'medium',
+    what: 'terminal submissions carrying no subtask_summary array (D165): correct, but the cold scoreboard fold reads their case rows on every single fold, forever',
+    sql: `select 'submission=' || s.id || ' state=' || s.state as detail
+            from submissions s
+           where s.state in ('done', 'errored')
+             and (s.subtask_summary is null or jsonb_typeof(s.subtask_summary) <> 'array')`,
+  },
   {
     id: 'submission-job-kind-without-submission',
     severity: 'low',
