@@ -519,6 +519,19 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   // the seat rule in reach at all.
   await page.goto(`/orgs/${ORG}`);
   await alphaRow.getByRole('button', { name: 'Sửa' }).click();
+  // Wait for the prefill before typing over it, exactly as the first edit
+  // above does. This walk typed straight after the click and B-33 is what it
+  // caught: on a cold cache the form used to render an editable, EMPTY roster
+  // box while `GET /orgs/{slug}/teams/{teamSlug}` was still in flight, and the
+  // seed that landed afterwards replaced what had been typed without a word —
+  // the PATCH then carried `["fe42-a1","fe42-a2"]` and came back 200 with the
+  // roster unchanged, which reads exactly like the one-seat rule not firing.
+  //
+  // The wait is NOT the fix and must not be read as one: `TeamForm` no longer
+  // renders a field before it holds the roster it is editing (D183), and
+  // `test/teams-edit-seed-race.spec.tsx` is what guards that. This line only
+  // stops the walk racing a prefill it never meant to be testing.
+  await expect(page.getByLabel('Thành viên')).toHaveValue('fe42-a1, fe42-a2');
   await page.getByLabel('Thành viên').fill('fe42-a1, fe42-a2, fe42-c1');
   expect(await saveRoster(page, ALPHA), 'the one-seat rule answers 409, never 500').toBe(409);
 
@@ -547,20 +560,27 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
  * WITHOUT a reload.
  *
  * This is the F-42 finding, kept as its own walk rather than folded into
- * journey 2: it is **red against the deployed bundle by design** — the fix is
- * a local commit and the edge is still on 908a6b8 — and a defect
- * demonstration must not stop the one-seat walk beside it from running.
+ * journey 2 because it began life **red against the deployed bundle by
+ * design** — a defect demonstration must not stop the one-seat walk beside it
+ * from running. **It has been green since F-42's fix reached the edge**, and
+ * the sentence that used to say otherwise is gone rather than left to mislead
+ * the next reader about which of these two walks is a known failure.
  *
- * What goes wrong: `OrgTeams.refresh()` invalidated `['org-teams', slug]`, the
- * summary list, which carries a member COUNT and no names. The names come from
+ * What went wrong: `OrgTeams.refresh()` invalidated `['org-teams', slug]`, the
+ * summary list, which carried a member COUNT and no names. The names came from
  * `TeamMembers`' own query under `['org-team', slug, teamSlug]`, and
  * invalidation matches by key PREFIX, so nothing ever invalidated it. The
- * teacher sees the count move and the names stay.
+ * teacher saw the count move and the names stay. (D182 has since put the names
+ * on the summary, so `teamsKey(slug)` is what refreshes this row now — the
+ * second invalidation still matters, because that key still backs the edit
+ * form's prefill.)
  *
  * The severe half is not visible from here and is pinned in jsdom instead
  * (`test/teams-roster-refresh.spec.tsx`): the same stale entry prefills the
  * EDIT form, and `members` replaces the whole roster — so the next save writes
- * back the pre-edit list and silently drops the pupil just added.
+ * back the pre-edit list and silently drops the pupil just added. B-33 found a
+ * second door onto that same loss and pinned it in
+ * `test/teams-edit-seed-race.spec.tsx`.
  */
 test('journey 2b — the panel shows the added pupil with no reload (red until the fix ships)', async ({
   page,
