@@ -297,6 +297,59 @@ describe('the language picker, once there is more than one language', () => {
     expect(localStorage.getItem(draftKey(PROBLEM, 'cpp17'))).toBe('int main(){}');
     expect(localStorage.getItem(draftKey(PROBLEM, 'python3'))).toBe('print(1)');
   });
+
+  /**
+   * The other half of D84's per-(problem, language) key, which had never run:
+   * the pupil comes BACK to a language they left work in.
+   *
+   * `changeLanguage` only read the target language's draft when the buffer
+   * was `source === ''`, and the buffer is never empty — the editor opens on
+   * the first language's starter template if there is nothing else. So the
+   * guard could not fire, and every draft except the one the page opened on
+   * was unreachable through the picker: the pupil switched to Python, saw
+   * their C++ program, and the first keystroke filed it over the Python
+   * program they came back for.
+   *
+   * Restoring it costs nothing, because the buffer being carried over is
+   * already saved under its OWN key — which is the whole point of keying
+   * drafts per language.
+   */
+  it('gives back the draft waiting in the language switched TO (D84)', async () => {
+    localStorage.setItem(draftKey(PROBLEM, 'python3'), 'print(1)');
+    const { view } = await mount(accept);
+
+    // Never empty: the C++17 starter template is in the buffer.
+    expect(view.state.doc.toString()).not.toBe('');
+    await userEvent.selectOptions(screen.getByLabelText('Ngôn ngữ'), 'python3');
+
+    expect(view.state.doc.toString()).toBe('print(1)');
+    expect(screen.getByRole('status')).toHaveTextContent('Khôi phục bản nháp');
+  });
+
+  it('does not file the carried-over buffer over the draft it found there', async () => {
+    localStorage.setItem(draftKey(PROBLEM, 'python3'), 'print(1)');
+    const { view } = await mount(accept);
+
+    vi.useFakeTimers();
+    typeInto(view, 'int main(){}');
+    act(() => {
+      vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
+    });
+    vi.useRealTimers();
+
+    await userEvent.selectOptions(screen.getByLabelText('Ngôn ngữ'), 'python3');
+    // One keystroke in the new language files whatever the buffer holds under
+    // the python3 key. It must be the Python program, not the C++ one.
+    vi.useFakeTimers();
+    typeInto(view, `${view.state.doc.toString()}\n`);
+    act(() => {
+      vi.advanceTimersByTime(DRAFT_DEBOUNCE_MS);
+    });
+    vi.useRealTimers();
+
+    expect(localStorage.getItem(draftKey(PROBLEM, 'python3'))).toBe('print(1)\n');
+    expect(localStorage.getItem(draftKey(PROBLEM, 'cpp17'))).toBe('int main(){}');
+  });
 });
 
 describe('modeForLanguage', () => {

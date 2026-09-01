@@ -228,19 +228,40 @@ export function SubmitForm(props: {
   }
 
   /**
-   * Switching language KEEPS the code. A pupil who opens the dropdown to
-   * read the options must not lose a half-written program to it, and the
-   * same algorithm is often retyped rather than rewritten. Only an editor
-   * that is already empty takes on the new language's draft — or, failing
-   * that, its starter template, which is the one moment a template is
-   * inserted after the first render.
+   * Switching language.
+   *
+   * **A draft waiting in the language being switched TO wins.** That is the
+   * whole reason D84 keys drafts per (problem, language): a pupil who tried
+   * C++ and then switched to Python has two different half-finished programs,
+   * and the pupil coming BACK to one of them is the case the key exists for.
+   * It costs nothing, because the buffer being replaced is already filed
+   * under its own key — flushed here first, so a write still inside the
+   * 500 ms debounce window cannot land after the read below.
+   *
+   * This used to be gated on `source === ''`, and the buffer is never empty:
+   * an editor with no draft opens on a starter TEMPLATE. So the gate could
+   * not fire, every draft but the one the page opened on was unreachable
+   * through the picker, and the first keystroke after a switch filed the
+   * carried-over program over the one the pupil came back for.
+   *
+   * With nothing waiting there, the code is KEPT — a pupil who opens the
+   * dropdown to read the options must not lose a half-written program to it,
+   * and the same algorithm is often retyped rather than rewritten. Only an
+   * editor that is already empty takes the new language's starter template,
+   * which is the one moment a template is inserted after the first render.
    */
   function changeLanguage(next: string): void {
     setChosen(next);
-    if (source !== '') return;
+    draft.flush();
     const stored = loadDraft(draftKey(props.problemCode, next));
-    setSource(stored ?? templateForLanguage(next));
-    setRestored(stored !== null);
+    if (stored !== null) {
+      setSource(stored);
+      setRestored(true);
+      return;
+    }
+    if (source !== '') return;
+    setSource(templateForLanguage(next));
+    setRestored(false);
   }
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>): Promise<void> {

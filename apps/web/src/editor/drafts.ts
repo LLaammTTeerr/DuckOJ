@@ -66,15 +66,22 @@ export function clearDraft(key: string): void {
  * already scheduled, or the 500 ms timer resurrects the draft the submit
  * just cleared. That race is asserted directly in `test/editor-draft.spec.tsx`.
  *
- * The pending value is flushed on unmount (and on a key change) rather than
- * dropped, so navigating away within the debounce window keeps the last
- * keystrokes — flushed to the key it was SCHEDULED with, which is what makes
- * a language switch mid-window file the old buffer under the old language.
+ * The pending value is flushed on unmount, and by `flush()` when the submit
+ * page changes language, rather than dropped — so navigating away within the
+ * debounce window keeps the last keystrokes, flushed to the key it was
+ * SCHEDULED with, which is what makes a language switch mid-window file the
+ * old buffer under the old language.
  */
 export function useDraft(
   problemCode: string,
   languageKey: string,
-): { key: string; schedule: (source: string) => void; clear: () => void } {
+): {
+  key: string;
+  schedule: (source: string) => void;
+  /** Writes a pending value NOW, under the key it was scheduled with. */
+  flush: () => void;
+  clear: () => void;
+} {
   const key = draftKey(problemCode, languageKey);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<{ key: string; source: string } | null>(null);
@@ -101,21 +108,33 @@ export function useDraft(
     [key],
   );
 
+  /**
+   * Writes whatever is pending immediately, under the key it was SCHEDULED
+   * with — never the current one.
+   *
+   * Needed by the language switch (D158's sibling fix): the switch reads the
+   * target language's stored draft, and a write still sitting in the debounce
+   * window would otherwise land after that read and under a key the pupil has
+   * already left. Idempotent, and a no-op when nothing is pending.
+   */
+  const flush = useCallback(() => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (pending) saveDraft(pending.key, pending.source);
+  }, []);
+
   const clear = useCallback(() => {
     cancel();
     clearDraft(key);
   }, [cancel, key]);
 
-  useEffect(
-    () => () => {
-      if (timerRef.current !== null) clearTimeout(timerRef.current);
-      timerRef.current = null;
-      const pending = pendingRef.current;
-      pendingRef.current = null;
-      if (pending) saveDraft(pending.key, pending.source);
-    },
-    [],
-  );
+  // On unmount only (`flush` is stable), so navigating away inside the
+  // debounce window still keeps the last keystrokes.
+  useEffect(() => () => flush(), [flush]);
 
-  return { key, schedule, clear };
+  return { key, schedule, flush, clear };
 }
