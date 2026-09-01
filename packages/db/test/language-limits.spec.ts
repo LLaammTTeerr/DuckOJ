@@ -371,32 +371,83 @@ describe('migration 0043 bounds a limit adjustment (D159)', () => {
 });
 
 /**
- * F-46. The rule F-39 wrote down and nothing enforced:
+ * F-46/F-47. The rule F-39 wrote down:
  *
  * > `--only-executors` must stay a superset of the `executor_key`s in
  * > `language_driver_keys`.
  *
  * It is the flag that kept this judge at one language for a fortnight, and it
- * appears on BOTH judge services in `docker-compose.yml` — the second one
- * (`judge-2`, behind the `scale` profile) is the easy one to forget, and a
- * fleet where the two disagree is a fleet where a submission's fate depends
- * on which judge claimed it. The check reads the real compose file against a
- * real migrated database, so a migration that seeds a language nobody widened
- * the flag for fails here rather than as D68's `blocked_reason` in
- * production.
+ * appears on EVERY judge service in `docker-compose.yml` — the profiled
+ * `judge-2` is the easy one to forget, and a fleet where two judges disagree
+ * is a fleet where a submission's fate depends on which one claimed it. The
+ * check reads the real compose file against a real migrated database, so a
+ * migration that seeds a language nobody widened the flag for fails here
+ * rather than as D68's `blocked_reason` in production.
+ *
+ * **F-47 closed two holes in F-46's version of this**, both found by asking
+ * what the guard would actually have caught:
+ *
+ *  1. It matched `--only-executors` occurrences and asserted there were
+ *     `2` of them. A third judge service added WITHOUT the flag would have
+ *     left exactly two matches and passed — the very case the comment
+ *     claimed to cover. The services are now derived from the file's own
+ *     structure, and a judge service missing the flag is named.
+ *  2. It asserted a superset in one direction only. The other direction is
+ *     what D172 turned from a wrong answer into a silent one: an executor on
+ *     the allow-list that no row names is announced by the judge, dropped by
+ *     `judged`, and visible nowhere. Equality is the honest rule — announce
+ *     what we can grade, and nothing else.
  */
-describe('the compose allow-list covers every seeded executor (F-39, F-46)', () => {
-  it('names the same allow-list on every judge service, and it is a superset', async () => {
-    const compose = await readFile(new URL('../../../docker-compose.yml', import.meta.url), 'utf8');
-    const lists = [...compose.matchAll(/'--only-executors',\s*'([^']+)'/g)].map((m) =>
-      m[1]!.split(','),
-    );
+describe('the compose allow-list matches every seeded executor (F-39, F-46, F-47)', () => {
+  /**
+   * Every service in `docker-compose.yml` whose `command:` runs
+   * `dmoj judged`, with the `--only-executors` list it passes (or
+   * `undefined` when it passes none).
+   *
+   * Deliberately structural rather than a global regex over the file: the
+   * whole point is to notice a judge service that did NOT get the flag, and
+   * a scan that only sees the flag can never see its absence.
+   */
+  function judgeServices(compose: string): Map<string, string[] | undefined> {
+    const lines = compose.split('\n');
+    const found = new Map<string, string[] | undefined>();
+    // Top-level service names sit at exactly two spaces of indent under
+    // `services:`; anything deeper belongs to the service above it.
+    const starts = lines
+      .map((line, index) => ({ index, match: /^ {2}([A-Za-z0-9_.-]+):\s*$/.exec(line) }))
+      .filter((entry) => entry.match !== null);
+    for (const [position, entry] of starts.entries()) {
+      const from = entry.index;
+      const to = starts[position + 1]?.index ?? lines.length;
+      const block = lines.slice(from, to).join('\n');
+      if (!/'dmoj',/.test(block) || !/'judged',/.test(block)) continue;
+      const flag = /'--only-executors',\s*'([^']+)'/.exec(block);
+      found.set(entry.match![1]!, flag ? flag[1]!.split(',') : undefined);
+    }
+    return found;
+  }
 
-    // Two judge services today: `judge` and the profiled `judge-2`. A third
-    // one added without the flag would drop this to a list that no longer
-    // covers every judge, which is exactly the state this guards.
-    expect(lists).toHaveLength(2);
-    expect(lists[0]).toEqual(lists[1]);
+  it('gives every judge service the same allow-list', async () => {
+    const compose = await readFile(new URL('../../../docker-compose.yml', import.meta.url), 'utf8');
+    const services = judgeServices(compose);
+
+    // `judge` and the profiled `judge-2` today. The assertion is that there
+    // is at least one and that they all agree — NOT that there are exactly
+    // two, which is what let a third slip past, and not that they are these
+    // two, which would fail a province that legitimately adds a third.
+    expect([...services.keys()], 'no service in docker-compose.yml runs dmoj judged').not.toEqual(
+      [],
+    );
+    const missing = [...services].filter(([, list]) => list === undefined).map(([name]) => name);
+    expect(missing, 'judge services with no --only-executors').toEqual([]);
+
+    const lists = [...services.values()].map((list) => list!.join(','));
+    expect(new Set(lists).size, `allow-lists disagree: ${lists.join(' | ')}`).toBe(1);
+  });
+
+  it('allows exactly the executors the migrations seed, in both directions', async () => {
+    const compose = await readFile(new URL('../../../docker-compose.yml', import.meta.url), 'utf8');
+    const allowed = [...judgeServices(compose).values()].flatMap((list) => list ?? []);
 
     await withTestDb(async (db) => {
       const rows = await db
@@ -407,9 +458,19 @@ describe('the compose allow-list covers every seeded executor (F-39, F-46)', () 
 
       const seeded = rows.map((row) => row.executorKey);
       expect(seeded.length).toBeGreaterThan(0);
-      for (const list of lists) {
-        expect(list).toEqual(expect.arrayContaining(seeded));
-      }
+
+      // Superset (F-39's rule): a seeded language the judge is not allowed to
+      // load is a language nobody can grade — D160's `blocked_reason`, with
+      // the picker offering it anyway.
+      const notAllowed = seeded.filter((executor) => !allowed.includes(executor));
+      expect(notAllowed, 'seeded executors missing from --only-executors').toEqual([]);
+
+      // Subset (F-47's addition): an allow-listed executor with no row is
+      // announced by the judge and then DROPPED by `judged` (D172). Before
+      // D172 it was silently renamed; after D172 it is silently ignored.
+      // Either way the fix is the same one, and it belongs in CI.
+      const notSeeded = [...new Set(allowed)].filter((executor) => !seeded.includes(executor));
+      expect(notSeeded, 'allow-listed executors no language_driver_keys row names').toEqual([]);
     });
   });
 });
