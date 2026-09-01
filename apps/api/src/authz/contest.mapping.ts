@@ -184,14 +184,15 @@ function mapSubtasks(subtasks: ContestSubtaskRow[]): SubtaskSummary[] {
  *
  * - `contest_problems.order` decides which problem gets label `A`/`1`.
  * - `contest_submissions.id` decides `groupByProblem`'s first-seen order,
- *   which `ioi16` sums in — and IEEE addition is not associative.
+ *   which `ioi16` sums in — and IEEE addition is not associative. Since D165
+ *   the service applies that one in JavaScript rather than in `ORDER BY`; see
+ *   `loadSubmissionRows` for why. It is still the caller's responsibility, and
+ *   still the same total order.
  * - `submission_cases.id` decides the order loose cases are summed in, and the
- *   order the groups themselves are folded in. Since D165 that ordering is
- *   asserted inside the aggregate — `sum(points order by id)` — rather than
- *   applied to rows on their way out, because an unordered `sum` over
- *   `double precision` is not deterministic in Postgres at all: a parallel
- *   aggregate combines partials in worker-completion order, and even a serial
- *   scan may start mid-table under `synchronize_seqscans`.
+ *   order the groups themselves are folded in. Since D165 the fold does not
+ *   read case rows at all in the common path: `EventWriter.writeTerminal`
+ *   applies `summariseCases` to them, in that order, at the moment the verdict
+ *   is written.
  *
  * The service's queries sort on exactly those columns.
  */

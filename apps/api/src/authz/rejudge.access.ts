@@ -176,6 +176,13 @@ export class RejudgeService {
           memoryKb: null,
           compileOutput: null,
           judgedAt: null,
+          // D165. Cleared in the same statement that clears the verdict,
+          // because it is derived from the case rows deleted three lines
+          // below: a summary left behind would describe an attempt that no
+          // longer exists. The fold reads it only while a submission is
+          // terminal, so this is belt and braces — and it is the belt, given
+          // that silent drift in exactly this path was a real defect once.
+          subtaskSummary: null,
           // `submissions.revision_id` is "which tests actually graded it,
           // forever" — so it moves with the rejudge. Leaving it pinned to the
           // old revision while the job grades the new one would make the

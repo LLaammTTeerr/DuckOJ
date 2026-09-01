@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, max, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   contestOrgs,
   contestParticipations,
@@ -16,9 +16,9 @@ import {
   teams,
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
-import { CONTEST_FORMATS, computeContestScoreboard } from '@duckoj/contest-formats';
+import { CONTEST_FORMATS, computeContestScoreboard, summariseCases } from '@duckoj/contest-formats';
 import { DEFAULT_MAX_TEAM_SIZE } from '@duckoj/contracts';
-import type { Scoreboard } from '@duckoj/contest-formats';
+import type { Scoreboard, SubtaskSummary, TestCaseSpec } from '@duckoj/contest-formats';
 import type {
   CloneContestRequestDto,
   ContestParticipationDto,
@@ -158,6 +158,64 @@ export interface CreateContestInput {
 
 /** `ContestParticipation.LIVE`. Named so the three uses below read as one rule. */
 const LIVE_VIRTUAL = 0;
+
+/**
+ * The submission states in which `submissions.subtask_summary` describes the
+ * submission's latest attempt (D165).
+ *
+ * Anything else — `queued`, `compiling`, `grading` — means an attempt is in
+ * flight, its case rows are still arriving, and the board is supposed to show
+ * the partial score they make. A summary written for the PREVIOUS attempt
+ * would be stale in exactly that window, so it is not consulted there at all.
+ * This is what makes "one lease reclaim regrades a graded submission" safe
+ * without a second column to compare attempts on: the first thing a re-grade
+ * does is move the state off terminal (`dispatched` -> `queued`).
+ */
+const TERMINAL_STATES: ReadonlySet<string> = new Set(['done', 'errored']);
+
+function toSubtaskRow(subtask: SubtaskSummary): ContestSubtaskRow {
+  return {
+    groupIndex: subtask.batch,
+    minPoints: subtask.minPoints,
+    maxTotal: subtask.maxTotal,
+    sumPoints: subtask.sumPoints,
+    sumTotal: subtask.sumTotal,
+  };
+}
+
+/**
+ * `submissions.subtask_summary` as the fold may use it, or `null` for "ask the
+ * case rows".
+ *
+ * Validated rather than cast. The column is `jsonb` and therefore holds
+ * whatever was written into it; a shape this does not recognise falls back to
+ * the per-case read, which is always correct, instead of folding `undefined`
+ * into somebody's score. `Number.isFinite` is the whole check that matters —
+ * a `null` or a string in one of these fields would arrive as `NaN` and
+ * silently blank a whole scoreboard row.
+ */
+function readSubtaskSummary(value: unknown): ContestSubtaskRow[] | null {
+  if (!Array.isArray(value)) return null;
+  const rows: ContestSubtaskRow[] = [];
+  for (const entry of value) {
+    if (entry === null || typeof entry !== 'object') return null;
+    const record = entry as Record<string, unknown>;
+    const numbers = ['batch', 'minPoints', 'maxTotal', 'sumPoints', 'sumTotal'].map((key) =>
+      typeof record[key] === 'number' ? record[key] : Number.NaN,
+    );
+    if (numbers.some((number) => !Number.isFinite(number))) return null;
+    rows.push(
+      toSubtaskRow({
+        batch: numbers[0]!,
+        minPoints: numbers[1]!,
+        maxTotal: numbers[2]!,
+        sumPoints: numbers[3]!,
+        sumTotal: numbers[4]!,
+      }),
+    );
+  }
+  return rows;
+}
 
 /** A `contests` row as `select()` returns it — what the scoreboard needs. */
 type ContestRow = typeof contests.$inferSelect;
@@ -1918,40 +1976,32 @@ export class ContestAccessService {
    * `contest_submissions.id` and first-seen group order — both load-bearing,
    * per `mapContest`.
    *
-   * F-44 measured the old shape of this (statement 34): two `Parallel Seq
-   * Scan`s of `submission_cases` under a `submission_id = ANY(<every id in the
-   * contest>)` list, an external merge sort spilling to disk, 13 326 buffers
-   * and 146 ms on a 2 000-pupil round — every case row of the contest shipped
-   * to Node and rebuilt as an object, so that JavaScript could reduce it per
-   * group. **The query was the finding**: no index makes reading 96 % of a
-   * table cheaper. D165 makes the read narrower instead.
+   * F-44's statement 34 was the one real hazard it found on any contest-morning
+   * route: this used to read **every subtask case row of the contest** — two
+   * `Parallel Seq Scan`s of `submission_cases` under a `submission_id =
+   * ANY(<every submission id in the contest>)` list, an external merge sort
+   * spilling ~4.5 MB, 17 650 buffers and 163 ms on a 2 000-pupil round —
+   * shipping 240 000 rows to Node so that Node could reduce them per group. No
+   * index fixes that: a sequential scan is already the optimal plan for reading
+   * 96 % of a table. **The query was the finding.**
    *
-   * Three things change, and each is a separate claim:
+   * D165's answer is that the reduction happens **once, at write time**, and
+   * this reads it. `submissions.subtask_summary` is written by the same fenced
+   * UPDATE that writes the verdict (`EventWriter.writeTerminal`), so it costs
+   * this read nothing at all: it rides the statement that was already loading
+   * every submission of the contest.
    *
-   * 1. **The reduction moves into Postgres.** `min(points)`, `max(max_points)`
-   *    and the loose group's ordered sums are exactly what the formats reduce
-   *    cases to; grouping by `(submission_id, attempt, group_index)` computes
-   *    them once, in the scan, and returns one row per group instead of one
-   *    per case.
-   * 2. **The bind list goes away.** The old statement named every submission
-   *    id twice, so its *text* grew linearly with the contest. The predicate
-   *    is now a join back to this contest's own `contest_submissions`, which
-   *    is a constant-sized statement whatever the contest holds.
-   * 3. **The latest-attempt filter costs no second scan.** It used to be a
-   *    self-join against a `max(attempt)` aggregate over the same rows — the
-   *    second seq scan. Grouping by `attempt` as well makes every attempt's
-   *    groups fall out of the one scan, and picking the highest is a pass over
-   *    at most a handful of rows per submission. Superseded attempts only
-   *    exist for regraded submissions (a rejudge deletes them outright,
-   *    `RejudgeAccessService.requeueAll`), so this reads no more rows than the
-   *    filter it replaces.
+   * **The residue is the correctness.** The summary is trusted only for a
+   * submission that is `done` or `errored`; anything else — a submission
+   * grading right now, whose per-case rows are still arriving and whose partial
+   * score the board is supposed to show — falls back to the per-case read for
+   * exactly those submissions. That fallback is what makes this an optimisation
+   * rather than a second source of truth, and it cannot rot: every fold of a
+   * live contest runs it.
    *
-   * `sum(... order by id)` is not decoration. `points` is `double precision`
-   * and the formats accumulate the loose group with `+` in `submission_cases
-   * .id` order; a bare `sum` may combine parallel partial aggregates in
-   * worker-completion order, so it is not even deterministic run to run. The
-   * ordered aggregate is what makes this bit-identical to the JavaScript it
-   * replaces, and `contest-scoreboard-fold.spec.ts` proves it on real rows.
+   * D166 records why the obvious alternative — summarising per fold with a
+   * `GROUP BY`, which needs `sum(points ORDER BY id)` for the loose group to
+   * stay bit-identical — was measured and refused.
    */
   private async loadSubmissionRows(contestId: number): Promise<ContestSubmissionRow[]> {
     const rows = await this.db
@@ -1963,6 +2013,7 @@ export class ContestAccessService {
         date: submissions.createdAt,
         verdict: submissions.verdict,
         state: submissions.state,
+        subtaskSummary: submissions.subtaskSummary,
       })
       .from(contestSubmissions)
       .innerJoin(
@@ -1972,68 +2023,32 @@ export class ContestAccessService {
       .innerJoin(contestProblems, eq(contestProblems.id, contestSubmissions.contestProblemId))
       .innerJoin(problems, eq(problems.id, contestProblems.problemId))
       .innerJoin(submissions, eq(submissions.id, contestSubmissions.submissionId))
-      .where(eq(contestParticipations.contestId, contestId))
-      .orderBy(asc(contestSubmissions.id));
+      .where(eq(contestParticipations.contestId, contestId));
 
     if (rows.length === 0) return [];
 
-    const subtaskRows = await this.db
-      .select({
-        submissionId: submissionCases.submissionId,
-        attempt: submissionCases.attempt,
-        groupIndex: submissionCases.groupIndex,
-        minPoints: sql<number>`min(${submissionCases.points})`,
-        maxTotal: sql<number>`max(${submissionCases.maxPoints})`,
-        sumPoints: sql<number>`sum(${submissionCases.points} order by ${submissionCases.id})`,
-        sumTotal: sql<number>`sum(${submissionCases.maxPoints} order by ${submissionCases.id})`,
-      })
-      .from(submissionCases)
-      .where(
-        inArray(
-          submissionCases.submissionId,
-          this.db
-            .select({ submissionId: contestSubmissions.submissionId })
-            .from(contestSubmissions)
-            .innerJoin(
-              contestParticipations,
-              eq(contestParticipations.id, contestSubmissions.participationId),
-            )
-            .where(eq(contestParticipations.contestId, contestId)),
-        ),
-      )
-      .groupBy(submissionCases.submissionId, submissionCases.attempt, submissionCases.groupIndex)
-      // First-seen group order is what `ioi16` sums in, and the least id in a
-      // group is where its first case sat in the order the old query read
-      // them. Sorting the AGGREGATE is a sort of one row per group, not one
-      // row per case, which is the whole point of doing it here.
-      .orderBy(
-        asc(submissionCases.submissionId),
-        asc(submissionCases.attempt),
-        sql`min(${submissionCases.id})`,
-      );
+    // `contest_submissions.id` order is load-bearing — it is `groupByProblem`'s
+    // first-seen order, which `ioi16` sums in — but it is ordered HERE rather
+    // than by the database. Carrying `subtask_summary` makes these rows wide
+    // enough that Postgres' own `ORDER BY` stopped fitting in `work_mem` and
+    // spilled ~10 MB of temp per cold fold (19 ms and an in-memory quicksort
+    // became 40 ms and an external merge). Sixteen thousand rows is nothing to
+    // sort in Node, and the comparison is on a `bigserial` primary key, so this
+    // is the same total order by a cheaper route.
+    rows.sort((a, b) => a.id - b.id);
 
-    // One pass, in the order above: a submission's rows arrive attempt by
-    // attempt, so the last attempt seen is the highest one and its groups
-    // replace whatever an earlier attempt left. Filtering in JavaScript rather
-    // than in SQL is what saves the second scan; the rows it discards exist
-    // only for a submission that has been regraded.
-    const subtasksBySubmission = new Map<number, ContestSubtaskRow[]>();
-    const attemptBySubmission = new Map<number, number>();
-    for (const row of subtaskRows) {
-      const seen = attemptBySubmission.get(row.submissionId);
-      if (seen === undefined || row.attempt > seen) {
-        attemptBySubmission.set(row.submissionId, row.attempt);
-        subtasksBySubmission.set(row.submissionId, []);
-      } else if (row.attempt < seen) {
-        continue;
+    const stored = new Map<number, ContestSubtaskRow[]>();
+    const residue: number[] = [];
+    for (const row of rows) {
+      const summary = TERMINAL_STATES.has(row.state) ? readSubtaskSummary(row.subtaskSummary) : null;
+      if (summary === null) residue.push(row.submissionId);
+      else stored.set(row.submissionId, summary);
+    }
+
+    if (residue.length > 0) {
+      for (const [submissionId, subtasks] of await this.loadSubtasksFromCases(residue)) {
+        stored.set(submissionId, subtasks);
       }
-      subtasksBySubmission.get(row.submissionId)?.push({
-        groupIndex: row.groupIndex,
-        minPoints: row.minPoints,
-        maxTotal: row.maxTotal,
-        sumPoints: row.sumPoints,
-        sumTotal: row.sumTotal,
-      });
     }
 
     return rows.map((row) => ({
@@ -2042,8 +2057,81 @@ export class ContestAccessService {
       date: row.date,
       verdict: row.verdict,
       state: row.state,
-      subtasks: subtasksBySubmission.get(row.submissionId) ?? [],
+      subtasks: stored.get(row.submissionId) ?? [],
     }));
+  }
+
+  /**
+   * The old fold, kept for the submissions the stored summary cannot answer
+   * for: one still grading, one a rejudge has re-queued, one migration 0045
+   * never reached.
+   *
+   * It is the same two statements F-44 measured, over a list bounded by how
+   * many submissions of this contest are mid-flight rather than by how many it
+   * has ever taken — a judge grades about 35 a minute, so on contest morning
+   * this is tens of rows against sixteen thousand. The `inArray` list is
+   * therefore short by construction, which is the one thing the old shape could
+   * not promise.
+   */
+  private async loadSubtasksFromCases(
+    submissionIds: number[],
+  ): Promise<Map<number, ContestSubtaskRow[]>> {
+    const latestAttempt = this.db
+      .select({
+        submissionId: submissionCases.submissionId,
+        // Aliased away from `attempt`: an `attempt` on both sides of the
+        // join is an ambiguous column reference to Postgres.
+        maxAttempt: max(submissionCases.attempt).as('max_attempt'),
+      })
+      .from(submissionCases)
+      .where(inArray(submissionCases.submissionId, submissionIds))
+      .groupBy(submissionCases.submissionId)
+      .as('latest_attempt');
+
+    const caseRows = await this.db
+      .select({
+        submissionId: submissionCases.submissionId,
+        groupIndex: submissionCases.groupIndex,
+        points: submissionCases.points,
+        maxPoints: submissionCases.maxPoints,
+      })
+      .from(submissionCases)
+      .innerJoin(
+        latestAttempt,
+        and(
+          eq(latestAttempt.submissionId, submissionCases.submissionId),
+          eq(latestAttempt.maxAttempt, submissionCases.attempt),
+        ),
+      )
+      .where(inArray(submissionCases.submissionId, submissionIds))
+      .orderBy(asc(submissionCases.id));
+
+    const casesBySubmission = new Map<number, TestCaseSpec[]>();
+    for (const row of caseRows) {
+      const bucket = casesBySubmission.get(row.submissionId) ?? [];
+      bucket.push({
+        batch: row.groupIndex,
+        // `case` and `status` are required by `TestCaseSpec` and read by
+        // nothing — the summariser only ever looks at the batch and the two
+        // point values — so filling them with constants is honest here in a
+        // way it would not be if anything downstream read them.
+        case: 0,
+        points: row.points,
+        total: row.maxPoints,
+        status: 'AC',
+      });
+      casesBySubmission.set(row.submissionId, bucket);
+    }
+
+    // Every id asked for gets an answer, so a submission with no case rows at
+    // all is an empty summary rather than a missing one.
+    const out = new Map<number, ContestSubtaskRow[]>(
+      submissionIds.map((submissionId) => [submissionId, []]),
+    );
+    for (const [submissionId, cases] of casesBySubmission) {
+      out.set(submissionId, summariseCases(cases).map(toSubtaskRow));
+    }
+    return out;
   }
 
   /**

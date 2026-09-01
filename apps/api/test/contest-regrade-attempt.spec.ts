@@ -5,13 +5,23 @@
  * deletes), so the scoreboard must read **only the latest attempt**.
  *
  * The goldens are all single-attempt, so this is a decision made in
- * `ContestAccessService.loadSubmissionRows` rather than a test result — which
- * is exactly why it needs a test of its own. Both directions are pinned here:
- * a duplicate attempt must not double-count, and a *newer* attempt must win.
+ * `ContestAccessService` rather than a test result — which is exactly why it
+ * needs a test of its own. Both directions are pinned here: a duplicate
+ * attempt must not double-count, and a *newer* attempt must win.
+ *
+ * Since D165 that rule lives in two places and this file exercises the second
+ * one. The fast path is `EventWriter.writeTerminal`, which summarises the
+ * attempt it just graded (pinned in `apps/judged/test/event-writer.spec.ts`);
+ * the fallback is `loadSubmissionRows`' residue read, which still joins to
+ * `max(attempt)` and is what answers for a submission whose summary is
+ * missing — one being regraded right now, or one a rejudge re-queued. So the
+ * fixture below clears the stored summary when it adds the second attempt,
+ * which is both what makes the residue path the path under test and what a
+ * real regrade actually looks like: no writer has been near these rows.
  */
 import { describe, expect, it } from 'vitest';
 import { asc, inArray } from 'drizzle-orm';
-import { contestSubmissions, submissionCases } from '@duckoj/db/guarded';
+import { contestSubmissions, submissionCases, submissions } from '@duckoj/db/guarded';
 import type { Db } from '@duckoj/db';
 import { ContestAccessService } from '../src/authz/contest.access.js';
 import { uncachedScoreboards } from './scoreboard.fixtures.js';
@@ -48,6 +58,15 @@ async function addSecondAttempt(db: Db, mutate: (points: number) => number): Pro
       maxPoints: row.maxPoints,
     })),
   );
+  // Case rows appearing beside a summary that predates them is a state only a
+  // fixture can reach — in production nothing writes `submission_cases` except
+  // `EventWriter`, and its first case result moves the submission off a
+  // terminal state before its `finished` rewrites the summary. Clearing it is
+  // how this fixture stays a description of the system rather than of itself.
+  await db
+    .update(submissions)
+    .set({ subtaskSummary: null })
+    .where(inArray(submissions.id, submissionIds));
 }
 
 describe('a regraded submission is scored on its latest attempt only', () => {

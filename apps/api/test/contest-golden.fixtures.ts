@@ -14,6 +14,7 @@ import {
   submissions,
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
+import { summariseCases } from '@duckoj/contest-formats';
 import type { ContestInput, ProblemSpec, TestCaseSpec } from '@duckoj/contest-formats';
 
 /**
@@ -334,6 +335,17 @@ export async function seedGoldenContest(db: Db, input: ContestInput): Promise<Se
         })),
       );
     }
+
+    // What `EventWriter.writeTerminal` writes when grading finishes (D165), so
+    // the replays exercise the fold's real path — reading a stored summary —
+    // rather than only its residue fallback. Written with the same
+    // `summariseCases` over the same cases in the same order, because that is
+    // exactly what the judge does; a fixture that summarised differently would
+    // be testing the fixture.
+    await db
+      .update(submissions)
+      .set({ subtaskSummary: summariseCases(cases) })
+      .where(eq(submissions.id, row!.id));
 
     await db.insert(contestSubmissions).values({
       participationId: participationIds.get(submission.participant)!,
