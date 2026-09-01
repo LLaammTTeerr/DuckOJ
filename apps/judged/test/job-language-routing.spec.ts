@@ -10,7 +10,7 @@
  * grading_jobs` (which Postgres rejects outright if written as a bare `FOR
  * UPDATE` over those joins), and `is distinct from` over a nullable column.
  */
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import { schema, type Db } from '@duckoj/db';
 import { problems, problemRevisions, submissions } from '@duckoj/db/guarded';
@@ -19,6 +19,10 @@ import { withTestDb } from './db.harness.js';
 
 interface Fixture {
   store: JobStore;
+  /** The problem every job here is enqueued against — an override is keyed on it. */
+  problemId: number;
+  /** `languages.id` per key, for writing a `problem_language_limits` row. */
+  languageIds: Map<string, number>;
   /** Enqueues one job for a submission in `languageKey`, and answers its job id. */
   enqueue(languageKey: string): Promise<number>;
   /** Enqueues a job with no submission at all — the future invocation kind. */
@@ -53,17 +57,23 @@ async function fixture(db: Db): Promise<Fixture> {
       checkerKind: 'wcmp',
     })
     .returning();
+  // Read, not inserted: migration 0042 seeds both of these (F-39/D154), and
+  // `python3` arrives with the 300 % / +32768 KB adjustment that the
+  // multiplier assertions below depend on. A fixture that minted its own rows
+  // would be asserting against numbers it had itself chosen.
   const languageIds = new Map<string, number>();
   for (const key of ['cpp17', 'python3']) {
     const [language] = await db
-      .insert(schema.languages)
-      .values({ key, name: key, extension: key === 'cpp17' ? 'cpp' : 'py' })
-      .returning();
+      .select()
+      .from(schema.languages)
+      .where(eq(schema.languages.key, key));
     languageIds.set(key, language!.id);
   }
 
   return {
     store,
+    problemId: problem!.id,
+    languageIds,
     async enqueue(languageKey) {
       const [submission] = await db
         .insert(submissions)
@@ -258,4 +268,75 @@ describe('recordJudgeNode', () => {
       expect(await f.judgeNodeName(jobId)).toBe('judge-1');
     });
   }, 120_000);
+
+  /**
+   * D154's enforcement half, against real SQL.
+   *
+   * The unit tests in `packages/db/test/language-limits.spec.ts` pin the
+   * arithmetic; these pin that `claim` actually FEEDS it — that the joins
+   * reach `languages` and `problem_language_limits`, and that what lands in
+   * `ClaimedJob` (and therefore in the `submission-request` packet the judge
+   * is handed) is the adjusted limit rather than the authored one.
+   *
+   * The fixture revision is 1000 ms / 256000 KB throughout.
+   */
+  describe('the limits a claim hands the judge are adjusted for the language (D154)', () => {
+    it('gives a C++ job exactly what the setter authored', async () => {
+      await withTestDb(async (db) => {
+        const f = await fixture(db);
+        await f.enqueue('cpp17');
+
+        const claimed = await f.store.claim('worker-a', ['cpp17']);
+
+        expect(claimed).toMatchObject({ languageKey: 'cpp17', timeMs: 1000, memoryKb: 256_000 });
+      });
+    }, 120_000);
+
+    it('gives a Python job the multiplier and the interpreter floor', async () => {
+      await withTestDb(async (db) => {
+        const f = await fixture(db);
+        await f.enqueue('python3');
+
+        const claimed = await f.store.claim('worker-a', ['python3']);
+
+        // 300 % of 1000 ms, and 256000 + 32768 KB. Not 300 % of the memory:
+        // CPython's floor is a constant, not a proportion.
+        expect(claimed).toMatchObject({ languageKey: 'python3', timeMs: 3000, memoryKb: 288_768 });
+      });
+    }, 120_000);
+
+    it("honours a problem's override, column by column", async () => {
+      await withTestDb(async (db) => {
+        const f = await fixture(db);
+        // "This problem is about the constant factor — no time bonus." The
+        // setter said nothing about memory, so the interpreter floor must
+        // survive: dropping it here would MRE every Python submission on a
+        // problem that still accepts them.
+        await db.insert(schema.problemLanguageLimits).values({
+          problemId: f.problemId,
+          languageId: f.languageIds.get('python3')!,
+          timeMultiplierPct: 100,
+        });
+        await f.enqueue('python3');
+
+        const claimed = await f.store.claim('worker-a', ['python3']);
+
+        expect(claimed).toMatchObject({ timeMs: 1000, memoryKb: 288_768 });
+      });
+    }, 120_000);
+
+    it('leaves a job with no language at all on the authored limits', async () => {
+      await withTestDb(async (db) => {
+        const f = await fixture(db);
+        await f.enqueueLanguageless();
+
+        const claimed = await f.store.claim('worker-a');
+
+        // The outer joins find no language row, so `resolveLanguageTuning`
+        // falls back to 100 % / +0 KB and the job grades exactly as it did
+        // before D154 — which is the point of the fallback.
+        expect(claimed).toMatchObject({ timeMs: 1000, memoryKb: 256_000 });
+      });
+    }, 120_000);
+  });
 });

@@ -1,5 +1,11 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { reclaimExpiredLeases, schema, type Db } from '@duckoj/db';
+import {
+  effectiveLimits,
+  reclaimExpiredLeases,
+  resolveLanguageTuning,
+  schema,
+  type Db,
+} from '@duckoj/db';
 
 /**
  * How long a claim is valid without a heartbeat.
@@ -26,6 +32,16 @@ export interface ClaimedJob {
   packageHash: string;
   source: string;
   languageKey: string;
+  /**
+   * The limits to ENFORCE: the revision's authored limits with this
+   * language's multiplier and memory floor already applied (D154). Not the
+   * numbers the setter typed — those are authored against C++, and a Python
+   * submission judged against them TLEs whatever it does.
+   *
+   * `apps/api` shows the same two numbers, computed by the same
+   * `effectiveLimits`, because a scoreboard that says 2.0 s while the judge
+   * allowed 6.0 s is a lie.
+   */
   timeMs: number;
   memoryKb: number;
   /** From the revision; `null` on rows predating the column. */
@@ -95,6 +111,10 @@ export class JobStore {
       revision_time_ms: number | null;
       revision_memory_kb: number | null;
       revision_test_count: number | null;
+      language_time_pct: number | null;
+      language_memory_extra_kb: number | null;
+      override_time_pct: number | null;
+      override_memory_extra_kb: number | null;
     }>(sql`
       with claimed as (
         update grading_jobs
@@ -134,11 +154,25 @@ export class JobStore {
       select claimed.*, submissions.source, languages.key as language_key,
              problem_revisions.time_ms   as revision_time_ms,
              problem_revisions.memory_kb as revision_memory_kb,
-             problem_revisions.test_count as revision_test_count
+             problem_revisions.test_count as revision_test_count,
+             -- The multiplier inputs are SELECTED, never applied here. The
+             -- arithmetic is effectiveLimits() in @duckoj/db and lives in
+             -- exactly one place (D154): a time_ms * pct / 100 in this
+             -- statement would be a second implementation, in a second
+             -- language, of the number apps/api displays.
+             languages.time_multiplier_pct as language_time_pct,
+             languages.memory_extra_kb     as language_memory_extra_kb,
+             pll.time_multiplier_pct       as override_time_pct,
+             pll.memory_extra_kb           as override_memory_extra_kb
         from claimed
         left join submissions       on submissions.id       = claimed.submission_id
         left join languages         on languages.id         = submissions.language_id
         left join problem_revisions on problem_revisions.id = claimed.revision_id
+        -- Joined on the revision's PROBLEM, because an override is a
+        -- statement about the problem and outlives any one revision of it.
+        left join problem_language_limits pll
+               on pll.problem_id  = problem_revisions.problem_id
+              and pll.language_id = submissions.language_id
     `);
 
     const row = rows[0];
@@ -155,8 +189,33 @@ export class JobStore {
       // fixes these at 1000 ms / 65536 KB") had quietly outlived the phase:
       // a problem declaring 2000 ms displayed 2000 everywhere and GRADED at
       // 1000. The fallbacks only cover a revision predating the columns.
-      timeMs: row.revision_time_ms === null ? 1000 : Number(row.revision_time_ms),
-      memoryKb: row.revision_memory_kb === null ? 65536 : Number(row.revision_memory_kb),
+      //
+      // ...then adjusted for the language (D154). `resolveLanguageTuning`
+      // defaults to 100 % / +0 KB when the joins found nothing, which is the
+      // language-less job's case and leaves it graded exactly as before.
+      ...effectiveLimits(
+        {
+          timeMs: row.revision_time_ms === null ? 1000 : Number(row.revision_time_ms),
+          memoryKb: row.revision_memory_kb === null ? 65536 : Number(row.revision_memory_kb),
+        },
+        resolveLanguageTuning(
+          {
+            timeMultiplierPct: row.language_time_pct === null ? 100 : Number(row.language_time_pct),
+            memoryExtraKb:
+              row.language_memory_extra_kb === null ? 0 : Number(row.language_memory_extra_kb),
+          },
+          {
+            timeMultiplierPct:
+              row.override_time_pct === null ? null : Number(row.override_time_pct),
+            memoryExtraKb:
+              row.override_memory_extra_kb === null ? null : Number(row.override_memory_extra_kb),
+            // Not read here on purpose: `allowed` is enforced at SUBMIT time
+            // by apps/api. A job that exists was already accepted, and
+            // refusing to grade it now would strand it as a permanent IE.
+            allowed: true,
+          },
+        ),
+      ),
       testCount: row.revision_test_count === null ? null : Number(row.revision_test_count),
     };
   }

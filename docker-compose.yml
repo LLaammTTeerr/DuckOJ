@@ -162,7 +162,13 @@ services:
     # network remains real defense in depth — keep it, don't "fix" this by
     # publishing the port.
     healthcheck:
-      test: ['CMD', 'node', '-e', "fetch('http://localhost:3001/healthz').then(r=>process.exit(r.ok?0:1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3001/healthz').then(r=>process.exit(r.ok?0:1))",
+        ]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -194,7 +200,13 @@ services:
     # this port to the host (Controller addendum C4) — nothing outside the
     # Compose network has business reaching it.
     healthcheck:
-      test: ['CMD', 'node', '-e', "fetch('http://localhost:3002/healthz').then(r=>process.exit(r.ok?0:1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3002/healthz').then(r=>process.exit(r.ok?0:1))",
+        ]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -209,17 +221,36 @@ services:
     # positional — `dmoj judged 9999` would parse "9999" as judge_name, not
     # the port.
     #
-    # --only-executors CPP17: phase 1 is C++-only by decision — the web UI
-    # offers only ['cpp17'], DmojDriver.capabilities() declares only
-    # ['cpp17'], and the only language mapping that reaches a real dmoj
-    # executor is cpp17 -> CPP17. Without this flag the judge self-tests
-    # every executor it ships, including OBJC, whose self-test throws
-    # (objc_flags is unconfigured, so judge-server's own OBJC.py does
-    # `None + list`) — harmless (the judge still comes online) but it reads
-    # exactly like a broken judge in the startup log. Loading only the
-    # executor we actually dispatch to removes that noise instead of
-    # explaining it away.
-    command: ['dmoj', 'judged', '-p', '9999', '-c', '/judge-config/judge.yml', '--only-executors', 'CPP17']
+    # --only-executors: the ALLOW-LIST of dmoj executors this judge loads and
+    # therefore announces in its handshake. It is not decoration — it is the
+    # single reason a judge whose image has carried g++ 12 and CPython 3.11
+    # since day one announced exactly one executor for two weeks (F-39), and
+    # `judged` dispatches on what a judge ANNOUNCES, so a language absent from
+    # this list is a language whose submissions sit `queued` with D68's
+    # blocked_reason forever.
+    #
+    # This list must stay a superset of the `executor_key`s that migration
+    # 0042 puts in `language_driver_keys` for driver `dmoj`. It is widened
+    # here, not removed, because the flag still earns its keep: without it the
+    # judge self-tests every executor it ships, including OBJC, whose
+    # self-test throws (objc_flags is unconfigured, so judge-server's own
+    # OBJC.py does `None + list`) — harmless (the judge still comes online)
+    # but it reads exactly like a broken judge in the startup log.
+    #
+    # Verified against the running image's own self-test: CPP03, CPP11,
+    # CPP14, CPP17, CPP20, C, C11 and PY3 all pass. There is no CPP23 and,
+    # notably, no C17 — `C` is -std=c99 and `C11` is -std=c11.
+    command:
+      [
+        'dmoj',
+        'judged',
+        '-p',
+        '9999',
+        '-c',
+        '/judge-config/judge.yml',
+        '--only-executors',
+        'CPP14,CPP17,CPP20,C11,PY3',
+      ]
     # No bind mount for /problems: it is now a purely runtime, in-container
     # directory that judge-agent materialises packages into on demand
     # (apps/judge-agent/src/materializer.ts). Nothing here needs to persist
@@ -283,11 +314,27 @@ services:
       PROBLEMS_DIR: /problems
       AGENT_PORT: '3002'
     healthcheck:
-      test: ['CMD', 'node', '-e', "fetch('http://localhost:3002/healthz').then(r=>process.exit(r.ok?0:1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3002/healthz').then(r=>process.exit(r.ok?0:1))",
+        ]
       interval: 10s
       timeout: 5s
       retries: 6
-    command: ['dmoj', 'judged', '-p', '9999', '-c', '/judge-config/judge.yml', '--only-executors', 'CPP17']
+    command:
+      [
+        'dmoj',
+        'judged',
+        '-p',
+        '9999',
+        '-c',
+        '/judge-config/judge.yml',
+        '--only-executors',
+        'CPP14,CPP17,CPP20,C11,PY3',
+      ]
     volumes:
       - ./judge/judge.yml:/judge-config/judge.yml.template:ro
 

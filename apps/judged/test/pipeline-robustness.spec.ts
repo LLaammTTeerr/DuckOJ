@@ -21,10 +21,14 @@ async function seed(db: Db, store: JobStore, revision: { timeMs: number; memoryK
     .insert(schema.users)
     .values({ username: 'p', email: 'p@e.com', passwordHash: 'x', displayName: 'p' })
     .returning();
+  // Migration 0042 seeds the language catalogue (F-39/D154), so `cpp17`
+  // exists in every migrated database and inserting it here is now a unique
+  // violation on `languages_key_idx`. Read it instead: after 0042 the
+  // catalogue is schema-seeded data, not something a fixture owns.
   const [language] = await db
-    .insert(schema.languages)
-    .values({ key: 'cpp17', name: 'C++17', extension: 'cpp' })
-    .returning();
+    .select()
+    .from(schema.languages)
+    .where(eq(schema.languages.key, 'cpp17'));
   const [problem] = await db
     .insert(problems)
     .values({ code: 'p', name: 'P', statement: 's', visibility: 'public', createdBy: user!.id })

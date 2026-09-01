@@ -2,6 +2,7 @@ import { Redis } from 'ioredis';
 import {
   admittedJudgeNames,
   createDb,
+  loadDriverLanguageMap,
   recordJudgeCapabilities,
   touchJudgeLastSeen,
   verifyJudgeCredential,
@@ -30,24 +31,31 @@ async function main(): Promise<void> {
     // listening, so without this a dead Redis fails silently: judged
     // reports a clean startup while every publish quietly never lands.
     console.error(
-      JSON.stringify({ msg: 'redis error', error: error instanceof Error ? error.message : String(error) }),
+      JSON.stringify({
+        msg: 'redis error',
+        error: error instanceof Error ? error.message : String(error),
+      }),
     );
   });
 
   const jobs = new JobStore(db);
   const writer = new EventWriter(db, jobs, new SubmissionEvents(redis));
 
+  // The `python3` -> `PY3` row F-39 seeds is exactly the language the old
+  // hard-coded closure here warned about ("must extend BOTH lines here, not
+  // one"). Rather than extend it, both directions now come from
+  // `language_driver_keys`, read once at startup — one source of truth, and
+  // the same one the migration writes (D68, D154).
+  const languageMap = await loadDriverLanguageMap(db, 'dmoj');
+
   const bridge = new BridgeServer({
-    // The two directions are written together because they must stay
-    // inverses of each other: dispatch asks "does this judge have the
-    // executor for cpp17", capability recording asks "what language is
-    // CPP17", and a fleet with judges configured differently gets the wrong
-    // answer to one of them the moment the pair drifts (D68). Today every
-    // key is its executor lowercased, so both halves are one rule; a future
-    // language whose executor is not simply its key uppercased (`python3` ->
-    // `PY3`, say) must extend BOTH lines here, not one.
-    languageToExecutor: (key) => (key === 'cpp17' ? 'CPP17' : key.toUpperCase()),
-    executorToLanguage: (executor) => executor.toLowerCase(),
+    // Still passed as a pair, and still for D68's reason: dispatch asks "does
+    // this judge have the executor for python3", capability recording asks
+    // "what language is PY3", and a fleet gets the wrong answer to one of
+    // them the moment the two drift. `loadDriverLanguageMap` is what now
+    // guarantees they cannot.
+    languageToExecutor: (key) => languageMap.languageToExecutor(key),
+    executorToLanguage: (executor) => languageMap.executorToLanguage(executor),
     // Same check, same table, as the API's `JudgeGuard` — see
     // `verifyJudgeCredential`'s doc comment in `@duckoj/db`.
     verifyJudge: (id, key) => verifyJudgeCredential(db, id, key),
