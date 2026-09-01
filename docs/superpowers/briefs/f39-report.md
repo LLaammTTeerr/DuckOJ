@@ -195,10 +195,18 @@ and read limits off the first language rather than the selected one:
 ### Green
 
 ```
-packages/db     Test Files  18 passed (18)   Tests  86 passed (86)
-apps/judged     Test Files  18 passed (18)   Tests  134 passed (134)
-apps/web        Test Files  65 passed (65)   Tests  732 passed (732)
+packages/db        Test Files  18 passed (18)     Tests  86 passed (86)
+apps/judged        Test Files  18 passed (18)     Tests  134 passed (134)
+apps/api           Test Files  136 passed (136)   Tests  1187 passed (1187)
+apps/web           Test Files  65 passed (65)     Tests  732 passed (732)
+packages/contracts Test Files  9 passed (9)       Tests  39 passed (39)
+apps/mcp           Test Files  8 passed (8)       Tests  90 passed (90)
+packages/sdk       Test Files  1 passed (1)       Tests  2 passed (2)
 ```
+
+`pnpm -r typecheck`, `pnpm -r lint`, `typecheck:scripts`, `lint:scripts` and
+`verify:csp` all clean; `openapi.json` and `packages/sdk/src/generated.ts`
+regenerate with no diff.
 
 The two numbers that matter are asserted **from both ends**: `judged`'s claim
 spec pins 3000 ms / 288768 KB as what the judge is handed, and the API spec
@@ -264,12 +272,6 @@ read `.secrets/`, and did not push.
   judged it out of scope beside the load-bearing half. The language *name* and
   the download extension, which were wrong and are the parts F-39 actually
   broke, are fixed.
-- **The full `apps/api` suite was still running when this was written.** Every
-  spec I touched or that touches languages passes (`languages`,
-  `problem-language-limits`, `submissions`, `admin-dashboard`,
-  `admin-dashboard-plan`, `problem`, `problems-http`, `problem-reads`,
-  `problem-writes`, `problem-clone`). The suite exceeds a ten-minute
-  foreground budget on this host, so CI is the backstop for the rest.
 - **Nothing was verified against the live judge end to end**, because that
   would need the deploy. The executor set, the toolchain versions and the
   110×/15 MB measurements are all read from the running container; the
