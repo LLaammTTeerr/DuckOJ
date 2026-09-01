@@ -24,7 +24,9 @@ nothing and there is no live artefact to delete.
 | --- | --- |
 | `695650f` | `fix(api)` — a school's teams are listed newest first, and the cursor walks backwards with them (D177) |
 | `be67161` | `fix(web)` — the teams panel can reach page two, because it stops dropping the cursor (D177) |
-| *(this commit)* | `docs(D177,D178,D179)` + this report |
+| `f6f08db` | `docs(D177,D178,D179)` — nineteen lists, the count each becomes unusable at, and the N+1 measured against its own comment |
+| `3996f7b` | `docs(f49)` — the suite counts this report was written before it had |
+| *(this commit)* | `docs(f49)` — the commit table, and D178's statement count said per screen |
 
 `HEAD` before the slot was `cc69b3e` (the orchestrator's ledger commit, which
 landed on top of `925f27a` while this slot was orienting).
@@ -144,6 +146,8 @@ way. Cursors here are in-flight state — the UI holds them in a mounted
 `useInfiniteQuery` and never writes one to a URL, a bookmark or storage — so
 the window is the moment between a deploy and the reader's next click.
 Inventing a version prefix would refuse a cursor that is arithmetically fine.
+Checked, not assumed: `apps/web/src/router.tsx` mentions `cursor` in **no**
+`validateSearch`, so no list in this app deep-links one.
 
 ### The plans, and the index that was refused
 

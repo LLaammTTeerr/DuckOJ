@@ -8749,8 +8749,9 @@ copy, one screen of 25 rows costs:
   re-running the org visibility gate and the role lookup before it answers;
 - **175 statements** (7 per detail: session, `findVisibleOrgRow`, `roleOf`,
   `findTeam`, `membersOf`, `contestsOf`, `teamEditVersion`) and **≈20 ms** of
-  database time — against **one** statement, **0.175 ms**, for every roster on
-  the page in a single `IN` query;
+  database time — **181 statements and 26 requests counting the list call
+  itself** — against **one** statement, **0.175 ms**, for every roster on the
+  page in a single `IN` query;
 - and every one of those 25 responses carries a `contests` array and a D176
   `version` token **the panel throws away**.
 
