@@ -8809,3 +8809,209 @@ a school's join queue — is the one an organiser opens most.
 Cost if wrong: nothing was built. The numbers above are from `f49_scratch`,
 created and dropped inside the slot; the live judge holds **one** pending
 request, which is why nobody has met this.*
+
+
+## D180 — Six screens that could not reach page two, and the one of them that blocked a write
+
+D178 recorded six web surfaces that call a cursor-paginated endpoint, render
+`.items` and drop `nextCursor`. All six are fixed here in D177's shape —
+`useInfiniteQuery` plus the existing `common.loadMore` string, no seventh
+spelling of "load more" and no new string in either language — with two
+departures from that shape, both argued below.
+
+**`admin.tsx` `RateContests` first, because it is different in kind.** Every
+other row in D178's table withholds a READ. This one withheld a WRITE: `POST
+/admin/contests/{key}/rate` is reachable from exactly one screen, that screen
+showed the oldest twenty-five of 167 contests, and so contests #26 to #167
+could not be rated or unrated from the product at all. A bigger `limit` cannot
+rescue it — `PaginationQuery` caps at 100.
+
+- **What an operator had to do instead**, written down because it is the
+  measure of the defect: the route is `@SessionOnly()`, so a personal access
+  token is refused by the guard and the only credential it accepts is a
+  browser session cookie. That leaves hand-issuing the POST from devtools on
+  the judge's own origin with the key read out of a contest URL. The other
+  reachable path — flipping `contests.is_rated` in the database — does not run
+  the replay, so it records a rating state the rating history contradicts.
+- The query key moved from `['contests']` to `['contests', 'admin']`, because
+  the contests list page owns that key too and now sends a different request
+  under it. `invalidateQueries({ queryKey: ['contests'] })` after a replay
+  still reaches it; react-query matches key prefixes.
+
+**`contests.tsx` got the filter AND the pages, because neither alone is
+honest.** D178 suggested `phase=active` as the cheaper thing. On its own it
+trades one truncation for another: the archive becomes unreachable instead of
+the recent rounds. Load-more on its own leaves a reader paging through 2023 to
+find this Saturday. So: `?phase=` is surfaced as a deep-linkable `<select>`
+(D151 built the filter for exactly this reader and no page ever asked for it),
+the unfiltered id-ordered list stays the default, and both walk.
+
+- **`phase` is part of the query key.** A `phase` page is ordered by start time
+  and its cursor is D151's composite `<millis>_<id>`; the unfiltered page's
+  cursor is a bare id. One key for both would carry one grammar's cursor into
+  the other's seek, which is D177's mismatched seek — it truncates a walk
+  silently and cannot be seen from page one.
+- The filter's labels are the same words `PhaseChip` uses. A control and a
+  chip naming one state differently would be the worse bug, so
+  `contest-phase.spec.tsx` now scopes its lookups to the `<span>` instead.
+
+**The org picker does NOT get a button, and that is the second departure.**
+`org-picker.tsx` asked for one page of 100 and stopped, with a comment calling
+that deliberate — "a setter who owns more than a hundred organizations has a
+different problem than a missing next button". The comment answers the wrong
+question: `GET /orgs` serves every organization VISIBLE to the caller, not the
+ones they own, and `mine` is filtered out of that page afterwards. A setter
+owning exactly one school loses it the moment the judge's 101st organization
+sorts ahead of it, and a checkbox that is simply absent gives no sign at all.
+A form control has to offer the whole option set at the moment it is read, so
+the cursor is walked to exhaustion inside the query, bounded by
+`PICKER_MAX_PAGES = 500` so a server that never stops issuing a cursor cannot
+spin a contest form forever. A failure on page four rejects the whole query
+rather than returning three pages as though they were the answer.
+
+**No order changed anywhere in this entry, and that is a ruling.** The brief
+asked for the reader by name in each case, and D177's own precedent is that
+ordering is a separate question from reachability:
+
+| Surface | Who reads it | Order they need | Changed? |
+| --- | --- | --- | --- |
+| `RateContests` | an admin working a rating backlog | oldest-unrated first | no — `asc(id)` already is that |
+| `contests.tsx` | someone browsing the judge's rounds | creation order, with a filter for "now" | no — the filter answers "now" |
+| `OrgsPage` | someone looking for their own school | **by name** — a real gap | no, and named as a follow-up |
+| `OrgContests` | a visitor reading a school's noticeboard | top to bottom | no |
+| `OrgSets` | a pupil reading the course in sequence | oldest first | no |
+| org picker | a setter ticking their own schools | any — the whole set is offered | no |
+
+`OrgsPage` is the one where the reader's order is genuinely not the served
+order. Fixing it means a second cursor grammar over `organizations.slug` plus
+the search box F-49 argued for on the org roster; at 28 schools, reachable is
+the whole of today's defect, and the name-ordered list is named here rather
+than smuggled in behind a load-more button.
+
+**Two states `RateContests` got wrong while it was open anyway** (D143, D145):
+a pending load rendered `admin.noContests` — "no contests yet", said to an
+admin whose judge has 167 — and so did a FAILED load, with no alert at all.
+The skeleton now holds the table's shape, and `LoadError` names the failure
+and offers the retry.
+
+*Ruled by the implementer during the F-50 slot, no human available to consult.
+Cost if wrong: six `useQuery` → `useInfiniteQuery` conversions and one route
+`validateSearch`; every one reverts to the previous list byte for byte, and no
+API contract was touched by any of it. Tests: `admin.spec.tsx` (3 new),
+`contests.spec.tsx` (3), `orgs.spec.tsx` (2), `problem-sets.spec.tsx` (1),
+`contest-orgs.spec.tsx` (1). Every one demonstrated red — `getNextPageParam:
+() => undefined` for the lists, a shared query key for the filter, and a walk
+broken after one page for the picker.*
+
+
+## D181 — The join queue gains a bound, and keeps its FIFO order
+
+D179 recorded `GET /orgs/{slug}/requests` as the only list in the API with no
+bound at all: no `limit`, no cursor, no query parameters. It answered every
+pending request a school held and `RequestsQueue` rendered every one into a
+single `<table>` — 219 kB of JSON and five thousand `<tr>` for a school that
+opens enrolment to a province, on the page a teacher opens to approve three
+people. The statement itself was healthy (an index scan on
+`org_join_requests_pending_idx` merge-joined to `users_pkey`, 2.6 ms) and no
+index helps. The missing thing was the bound.
+
+- **`PaginationQuery`, the same one the roster beside it takes**, validated by
+  the same pipe, with the same `parseCursor` helper — so this route stops
+  being the exception in its own controller.
+- **`asc(id)` is KEPT.** A queue is answered from its front: oldest-first is
+  the decider's own order, and D177's newest-first argument is about a list
+  somebody TAILS and does not transfer to a FIFO. The seek matches the order
+  (`gt` with `asc`), which is what makes it impossible for the walk to skip or
+  repeat a row.
+- **A decided request leaves the page**, because the predicate is still
+  `state = 'pending'`. A decider working the queue watches it shorten under
+  them rather than paging past rows they have already answered — the behaviour
+  a queue wants, and the reason the cursor is an id rather than an offset.
+- **The response shape changed**, from `OrgJoinRequestList` (a bare array) to
+  `OrgJoinRequestPage`. `openapi.json` and `packages/sdk/src/generated.ts` were
+  regenerated and committed with it. Callers were checked rather than assumed:
+  the web panel and `apps/api/test/org-membership.spec.ts` are the only two,
+  and both now read `.items`. Nothing in the guide, the scripts or the e2e
+  walks reads this endpoint's body.
+- The panel gets the `common.loadMore` button with it. Bounding the response
+  without giving the panel a way onward would have turned an unusable page
+  into a queue a decider cannot empty, so the two halves ship together.
+
+*Ruled by the implementer during the F-50 slot, no human available to consult.
+Cost if wrong: one schema, one service method, one controller parameter and
+one React hook — but it is a PUBLIC response shape, so reverting it is a
+second breaking change rather than a free undo. That is why the order and the
+`pending` predicate were left exactly as they were: the bound is the only
+thing that moved. Tests: `apps/api/test/org-requests-page.spec.ts` (four cases,
+sixty pending requests, the whole queue collected through its own `nextCursor`
+and checked for gaps and repeats) and `apps/web/test/orgs.spec.tsx`.
+Demonstrated red two ways — the unbounded response reds three of the four
+cases, and a `lt` seek under an `asc` order reds the walk at two pages instead
+of three.*
+
+
+## D182 — The teams panel's roster rides on the summary, and the comment that argued otherwise is gone
+
+D178's second item, built. `TeamSummary` gains `members`, and the per-row `GET
+/orgs/{slug}/teams/{teamSlug}` the org panel fired to print the names is gone.
+
+**The comment was wrong on its own terms, and that is why this was worth
+doing.** `teams.tsx` argued against widening the summary: it "would make a
+page of twenty teams a page of sixty usernames nobody asked for". The panel
+then asked for every one of those sixty usernames, one HTTP request at a time.
+F-49 measured it on a province-scale copy — one screen of twenty-five teams:
+
+| | Before | After |
+| --- | --- | --- |
+| HTTP requests to render one screen | **26** | **1** |
+| statements | **181** | 6 |
+| database time | **≈20 ms** | **0.175 ms** |
+| buffers | ≈2 225 | 279 |
+
+Each of those 25 detail responses also carried a `contests` array and a D176
+`version` token the panel discarded, so **the N+1 moved more bytes than the
+widening does**. The payload the comment defended is ~2.3 kB of names the page
+displays anyway.
+
+- **It costs no extra query.** `membersByTeam` REPLACES `memberCounts`: the
+  same `IN` over the same index, answering the rows instead of `count(*)`.
+  `memberCount` is now `members.length`, so the count and the roster cannot
+  disagree about a team — they are one value.
+- **`TeamDetail` inherits `members` rather than adding it.** That extend is
+  what made the summary a count and the detail the names, which is what made
+  the panel an N+1 in the first place.
+- **`memberCount` stays on the schema** even though it is derivable. It is
+  what the eligibility check compares against a contest's `maxTeamSize`, and
+  removing a served field is a breaking change that buys back one integer per
+  row.
+- **The bound is the page size**, unchanged: at most `limit` rosters of at
+  most `TEAM_MAX_MEMBERS` each — the ceiling `memberCount` was already
+  promising. `MyTeamSummary` inherits the widening and is capped at
+  `MY_TEAMS_LIMIT`, which is why that route was never the N+1 this one was.
+- **A failure mode disappeared with the request.** There is no "members could
+  not be read" state any more, because there is no second request to fail: if
+  the list loaded, the names are on it, and if it did not, the panel's own
+  `LoadError` is the answer. `teams.membersError` and `teams.memberCount` were
+  deleted from both catalogues rather than left as strings nothing renders,
+  and `teams-read-errors.spec.tsx`'s case for that path was replaced by the
+  property that removed it — the panel prints a roster having made no request
+  for it.
+- **The stale comment is rewritten, not deleted.** It now says why widening
+  won, with the numbers, because a comment explaining why not to do the thing
+  the code just did is how the next reader gets misled — which is exactly what
+  happened here between F-42 and F-49.
+- **`refresh()` still invalidates both keys**, and the reason changed: the
+  panel's names now come from `teamsKey(slug)`, but `['org-team', slug,
+  teamSlug]` still backs the edit form's prefill, and F-42's data loss (a
+  stale prefill writing back the pre-edit roster, because `members` REPLACES
+  it) is unaffected by this entry.
+
+*Ruled by the implementer during the F-50 slot, no human available to consult.
+Cost if wrong: a widened public response — reverting it is a second breaking
+change, not a free undo — plus one private service method and one React leaf.
+The blast radius was checked rather than assumed: `TeamSummary` feeds exactly
+`TeamPage`, `TeamDetail` and `MyTeamSummary`, and no scoreboard shape at all.
+Tests: `apps/api/test/team-list-order.spec.ts` gains a case asserting EVERY row
+on the page carries its roster and a `memberCount` that agrees with it, and
+`teams-read-errors.spec.tsx` asserts zero calls to the detail route. Red both
+ways — an empty `members` on the summary, and a re-introduced per-row query.*
