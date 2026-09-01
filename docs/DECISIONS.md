@@ -9088,3 +9088,265 @@ land and asserts the PATCH body carries what was typed — red against the
 deployed bundle (`["an","binh"]` for `an, binh, chi`), green after. The e2e
 walk proves the WALK fix only; the deployed bundle stays defective until it is
 rebuilt and shipped.*
+
+## D185 — A teacher types `nguyen` and finds `Nguyễn`, and the roster search is on the roster's own route
+
+`GET /users?q=` was fully built server-side and had **zero callers**; the org
+roster, which the org-import contract already sizes at five thousand pupils,
+had no search at all and cost **two hundred presses of "load more"** to reach
+one of them. F-49 named both, F-50 deferred both, and the reason it is a
+decision rather than a chore is the diacritics.
+
+**The ruling: the fold is applied to BOTH sides, and it is unaccented-in,
+accented-out.** Vietnamese puts a diacritic on nearly every syllable and is
+typed, most of the time, without any of them — a school computer's keyboard
+layout, a phone in a hurry, a teacher who knows the pupil's name but not
+whether the account was created `Ước`, `Uớc` or `Uốc`. A search that made the
+reader reproduce the accents answers only for people who already know how the
+row was spelled, which is nobody who needs to search. So `nguyen`, `Nguyễn`
+and `NGUYEN` are one query, and `do` finds `Đỗ`.
+
+- **`searchFold()` in `packages/db/src/schema/identity.ts` is the ONE
+  definition**, and both sides go through it: `users.search_fold` is generated
+  by it and the needle every search builds is folded by it. Four steps, in
+  order — `lower()`, `normalize(…, NFD)`, strip `U+0300–U+036F`, then
+  `translate`. Step 2 is what handles the vowels Vietnamese stacks two marks
+  on (`ế` is `e` + circumflex + acute, `ữ` is `u` + horn + tilde) and step 3's
+  range covers both, the horn (`U+031B`) and the breve (`U+0306`) included.
+  Step 4 exists because **`đ` has no decomposition at all** — it is a letter
+  with a stroke, not a letter with a mark — so NFD leaves it untouched and
+  every Đỗ, Đặng and Đình in the province would be unfindable from a keyboard
+  that cannot type it. It also turns `-`, `_` and `.` into spaces, which is
+  what makes `nguyen` find the account `gv-nguyen-van-an`.
+- **`unaccent` was refused, and not on taste.** The extension is not installed
+  (live `pg_extension` holds `plpgsql` and nothing else) and, decisively,
+  `unaccent(text)` is **STABLE** — its dictionary is a file on disk — so it
+  may not appear in a generated column and may not be indexed. `normalize()`
+  is `IMMUTABLE` and ships with Postgres. The character class is written
+  `[\u0300-\u036f]` rather than as the marks themselves: a combining mark in
+  source is invisible, and a reviewer cannot tell a correct range from a
+  mangled one by looking at it.
+- **The match is a WORD prefix, not a string prefix, and that is the second
+  half of the ruling.** Vietnamese puts the family name first and the given
+  name last, and a person is addressed and looked for by the last word:
+  *Nguyễn Văn An* is "An" to their teacher and on the register. A whole-string
+  prefix cannot find him — and cannot even find `Nguyễn`, because the haystack
+  begins with the username. It is deliberately **not** a substring match:
+  `%an%` returns every *Hoàng*, *Lan*, *Thanh* and *Trang* in a province,
+  which is noise rather than an answer, and it cannot run at province size
+  without a `pg_trgm` index this entry refuses below.
+
+**The column, and the numbers that bought it (migration 0047).** The fold is
+five function calls per row, so the worst case a search has — a query matching
+**nothing**, which is what every typo is — must examine every row and pay them
+all. On a 25 000-account, 400-school, 30 000-membership copy:
+
+| | per-row fold | stored column |
+| --- | --- | --- |
+| global `GET /users?q=`, no match | **172 ms** | **4.2 ms** |
+| one 5 000-pupil school's roster | 22–40 ms | **5.5 ms** |
+
+A third number is the one that would have been missed: `q` arrives as a bind
+parameter and postgres.js prepares its statements, so once Postgres settles on
+a **generic** plan the fold-and-escape of the needle is re-evaluated per row
+again — 47.9 ms against 7.8 ms with the needle wrapped in a scalar subquery,
+which becomes an InitPlan run exactly once. `nameSearchWhere` carries those
+parentheses and a comment saying why; removing them is a six-fold regression
+no test would notice and no plan printed from a literal would show.
+
+**A `pg_trgm` GIN index was measured and refused**, in D177's shape. It takes
+the global no-match case to 0.26 ms and does **nothing at all** for the roster
+search — 5.7 ms against 5.5 ms — because that plan is driven by `org_members`
+and probes `users` by primary key, and the roster is the surface that actually
+carries a province. Against that it costs an extension the database does not
+have, 1.3 MB on a 3.6 MB table, and write amplification on D61's five-thousand-
+row account imports.
+
+**The comment that was there was wrong, and replacing it is part of this.**
+`UserListQuery` said prefix was chosen over substring because "the existing
+`users_username_lower_idx` serves a prefix directly". It does not: an `ILIKE`
+prefix cannot use a b-tree index at all unless the pattern starts with a
+non-alphabetic character, and the `OR` across two columns rules one out
+regardless. `EXPLAIN` on the **live** database answers `Seq Scan on users` for
+`username ILIKE 'ng%'` and for `lower(username) LIKE 'ng%'` alike, and always
+did. The plan never changed; only the comment was wrong.
+
+### Which surfaces got a search, which did not, and the authorization ruling
+
+| Surface | Search? | Which endpoint, and why |
+| --- | --- | --- |
+| **Org roster** (`orgs.tsx`) | **yes** | `GET /orgs/{slug}/members?q=`. The biggest single win F-49 named |
+| **Team form's member entry** (`teams.tsx`) | **yes** | the same roster route, scoped to that school |
+| **Admin role grant / TOTP reset** (`admin.tsx`) | **yes** | `GET /users?q=` — its first caller ever |
+| Contest participant management | **n/a** | **there is no such screen.** `contest-edit.tsx` edits a window and an org list; seats are a PDF; the scoreboard's disqualify is a button per row, and a row is not a search |
+| `submissions.tsx`'s `user` box | **no** | it is an EXACT-username filter the server resolves and the router deep-links. Making it fuzzy changes what a shared URL means, and a submissions list filtered to "everyone called An" is not a thing anyone asked for |
+| `problem-edit.tsx` members | **no** | there is no member editor at all (its own comment defers it), so there is nothing to attach a picker to |
+
+**`q` went on `GET /orgs/{slug}/members`, NOT as an `org=` filter on
+`GET /users`, and that is an authorization decision.** `GET /users` is
+`@Public()`. Teaching it about organizations would publish "who belongs to
+this school" — a **private** school's roster included — through a route with
+no organization gate on it whatsoever. The roster route already runs
+`findVisibleOrgRow`, the same 404 gate `GET /orgs/{slug}` uses, so the search
+inherits exactly the visibility the roster already had and a stranger's
+`?q=nguyen` against a private school is still a 404.
+
+**The account-existence question, checked rather than assumed (D26).**
+`GET /users` was already a fully enumerable public directory **with no `q` at
+all** — an anonymous caller can page every account on the judge — and D26's
+oracle is the **email**, not the username: `username_taken` stays a 409
+precisely because a username is public, on every scoreboard and in every
+submission list. So a search box over this endpoint discloses nothing that was
+not already served and does not undo D26. What it does add is a way to find an
+account by DISPLAY NAME, which `GET /users/{username}` has always served
+publicly one request at a time; the fold makes that cheaper to sweep, and the
+answer to that is the same rate limiting D16 and D26 already own, not a
+narrower search.
+
+**`OrgMember` gains `displayName`.** Without it the roster is a column of
+`hs000123` — D61's bulk import mints exactly that — and a search that matched
+a NAME could not show the name it matched, which is answering nothing. It is
+also what D122's deterministic initials are computed from, so a person picker
+can show a face. It discloses nothing new: `GET /users/{username}` already
+serves `displayName` publicly for every account.
+
+**The two pickers are scoped differently on purpose.** The team form searches
+the SCHOOL — every teammate must already be a member, so a picker over the
+whole judge would offer people the save is about to refuse, and would turn a
+form on a private school's page into a directory. The admin lookup searches
+the judge, because a global admin acts across every organization. And the team
+picker **appends through the same state setter typing uses**, deduplicated, so
+a picked name makes the form dirty exactly as a typed one does — anything else
+would rebuild the silent-overwrite class D183 has just closed.
+
+*Ruled by the implementer during the F-51 slot, no human available to consult.
+Cost if wrong: a stored generated column (a whole-table rewrite — 431 rows
+live, 0.25 s for 25 000), one widened public response, one new query parameter
+and three React leaves. The column and the widening are breaking to revert;
+the fold expression itself is one function and reverts free. Tests:
+`apps/api/test/user-search-diacritics.spec.ts` (seven cases, real Vietnamese
+names throughout, red three ways — an unfolded string prefix reds 6 of 7, a
+folded whole-string prefix reds 5 because `nguyen` then finds nothing at all,
+and a substring match reds `an` dragging in Hoàng/Lan/Thanh/Trang and `%`
+matching the whole table) and `apps/web/test/person-search.spec.tsx` (four
+cases, red three ways).*
+
+
+## D186 — A province finds its school by name, and the cursor that changed shape is refused rather than reinterpreted
+
+`GET /orgs` was `ORDER BY organizations.id ASC` — oldest school first. F-49
+called it "the one list whose reader's order genuinely is not the served
+order"; nobody opens a list of schools to see which registered first. F-50
+gave it a "load more" button and deliberately left the order alone, because
+fixing it needs a second cursor grammar over a textual column. This is it.
+
+- **Ordered by `lower(slug)`**, which is the expression
+  `organizations_slug_lower_idx` is built on, with `organizations.id` as the
+  tiebreak. **`name` was refused**: it is not unique, has no index, and a
+  school renamed mid-walk moves under the cursor. A slug reads as the name on
+  this table — `thpt-chuyen-le-hong-phong` — and `UpdateOrgRequest`'s own
+  comment already says a slug here is a display handle, because nothing in the
+  schema references an organization by it.
+- **The cursor is `<lower(slug)>_<id>` and the seek is the explicit two-branch
+  disjunction**, not Postgres' `(a, b) > (x, y)`: the leading term is an
+  EXPRESSION, and a row constructor over `lower(slug)` is exactly the shape
+  that stops the planner using that index. At 400 schools the plan is
+  `Index Scan using organizations_slug_lower_idx` plus an incremental sort of
+  single-row groups — 10 buffers, 0.14 ms.
+- **The tiebreak is provably unreachable today, and it is carried anyway.**
+  The index is UNIQUE and `ORG_SLUG` (`^[a-z0-9][a-z0-9_-]{1,63}$`) will not
+  admit a slug differing from another only by case, so no two rows can share
+  the leading key and `id` can never decide anything. It is here for a reason
+  that is not hypothetical: **it makes the OLD grammar distinguishable.** A
+  bare id — `"53"`, which this route issued until now — has no `_`, so it is
+  refused `422 invalid_cursor` instead of being read as a slug and walking
+  from wherever `53` happens to sort alphabetically. That is deliberately the
+  **opposite** of D177's accepted residual: there both grammars were the same
+  bare `teams.id` and were arithmetically interchangeable, so refusing one
+  would have refused a cursor that was fine. Here the grammar changed SHAPE,
+  and a stale cursor read under the new order is a silently wrong page. The
+  second reason is insurance: if the unique index is ever dropped or the slug
+  rule relaxed, a single-column seek over a textual key starts skipping and
+  repeating rows, and page one looks perfect while it does.
+- **The split is on the LAST `_`**, because `ORG_SLUG` admits `_`. `abc_1_5`
+  is the slug `abc_1` at id `5`, unambiguous by construction because the id
+  half is digits and nothing else.
+- **The web side changed by not changing.** F-50's `OrgsPage` and
+  `org-picker.tsx` already pass `nextCursor` back opaquely, which is what a
+  cursor is for; the only test that had to move was the one asserting the
+  cursor's bytes.
+
+*Ruled by the implementer during the F-51 slot, no human available to consult.
+Cost if wrong: one `orderBy`, one seek and one cursor parser — but the cursor
+is a public grammar, so reverting is a second breaking change rather than a
+free undo. That is why the shape carries the id: whichever direction this
+moves in, a cursor from the other grammar is refused rather than
+reinterpreted. Tests: `apps/api/test/org-list-order.spec.ts` — forty schools
+whose alphabetical order is the REVERSE of their id order, the whole walk
+collected through its own `nextCursor` at two page sizes and checked for gaps
+and repeats, six refused cursors. Red three ways: `asc(id)` restored (3 of 3),
+an id seek left under a slug order (D177's mismatched seek — six pages become
+two), and a bare-slug cursor with no tiebreak, which accepts the stale id
+silently.*
+
+
+## D187 — Two caps a reader could not see, answered differently, because two different people read them
+
+D178 recorded both as "watch" and F-50 left both. They look like one problem
+and they are two, so the ruling is per list, from who reads it.
+
+**The rating curve is WALKED, not buttoned.** `progress.tsx` built the history
+as a `useInfiniteQuery` and rendered no "load more" anywhere on the page, so it
+served a pupil's first **100** rated contests and said nothing about the rest.
+It is worse than a truncated list, and that is the whole argument: the history
+ascends by time and the page reads its headline rating off the last row
+**loaded**, so past a hundred rounds it printed the rating a pupil held at
+contest #100 as their rating today — a wrong number, not a short list — under a
+sparkline that stopped there with no visible end. Nothing was marked stale
+because nothing knew it was.
+
+- A "load more" button — the fix D180 gave six other surfaces — is the wrong
+  shape for a **chart**. A graph behind a press gives its reader no reason to
+  press, and a headline number behind a press is simply wrong until pressed.
+  `org-picker.tsx` made the same argument about a form control and reached the
+  same answer, so the cursor is walked to exhaustion inside the query, bounded
+  by `RATING_MAX_PAGES = 20` (2 000 rated rounds, a decade of weekly contests)
+  at the endpoint's own maximum page of 100 — the fewest requests the whole
+  history can be had in. A failure on page four rejects the whole query rather
+  than being served as though it were the answer.
+- **`user.tsx` keeps its button and is right to.** F-49's row 14 called it
+  healthy and it is: it renders a TABLE of rounds, where one page is a legible
+  answer, and its headline rating comes from the profile rather than from the
+  last row on screen. Same endpoint, different reader, different answer.
+
+**The notification feed KEEPS its cap and now says so.** `GET /notifications`
+served a fixed 50 rows with no cursor and no signal of any kind. `truncated` on
+`NotificationList`, answered by fetching `FEED_LIMIT + 1` so one query decides
+it rather than a second COUNT that could disagree, plus one muted line under
+the table in both catalogues.
+
+- **Paging was considered and refused.** A notification is acted on or ignored
+  within days, `POST /notifications/read` clears the whole backlog in one
+  press, and nothing in this product links to a notification by id. A cursor
+  would be a walk into an archive nobody keeps, and the contract has said "a
+  feed, not an archive" since D14.
+- **The reader this is for is the one whose numbers disagreed.**
+  `unreadCount` counts every unread row, capped by nothing, so a person with
+  sixty unread saw "60" above fifty rows with nothing on the page to reconcile
+  them. That is the cap being visible and unexplained at the same time, which
+  is worse than either.
+- It is the same cap-plus-flag `GET /contests/{key}/clarifications` already
+  serves (`FEED_CAP` + `truncated`), which F-49's row 18 named as the pattern
+  rows 9 and 17 should copy. Row 9 became D181; this is row 17.
+
+*Ruled by the implementer during the F-51 slot, no human available to consult.
+Cost if wrong: one `useInfiniteQuery` turned into a bounded walk (reverts
+free), and one added boolean on a public response (additive, so a client that
+ignores it is unaffected). Tests:
+`apps/web/test/progress-rating-window.spec.tsx` — the second page fetched
+unprompted with the FIRST page's cursor, and 1899 rather than 1299 in the
+headline, red with the walk stopped after one page; `notifications.spec.ts`
+(fifty of sixty, flagged, `unreadCount` still 60) and
+`notifications.spec.tsx`, red with the extra row not fetched and with the line
+deleted.*
+
