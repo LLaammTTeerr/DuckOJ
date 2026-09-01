@@ -265,3 +265,59 @@ blind to, and the cheapest way to see them is to change the instrument.
 them by hand; its `afterAll` is now the pattern. D153 naming held everywhere
 else. The atlas artifact is republished after every deploy — seven versions
 today, latest `optimistic-concurrency`.
+
+---
+
+## 2026-09-01/02 — eleven slots, and the two mistakes that were mine
+
+Deployed and pushed, CI green at `925f27a`: F-39 languages · F-40 mail ·
+B-30 hunt · F-41 limit authoring · F-42 browser walks · B-31 invalidation
+class · F-43 concurrency · F-44 query plans · F-45 the fold removed ·
+B-32 scoring audit · F-46 Pascal and Java · F-47 no guessed keys ·
+F-48 the rulings applied everywhere. All seven languages proven grading live.
+
+**Controller mistake 1 — a guard nobody read.** CI was red from `908a6b8`
+through `c68fcf1`, three pushes, because two Dockerfiles did not copy a new
+package's manifest. `dockerfile-manifest.spec.ts` caught it immediately, both
+times; I reported F-41 green while its run was still `in_progress` and never
+went back. Fixed structurally in `CLAUDE.md`, which every agent auto-loads:
+run the FULL suite of every package you touch, and the named command when you
+add a workspace dependency. Rule for me: quote a run's `completed` conclusion,
+never infer it from the previous commit's.
+
+**Controller mistake 2 — a marker that lied (D171).** `SKIP_MIGRATE=1
+deploy.sh judge` was the right call, to announce Pascal's executor before the
+rows naming it existed. It wrote the deploy marker anyway, so the next deploy
+at the same commit compared migrations against a marker already naming it and
+skipped 0046 **permanently**. Seven executors announced, five languages
+served, nothing logged. That is D131 reached through the deploy tool instead
+of the journal. Recovered with `FORCE_MIGRATE=1`; `deploy.sh` no longer writes
+a marker for a run that did not migrate; `deploy.test.sh` case D4b pins it,
+demonstrated red.
+
+**Two orphan classes cost a day of false thermal alarms.** A Java benchmark
+loop from F-46 held the host at 94 °C for fifty minutes with the CPU 85 %
+idle; two `vite preview` servers from agent worktrees had been alive since
+30 Aug. I twice blamed my own image builds and once speculated about hardware
+before actually reading `ps`. **Sweep for orphaned processes after every agent
+completes** — the thermometer is a symptom, the process table is the evidence.
+
+**The method that keeps paying: change the instrument.**
+Writing the summary for an outside reader found the one-language gap thirteen
+hunts had not. Driving a real browser found a roster form silently dropping a
+pupil, invisible to 754 specs that mock the SDK. Sweeping the *class* behind
+that bug found two worse instances where a setter overwrote their own work.
+Proving Pascal end to end found a mapping that invented plausible wrong keys.
+Each was structurally invisible to the technique before it.
+
+**And the same lesson turned on the tests.** F-42's walk created three teams
+per run in one shared org and never removed them; at 27 teams against a page
+of 25 it pushed its own row off the page and went red — reading exactly like a
+regression in the panel it guards. A suite that accumulates its own fixtures
+eventually accuses the code it protects. Teardown added; 11 fixtures reaped,
+16 refused by the API because a team that competed is permanent (D101), which
+is the product being right.
+
+That refusal exposed the open product question now in F-49: an org's teams are
+ordered `asc(teams.id)`, so past 25 teams a teacher cannot see the team they
+just made.
