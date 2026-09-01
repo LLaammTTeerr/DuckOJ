@@ -33,9 +33,24 @@ import { searchFold } from '@duckoj/db';
  * single-definition reason: a percent sign and a backslash are the only LIKE
  * metacharacters that survive the fold (`_` and `.` have already become
  * spaces), and a caller who types `%` means the character, not "everything".
+ *
+ * **`(select …)` around the needle is load-bearing, not noise.** `q` arrives
+ * as a bind parameter, and postgres.js prepares its statements: once Postgres
+ * settles on a GENERIC plan it can no longer fold `$1` at plan time, and the
+ * whole fold-and-escape expression is then re-evaluated once per row. Measured
+ * on the 25 000-account province copy with `plan_cache_mode =
+ * force_generic_plan`, on the worst case (a query matching nothing):
+ *
+ *   inline, generic plan            47.9 ms
+ *   wrapped in a scalar subquery     7.8 ms
+ *
+ * A scalar subquery over no table becomes an InitPlan, which Postgres runs
+ * exactly once. Removing the parentheses is a six-fold regression that no
+ * test would notice and no plan printed from a literal would show.
  */
 export function nameSearchWhere(haystack: SQLWrapper, raw: string): SQL {
   const folded = searchFold(sql`${raw}`);
   const needle = sql`replace(replace(${folded}, '\\', '\\\\'), '%', '\\%')`;
-  return sql`(${haystack} like ${needle} || '%' or ${haystack} like '% ' || ${needle} || '%')`;
+  const once = sql`(select ${needle})`;
+  return sql`(${haystack} like ${once} || '%' or ${haystack} like '% ' || ${once} || '%')`;
 }

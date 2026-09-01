@@ -43,6 +43,85 @@ type GrantResult =
   paths['/admin/users/{username}']['patch']['responses'][200]['content']['application/json'];
 type Dashboard = paths['/admin/dashboard']['get']['responses'][200]['content']['application/json'];
 
+/** A screenful of matches; the box is how an admin narrows further. */
+const FIND_LIMIT = 10;
+
+/**
+ * The admin user lookup — the screen F-49's sweep recorded as **not existing**
+ * (D185).
+ *
+ * `GET /users?q=` has been fully built server-side since Phase 3 and had zero
+ * callers. Until this, the only way an administrator reached an account was to
+ * know its exact username and type it into a free-text box: a role grant and a
+ * two-factor reset both took a string with no lookup, no confirmation and no
+ * way to tell `hs000123` from `hs000132`. On a judge whose accounts are minted
+ * by bulk import, that is not a small inconvenience — it is the difference
+ * between resetting the right pupil's authenticator and the wrong one's.
+ *
+ * It is deliberately a lookup that FILLS the box rather than a control that
+ * replaces it. An admin who already knows the username still types it; the
+ * dangerous operations keep their own confirm step; and the found row shows
+ * the display name and the current role beside the account, which is the
+ * evidence that makes "yes, that is the person" possible at all.
+ *
+ * **This one searches the whole judge on purpose**, unlike the team form's
+ * picker (which is scoped to a school's roster): a global admin acts across
+ * every organization, and the endpoint behind it is `@Public()` — it discloses
+ * nothing here that an anonymous caller cannot already page through without a
+ * search term at all.
+ */
+function FindAccount({ onPick }: { onPick: (username: string) => void }) {
+  const t = useT();
+  const [q, setQ] = useState('');
+  const term = q.trim();
+  const found = useQuery({
+    queryKey: ['admin-user-search', term],
+    enabled: term !== '',
+    queryFn: async () => {
+      const result = await api.GET('/users', { params: { query: { q: term, limit: FIND_LIMIT } } });
+      if (result.error) throw apiError(result, t('admin.findError'));
+      return result.data;
+    },
+  });
+  const rows = found.data?.items ?? [];
+
+  return (
+    <>
+      <div className="field">
+        <label htmlFor="admin-user-search">{t('admin.findUser')}</label>
+        <input
+          id="admin-user-search"
+          value={q}
+          placeholder={t('admin.findHint')}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </div>
+      {term === '' ? null : found.isPending ? (
+        <p className="muted">{t('common.loading')}</p>
+      ) : found.isError ? (
+        <p role="alert">{t('admin.findError')}</p>
+      ) : rows.length === 0 ? (
+        <p className="muted">{t('admin.findNone', { q: term })}</p>
+      ) : (
+        <ul>
+          {rows.map((user) => (
+            <li key={user.username}>
+              <button type="button" onClick={() => onPick(user.username)}>
+                {t('admin.findPick', {
+                  name: user.displayName,
+                  username: user.username,
+                  role: globalRoleLabel(t, user.globalRole),
+                })}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {found.data?.nextCursor ? <p className="muted">{t('admin.findMore')}</p> : null}
+    </>
+  );
+}
+
 function GrantRole() {
   const t = useT();
   const [username, setUsername] = useState('');
@@ -81,6 +160,7 @@ function GrantRole() {
   return (
     <>
       <h2>{t('admin.grantHeading')}</h2>
+      <FindAccount onPick={setUsername} />
       <p>
         <label>
           {t('common.username')}{' '}
@@ -294,6 +374,7 @@ function ResetTotp() {
     <>
       <h2>{t('admin.totpHeading')}</h2>
       <p className="muted">{t('admin.totpNote')}</p>
+      <FindAccount onPick={setUsername} />
       <p>
         <label>
           {t('admin.totpUser')}{' '}

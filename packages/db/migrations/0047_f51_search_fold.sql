@@ -15,6 +15,10 @@
 --   global `GET /users?q=`, no match   172 ms per row-fold  ->   4.2 ms stored
 --   one 5 000-pupil school's roster     22-40 ms            ->   5.5 ms stored
 --
+-- (The needle itself is folded once per statement, not once per row: see the
+-- scalar subquery in `nameSearchWhere`, which is worth 47.9 ms -> 7.8 ms on
+-- that same no-match case once the plan goes generic.)
+--
 -- A `pg_trgm` GIN index on this column was measured too and REFUSED: it takes
 -- the global no-match case to 0.26 ms but does NOTHING for the roster search
 -- (5.7 ms against 5.5 ms), because that plan is driven by `org_members` and

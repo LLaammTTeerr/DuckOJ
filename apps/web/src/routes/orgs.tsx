@@ -779,12 +779,27 @@ export function OrgPage({ slug }: { slug: string }) {
   // Paged since D58: the roster is no longer downloadable whole, so this is
   // the same `useInfiniteQuery` + "load more" shape the problems and
   // submissions lists use.
+  //
+  // D185: and searchable, because paging alone is not enough here. The
+  // org-import contract already advertises a five-thousand-pupil roster, and
+  // twenty-five rows a press is two hundred presses to reach one pupil. `q`
+  // is a WORD of the username or the display name with Vietnamese diacritics
+  // folded, so a teacher types `nguyen`, or `an`, and gets *Nguyễn Văn An*.
+  const [memberQuery, setMemberQuery] = useState('');
   const members = useInfiniteQuery({
-    queryKey: ['org-members', slug],
+    // `memberQuery` is part of the KEY, never only part of the request. One
+    // key for both would carry a search's cursor into the unfiltered walk's
+    // seek and truncate it silently — D180's lesson from the contest filter,
+    // and the reason the search restarts at page one when the box changes.
+    queryKey: ['org-members', slug, memberQuery],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
-      const query: { cursor?: string } = {};
+      // `exactOptionalPropertyTypes`: an absent key and an `undefined` one
+      // are different requests, and an empty box must ask for the whole
+      // roster rather than for `q=`.
+      const query: { cursor?: string; q?: string } = {};
       if (pageParam !== undefined) query.cursor = pageParam;
+      if (memberQuery.trim() !== '') query.q = memberQuery.trim();
       const result = await api.GET('/orgs/{slug}/members', {
         params: { path: { slug }, query },
       });
@@ -892,6 +907,18 @@ export function OrgPage({ slug }: { slug: string }) {
       <OrgContests slug={slug} />
 
       <h2>{t('org.members')}</h2>
+      {/* The same bare label+input the problems list uses (no new class, no
+          debounce anywhere in this app), and no submit button: the query key
+          IS the box, so there is nothing to press. */}
+      <div className="field">
+        <label htmlFor="org-member-search">{t('org.searchMembers')}</label>
+        <input
+          id="org-member-search"
+          value={memberQuery}
+          placeholder={t('org.searchMembersHint')}
+          onChange={(e) => setMemberQuery(e.target.value)}
+        />
+      </div>
       {memberRows.length > 0 ? (
         <div className="table-wrap" tabIndex={0}>
         <table>
@@ -909,6 +936,15 @@ export function OrgPage({ slug }: { slug: string }) {
                   <Link to="/users/$username" params={{ username: member.username }}>
                     {member.username}
                   </Link>
+                  {/* D185. A roster minted by a bulk import (D61) is a column
+                      of `hs000123`, and a search that matched a NAME has to
+                      show the name it matched or it has answered nothing. */}
+                  {member.displayName !== member.username ? (
+                    <>
+                      {' '}
+                      <span className="muted">{member.displayName}</span>
+                    </>
+                  ) : null}
                 </td>
                 <td>
                   {decider && member.username !== myName ? (
@@ -944,7 +980,14 @@ export function OrgPage({ slug }: { slug: string }) {
         </table>
         </div>
       ) : (
-        <p className="muted">{t('org.noMembers')}</p>
+        // Two different empty states, deliberately. "No visible members" said
+        // to a teacher who has just mistyped a name is a lie about the school
+        // rather than about the search.
+        <p className="muted">
+          {memberQuery.trim() === ''
+            ? t('org.noMembers')
+            : t('org.noMemberMatch', { q: memberQuery.trim() })}
+        </p>
       )}
       {members.hasNextPage ? (
         <p>

@@ -31,6 +31,12 @@ type TeamSummary =
 type TeamDetail =
   paths['/orgs/{slug}/teams/{teamSlug}']['get']['responses'][200]['content']['application/json'];
 
+/**
+ * How many matches the roster picker offers at once. Ten is a screenful on a
+ * phone; the box is how a teacher narrows further, not a button.
+ */
+const PICK_LIMIT = 10;
+
 export function teamsKey(slug: string): [string, string] {
   return ['org-teams', slug];
 }
@@ -262,6 +268,93 @@ function TeamMembers({ members }: { members: TeamSummary['members'] }) {
 }
 
 /** Assemble or edit. `members` replaces the whole roster, as the API says. */
+/**
+ * "Which pupil?" — the half of the roster form the textarea never answered
+ * (D185).
+ *
+ * `TeamForm`'s `members` box takes usernames, and a school whose accounts were
+ * minted by a bulk import (D61) has usernames like `hs000123`. A teacher knows
+ * *Nguyễn Văn An*; the form asked them for a number. So this searches the
+ * SCHOOL'S OWN ROSTER — `GET /orgs/{slug}/members?q=` — and a press appends the
+ * account it found.
+ *
+ * **Scoped to the org on purpose, not to `GET /users`.** Every teammate must
+ * already be a member of this school (the API refuses the save otherwise), so
+ * a picker over the whole judge would offer people who cannot be added, and it
+ * would turn a form on a private school's page into a directory of everyone.
+ *
+ * **It appends through the SAME setter the textarea's `onChange` uses**, which
+ * is what keeps D183 and D161 true: a picked name makes the form dirty exactly
+ * as a typed one does, so the seed guard cannot overwrite it and the version
+ * token still governs the save. A picker that wrote the roster by another
+ * route would rebuild the silent-overwrite class D183 has just closed.
+ *
+ * There is no combobox, no `aria-activedescendant` and no keyboard trap: this
+ * is a text box, a list of buttons, and nothing else, which is the shape
+ * `org-picker.tsx` argues for and the only one that works on the phone half
+ * this province will be holding.
+ */
+function MemberFinder({
+  slug,
+  onPick,
+}: {
+  slug: string;
+  onPick: (username: string) => void;
+}) {
+  const t = useT();
+  const [q, setQ] = useState('');
+  const term = q.trim();
+  const found = useQuery({
+    // The term is the key, so a stale response for a term the teacher has
+    // already replaced can never paint over the current one.
+    queryKey: ['org-member-search', slug, term],
+    enabled: term !== '',
+    queryFn: async () => {
+      const result = await api.GET('/orgs/{slug}/members', {
+        params: { path: { slug }, query: { q: term, limit: PICK_LIMIT } },
+      });
+      return read(result, t('teams.pickError'));
+    },
+  });
+  const rows = found.data?.items ?? [];
+
+  return (
+    <>
+      <div className="field">
+        <label htmlFor="team-member-search">{t('teams.pickMember')}</label>
+        <input
+          id="team-member-search"
+          value={q}
+          placeholder={t('org.searchMembersHint')}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </div>
+      {term === '' ? null : found.isPending ? (
+        <p className="muted">{t('common.loading')}</p>
+      ) : found.isError ? (
+        <p role="alert">{t('teams.pickError')}</p>
+      ) : rows.length === 0 ? (
+        <p className="muted">{t('org.noMemberMatch', { q: term })}</p>
+      ) : (
+        <ul>
+          {rows.map((member) => (
+            <li key={member.username}>
+              <button type="button" onClick={() => onPick(member.username)}>
+                {t('teams.pickAdd', { name: member.displayName, username: member.username })}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* The page is a page, and it says so — the same honesty the
+          clarification feed's `truncated` flag carries. A teacher who cannot
+          see the pupil they want types more of the name; they are never left
+          believing the school has only ten Nguyễns. */}
+      {found.data?.nextCursor ? <p className="muted">{t('teams.pickMore')}</p> : null}
+    </>
+  );
+}
+
 function TeamForm({
   slug,
   teamSlug,
@@ -496,6 +589,18 @@ function TeamForm({
         </label>
       </p>
       <p className="muted">{t('teams.membersHint')}</p>
+      <MemberFinder
+        slug={slug}
+        onPick={(username) => {
+          // Deduplicated against what is already typed, and appended rather
+          // than replacing: `members` REPLACES the roster on save, so a picker
+          // that overwrote the box would be the same data loss D183 closed,
+          // dressed as a convenience.
+          const already = parseMembers(membersValue);
+          if (already.includes(username)) return;
+          setMembers([...already, username].join(', '));
+        }}
+      />
       {error ? <p role="alert">{error}</p> : null}
       {/* D161. A BUTTON, never an automatic reload: until the admin presses
           it, the roster they typed is still on screen and still copyable.
