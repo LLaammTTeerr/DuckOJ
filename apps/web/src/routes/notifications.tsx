@@ -247,6 +247,13 @@ export function NotificationsPage() {
           </tbody>
         </table>
       )}
+      {/* D187. The window said out loud. The feed is capped at fifty and stays
+          capped — a notification is acted on within days and one press clears
+          the whole backlog — but a reader with sixty unread and fifty rows was
+          being asked to reconcile two numbers with nothing to reconcile them
+          by. This is the sentence the clarification feed already prints under
+          its own cap. */}
+      {feed.data.truncated ? <p className="muted">{t('notifications.truncated')}</p> : null}
     </section>
   );
 }

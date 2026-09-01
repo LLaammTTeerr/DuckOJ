@@ -713,6 +713,7 @@ export const vi = {
   // ── notifications ─────────────────────────────────────────────────────
   'notifications.title': 'Thông báo',
   'notifications.gate': 'Đăng nhập để xem thông báo.',
+  'notifications.truncated': 'Chỉ hiển thị 50 thông báo mới nhất. Các thông báo cũ hơn không được giữ lại.',
   'notifications.empty':
     'Chưa có thông báo nào. Câu trả lời cho câu hỏi của bạn và tin từ trường sẽ hiện ở đây.',
   'notifications.emptyAction': 'Xem các kỳ thi',

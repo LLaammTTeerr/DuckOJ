@@ -310,3 +310,26 @@ describe('contest clarification notifications', () => {
     expect(screen.getByRole('link', { name: 'Spring Open' })).toBeInTheDocument();
   });
 });
+
+/**
+ * **D187.** The feed is fifty rows and it now says so.
+ *
+ * `unreadCount` counts EVERY unread row, so a reader with sixty unread saw
+ * "60" over fifty rows with nothing to reconcile the two. The cap itself is
+ * kept — D14 chose it, a notification is acted on within days, and one press
+ * clears the whole backlog — but a cap the reader cannot see is a lie of
+ * omission, which is exactly the verdict F-49 recorded against this list.
+ */
+describe('the feed says it is a window (D187)', () => {
+  it('prints the window when there is more, and stays quiet when there is not', async () => {
+    get.mockResolvedValue({ data: { ...FEED, unreadCount: 60, truncated: true } });
+    const view = wrap(<NotificationsPage />);
+    expect(await screen.findByText(/50 thông báo mới nhất|newest 50/i)).toBeTruthy();
+    view.unmount();
+
+    get.mockResolvedValue({ data: { ...FEED, truncated: false } });
+    wrap(<NotificationsPage />);
+    await screen.findByRole('table');
+    expect(screen.queryByText(/50 thông báo mới nhất|newest 50/i)).toBeNull();
+  });
+});

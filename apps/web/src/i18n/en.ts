@@ -753,6 +753,7 @@ export const en = {
   // ── notifications ─────────────────────────────────────────────────────
   'notifications.title': 'Notifications',
   'notifications.gate': 'Sign in to see notifications.',
+  'notifications.truncated': 'Only the newest 50 are shown. Older notifications are not kept.',
   'notifications.empty':
     'No notifications yet. Answers to your questions and news from your school arrive here.',
   'notifications.emptyAction': 'See the contests',

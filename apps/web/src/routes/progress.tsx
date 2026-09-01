@@ -14,7 +14,7 @@
  * legible as weight. It also means the drawings are correct in both schemes
  * with no second palette.
  */
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { rankBand } from '@duckoj/glicko2';
 import type { paths } from '@duckoj/sdk';
@@ -127,6 +127,18 @@ export function ActivityHeatmap({ heatmap, t }: { heatmap: Heatmap; t: TFunction
     </div>
   );
 }
+
+/**
+ * The page the rating walk asks for, and how many of them it will take.
+ *
+ * A hundred is `RatingHistoryQuery`'s maximum, so this is the fewest requests
+ * the whole history can be had in. Twenty pages is two thousand rated rounds
+ * — a decade of weekly contests — and the bound exists so a server that never
+ * stops issuing a cursor cannot spin a progress page forever, not because
+ * anyone is expected to reach it.
+ */
+const RATING_PAGE = 100;
+const RATING_MAX_PAGES = 20;
 
 /** The rating history as one line. Nothing is drawn for fewer than two points. */
 export function RatingSparkline({ ratings, t }: { ratings: number[]; t: TFunction }) {
@@ -322,27 +334,58 @@ export function MyProgressPage() {
     },
   });
 
-  // The rating history, paged exactly as the profile pages it — one shared
-  // shape, and the sparkline is a second reading of the same rows rather
-  // than a second endpoint.
-  const rating = useInfiniteQuery({
-    queryKey: ['user-rating', username ?? ''],
+  /**
+   * **D187. The whole line, or the line is a lie.**
+   *
+   * This was a `useInfiniteQuery` with no "load more" anywhere on the page,
+   * so it served exactly one page — the pupil's FIRST hundred rated contests
+   * — and said nothing at all about the rest. D178 recorded it as a silent
+   * cap and left it; this is that cap closed.
+   *
+   * **It is worse than a truncated list, and that is why this one is walked
+   * rather than buttoned.** The history ascends by time, so the last row
+   * LOADED is what `currentRating` below reads. Past a hundred rated rounds
+   * the page printed the rating a pupil held at their hundredth contest as
+   * their rating today, and drew a sparkline that stopped there with no
+   * ending anyone could see. Nothing was marked stale, because nothing knew
+   * it was.
+   *
+   * A "load more" button — the fix D180 gave six other surfaces — is the
+   * wrong shape for a CHART: a graph behind a press is a graph whose reader
+   * has no way to know the shape changes if they press it, and a headline
+   * number behind a press is simply wrong until pressed. `org-picker.tsx`
+   * made the same argument about a form control and reached the same answer,
+   * so the cursor is walked to exhaustion inside the query and bounded, and a
+   * failure on page four rejects the whole query rather than being served as
+   * though it were the answer.
+   *
+   * `user.tsx` — the public profile — keeps its "load more" and is right to:
+   * it renders a TABLE of rounds, one page is a legible answer, and its
+   * headline rating comes from the profile rather than from the last row on
+   * screen.
+   */
+  const rating = useQuery({
+    queryKey: ['user-rating', 'all', username ?? ''],
     enabled: username !== null,
-    queryFn: async ({ pageParam }: { pageParam: string | undefined }): Promise<RatingPage> => {
-      const query: { cursor?: string } = {};
-      if (pageParam !== undefined) query.cursor = pageParam;
-      const result = await api.GET('/users/{username}/rating', {
-        params: { path: { username: username! }, query },
-      });
-      if (result.error) throw apiError(result, t('user.ratingLoadError'));
-      return result.data;
+    queryFn: async (): Promise<RatingPage['items']> => {
+      const all: RatingPage['items'] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < RATING_MAX_PAGES; page += 1) {
+        const query: { limit: number; cursor?: string } = { limit: RATING_PAGE };
+        if (cursor !== undefined) query.cursor = cursor;
+        const result = await api.GET('/users/{username}/rating', {
+          params: { path: { username: username! }, query },
+        });
+        if (result.error) throw apiError(result, t('user.ratingLoadError'));
+        all.push(...result.data.items);
+        const next = result.data.nextCursor ?? null;
+        if (next === null) break;
+        cursor = next;
+      }
+      return all;
     },
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
-  const ratings = (rating.data?.pages.flatMap((page) => page.items) ?? []).map(
-    (event) => event.ratingAfter,
-  );
+  const ratings = (rating.data ?? []).map((event) => event.ratingAfter);
 
   if (me.isPending) return <p className="muted">{t('common.loading')}</p>;
   if (!me.data) {

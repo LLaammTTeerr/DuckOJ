@@ -10,7 +10,16 @@ import type { NotificationListDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
 import type { Actor } from '../authz/actor.js';
 
-/** A feed, not an archive — the cap is the product decision. */
+/**
+ * A feed, not an archive — the cap is the product decision (D14), and D187
+ * kept it.
+ *
+ * What D187 changed is that the cap now SAYS so. It was 50 rows with no
+ * cursor and no signal of any kind: the fifty-first notification was gone and
+ * the response looked exactly like a complete one. The reader who could see
+ * that most clearly was the one with an `unreadCount` of 60 against 50 rows,
+ * with nothing on the page to explain the difference.
+ */
 const FEED_LIMIT = 50;
 
 @Injectable()
@@ -55,13 +64,16 @@ export class NotificationsService {
   }
 
   async listFor(actor: Actor): Promise<NotificationListDto> {
-    const [items, unread] = await Promise.all([
+    const [rows, unread] = await Promise.all([
       this.db
         .select()
         .from(schema.notifications)
         .where(eq(schema.notifications.userId, actor.userId))
         .orderBy(desc(schema.notifications.id))
-        .limit(FEED_LIMIT),
+        // One row past the cap, so "there is more" is answered by the same
+        // query rather than by a second COUNT that could disagree with it —
+        // the shape `rosterOf` and every cursor list here already use.
+        .limit(FEED_LIMIT + 1),
       this.db
         .select({ n: count() })
         .from(schema.notifications)
@@ -69,7 +81,9 @@ export class NotificationsService {
           and(eq(schema.notifications.userId, actor.userId), isNull(schema.notifications.readAt)),
         ),
     ]);
+    const items = rows.slice(0, FEED_LIMIT);
     return {
+      truncated: rows.length > FEED_LIMIT,
       items: items.map((row) => ({
         id: row.id,
         kind: row.kind,

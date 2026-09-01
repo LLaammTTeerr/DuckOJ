@@ -24,6 +24,23 @@ export const NotificationList = z.object({
   /** Newest first, capped at 50 — a notification feed, not an archive. */
   items: z.array(Notification),
   unreadCount: z.number().int(),
+  /**
+   * There are older notifications than the fifty served (D187).
+   *
+   * The cap is kept — a feed is read from the top and D14 chose 50
+   * deliberately — but a cap the reader cannot see is a lie of omission, and
+   * this feed's was the loudest of the two F-49 found: `unreadCount` counts
+   * EVERY unread row, so a person with sixty unread saw "60" over fifty rows
+   * and nothing explaining the ten. This is the same cap-plus-flag the
+   * clarification feed already serves (`FEED_CAP` + `truncated`), which
+   * F-49's sweep named as the pattern this list should copy.
+   *
+   * Paging was considered and refused: a notification is acted on or ignored
+   * within days, `POST /notifications/read` clears the whole backlog in one
+   * press, and nothing in this product ever links to a notification by id. A
+   * cursor would be a walk into an archive nobody keeps.
+   */
+  truncated: z.boolean(),
 });
 export type NotificationListDto = z.infer<typeof NotificationList>;
 

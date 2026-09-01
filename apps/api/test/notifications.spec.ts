@@ -256,7 +256,7 @@ describe('the feed itself', () => {
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'f-http');
         const { body } = await agent.get('/api/v1/notifications').expect(200);
-        expect(body).toEqual({ items: [], unreadCount: 0 });
+        expect(body).toEqual({ items: [], unreadCount: 0, truncated: false });
         // Seed one directly, then mark-all-read over the wire.
         const [me] = await db
           .select({ id: schema.users.id })
@@ -269,6 +269,40 @@ describe('the feed itself', () => {
       } finally {
         await app.close();
       }
+    });
+  }, 120_000);
+});
+
+describe('the feed says it is a window (D187)', () => {
+  it('serves fifty of sixty, flags the truncation, and still counts all sixty unread', async () => {
+    await withTestDb(async (db) => {
+      const reader = await insertUser(db, 'f-many');
+      const service = new NotificationsService(db);
+      // Sixty rows, which is the shape a busy contest morning produces: a
+      // clarification answered, a round announced, a roster changed, over and
+      // over. Fifty is the cap; the other ten were previously gone with no
+      // signal of any kind.
+      await service.notifyMany(
+        db,
+        Array.from({ length: 60 }, () => reader.id),
+        'role_granted',
+        { globalRole: 'setter' },
+      );
+
+      const feed = await service.listFor(actorFor(reader.id));
+      expect(feed.items).toHaveLength(50);
+      // The flag is the whole point: `unreadCount` counts every row, so
+      // WITHOUT it a reader is shown "60" over fifty rows and left to
+      // reconcile two numbers with nothing to reconcile them by.
+      expect(feed.truncated).toBe(true);
+      expect(feed.unreadCount).toBe(60);
+
+      // And a feed that fits says so, rather than warning about nothing.
+      const quiet = await insertUser(db, 'f-few');
+      await service.notify(db, quiet.id, 'role_granted', { globalRole: 'setter' });
+      const small = await service.listFor(actorFor(quiet.id));
+      expect(small.truncated).toBe(false);
+      expect(small.items).toHaveLength(1);
     });
   }, 120_000);
 });
