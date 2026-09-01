@@ -518,6 +518,47 @@ export const submissions = pgTable(
     // rows, growing with history — which is the cost D47 declined to pay
     // against a guess and 0025 pays against a measurement.
     index('submissions_judged_at_idx').on(t.judgedAt),
+    // D163 — "the newest N submissions of ONE person", which is three
+    // routes: the progress page's `recent` panel (D83), the signed-in home's
+    // last-five verdicts (D138), and `GET /submissions?user=…` behind both.
+    // All three are `user_id = ? ORDER BY id DESC LIMIT n`.
+    //
+    // D83 ruled no migration was needed because "every aggregate is led by
+    // `submissions.user_id`, which `submissions_user_problem_points_idx`
+    // already covers". Led, yes — but that index is
+    // `(user_id, problem_id, points DESC, id)`, so `id` is its FOURTH column
+    // and it can only offer a pupil's rows in problem order. Measured on a
+    // province-shaped database (2 000 pupils, 200 880 submissions,
+    // F-44): the planner either walked the primary key BACKWARDS discarding
+    // everybody else's rows, or read all 100 of the pupil's rows and
+    // top-N-sorted them — 117 buffers to return ten. With this index, 16.
+    // Both costs are linear in how much the pupil (or the province) has
+    // submitted; a ten-row panel must not be.
+    //
+    // `id DESC` is in the index so the ordering comes from the index and the
+    // LIMIT stops after n entries. Cost: one more btree entry per INSERT
+    // into `submissions` — the write path is one row per submit, bounded by
+    // the judge's ≈35/min grading ceiling, so this is not a hot write.
+    index('submissions_user_recent_idx').on(t.userId, t.id.desc().nullsFirst()),
+    // D164 — the progress heatmap's twelve months, `user_id = ? AND
+    // created_at >= ?`, counted per calendar day.
+    //
+    // This index is only worth its bytes TOGETHER with the join D164 removes
+    // from that query, and the measurement says so: with the `problems` join
+    // still there the planner never chose this index at all (305 buffers,
+    // unchanged); with the join gone but no index it bitmap-scans the
+    // pupil's whole history off the heap (109 buffers); with both, the
+    // heatmap is an **Index Only Scan, `Heap Fetches: 0`, 10 buffers**,
+    // because `user_id` and `created_at` are the only two columns it reads.
+    // Neither half is worth shipping alone, which is why the migration and
+    // the rewrite are one change.
+    //
+    // Cost: a second btree entry per INSERT, on the same bounded write path
+    // as the index above. It does NOT serve the streak beside it — that one
+    // also reads `verdict` and correlates on `id`, so it stays a heap scan
+    // of the pupil's own rows, and widening this index to cover it would pay
+    // for every row of the table to save one aggregate.
+    index('submissions_user_created_idx').on(t.userId, t.createdAt),
   ],
 );
 

@@ -1,0 +1,2 @@
+CREATE INDEX "submissions_user_recent_idx" ON "submissions" USING btree ("user_id","id" DESC NULLS FIRST);--> statement-breakpoint
+CREATE INDEX "submissions_user_created_idx" ON "submissions" USING btree ("user_id","created_at");
