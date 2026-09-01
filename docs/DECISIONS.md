@@ -8634,3 +8634,177 @@ one check from three services. Tests:
 `apps/api/test/edit-version-conflict.spec.ts` (twelve cases over HTTP),
 `apps/web/test/edit-form-conflict.spec.tsx` (eight, one `QueryClient` across
 each walk). Red→green in both commit messages.*
+
+## D177 — A school's teams are read from the new end, and the panel can reach the rest of them
+
+`GET /orgs/{slug}/teams` ordered `asc(teams.id)` and paged at twenty-five, and
+`OrgTeams` fired it with no cursor and dropped `nextCursor` on the floor. The
+two together are worse than either: the newest team sat on the last page, and
+there was no last page. `rehearse-school` on the live judge has **46 teams**
+and the panel shows the **oldest 25** of them, with no control that reaches
+the other 21. Found by F-48's organiser walk, which created three teams a run
+for a fortnight and then failed looking for its own row.
+
+- **`desc(teams.id)` with an `lt` seek, and the seek was inverted WITH the
+  order.** That is the half that is easy to get wrong: `ORDER BY id DESC`
+  paired with `id > cursor` serves page one forever, and page one alone cannot
+  show it. `teams.id` is unique and monotonic, so this is the same stable
+  keyset it always was — no tiebreak, and no row skipped or repeated.
+  **`created_at` was refused**: it reads identically to a human, it is not
+  unique (a roster imported in one `INSERT` shares an instant to the
+  microsecond), and it would therefore have needed D151's composite
+  `millis_id` cursor to be safe — a second cursor grammar for no gain over the
+  id.
+- **`parseTeamCursor` answers `undefined`, not `0`.** A descending walk has no
+  cheap "no upper bound" sentinel the way an ascending one has zero;
+  `submission.access.ts` — the only other descending list — already made this
+  choice and for this reason, so there is one shape rather than two.
+- **An old cursor is indistinguishable from a new one, and that is accepted.**
+  Both grammars are a bare `teams.id`, so a cursor issued before this change
+  parses and walks the other way. There is no version to key on and inventing
+  one (a prefix, D151's `_` composite) would refuse a cursor that is
+  arithmetically fine. Cursors here are in-flight state: the UI holds them in
+  a `useInfiniteQuery` for the life of a mounted panel and never writes one to
+  a URL, a bookmark or storage, so the window in which a stale one exists is
+  the moment between a deploy and the reader's next click. A cursor the
+  grammar could never produce is still 422 `invalid_cursor`.
+- **The web panel is `useInfiniteQuery` + `common.loadMore`**, which is the
+  shape the org roster, the problem list, the submissions list, the comment
+  thread, the rating history and the homework grid already use — no new string
+  in either language, and the table gains the `table-wrap` scroll region those
+  lists carry. **No search box**: that is a bigger feature and F-49's table
+  argues it in the org-roster row, not here.
+- **The locked-contest banner still names only the teams loaded so far.** It
+  always did; it is worth writing down now that "loaded" and "all of them"
+  have visibly come apart. Widening it means a second query for a warning
+  whose real enforcement is the server's 409 `team_locked_during_contest`,
+  which no page position can dodge.
+- **No index, measured and refused.** On a 12 370-team, 400-school scratch
+  copy the flipped query is `Index Scan Backward using teams_pkey` at **3
+  shared buffers / 0.035 ms** for a large school and a `Bitmap Index Scan on
+  teams_org_slug_lower_idx` + sort at **8 buffers / 0.08 ms** for a small one.
+  The worst plan measured in either direction was 152 buffers / 0.78 ms. A
+  `teams(org_id, id)` index would make the direction irrelevant and buys
+  nothing at province size; F-49's report records the numbers so the next
+  person does not re-derive them. **This is a product fix, not a performance
+  fix**, and saying so is the point.
+
+*Ruled by the implementer during the F-49 slot, no human available to consult.
+Cost if wrong: one `orderBy`, one comparison operator, one cursor parser and
+one React hook; reverting restores the previous list byte for byte. Tests:
+`apps/api/test/team-list-order.spec.ts` (four cases, sixty teams, the whole
+walk collected and checked for gaps and repeats) and
+`apps/web/test/teams-load-more.spec.tsx` (two). Demonstrated red three ways —
+`asc`+`gt` restored, `desc`+`gt` mismatched, and `getNextPageParam` returning
+`undefined`.*
+
+
+## D178 — What F-49 measured and did NOT fix, with the count at which each becomes unusable
+
+F-49 swept every paginated list an organiser or teacher uses. One was fixed
+(D177). The rest are recorded here **with numbers** rather than fixed, because
+each is a feature rather than a correction and the slot's own instruction was
+not to rewrite five screens because they share a shape. `docs/superpowers/
+briefs/f49-report.md` carries the full table; this entry carries the ruling.
+
+**The class.** Six web surfaces call a cursor-paginated endpoint, render
+`.items`, and drop `nextCursor`. The server's default page of twenty-five is
+then a hard ceiling that looks like a complete answer. In descending order of
+what it costs a school, and with the live count today beside it:
+
+| Surface | Ceiling | Live today | What is lost |
+| --- | --- | --- | --- |
+| `admin.tsx` `RateContests` | 25 | **167 contests** | an admin cannot rate or unrate contest #26+ **at all** — the only one of these that blocks a WRITE |
+| `contests.tsx` `ContestsPage` | 25 | 167 | 142 rounds unreachable, and none of the API's `phase`/`mine`/`org` filters is surfaced |
+| `orgs.tsx` `OrgsPage` | 25 | **28 orgs** | 3 schools already unreachable |
+| `orgs.tsx` `OrgContests` | 25 | 167 | a school's 26th round invisible on its own page |
+| `problem-sets.tsx` `OrgSets` | 25 | 22 | homework set #26 invisible to the class |
+| `org-picker.tsx` | 100 (asked for) | 28 | the switcher stops at 101 schools |
+
+**`RateContests` is the one to do first**, and a bigger `limit` does not fix
+it: 167 > 100, the schema's maximum. It needs the cursor or a filter.
+
+**Two silent caps that are not cursor-droppers**, recorded so they are not
+re-found: `progress.tsx` builds the rating history as a `useInfiniteQuery` and
+never renders a "load more", so a pupil's sparkline is their first **100**
+rated contests; `GET /notifications` is a fixed 50 rows with no cursor and no
+"there is more" signal, so the 51st notification is gone without saying so.
+
+**Search, argued and deferred.** `GET /orgs/{slug}/members` CAN page and has
+no search box; the org-import contract already advertises a five-thousand-
+pupil roster, which is **200 presses of "load more"** to find one pupil. `GET
+/users?q=` is fully built server-side — prefix match, `%`/`_` escaped — and
+has **zero callers in the web app**. The cheapest honest fix for the roster is
+that parameter, wired to a box; it is a feature and it is named here rather
+than smuggled into D177.
+
+**The teams panel's per-row detail query is worth widening the summary after
+all, and the comment in `teams.tsx` arguing otherwise is wrong on its own
+terms.** It says widening would make "a page of twenty teams a page of sixty
+usernames nobody asked for" — but the panel then asks for every one of those
+sixty usernames, one HTTP request at a time. Measured on the province scratch
+copy, one screen of 25 rows costs:
+
+- **25 extra HTTP requests**, each re-resolving the session (0.070 ms) and
+  re-running the org visibility gate and the role lookup before it answers;
+- **175 statements** (7 per detail: session, `findVisibleOrgRow`, `roleOf`,
+  `findTeam`, `membersOf`, `contestsOf`, `teamEditVersion`) and **≈20 ms** of
+  database time — against **one** statement, **0.175 ms**, for every roster on
+  the page in a single `IN` query;
+- and every one of those 25 responses carries a `contests` array and a D176
+  `version` token **the panel throws away**.
+
+The payload the comment defends is ~2.3 kB of names the page displays anyway.
+`memberCount` becomes derivable. The blast radius is three schemas —
+`TeamPage`, `TeamDetail`'s `extend`, and `MyTeamSummary`, whose route is
+capped at `MY_TEAMS_LIMIT` — and no scoreboard shape at all. Not done in F-49
+because it is the third rework of one panel in one slot and the members-error
+path has its own tests; it is an hour's work, fully specified.
+
+*Ruled by the implementer during the F-49 slot, no human available to consult.
+Cost if wrong: nothing was built, so nothing reverts. The risk this entry
+carries is the opposite one — that the numbers go stale. They were taken on a
+400-school, 12 370-team, 3 000-contest, 25 000-account scratch copy on
+2026-09-02, and the "live today" column is a `SELECT count(*)` against the
+deployed database on the same day.*
+
+
+## D179 — `GET /orgs/{slug}/requests` is the one list with no bound at all, and it is a school's front door
+
+Every other list in the API either takes a cursor or states a cap
+(`FEED_LIMIT = 50` for notifications, `FEED_CAP = 200` plus a `truncated` flag
+for clarifications, `MY_TEAMS_LIMIT` for the team picker). `listRequests` has
+**no `.limit()`, no cursor and no query parameters**: it returns every pending
+join request a school holds, and `RequestsQueue` renders every one of them
+into one `<table>`.
+
+Measured on the province scratch copy with 5 000 pending requests against one
+school — which is what "a school opens enrolment and the province's pupils
+click join" produces, and what the org-import contract already sizes a roster
+at:
+
+- the statement itself is **healthy**: `Index Scan on
+  org_join_requests_pending_idx` merge-joined to `users_pkey`, 158 buffers,
+  **2.6 ms**. There is nothing to index;
+- the **response** is ~219 kB of JSON and **5 000 `<tr>` elements** in one
+  DOM, on the page a teacher opens to approve three people.
+
+**It is not a database problem and no index fixes it.** It is a missing bound,
+and the shape it should take is already in the codebase twice over: either
+`PaginationQuery` with an `asc(id)` cursor (the order is correct as it stands
+— a queue is worked oldest first, and D177's argument for newest-first does
+**not** transfer to a FIFO), or the clarifications' cap-plus-`truncated` flag
+if a queue is never meant to be walked. The first is preferable: a queue must
+be workable to its end.
+
+**Not fixed in F-49**, which was told to do the cheap correct things and
+propose the expensive ones. This is a response-shape change to a public
+contract plus a UI affordance, and it is expensive in exactly the way the
+brief meant. It is named here because it is the only list in the sweep whose
+worst case is bounded by nothing at all, and because the surface it sits on —
+a school's join queue — is the one an organiser opens most.
+
+*Ruled by the implementer during the F-49 slot, no human available to consult.
+Cost if wrong: nothing was built. The numbers above are from `f49_scratch`,
+created and dropped inside the slot; the live judge holds **one** pending
+request, which is why nobody has met this.*
