@@ -49,7 +49,7 @@ import { contestProblems, contests, problemRevisions, problems, submissions } fr
 import { schema } from '@duckoj/db';
 import { testDbUrl } from './db.harness.js';
 import { insertUser, seedProblemAndLanguage } from './submissions.fixtures.js';
-import { ContestAccessService } from '../src/authz/contest.access.js';
+import { ContestAccessService, readSubtaskSummary } from '../src/authz/contest.access.js';
 import { uncachedScoreboards } from './scoreboard.fixtures.js';
 
 /** The province round F-44 measured: 2 000 pupils over 8 problems. */
@@ -384,10 +384,38 @@ describe('the cold scoreboard fold (F-44 statement 34, D165)', () => {
         await db.execute(sql.raw(statement));
       }
 
-      const stored = await db
-        .select({ id: submissions.id, summary: submissions.subtaskSummary })
-        .from(submissions);
-      const storedById = new Map(stored.map((row) => [row.id, row.summary as SubtaskSummary[]]));
+      // Read back over a FRESH connection and through the fold's own validator,
+      // not through the client that wrote them. Two things are under test here
+      // and neither is the arithmetic: that a `double precision` survives
+      // JavaScript -> jsonb -> wire -> `JSON.parse` in its last bits, and that
+      // `readSubtaskSummary` ACCEPTS what is actually stored. A validator that
+      // refused some shape would send every fold in the deployment down the
+      // residue path forever — a regression no equality assertion would see.
+      const fresh = createDb(await testDbUrl());
+      let storedById: Map<number, SubtaskSummary[]>;
+      try {
+        const stored = await fresh.db
+          .select({ id: submissions.id, summary: submissions.subtaskSummary })
+          .from(submissions);
+        storedById = new Map(
+          stored.map((row) => {
+            const parsed = readSubtaskSummary(row.summary);
+            expect(parsed, `submission ${String(row.id)}: the fold refused its own summary`).not.toBeNull();
+            return [
+              row.id,
+              parsed!.map((subtask) => ({
+                batch: subtask.groupIndex,
+                minPoints: subtask.minPoints,
+                maxTotal: subtask.maxTotal,
+                sumPoints: subtask.sumPoints,
+                sumTotal: subtask.sumTotal,
+              })),
+            ];
+          }),
+        );
+      } finally {
+        await fresh.close();
+      }
 
       let compared = 0;
       for (const [id, want] of expected) {

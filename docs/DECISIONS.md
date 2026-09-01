@@ -7794,9 +7794,16 @@ Rulings taken during the F-45 slot, with nobody available to consult.
 - **`SET LOCAL extra_float_digits = 3` in the backfill.** At `0`, `to_jsonb` of
   a `double precision` failed to round-trip 48 861 of 50 000 generated values
   on this cluster; at 1, 2 and 3 it round-tripped 100 000 of 100 000. The
-  runtime writer does not depend on the setting at all — it hands Postgres a
-  JSON value JavaScript serialised — but the backfill formats floats
-  server-side and would otherwise inherit whatever the session had.
+  runtime writer does not depend on the setting — it hands Postgres a JSON value
+  JavaScript serialised, and `event-writer.spec.ts` asserts that round trip on
+  Postgres' own rendering of the stored jsonb (`subtask_summary::text`, parsed
+  back and compared with `Object.is`) rather than on what the writing client
+  handed back — but the backfill formats floats server-side and would otherwise
+  inherit whatever the session had. The fold's side of the same seam is asserted
+  too: `contest-scoreboard-fold-plan.spec.ts` reads every backfilled summary
+  over a **fresh connection** and through `readSubtaskSummary` itself, because a
+  validator that refused some stored shape would send the whole deployment down
+  the residue path forever — a regression no equality assertion would notice.
 - **`ORDER BY contest_submissions.id` moved into JavaScript.** Carrying the
   summary made statement 33's rows wide enough that its sort stopped fitting in
   `work_mem`: an in-memory quicksort at 15 ms became an external merge spilling
@@ -7811,6 +7818,13 @@ Rulings taken during the F-45 slot, with nobody available to consult.
   reason.
 - **No wire change, so no contract regenerated.** The scoreboard's response is
   byte-identical; `subtask_summary` is never serialised anywhere.
+- **D25 needs no new invalidation.** The summary is written by the same
+  transaction as the verdict, so the two can never be observed out of step —
+  and D25 already rules that a verdict written by `judged` rides the two-second
+  TTL rather than deleting a key, because the event writer is a separate
+  process that never calls into the API. A board can therefore be up to one TTL
+  behind a verdict, exactly as it could before, and never behind its own
+  summary.
 
 **What this costs a province at deploy.** Migration 0045 runs in drizzle's
 transaction and its backfill is a full pass over `submission_cases` with an

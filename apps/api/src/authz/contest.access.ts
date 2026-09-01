@@ -193,8 +193,14 @@ function toSubtaskRow(subtask: SubtaskSummary): ContestSubtaskRow {
  * into somebody's score. `Number.isFinite` is the whole check that matters —
  * a `null` or a string in one of these fields would arrive as `NaN` and
  * silently blank a whole scoreboard row.
+ *
+ * Exported for `contest-scoreboard-fold-plan.spec.ts`, which runs stored
+ * summaries back through it over a FRESH connection and compares the result to
+ * the case rows. Refusing a shape sends the whole deployment down the residue
+ * path permanently — a performance regression no equality test would notice —
+ * so the validator itself has to be under test, not merely the numbers.
  */
-function readSubtaskSummary(value: unknown): ContestSubtaskRow[] | null {
+export function readSubtaskSummary(value: unknown): ContestSubtaskRow[] | null {
   if (!Array.isArray(value)) return null;
   const rows: ContestSubtaskRow[] = [];
   for (const entry of value) {

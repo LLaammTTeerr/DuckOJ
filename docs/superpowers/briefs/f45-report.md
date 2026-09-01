@@ -233,6 +233,19 @@ sum is order-sensitive (`1e-4 + 1e-4 + 2**40 !== 2**40 + 1e-4 + 1e-4`, asserted
 in the test). Plus: a compile error summarises to `[]` and never null; a second
 attempt beside a first summarises to the second.
 
+**2b. The jsonb seam itself, from both sides.** A summary that survives every
+arithmetic check and loses a bit crossing into Postgres is still a wrong
+scoreboard, so the boundary is asserted rather than assumed. On the write side,
+`event-writer.spec.ts` compares against **Postgres' own rendering** of the
+stored value (`subtask_summary::text`, parsed back), not against what the
+writing client handed back. On the read side, the fold spec pulls every
+backfilled summary over a **fresh connection** and through
+`readSubtaskSummary` — the fold's own validator — because a validator that
+refused some stored shape would send the whole deployment down the residue path
+forever, which is a performance regression no equality assertion would notice.
+Red demonstrated: making the validator refuse everything reds it
+(`submission 1: the fold refused its own summary`).
+
 **3. Migration 0045's backfill against the summariser, at province scale.**
 `apps/api/test/contest-scoreboard-fold-plan.spec.ts` reads the backfill **out of
 the migration file** — a transcription would drift, and a drifted copy would
@@ -276,6 +289,16 @@ Every test demonstrated **red** first.
 | `packages/contest-formats` (goldens, divergences, freeze, lower, subtask-summary) | **125 passed** |
 | `apps/judged/test/event-writer.spec.ts` | **16 passed** |
 | `apps/api/test/contest-scoreboard-fold-plan.spec.ts` (container, run alone) | **1 passed** |
+
+`1 passed` on the centrepiece is one `it` carrying five assertion groups —
+backfill equality over 50 000+ groups, the jsonb round trip through a fresh
+connection and the fold's own validator, the "no `submission_cases` statement at
+all" claim, the cost of the summary column measured against the same statement
+without it, and the poisoned-summary residue check. They share one `it` because
+they share one fixture: building a 300 000-row province round is itself hot
+work, and the brief's thermal cap says to do it once and reuse it. Splitting
+them would seed it five times to raise a number.
+
 | `apps/api/test/contest-golden-replay.spec.ts` | **24 passed** |
 | `apps/api/test/contest-freeze.spec.ts` | **10 passed** |
 | `apps/api/test/contest-regrade-attempt.spec.ts` | **2 passed** |

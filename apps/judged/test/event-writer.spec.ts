@@ -156,6 +156,27 @@ describe('EventWriter', () => {
           ).toBe(true);
         }
       }
+      // The same comparison against what POSTGRES actually holds, rendered by
+      // Postgres itself rather than handed back by the driver that wrote it.
+      // The write path is JS number -> postgres-js -> jsonb -> wire text ->
+      // `JSON.parse`, and a driver that serialised a float through anything
+      // decimal-lossy would leave every assertion above passing while
+      // production diverged in the last bits.
+      const [rendered] = await db.execute<{ text: string | null }>(
+        sql`select subtask_summary::text as text from submissions where id = ${submissionId}`,
+      );
+      const overTheWire = JSON.parse(rendered!.text!) as typeof expected;
+      expect(overTheWire.length).toBe(expected.length);
+      for (const [index, want] of expected.entries()) {
+        const got = overTheWire[index]!;
+        for (const key of ['minPoints', 'maxTotal', 'sumPoints', 'sumTotal'] as const) {
+          expect(
+            Object.is(got[key], want[key]),
+            `group ${String(index)} ${key} over the wire: ${String(got[key])} vs ${String(want[key])}`,
+          ).toBe(true);
+        }
+      }
+
       // And the loose sum really is order-sensitive on this input, so the
       // assertion above is testing something.
       expect(1e-4 + 1e-4 + 2 ** 40).not.toBe(2 ** 40 + 1e-4 + 1e-4);
