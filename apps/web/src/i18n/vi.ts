@@ -291,6 +291,14 @@ export const vi = {
   'problemEdit.clonedLink': 'Mở bài mới',
   'problemEdit.cloneFailed': 'Không nhân bản được.',
   'problemEdit.saveFailed': 'Không lưu được bài tập này.',
+  // D161 — xem bản tiếng Anh: lỗi lưu duy nhất mà gõ lại không sửa được.
+  'editConflict.problem':
+    'Một người khác đã lưu bài tập này sau khi bạn mở biểu mẫu. Chưa ghi gì cả, và mọi thứ bạn vừa gõ vẫn còn đây. Hãy tải bản mới nhất rồi áp dụng thay đổi của bạn lên đó.',
+  'editConflict.contest':
+    'Một người khác đã lưu kỳ thi này sau khi bạn mở biểu mẫu. Chưa ghi gì cả, và mọi thứ bạn vừa gõ vẫn còn đây — kể cả danh sách bài. Hãy tải bản mới nhất rồi áp dụng thay đổi của bạn lên đó.',
+  'editConflict.load': 'Tải bản mới nhất',
+  'editConflict.reseeded':
+    'Bản ghi này vừa được người khác sửa trong lúc biểu mẫu đang mở, nên biểu mẫu đã hiển thị bản mới nhất. Bạn chưa gõ gì nên không mất gì cả.',
   'problemEdit.rejudgeFailed': 'Không bắt đầu được việc chấm lại.',
   'problemEdit.rejudgeQueued': 'Đã xếp hàng {n} bài nộp.',
   'problemRole.author': 'tác giả',

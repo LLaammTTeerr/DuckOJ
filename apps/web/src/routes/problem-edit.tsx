@@ -270,8 +270,50 @@ export function ProblemEditPage(props: { code?: string }) {
    * there too.
    */
   const [seed, setSeed] = useState<string>(() => fingerprint(EMPTY_FORM));
+  /**
+   * The `version` this form was seeded WITH — D161. Sent back as
+   * `expectedVersion` on every save, so the server can refuse a write that
+   * would replace somebody else's newer work with the copy this form has been
+   * holding. `null` on the create route, where there is nothing to overwrite.
+   */
+  const [seededVersion, setSeededVersion] = useState<string | null>(null);
+  /** A reseed happened: the record moved under an untouched form (D161). */
+  const [reseeded, setReseeded] = useState(false);
+  /** The last save was refused as a conflict, so the reload offer is on. */
+  const [conflict, setConflict] = useState(false);
+  const dirty =
+    fingerprint({
+      name,
+      statement,
+      visibility,
+      sourceAccess,
+      orgSlugsRaw,
+      tagSlugs,
+      difficultyRaw,
+      editorial,
+      editorialPublished,
+    }) !== seed;
   useEffect(() => {
-    if (!query.data || seededFrom === query.data.code) return;
+    if (!query.data) return;
+    const first = seededFrom !== query.data.code;
+    // **D161, clause A.** This used to be `seededFrom === code` and nothing
+    // else: the FIRST value the form ever saw won, forever. B-31 removed the
+    // way the app manufactured a stale first value; what it could not fix
+    // without a ruling is a first value that was stale because SOMEBODY ELSE
+    // saved. So a form that has already been seeded reseeds when two things
+    // hold together:
+    //
+    //   - the record moved (`version` differs from the one seeded with), and
+    //   - this setter has typed NOTHING (`!dirty`).
+    //
+    // The second half is the load-bearing one. Reseeding a dirty form would
+    // be the same data loss with the victims swapped — it would throw away
+    // what is on this screen instead of what is on the server. A dirty form
+    // therefore keeps its typing, keeps its stale `seededVersion`, and is
+    // refused by the API on save (D161's clause B) rather than allowed to
+    // overwrite. That refusal is the guarantee; this clause only keeps it
+    // rare enough that nobody learns to click through it.
+    if (!first && (dirty || query.data.version === seededVersion)) return;
     setCode(query.data.code);
     setName(query.data.name);
     setStatement(query.data.statement);
@@ -299,8 +341,13 @@ export function ProblemEditPage(props: { code?: string }) {
         editorialPublished: query.data.editorialAvailable,
       }),
     );
+    setSeededVersion(query.data.version);
     setSeededFrom(query.data.code);
-  }, [seededFrom, query.data]);
+    // Announced, never silent. Nothing was lost — the form had nothing in it
+    // to lose — and saying so is what stops a setter who looked away for a
+    // minute from concluding the site ate their draft.
+    if (!first) setReseeded(true);
+  }, [seededFrom, seededVersion, dirty, query.data]);
 
   /**
    * D147. The statement box holds the largest single thing anybody types into
@@ -308,19 +355,32 @@ export function ProblemEditPage(props: { code?: string }) {
    * prompt, no draft and no way back. (D84 gives the SUBMIT editor a stored
    * draft; nothing had ever guarded the authoring one.)
    */
-  const release = useDirtyGuard(
-    fingerprint({
-      name,
-      statement,
-      visibility,
-      sourceAccess,
-      orgSlugsRaw,
-      tagSlugs,
-      difficultyRaw,
-      editorial,
-      editorialPublished,
-    }) !== seed,
-  );
+  const release = useDirtyGuard(dirty);
+
+  /**
+   * D161. The setter chose to take the newer version — explicitly, by
+   * pressing a button, never automatically. A conflict is by definition a
+   * form holding work, and a page that silently replaced it with somebody
+   * else's copy would be the very loss this whole feature exists to forbid.
+   *
+   * The refetch is AWAITED before the seed guard reopens. Reopening it first
+   * would let the effect above seed synchronously from the entry still in the
+   * cache — the stale one — which is B-31's mechanism exactly. (Clause A
+   * would then correct it a round trip later, since the form is undirty by
+   * that point; ordering it this way means the setter never sees the flash.)
+   */
+  async function loadNewer(): Promise<void> {
+    setBusy(true);
+    try {
+      await client.invalidateQueries({ queryKey: ['problem', props.code] });
+      setConflict(false);
+      setSubmitError(null);
+      setReseeded(false);
+      setSeededFrom(null);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -334,7 +394,7 @@ export function ProblemEditPage(props: { code?: string }) {
       // server's error `code` verbatim below. A network-level failure (no
       // response at all) rethrows instead, which is what the `catch` below
       // is for.
-      const { error } = isEdit
+      const { data, error } = isEdit
         ? await api.PATCH('/problems/{code}', {
             params: { path: { code: props.code! } },
             body: {
@@ -358,12 +418,27 @@ export function ProblemEditPage(props: { code?: string }) {
               // to publish, and that code is what gets shown.
               editorial: editorial.trim() === '' ? null : editorial,
               editorialPublished,
+              // D161. Omitted rather than sent as `undefined`
+              // (`exactOptionalPropertyTypes` separates the two), and omitted
+              // only when the server declined to give us one — which for this
+              // route means the viewer may not edit, in which case the PATCH
+              // is about to 403 anyway.
+              ...(seededVersion === null ? {} : { expectedVersion: seededVersion }),
             },
           })
         : await api.POST('/problems', {
             body: { code, name, statement, visibility, orgSlugs: parseOrgSlugs(orgSlugsRaw) },
           });
       if (error) {
+        // D161's refusal, rendered as a form failure like every other one —
+        // but with an offer attached, because this is the one error the
+        // setter cannot fix by retyping. `conflict` turns the button on; the
+        // sentence says what happened and that nothing was written.
+        if (error.code === 'problem_version_conflict') {
+          setConflict(true);
+          setSubmitError({ message: t('editConflict.problem'), code: error.code });
+          return;
+        }
         // Verbatim, not paraphrased — this is a tool for people who will
         // read error codes like `problem_code_taken` or
         // `problem_org_unknown`, not a consumer app (task-12 brief).
@@ -388,6 +463,13 @@ export function ProblemEditPage(props: { code?: string }) {
       );
       release();
       setSaved(true);
+      // D161. The PATCH answers with the problem as it now is, so this is the
+      // token the form holds from here on. Without it the NEXT save from this
+      // same open form would send the pre-save value and be refused as a
+      // conflict with the write it had just made itself.
+      if (data) setSeededVersion(data.version);
+      setConflict(false);
+      setReseeded(false);
       // The screens that read what was just written. `['problem', code]` is
       // the important one and NOT for cosmetic reasons: this very form is
       // prefilled from it, the seeding effect above runs ONCE per code, and a
@@ -448,6 +530,18 @@ export function ProblemEditPage(props: { code?: string }) {
           — deliberately verbatim, never paraphrased or translated: this is a
           tool for people who read codes (task-12 brief). */}
       {submitError ? <CodeAlert {...submitError} /> : null}
+      {/* D161. Beneath the message, and a button rather than an automatic
+          reload: everything the setter typed is still on screen and still
+          copyable until they choose. D148 — live unless busy, and it says
+          what it is doing. */}
+      {conflict ? (
+        <p>
+          <button type="button" onClick={() => void loadNewer()} disabled={busy}>
+            {busy ? t('common.loading') : t('editConflict.load')}
+          </button>
+        </p>
+      ) : null}
+      {reseeded ? <p role="status">{t('editConflict.reseeded')}</p> : null}
       {saved ? <p>{t('problemEdit.saved')}</p> : null}
       <form onSubmit={(e) => void handleSubmit(e)}>
         <label htmlFor="problem-code">{t('problemEdit.code')}</label>

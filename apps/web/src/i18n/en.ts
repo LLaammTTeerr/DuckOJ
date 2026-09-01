@@ -305,6 +305,16 @@ export const en = {
   'problemEdit.clonedLink': 'Open it',
   'problemEdit.cloneFailed': 'Could not clone this problem.',
   'problemEdit.saveFailed': 'Could not save this problem.',
+  // D161 — the one save error a setter cannot fix by retyping. It says what
+  // happened, that nothing was written, and that their own work is still on
+  // screen; the offer to take the newer version is a button beside it.
+  'editConflict.problem':
+    'Somebody else saved this problem after you opened this form. Nothing was written, and everything you typed is still here. Load the newer version and apply your change to it.',
+  'editConflict.contest':
+    'Somebody else saved this contest after you opened this form. Nothing was written, and everything you typed is still here — the problem list included. Load the newer version and apply your change to it.',
+  'editConflict.load': 'Load the newer version',
+  'editConflict.reseeded':
+    'This was changed elsewhere while the form was open, so it now shows the newer version. You had not typed anything, so nothing was lost.',
   'problemEdit.rejudgeFailed': 'Could not start the rejudge.',
   'problemEdit.rejudgeQueued': 'Queued {n} submissions.',
   // A PROBLEM's member roles — a different enum from an ORGANIZATION's

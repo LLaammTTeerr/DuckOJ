@@ -183,9 +183,50 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
     rows: string;
   } | null>(null);
   const [endSeed, setEndSeed] = useState<{ local: string; iso: string } | null>(null);
+  /**
+   * The `version` this form was seeded WITH — D161. Sent back as
+   * `expectedVersion` on every save, so a co-organiser's newer problem list
+   * cannot be replaced by the one this form has been holding since before it
+   * existed.
+   */
+  const [seededVersion, setSeededVersion] = useState<string | null>(null);
+  /** A reseed happened: the round moved under an untouched form (D161). */
+  const [reseeded, setReseeded] = useState(false);
+  /** The last save was refused as a conflict, so the reload offer is on. */
+  const [conflict, setConflict] = useState(false);
+  /**
+   * D147 - is there an edit here a route change would destroy?
+   *
+   * Compared against the SEED, not against emptiness: this form arrives
+   * prefilled, and warning about the contest's own values would make the
+   * guard fire on every visit and teach setters to click through it. `seed`
+   * is null until the contest lands, and an unseeded form has nothing to lose.
+   */
+  const dirty =
+    seed !== null &&
+    (name !== seed.name ||
+      start !== seed.start ||
+      end !== seed.end ||
+      format !== seed.format ||
+      visibility !== seed.visibility ||
+      mode !== seed.mode ||
+      maxTeamSize !== seed.maxTeamSize ||
+      freeze !== seed.freeze ||
+      orgSlugs.join(',') !== seed.orgSlugs ||
+      rowsFingerprint(rows) !== seed.rows);
   useEffect(() => {
     const contest = query.data;
-    if (!contest || seededFrom === contest.key) return;
+    if (!contest) return;
+    const first = seededFrom !== contest.key;
+    // **D161, clause A** — `problem-edit.tsx` states the reasoning at length
+    // and this is the same rule: an already-seeded form takes a newer copy
+    // only when the record moved AND this organiser has typed nothing. A
+    // dirty form keeps its typing and its stale `seededVersion`, and is
+    // refused on save rather than allowed to overwrite. `dirty` is D147's own
+    // comparison, moved above this effect so the two cannot drift apart —
+    // "there is unsaved work here" has to mean one thing to the leave guard
+    // and to the reseed, or one of them is wrong.
+    if (!first && (dirty || contest.version === seededVersion)) return;
     setName(contest.name);
     setStart(toLocalInput(contest.startTime));
     setEnd(toLocalInput(contest.endTime));
@@ -230,34 +271,39 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
         })),
       ),
     });
+    setSeededVersion(contest.version);
     setSeededFrom(contest.key);
-  }, [seededFrom, query.data]);
+    // Announced, never silent (D161). Nothing was lost — the form had nothing
+    // in it to lose — and an organiser who watches the problem list change on
+    // its own deserves the sentence that explains it.
+    if (!first) setReseeded(true);
+  }, [seededFrom, seededVersion, dirty, query.data]);
 
   function setRow(index: number, patch: Partial<ProblemRow>): void {
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
-  /**
-   * D147 - is there an edit here a route change would destroy?
-   *
-   * Compared against the SEED, not against emptiness: this form arrives
-   * prefilled, and warning about the contest's own values would make the
-   * guard fire on every visit and teach setters to click through it. `seed`
-   * is null until the contest lands, and an unseeded form has nothing to lose.
-   */
-  const dirty =
-    seed !== null &&
-    (name !== seed.name ||
-      start !== seed.start ||
-      end !== seed.end ||
-      format !== seed.format ||
-      visibility !== seed.visibility ||
-      mode !== seed.mode ||
-      maxTeamSize !== seed.maxTeamSize ||
-      freeze !== seed.freeze ||
-      orgSlugs.join(',') !== seed.orgSlugs ||
-      rowsFingerprint(rows) !== seed.rows);
   const release = useDirtyGuard(dirty);
+
+  /**
+   * D161. The organiser chose to take the newer version — explicitly, never
+   * automatically: a conflict is by definition a form holding work, and
+   * `problems` is the all-or-nothing field `ProblemRow` below already calls
+   * out. The refetch is awaited before the seed guard reopens, so the effect
+   * cannot seed synchronously from the stale entry still in the cache.
+   */
+  async function loadNewer(): Promise<void> {
+    setBusy(true);
+    try {
+      await client.invalidateQueries({ queryKey: ['contest', contestKey] });
+      setConflict(false);
+      setError(null);
+      setReseeded(false);
+      setSeededFrom(null);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   /**
    * The contract's rules, in the active locale, before a request is sent.
@@ -303,7 +349,7 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
     const frozenLastMinutes = Number(freeze);
     setBusy(true);
     try {
-      const { error: err } = await api.PATCH('/contests/{key}', {
+      const { data, error: err } = await api.PATCH('/contests/{key}', {
         params: { path: { key: contestKey } },
         body: {
           name,
@@ -324,10 +370,23 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
             // into the request body.
             ...(row.label === undefined ? {} : { label: row.label }),
           })),
+          // D161. Omitted rather than sent as `undefined`, on the same
+          // `exactOptionalPropertyTypes` rule as `label` above.
+          ...(seededVersion === null ? {} : { expectedVersion: seededVersion }),
         },
       });
       if (err) {
-        // D146 first: the server's own attribution beats a banner written in
+        // D161's refusal FIRST, ahead of D146: it carries no field
+        // attribution and never will — the token is a hash of the whole
+        // editable object, so there is no one box to point at — and routing
+        // it through the field mapper would put it in the summary with
+        // nothing to focus.
+        if (err.code === 'contest_version_conflict') {
+          setConflict(true);
+          setError({ message: t('editConflict.contest'), code: err.code });
+          return;
+        }
+        // D146: the server's own attribution beats a banner written in
         // the validation pipe's English.
         const attributed = mapFieldErrors(err.fields, SERVER_FIELDS);
         if (Object.keys(attributed).length > 0) {
@@ -340,6 +399,13 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
       }
       // Saved; the guard must not block the navigation that says so.
       release();
+      // D161. This form navigates away on success, so the token below is
+      // mostly belt and braces — but the navigation is awaited and can fail,
+      // and a form left standing with a stale token would refuse its own next
+      // save as a conflict with the write it just made.
+      if (data) setSeededVersion(data.version);
+      setConflict(false);
+      setReseeded(false);
       // BEFORE the navigation, because the navigation's destination is one of
       // the readers: `/contests/$key` reads this very `['contest', contestKey]`
       // entry, so an uninvalidated save lands the organiser on the contest they
@@ -535,6 +601,18 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
       </p>
 
       {error ? <CodeAlert {...error} /> : null}
+      {/* D161. Beneath the message and beside the save button, and a button
+          rather than an automatic reload: everything the organiser typed —
+          `problems` above all — is still on screen and still copyable until
+          they choose to give it up. D148 for the busy state. */}
+      {conflict ? (
+        <p>
+          <button type="button" onClick={() => void loadNewer()} disabled={busy} aria-busy={busy}>
+            {busy ? t('common.loading') : t('editConflict.load')}
+          </button>
+        </p>
+      ) : null}
+      {reseeded ? <p role="status">{t('editConflict.reseeded')}</p> : null}
       <p>
         {/* D148 - live unless it is genuinely busy, and it says what it is
             doing while it is. `disabled={name === ''}` used to grey it out
