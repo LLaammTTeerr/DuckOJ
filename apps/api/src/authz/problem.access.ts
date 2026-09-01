@@ -10,7 +10,7 @@ import {
   problems,
   submissions,
 } from '@duckoj/db/guarded';
-import { schema, type Db } from '@duckoj/db';
+import { effectiveLimits, resolveLanguageTuning, schema, type Db } from '@duckoj/db';
 import {
   findMissingPackageFiles,
   findPathCollision,
@@ -24,6 +24,7 @@ import {
   type PaginationQueryDto,
   type EditorialResponseDto,
   type ProblemDetailDto,
+  type ProblemLanguageLimitDto,
   type ProblemMeDto,
   type ProblemMyStatusDto,
   type ProblemMemberDto,
@@ -40,11 +41,7 @@ import {
 import { DB } from '../config/config.module.js';
 import { AppError } from '../common/app.error.js';
 import { PACKAGE_STORE, type PackageStore } from '../packages/package.store.js';
-import {
-  readPackageSamples,
-  SAMPLES_CACHE_TTL_MS,
-  samplesCacheKey,
-} from '../packages/samples.js';
+import { readPackageSamples, SAMPLES_CACHE_TTL_MS, samplesCacheKey } from '../packages/samples.js';
 import {
   canCreateProblem,
   canEditProblem,
@@ -211,7 +208,13 @@ export class ProblemAccessService {
         maxPoints: submissions.maxPoints,
       })
       .from(submissions)
-      .where(and(eq(submissions.problemId, problems.id), eq(submissions.userId, userId), isNotNull(submissions.verdict)))
+      .where(
+        and(
+          eq(submissions.problemId, problems.id),
+          eq(submissions.userId, userId),
+          isNotNull(submissions.verdict),
+        ),
+      )
       .orderBy(sql`${submissions.points} desc nulls last`, asc(submissions.id))
       .limit(1)
       .as('me_best');
@@ -269,14 +272,21 @@ export class ProblemAccessService {
     // reference the very objects that get joined in, never fresh copies that
     // would alias-collide or attach unjoined (see `bestSubmissionLateral`).
     const me = actor
-      ? { best: this.bestSubmissionLateral(actor.userId), solved: this.meSolvedLateral(actor.userId, now) }
+      ? {
+          best: this.bestSubmissionLateral(actor.userId),
+          solved: this.meSolvedLateral(actor.userId, now),
+        }
       : null;
     // `status` is per-viewer and authenticated only (D125): an anonymous
     // caller who sends it is refused, never silently served an unfiltered
     // page dressed up as a filtered one — `?status=solved` answered with
     // problems they have not solved would be a wrong 200, not a harmless one.
     if (filters.status !== undefined && me === null) {
-      throw new AppError(422, 'status_requires_auth', 'Sign in to filter problems by your own status.');
+      throw new AppError(
+        422,
+        'status_requires_auth',
+        'Sign in to filter problems by your own status.',
+      );
     }
     const conditions = [visibleProblemsWhere(this.db, actor), gt(problems.id, after)];
     if (filters.q) {
@@ -312,8 +322,10 @@ export class ProblemAccessService {
     // A null difficulty never satisfies either bound — SQL's own null
     // semantics, and the right answer: "between 3 and 7" is a claim about a
     // number, and "nobody has said" is not a number in that range.
-    if (filters.difficultyMin !== undefined) conditions.push(gte(problems.difficulty, filters.difficultyMin));
-    if (filters.difficultyMax !== undefined) conditions.push(lte(problems.difficulty, filters.difficultyMax));
+    if (filters.difficultyMin !== undefined)
+      conditions.push(gte(problems.difficulty, filters.difficultyMin));
+    if (filters.difficultyMax !== undefined)
+      conditions.push(lte(problems.difficulty, filters.difficultyMax));
 
     // The `status` filter reads the SAME two laterals the select list does
     // below (`me` is non-null here — an anonymous caller was already refused).
@@ -340,7 +352,9 @@ export class ProblemAccessService {
     // a status-only filter must keep listing a hidden problem (blanked), the
     // same as an unfiltered page does.
     const filtering =
-      tagSlugs.length > 0 || filters.difficultyMin !== undefined || filters.difficultyMax !== undefined;
+      tagSlugs.length > 0 ||
+      filters.difficultyMin !== undefined ||
+      filters.difficultyMax !== undefined;
     // The filter runs over the MASKED view, not under it. Blanking `tags` on
     // the row while still letting `?tag=do-thi` match it would leave the
     // filter as an oracle answering exactly the question the blank refused
@@ -356,7 +370,10 @@ export class ProblemAccessService {
     // on an archived revision would report that revision's stale limits as
     // live; with it, the same bug degrades to `hasPublishedRevision: false`,
     // which is at least honest.
-    const revisionJoin = and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published'));
+    const revisionJoin = and(
+      eq(problems.currentRevisionId, problemRevisions.id),
+      eq(problemRevisions.state, 'published'),
+    );
 
     // Two full query shapes rather than one query with a conditionally
     // built select list: for an anonymous caller both `me` laterals are
@@ -463,7 +480,10 @@ export class ProblemAccessService {
     actor: Actor | null,
     code: string,
   ): Promise<{ detail: Omit<ProblemDetailDto, 'samples'>; packageHash: string | null }> {
-    const revisionJoin = and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published'));
+    const revisionJoin = and(
+      eq(problems.currentRevisionId, problemRevisions.id),
+      eq(problemRevisions.state, 'published'),
+    );
 
     // Same shape as `listVisible`: one statement either way, the lateral
     // omitted entirely (not joined against a null user id) for an
@@ -574,7 +594,11 @@ export class ProblemAccessService {
       throw new AppError(404, 'problem_not_found', 'No such problem.');
     }
 
-    const { members, orgSlugs } = await this.loadMembersAndOrgs(row.id, actor, canEditProblem(actor, ctx));
+    const { members, orgSlugs } = await this.loadMembersAndOrgs(
+      row.id,
+      actor,
+      canEditProblem(actor, ctx),
+    );
 
     // D35: a tag is a hint, so both it and the difficulty are withheld from
     // a viewer sitting a running contest that uses this problem. Blanked to
@@ -584,11 +608,19 @@ export class ProblemAccessService {
     const hidden = await this.contestHiddenProblemIds(actor, [row.id]);
     const hint = hidden.has(row.id)
       ? BLANK_HINT
-      : { tags: (await this.loadTagsByProblem([row.id])).get(row.id) ?? [], difficulty: row.difficulty };
+      : {
+          tags: (await this.loadTagsByProblem([row.id])).get(row.id) ?? [],
+          difficulty: row.difficulty,
+        };
     const counts = hidden.has(row.id)
       ? BLANK_COUNTS
       : ((await this.loadCountsByProblem([row.id])).get(row.id) ?? BLANK_COUNTS);
-    const editorial = await this.resolveEditorial(actor, row, canEditProblem(actor, ctx), hidden.has(row.id));
+    const editorial = await this.resolveEditorial(
+      actor,
+      row,
+      canEditProblem(actor, ctx),
+      hidden.has(row.id),
+    );
 
     return {
       detail: {
@@ -609,9 +641,77 @@ export class ProblemAccessService {
         createdAt: row.createdAt.toISOString(),
         members,
         orgSlugs,
+        languageLimits: await this.loadLanguageLimits(row.id, {
+          timeMs: row.revisionId === null ? null : row.timeMs,
+          memoryKb: row.revisionId === null ? null : row.memoryKb,
+        }),
       },
       packageHash: row.revisionId === null ? null : row.packageHash,
     };
+  }
+
+  /**
+   * What each ACTIVE language is really given on this problem (D154).
+   *
+   * The arithmetic is `effectiveLimits` in `@duckoj/db` — the same function
+   * `judged`'s `JobStore.claim` calls to decide what the judge enforces. It
+   * is called here rather than reimplemented as SQL or as a fragment of the
+   * web app precisely so the number shown and the number enforced cannot
+   * drift; that identity is the whole point of the feature.
+   *
+   * `[]` for a problem with no published revision: there are no authored
+   * limits to adjust, and inventing a base to multiply would be a limit
+   * nobody wrote.
+   *
+   * Inactive languages are omitted here, unlike on `GET /languages`. The two
+   * answer different questions — that route answers "what does a `languageKey`
+   * mean", which a submission from last term still needs, and this one
+   * answers "what may I pick right now", where an unpickable row is noise.
+   */
+  private async loadLanguageLimits(
+    problemId: number,
+    base: { timeMs: number | null; memoryKb: number | null },
+  ): Promise<ProblemLanguageLimitDto[]> {
+    if (base.timeMs === null || base.memoryKb === null) return [];
+    const rows = await this.db
+      .select({
+        key: schema.languages.key,
+        name: schema.languages.name,
+        timeMultiplierPct: schema.languages.timeMultiplierPct,
+        memoryExtraKb: schema.languages.memoryExtraKb,
+        overrideTimePct: schema.problemLanguageLimits.timeMultiplierPct,
+        overrideMemoryExtraKb: schema.problemLanguageLimits.memoryExtraKb,
+        allowed: schema.problemLanguageLimits.allowed,
+      })
+      .from(schema.languages)
+      .leftJoin(
+        schema.problemLanguageLimits,
+        and(
+          eq(schema.problemLanguageLimits.languageId, schema.languages.id),
+          eq(schema.problemLanguageLimits.problemId, problemId),
+        ),
+      )
+      .where(eq(schema.languages.isActive, true))
+      .orderBy(asc(schema.languages.key));
+
+    return rows.map((row) => {
+      const tuning = resolveLanguageTuning(
+        { timeMultiplierPct: row.timeMultiplierPct, memoryExtraKb: row.memoryExtraKb },
+        row.allowed === null
+          ? null
+          : {
+              timeMultiplierPct: row.overrideTimePct,
+              memoryExtraKb: row.overrideMemoryExtraKb,
+              allowed: row.allowed,
+            },
+      );
+      return {
+        languageKey: row.key,
+        languageName: row.name,
+        ...effectiveLimits({ timeMs: base.timeMs!, memoryKb: base.memoryKb! }, tuning),
+        allowed: tuning.allowed,
+      };
+    });
   }
 
   async getVisible(actor: Actor | null, code: string): Promise<ProblemDetailDto> {
@@ -865,7 +965,10 @@ export class ProblemAccessService {
    * writing, would be the only problem in the catalogue that recomputes on
    * every read. Zeros are an answer, and they are cached like any other.
    */
-  private async computeCounts(problemIds: number[], now: Date): Promise<Map<number, ProblemCounts>> {
+  private async computeCounts(
+    problemIds: number[],
+    now: Date,
+  ): Promise<Map<number, ProblemCounts>> {
     const rows = await this.db
       .select({
         problemId: submissions.problemId,
@@ -873,7 +976,9 @@ export class ProblemAccessService {
         solved: sql<number>`count(distinct ${submissions.userId}) filter (where ${submissions.verdict} = 'AC')::int`,
       })
       .from(submissions)
-      .where(and(inArray(submissions.problemId, problemIds), sql`not ${contestWindowOpenWhere(now)}`))
+      .where(
+        and(inArray(submissions.problemId, problemIds), sql`not ${contestWindowOpenWhere(now)}`),
+      )
       .groupBy(submissions.problemId);
     const counted = new Map<number, ProblemCounts>(
       problemIds.map((id) => [id, { attemptedCount: 0, solvedCount: 0 }]),
@@ -929,7 +1034,11 @@ export class ProblemAccessService {
     // the direction to be wrong in.
     const visibility = body.visibility ?? 'private';
     if (visibility === 'org' && !(body.orgSlugs && body.orgSlugs.length > 0)) {
-      throw new AppError(400, 'problem_org_required', 'An org-visible problem needs at least one organization.');
+      throw new AppError(
+        400,
+        'problem_org_required',
+        'An org-visible problem needs at least one organization.',
+      );
     }
 
     const orgIds = await this.resolveOrgIds(actor, body.orgSlugs ?? []);
@@ -947,9 +1056,13 @@ export class ProblemAccessService {
             createdBy: actor.userId,
           })
           .returning({ id: problems.id });
-        await tx.insert(problemMembers).values({ problemId: problem!.id, userId: actor.userId, role: 'author' });
+        await tx
+          .insert(problemMembers)
+          .values({ problemId: problem!.id, userId: actor.userId, role: 'author' });
         if (orgIds.length > 0) {
-          await tx.insert(problemOrgs).values(orgIds.map((orgId) => ({ problemId: problem!.id, orgId })));
+          await tx
+            .insert(problemOrgs)
+            .values(orgIds.map((orgId) => ({ problemId: problem!.id, orgId })));
         }
         return problem!.id;
       });
@@ -985,7 +1098,11 @@ export class ProblemAccessService {
    * same stored bytes and there is nothing to upload, re-hash or re-verify.
    * A source with no published revision simply clones without one.
    */
-  async clone(actor: Actor | null, code: string, input: CloneProblemInput): Promise<ProblemDetailDto> {
+  async clone(
+    actor: Actor | null,
+    code: string,
+    input: CloneProblemInput,
+  ): Promise<ProblemDetailDto> {
     const { problem: row } = await this.loadForEdit(actor, code);
     if (!actor || !canCreateProblem(actor)) {
       throw new AppError(403, 'problem_forbidden', 'You may not create problems.');
@@ -1005,7 +1122,10 @@ export class ProblemAccessService {
     )[0]!;
 
     const tagIds = (
-      await this.db.select({ tagId: problemTags.tagId }).from(problemTags).where(eq(problemTags.problemId, row.id))
+      await this.db
+        .select({ tagId: problemTags.tagId })
+        .from(problemTags)
+        .where(eq(problemTags.problemId, row.id))
     ).map((t) => t.tagId);
 
     // The PUBLISHED revision, by state rather than through
@@ -1044,9 +1164,13 @@ export class ProblemAccessService {
             createdBy: actor.userId,
           })
           .returning({ id: problems.id });
-        await tx.insert(problemMembers).values({ problemId: created!.id, userId: actor.userId, role: 'author' });
+        await tx
+          .insert(problemMembers)
+          .values({ problemId: created!.id, userId: actor.userId, role: 'author' });
         if (tagIds.length > 0) {
-          await tx.insert(problemTags).values(tagIds.map((tagId) => ({ problemId: created!.id, tagId })));
+          await tx
+            .insert(problemTags)
+            .values(tagIds.map((tagId) => ({ problemId: created!.id, tagId })));
         }
         if (published) {
           await tx.insert(problemRevisions).values({
@@ -1083,7 +1207,11 @@ export class ProblemAccessService {
    * `members` and `orgSlugs`, when present in the patch, replace the whole
    * set rather than merging with what is already there.
    */
-  async update(actor: Actor | null, code: string, patch: UpdateProblemPatch): Promise<ProblemDetailDto> {
+  async update(
+    actor: Actor | null,
+    code: string,
+    patch: UpdateProblemPatch,
+  ): Promise<ProblemDetailDto> {
     const { problem: row, ctx } = await this.loadForEdit(actor, code);
 
     // --- validate the patch ---
@@ -1092,7 +1220,11 @@ export class ProblemAccessService {
     }
 
     if (patch.members && !patch.members.some((m) => m.role === 'author')) {
-      throw new AppError(400, 'problem_last_author', 'A problem must always have at least one author.');
+      throw new AppError(
+        400,
+        'problem_last_author',
+        'A problem must always have at least one author.',
+      );
     }
 
     // Resolve usernames/slugs to ids before the transaction, so a bad
@@ -1129,7 +1261,10 @@ export class ProblemAccessService {
     // `problems_editorial_published_ck` is the backstop for a writer that
     // never passes through here; this is the error a setter can act on.
     const effectiveEditorial = patch.editorial !== undefined ? patch.editorial : row.editorial;
-    if (patch.editorialPublished === true && (effectiveEditorial === null || effectiveEditorial.trim() === '')) {
+    if (
+      patch.editorialPublished === true &&
+      (effectiveEditorial === null || effectiveEditorial.trim() === '')
+    ) {
       throw new AppError(
         422,
         'problem_editorial_empty',
@@ -1149,7 +1284,11 @@ export class ProblemAccessService {
                 .where(eq(problemOrgs.problemId, row.id))
             ).length;
       if (orgCount === 0) {
-        throw new AppError(400, 'problem_org_required', 'An org-visible problem needs at least one organization.');
+        throw new AppError(
+          400,
+          'problem_org_required',
+          'An org-visible problem needs at least one organization.',
+        );
       }
     }
 
@@ -1187,7 +1326,9 @@ export class ProblemAccessService {
         // `?? new Date()`, not a fresh timestamp every time: re-publishing
         // what is already published is not a new publication, and moving
         // the date would rewrite when readers were first allowed in.
-        set.editorialPublishedAt = patch.editorialPublished ? (row.editorialPublishedAt ?? new Date()) : null;
+        set.editorialPublishedAt = patch.editorialPublished
+          ? (row.editorialPublishedAt ?? new Date())
+          : null;
       }
       if (Object.keys(set).length > 0) {
         await tx.update(problems).set(set).where(eq(problems.id, row.id));
@@ -1205,7 +1346,9 @@ export class ProblemAccessService {
       if (orgIds) {
         await tx.delete(problemOrgs).where(eq(problemOrgs.problemId, row.id));
         if (orgIds.length > 0) {
-          await tx.insert(problemOrgs).values(orgIds.map((orgId) => ({ problemId: row.id, orgId })));
+          await tx
+            .insert(problemOrgs)
+            .values(orgIds.map((orgId) => ({ problemId: row.id, orgId })));
         }
       }
 
@@ -1215,7 +1358,9 @@ export class ProblemAccessService {
       if (tagIds) {
         await tx.delete(problemTags).where(eq(problemTags.problemId, row.id));
         if (tagIds.length > 0) {
-          await tx.insert(problemTags).values(tagIds.map((tagId) => ({ problemId: row.id, tagId })));
+          await tx
+            .insert(problemTags)
+            .values(tagIds.map((tagId) => ({ problemId: row.id, tagId })));
         }
       }
     });
@@ -1273,7 +1418,11 @@ export class ProblemAccessService {
     try {
       manifest = parseManifest(JSON.parse(entry.toString('utf8')));
     } catch (error) {
-      throw new AppError(400, 'package_invalid', error instanceof Error ? error.message : 'Invalid package manifest.');
+      throw new AppError(
+        400,
+        'package_invalid',
+        error instanceof Error ? error.message : 'Invalid package manifest.',
+      );
     }
 
     // Does the manifest describe THIS package? `parseManifest` validates the
@@ -1372,20 +1521,30 @@ export class ProblemAccessService {
    * never a moment inside this transaction where two rows are `published`
    * for one problem.
    */
-  async publishRevision(actor: Actor | null, code: string, version: number): Promise<PublishRevisionResult> {
+  async publishRevision(
+    actor: Actor | null,
+    code: string,
+    version: number,
+  ): Promise<PublishRevisionResult> {
     const { problem } = await this.loadForEdit(actor, code);
 
     return this.db.transaction(async (tx) => {
       // Locks the problem row so a concurrent publish on the same problem
       // blocks here until this transaction commits or rolls back — see the
       // method doc for why this is required, not optional.
-      await tx.select({ id: problems.id }).from(problems).where(eq(problems.id, problem.id)).for('update');
+      await tx
+        .select({ id: problems.id })
+        .from(problems)
+        .where(eq(problems.id, problem.id))
+        .for('update');
 
       const target = (
         await tx
           .select({ id: problemRevisions.id, state: problemRevisions.state })
           .from(problemRevisions)
-          .where(and(eq(problemRevisions.problemId, problem.id), eq(problemRevisions.version, version)))
+          .where(
+            and(eq(problemRevisions.problemId, problem.id), eq(problemRevisions.version, version)),
+          )
           .limit(1)
       )[0];
       if (!target) throw new AppError(404, 'revision_not_found', 'No such revision.');
@@ -1397,10 +1556,21 @@ export class ProblemAccessService {
         await tx
           .update(problemRevisions)
           .set({ state: 'archived' })
-          .where(and(eq(problemRevisions.problemId, problem.id), eq(problemRevisions.state, 'published')));
-        await tx.update(problemRevisions).set({ state: 'published' }).where(eq(problemRevisions.id, target.id));
+          .where(
+            and(
+              eq(problemRevisions.problemId, problem.id),
+              eq(problemRevisions.state, 'published'),
+            ),
+          );
+        await tx
+          .update(problemRevisions)
+          .set({ state: 'published' })
+          .where(eq(problemRevisions.id, target.id));
       }
-      await tx.update(problems).set({ currentRevisionId: target.id }).where(eq(problems.id, problem.id));
+      await tx
+        .update(problems)
+        .set({ currentRevisionId: target.id })
+        .where(eq(problems.id, problem.id));
       return { version };
     });
   }
@@ -1483,7 +1653,9 @@ export class ProblemAccessService {
       await this.db
         .select({ packageHash: problemRevisions.packageHash })
         .from(problemRevisions)
-        .where(and(eq(problemRevisions.problemId, problem.id), eq(problemRevisions.version, version)))
+        .where(
+          and(eq(problemRevisions.problemId, problem.id), eq(problemRevisions.version, version)),
+        )
         .limit(1)
     )[0];
     if (!row) throw new AppError(404, 'revision_not_found', 'No such revision.');
@@ -1575,7 +1747,10 @@ export class ProblemAccessService {
     // already has a best submission on the problem being patched — a
     // genuine drift from what the very next `GET /problems/:code` for the
     // same actor would say, not just a missing feature.
-    const revisionJoin = and(eq(problems.currentRevisionId, problemRevisions.id), eq(problemRevisions.state, 'published'));
+    const revisionJoin = and(
+      eq(problems.currentRevisionId, problemRevisions.id),
+      eq(problemRevisions.state, 'published'),
+    );
     let row: {
       id: number;
       code: string;
@@ -1707,6 +1882,10 @@ export class ProblemAccessService {
       createdAt: row.createdAt.toISOString(),
       members,
       orgSlugs,
+      languageLimits: await this.loadLanguageLimits(id, {
+        timeMs: row.revisionId === null ? null : row.timeMs,
+        memoryKb: row.revisionId === null ? null : row.memoryKb,
+      }),
       samples: await this.loadSamples(row.revisionId === null ? null : row.packageHash),
     };
   }
@@ -1935,7 +2114,12 @@ export class ProblemAccessService {
         .select({ slug: organizations.slug })
         .from(problemOrgs)
         .innerJoin(organizations, eq(organizations.id, problemOrgs.orgId))
-        .where(and(eq(problemOrgs.problemId, problemId), isEditor ? sql`true` : visibleOrgsWhere(this.db, actor)))
+        .where(
+          and(
+            eq(problemOrgs.problemId, problemId),
+            isEditor ? sql`true` : visibleOrgsWhere(this.db, actor),
+          ),
+        )
         .orderBy(asc(organizations.slug)),
     ]);
     return { members: memberRows, orgSlugs: orgRows.map((o) => o.slug) };
@@ -2067,7 +2251,9 @@ function asUniqueViolation(error: unknown): { code: string; constraint_name?: st
   return isUniqueViolationShape(cause) ? cause : undefined;
 }
 
-function isUniqueViolationShape(value: unknown): value is { code: string; constraint_name?: string } {
+function isUniqueViolationShape(
+  value: unknown,
+): value is { code: string; constraint_name?: string } {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -2152,25 +2338,29 @@ interface ProblemHint {
   difficulty: number | null;
 }
 
-function toSummary(row: {
-  id: number;
-  code: string;
-  name: string;
-  visibility: ProblemVisibility;
-  revisionId: number | null;
-  timeMs: number | null;
-  memoryKb: number | null;
-  testCount: number | null;
-  // Absent entirely for an anonymous caller's query (no lateral joined in),
-  // rather than present-but-null — `toBestMe` treats the two identically,
-  // both read as "no `me` to report".
-  meVerdict?: string | null;
-  mePoints?: number | null;
-  meMaxPoints?: number | null;
-  // The window-gated solved signal (D125): `1` when the viewer holds a
-  // closed-window `AC`, absent/null otherwise (anonymous, or no such `AC`).
-  meSolved?: number | null;
-}, hint: ProblemHint, counts: ProblemCounts): ProblemSummaryDto {
+function toSummary(
+  row: {
+    id: number;
+    code: string;
+    name: string;
+    visibility: ProblemVisibility;
+    revisionId: number | null;
+    timeMs: number | null;
+    memoryKb: number | null;
+    testCount: number | null;
+    // Absent entirely for an anonymous caller's query (no lateral joined in),
+    // rather than present-but-null — `toBestMe` treats the two identically,
+    // both read as "no `me` to report".
+    meVerdict?: string | null;
+    mePoints?: number | null;
+    meMaxPoints?: number | null;
+    // The window-gated solved signal (D125): `1` when the viewer holds a
+    // closed-window `AC`, absent/null otherwise (anonymous, or no such `AC`).
+    meSolved?: number | null;
+  },
+  hint: ProblemHint,
+  counts: ProblemCounts,
+): ProblemSummaryDto {
   return {
     id: row.id,
     code: row.code,
@@ -2236,7 +2426,10 @@ function toBestMe(row: {
  * the solved check comes first. Mirrors `me`'s graded-only rule: an in-flight
  * submission is not yet a status, exactly as it is not yet a `me`.
  */
-function toMyStatus(row: { meVerdict?: string | null; meSolved?: number | null }): ProblemMyStatusDto {
+function toMyStatus(row: {
+  meVerdict?: string | null;
+  meSolved?: number | null;
+}): ProblemMyStatusDto {
   if (row.meSolved != null) return 'solved';
   if (row.meVerdict != null) return 'attempted';
   return null;

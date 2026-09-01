@@ -14,6 +14,26 @@ export const Language = z.object({
   name: z.string(),
   extension: z.string(),
   isActive: z.boolean(),
+  /**
+   * How much of a problem's authored time limit this language gets, as a
+   * WHOLE PERCENT (D154). 100 is "exactly what the setter wrote"; `python3`
+   * is seeded at 300.
+   *
+   * On the contract rather than in a server constant because it changes the
+   * number a pupil is graded against, and a limit the judge enforces but the
+   * API will not name is not a limit — it is a surprise. An integer percent
+   * rather than a float because the API computes it to DISPLAY and `judged`
+   * computes it to ENFORCE, and the two must be the same number.
+   */
+  timeMultiplierPct: z.number().int(),
+  /**
+   * Kilobytes ADDED to a problem's authored memory limit for this language
+   * (D154). Additive, not a multiplier: an interpreter's cost is a fixed
+   * floor — CPython 3.11 occupies about 15 MB in this judge's image before
+   * the solution allocates anything — and a floor does not scale with how
+   * generous the problem is.
+   */
+  memoryExtraKb: z.number().int(),
 });
 export type LanguageDto = z.infer<typeof Language>;
 

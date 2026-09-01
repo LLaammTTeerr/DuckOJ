@@ -82,7 +82,10 @@ async function seedNode(db: Db, name: string, hashChar: string): Promise<number>
 async function seedProblemAndUser(db: Db): Promise<{ userId: number; problemId: number }> {
   await seedProblemAndLanguage(db);
   const user = await insertUser(db, 'dash-user');
-  const [problem] = await db.select({ id: problems.id }).from(problems).where(eq(problems.code, 'aplusb'));
+  const [problem] = await db
+    .select({ id: problems.id })
+    .from(problems)
+    .where(eq(problems.code, 'aplusb'));
   return { userId: user.id, problemId: problem!.id };
 }
 
@@ -118,15 +121,19 @@ describe('GET /admin/dashboard — the queue panel', () => {
 });
 
 describe('GET /admin/dashboard — the judge panel', () => {
-  it('calls a judge offline once it has been silent past the bridge\'s own limit', async () => {
+  it("calls a judge offline once it has been silent past the bridge's own limit", async () => {
     await withTestDb(async (db) => {
       await db.insert(schema.judgeNodes).values([
         { name: 'judge-live', tokenHash: 'a'.repeat(64), driver: 'dmoj' },
         { name: 'judge-stale', tokenHash: 'b'.repeat(64), driver: 'dmoj' },
         { name: 'judge-never', tokenHash: 'c'.repeat(64), driver: 'dmoj' },
       ]);
-      await db.execute(sql`update judge_nodes set last_seen = now() - interval '10 seconds' where name = 'judge-live'`);
-      await db.execute(sql`update judge_nodes set last_seen = now() - interval '200 seconds' where name = 'judge-stale'`);
+      await db.execute(
+        sql`update judge_nodes set last_seen = now() - interval '10 seconds' where name = 'judge-live'`,
+      );
+      await db.execute(
+        sql`update judge_nodes set last_seen = now() - interval '200 seconds' where name = 'judge-stale'`,
+      );
 
       const { judges } = await new DashboardService(db, UP).snapshot(admin());
       expect(judges.map((j) => [j.name, j.online])).toEqual([
@@ -154,32 +161,106 @@ describe('GET /admin/dashboard — the judge panel', () => {
  * the MACHINE, so the machine's row is where its throughput goes.
  */
 describe('GET /admin/dashboard — what each judge is carrying (D68, 0027)', () => {
-  it('counts a node\'s live grades and its last hour, per node', async () => {
+  it("counts a node's live grades and its last hour, per node", async () => {
     await withTestDb(async (db) => {
       const { userId, problemId } = await seedProblemAndUser(db);
       const one = await seedNode(db, 'judge-1', 'a');
       const two = await seedNode(db, 'judge-2', 'b');
 
       const live = await insertGradedSubmission(db, { userId, problemId });
-      const recent = await insertGradedSubmission(db, { userId, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
-      const old = await insertGradedSubmission(db, { userId, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
-      await db.update(submissions).set({ judgedAt: sql`now() - interval '5 minutes'` }).where(eq(submissions.id, recent));
-      await db.update(submissions).set({ judgedAt: sql`now() - interval '61 minutes'` }).where(eq(submissions.id, old));
+      const recent = await insertGradedSubmission(db, {
+        userId,
+        problemId,
+        verdict: 'AC',
+        points: 100,
+        maxPoints: 100,
+      });
+      const old = await insertGradedSubmission(db, {
+        userId,
+        problemId,
+        verdict: 'AC',
+        points: 100,
+        maxPoints: 100,
+      });
+      await db
+        .update(submissions)
+        .set({ judgedAt: sql`now() - interval '5 minutes'` })
+        .where(eq(submissions.id, recent));
+      await db
+        .update(submissions)
+        .set({ judgedAt: sql`now() - interval '61 minutes'` })
+        .where(eq(submissions.id, old));
 
       // judge-1: one grade in flight, one finished inside the hour, one
       // outside it. The last is the row that proves the window is real.
-      await seedJob(db, { state: 'leased', leaseSeconds: 45, workerId: 'w#1', submissionId: live, judgeNodeId: one });
+      await seedJob(db, {
+        state: 'leased',
+        leaseSeconds: 45,
+        workerId: 'w#1',
+        submissionId: live,
+        judgeNodeId: one,
+      });
       await seedJob(db, { state: 'done', workerId: 'w#1', submissionId: recent, judgeNodeId: one });
       await seedJob(db, { state: 'done', workerId: 'w#1', submissionId: old, judgeNodeId: one });
       // judge-2 holds a LAPSED lease: the node is not grading it any more,
       // whatever the row says — the same reading the worker panel takes.
-      await seedJob(db, { state: 'leased', leaseSeconds: -1, workerId: 'w#2', submissionId: live, judgeNodeId: two });
+      await seedJob(db, {
+        state: 'leased',
+        leaseSeconds: -1,
+        workerId: 'w#2',
+        submissionId: live,
+        judgeNodeId: two,
+      });
 
       const { judges } = await new DashboardService(db, UP).snapshot(admin());
       expect(judges.map((j) => [j.name, j.gradingNow, j.gradedLastHour])).toEqual([
         ['judge-1', 1, 1],
         ['judge-2', 0, 0],
       ]);
+    });
+  }, 120_000);
+
+  /**
+   * F-39. `judge_nodes.capabilities` had been written by the bridge on every
+   * handshake since D68 and read by nothing, so this panel could show that a
+   * judge was online and idle while a queue full of Python submissions waited
+   * for an executor it had never announced — which is the shape of the bug
+   * that cost this deployment two weeks.
+   */
+  it('shows the executors a judge announced, and says so when it announced none', async () => {
+    await withTestDb(async (db) => {
+      await seedNode(db, 'judge-announced', 'a');
+      await seedNode(db, 'judge-silent', 'b');
+      await db
+        .update(schema.judgeNodes)
+        .set({ capabilities: { executors: ['PY3', 'CPP17'], languages: ['python3', 'cpp17'] } })
+        .where(eq(schema.judgeNodes.name, 'judge-announced'));
+
+      const { judges } = await new DashboardService(db, UP).snapshot(admin());
+
+      // Sorted, so two judges announcing the same set read the same.
+      expect(judges.find((j) => j.name === 'judge-announced')?.executors).toEqual(['CPP17', 'PY3']);
+      // `[]` for a judge that has never handshaken — "announced nothing",
+      // which is not the same claim as "can run nothing", and is why the web
+      // renders it as a word rather than as an empty cell.
+      expect(judges.find((j) => j.name === 'judge-silent')?.executors).toEqual([]);
+    });
+  }, 120_000);
+
+  it('survives a capabilities column that is not the shape it expects', async () => {
+    await withTestDb(async (db) => {
+      await seedNode(db, 'judge-odd', 'a');
+      // `capabilities` is unconstrained jsonb written by whatever driver
+      // connected. A dashboard that 500s because one judge announced
+      // something strange is worse than one that reports nothing for it.
+      await db
+        .update(schema.judgeNodes)
+        .set({ capabilities: { executors: 'CPP17' } })
+        .where(eq(schema.judgeNodes.name, 'judge-odd'));
+
+      const { judges } = await new DashboardService(db, UP).snapshot(admin());
+
+      expect(judges[0]?.executors).toEqual([]);
     });
   }, 120_000);
 
@@ -210,14 +291,27 @@ describe('GET /admin/dashboard — blocked jobs (D68)', () => {
   it('counts queued jobs by the reason they are stuck, busiest first', async () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);
-      await seedJob(db, { state: 'queued', blockedReason: 'no connected judge supports language py3' });
-      await seedJob(db, { state: 'queued', blockedReason: 'no connected judge supports language py3' });
-      await seedJob(db, { state: 'queued', blockedReason: 'no connected judge supports language java' });
+      await seedJob(db, {
+        state: 'queued',
+        blockedReason: 'no connected judge supports language py3',
+      });
+      await seedJob(db, {
+        state: 'queued',
+        blockedReason: 'no connected judge supports language py3',
+      });
+      await seedJob(db, {
+        state: 'queued',
+        blockedReason: 'no connected judge supports language java',
+      });
       // Queued for ordinary reasons — waiting is not being blocked.
       await seedJob(db, { state: 'queued' });
       // A blocked job that has since been claimed is no longer blocked; the
       // claim clears the reason, and a stale row must not be counted.
-      await seedJob(db, { state: 'leased', leaseSeconds: 60, blockedReason: 'no connected judge supports language py3' });
+      await seedJob(db, {
+        state: 'leased',
+        leaseSeconds: 60,
+        blockedReason: 'no connected judge supports language py3',
+      });
 
       const { blockedJobs, queue } = await new DashboardService(db, UP).snapshot(admin());
       expect(blockedJobs).toEqual([
@@ -245,21 +339,52 @@ describe('GET /admin/dashboard — the worker panel', () => {
     await withTestDb(async (db) => {
       const { userId, problemId } = await seedProblemAndUser(db);
       const live = await insertGradedSubmission(db, { userId, problemId });
-      const recent = await insertGradedSubmission(db, { userId, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
+      const recent = await insertGradedSubmission(db, {
+        userId,
+        problemId,
+        verdict: 'AC',
+        points: 100,
+        maxPoints: 100,
+      });
       const recentIe = await insertGradedSubmission(db, { userId, problemId, verdict: 'IE' });
-      const old = await insertGradedSubmission(db, { userId, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
-      await db.update(submissions).set({ judgedAt: sql`now() - interval '5 minutes'` }).where(eq(submissions.id, recent));
-      await db.update(submissions).set({ judgedAt: sql`now() - interval '5 minutes'` }).where(eq(submissions.id, recentIe));
+      const old = await insertGradedSubmission(db, {
+        userId,
+        problemId,
+        verdict: 'AC',
+        points: 100,
+        maxPoints: 100,
+      });
+      await db
+        .update(submissions)
+        .set({ judgedAt: sql`now() - interval '5 minutes'` })
+        .where(eq(submissions.id, recent));
+      await db
+        .update(submissions)
+        .set({ judgedAt: sql`now() - interval '5 minutes'` })
+        .where(eq(submissions.id, recentIe));
       // Just outside the window — the one row that proves the window exists.
-      await db.update(submissions).set({ judgedAt: sql`now() - interval '61 minutes'` }).where(eq(submissions.id, old));
+      await db
+        .update(submissions)
+        .set({ judgedAt: sql`now() - interval '61 minutes'` })
+        .where(eq(submissions.id, old));
 
-      const jobId = await seedJob(db, { state: 'leased', leaseSeconds: 45, workerId: 'judged-1#1', submissionId: live });
+      const jobId = await seedJob(db, {
+        state: 'leased',
+        leaseSeconds: 45,
+        workerId: 'judged-1#1',
+        submissionId: live,
+      });
       await seedJob(db, { state: 'done', workerId: 'judged-1#1', submissionId: recent });
       await seedJob(db, { state: 'done', workerId: 'judged-1#1', submissionId: recentIe });
       await seedJob(db, { state: 'done', workerId: 'judged-1#1', submissionId: old });
       // A second worker with an EXPIRED lease holds nothing: the panel says
       // what is being graded now, not what was claimed once.
-      await seedJob(db, { state: 'leased', leaseSeconds: -1, workerId: 'judged-1#2', submissionId: live });
+      await seedJob(db, {
+        state: 'leased',
+        leaseSeconds: -1,
+        workerId: 'judged-1#2',
+        submissionId: live,
+      });
 
       const { workers } = await new DashboardService(db, UP).snapshot(admin());
       expect(workers).toEqual([
@@ -292,8 +417,17 @@ describe('GET /admin/dashboard — the worker panel', () => {
       // above does not cover — throughput, nothing in flight — and its mirror
       // (`judged-1#2`: in flight, no throughput) is asserted there.
       const { userId, problemId } = await seedProblemAndUser(db);
-      const graded = await insertGradedSubmission(db, { userId, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
-      await db.update(submissions).set({ judgedAt: sql`now() - interval '5 minutes'` }).where(eq(submissions.id, graded));
+      const graded = await insertGradedSubmission(db, {
+        userId,
+        problemId,
+        verdict: 'AC',
+        points: 100,
+        maxPoints: 100,
+      });
+      await db
+        .update(submissions)
+        .set({ judgedAt: sql`now() - interval '5 minutes'` })
+        .where(eq(submissions.id, graded));
       await seedJob(db, { state: 'done', workerId: 'judged-2#1', submissionId: graded });
 
       const { workers } = await new DashboardService(db, UP).snapshot(admin());
@@ -314,13 +448,29 @@ describe('GET /admin/dashboard — the failures panel', () => {
   it('carries infrastructure failures newest first and leaves a wrong answer out', async () => {
     await withTestDb(async (db) => {
       const { userId, problemId } = await seedProblemAndUser(db);
-      await insertGradedSubmission(db, { userId, problemId, verdict: 'AC', points: 100, maxPoints: 100 });
+      await insertGradedSubmission(db, {
+        userId,
+        problemId,
+        verdict: 'AC',
+        points: 100,
+        maxPoints: 100,
+      });
       // A WA is the system working, not a failure.
       await db.insert(submissions).values({
-        userId, problemId,
-        revisionId: (await db.select({ id: problems.currentRevisionId }).from(problems).where(eq(problems.id, problemId)))[0]!.id!,
+        userId,
+        problemId,
+        revisionId: (
+          await db
+            .select({ id: problems.currentRevisionId })
+            .from(problems)
+            .where(eq(problems.id, problemId))
+        )[0]!.id!,
         languageId: (await db.select({ id: schema.languages.id }).from(schema.languages))[0]!.id,
-        source: 'wa', state: 'done', verdict: 'WA', points: 0, maxPoints: 100,
+        source: 'wa',
+        state: 'done',
+        verdict: 'WA',
+        points: 0,
+        maxPoints: 100,
       });
       const firstIe = await insertGradedSubmission(db, { userId, problemId, verdict: 'IE' });
       const secondIe = await insertGradedSubmission(db, { userId, problemId, verdict: 'IE' });
@@ -390,18 +540,24 @@ describe('GET /admin/dashboard — dependencies and runtime', () => {
     });
   }, 120_000);
 
-  it('admits it does not know judged\'s concurrency rather than guessing one', async () => {
+  it("admits it does not know judged's concurrency rather than guessing one", async () => {
     await withTestDb(async (db) => {
       const previous = process.env.JUDGED_CONCURRENCY;
       try {
         delete process.env.JUDGED_CONCURRENCY;
-        expect((await new DashboardService(db, UP).snapshot(admin())).runtime.judgedConcurrency).toBeNull();
+        expect(
+          (await new DashboardService(db, UP).snapshot(admin())).runtime.judgedConcurrency,
+        ).toBeNull();
         process.env.JUDGED_CONCURRENCY = '3';
-        expect((await new DashboardService(db, UP).snapshot(admin())).runtime.judgedConcurrency).toBe(3);
+        expect(
+          (await new DashboardService(db, UP).snapshot(admin())).runtime.judgedConcurrency,
+        ).toBe(3);
         // Garbage is "not told", not a 500: this knob does not govern the
         // process reading it.
         process.env.JUDGED_CONCURRENCY = 'lots';
-        expect((await new DashboardService(db, UP).snapshot(admin())).runtime.judgedConcurrency).toBeNull();
+        expect(
+          (await new DashboardService(db, UP).snapshot(admin())).runtime.judgedConcurrency,
+        ).toBeNull();
       } finally {
         if (previous === undefined) delete process.env.JUDGED_CONCURRENCY;
         else process.env.JUDGED_CONCURRENCY = previous;
@@ -414,7 +570,11 @@ describe('POST /admin/grading/reclaim', () => {
   it('requeues only the lapsed leases, and a second call finds nothing', async () => {
     await withTestDb(async (db) => {
       await seedProblemAndLanguage(db);
-      const lapsed = await seedJob(db, { state: 'leased', leaseSeconds: -30, workerId: 'judged-1#1' });
+      const lapsed = await seedJob(db, {
+        state: 'leased',
+        leaseSeconds: -30,
+        workerId: 'judged-1#1',
+      });
       await seedJob(db, { state: 'leased', leaseSeconds: 30, workerId: 'judged-1#2' });
       const service = new DashboardService(db, UP);
 
@@ -431,8 +591,12 @@ describe('POST /admin/grading/reclaim', () => {
   it('refuses a non-admin', async () => {
     await withTestDb(async (db) => {
       const service = new DashboardService(db, UP);
-      await expect(service.reclaimLeases(plainUser())).rejects.toMatchObject({ code: 'admin_forbidden' });
-      await expect(service.snapshot(plainUser())).rejects.toMatchObject({ code: 'admin_forbidden' });
+      await expect(service.reclaimLeases(plainUser())).rejects.toMatchObject({
+        code: 'admin_forbidden',
+      });
+      await expect(service.snapshot(plainUser())).rejects.toMatchObject({
+        code: 'admin_forbidden',
+      });
     });
   }, 120_000);
 });
@@ -444,7 +608,10 @@ describe('the admin dashboard over HTTP', () => {
       try {
         const adminAgent = request.agent(app.getHttpServer());
         await registerAndLogin(adminAgent, 'dash-admin');
-        await db.update(schema.users).set({ globalRole: 'admin' }).where(eq(schema.users.username, 'dash-admin'));
+        await db
+          .update(schema.users)
+          .set({ globalRole: 'admin' })
+          .where(eq(schema.users.username, 'dash-admin'));
 
         const res = await adminAgent.get('/api/v1/admin/dashboard');
         expect(res.status).toBe(200);
@@ -468,8 +635,12 @@ describe('the admin dashboard over HTTP', () => {
         expect((await plain.post('/api/v1/admin/grading/reclaim')).status).toBe(403);
 
         // Anonymous never gets as far as the admin check.
-        expect((await request(app.getHttpServer()).get('/api/v1/admin/dashboard')).status).toBe(401);
-        expect((await request(app.getHttpServer()).post('/api/v1/admin/grading/reclaim')).status).toBe(401);
+        expect((await request(app.getHttpServer()).get('/api/v1/admin/dashboard')).status).toBe(
+          401,
+        );
+        expect(
+          (await request(app.getHttpServer()).post('/api/v1/admin/grading/reclaim')).status,
+        ).toBe(401);
       } finally {
         await app.close();
       }

@@ -12,15 +12,21 @@ const PASSWORD = 'a-long-enough-password';
  * created against.
  */
 export async function seedProblemAndLanguage(db: Db): Promise<void> {
+  // Migration 0042 seeds the language catalogue (F-39/D154), so `cpp17`
+  // exists in every migrated database and inserting it here is now a unique
+  // violation on `languages_key_idx`. Read it instead: after 0042 the
+  // catalogue is schema-seeded data, not something a fixture owns.
   const [language] = await db
-    .insert(schema.languages)
-    .values({ key: 'cpp17', name: 'C++17', extension: 'cpp' })
-    .returning();
-  await db.insert(schema.languageDriverKeys).values({
-    languageId: language!.id,
-    driver: 'dmoj',
-    executorKey: 'CPP17',
-  });
+    .select()
+    .from(schema.languages)
+    .where(eq(schema.languages.key, 'cpp17'));
+  // Same reason as the select above: 0042 seeds `(cpp17, dmoj) -> CPP17`,
+  // and the primary key is `(language_id, driver)`. `DO NOTHING` rather than
+  // dropping the line, so this fixture still states the mapping it depends on.
+  await db
+    .insert(schema.languageDriverKeys)
+    .values({ languageId: language!.id, driver: 'dmoj', executorKey: 'CPP17' })
+    .onConflictDoNothing();
 
   const owner = await insertUser(db, 'aplusb-owner');
   const [problem] = await db
@@ -43,7 +49,10 @@ export async function seedProblemAndLanguage(db: Db): Promise<void> {
       checkerKind: 'wcmp',
     })
     .returning();
-  await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problem!.id));
+  await db
+    .update(problems)
+    .set({ currentRevisionId: revision!.id })
+    .where(eq(problems.id, problem!.id));
 }
 
 /**
@@ -70,9 +79,13 @@ export async function registerAndLogin(agent: SupertestAgent, username: string):
       password: PASSWORD,
       displayName: username,
     });
-  const res = await agent.post('/api/v1/auth/login').send({ usernameOrEmail: username, password: PASSWORD });
+  const res = await agent
+    .post('/api/v1/auth/login')
+    .send({ usernameOrEmail: username, password: PASSWORD });
   const setCookie: unknown = res.headers['set-cookie'];
-  const raw = Array.isArray(setCookie) ? (setCookie[0] as string | undefined) : (setCookie as string | undefined);
+  const raw = Array.isArray(setCookie)
+    ? (setCookie[0] as string | undefined)
+    : (setCookie as string | undefined);
   if (!raw) throw new Error(`login for ${username} did not set a session cookie`);
   return raw.split(';')[0]!;
 }
@@ -102,7 +115,13 @@ export async function insertUser(
 ): Promise<{ id: number }> {
   const [user] = await db
     .insert(schema.users)
-    .values({ username, email: `${username}@e.com`, passwordHash: 'x', displayName: username, globalRole })
+    .values({
+      username,
+      email: `${username}@e.com`,
+      passwordHash: 'x',
+      displayName: username,
+      globalRole,
+    })
     .returning({ id: schema.users.id });
   return user!;
 }
@@ -117,7 +136,13 @@ export async function seedPrivateProblem(db: Db): Promise<void> {
   const owner = await insertUser(db, 'hidden-owner');
   const [problem] = await db
     .insert(problems)
-    .values({ code: 'hidden', name: 'Hidden Problem', statement: 's', visibility: 'private', createdBy: owner.id })
+    .values({
+      code: 'hidden',
+      name: 'Hidden Problem',
+      statement: 's',
+      visibility: 'private',
+      createdBy: owner.id,
+    })
     .returning();
   await db.insert(schema.packages).values({ hash: 'phase1-hidden', sizeBytes: 1, fileCount: 1 });
   const [revision] = await db
@@ -135,7 +160,10 @@ export async function seedPrivateProblem(db: Db): Promise<void> {
       checkerKind: 'wcmp',
     })
     .returning();
-  await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problem!.id));
+  await db
+    .update(problems)
+    .set({ currentRevisionId: revision!.id })
+    .where(eq(problems.id, problem!.id));
 }
 
 /**
@@ -185,7 +213,10 @@ export async function seedProblemWithSourceAccess(
       checkerKind: 'wcmp',
     })
     .returning();
-  await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problem!.id));
+  await db
+    .update(problems)
+    .set({ currentRevisionId: revision!.id })
+    .where(eq(problems.id, problem!.id));
   return { id: problem!.id, revisionId: revision!.id };
 }
 
@@ -241,7 +272,10 @@ export async function publishNextRevision(
       checkerKind: 'wcmp',
     })
     .returning();
-  await db.update(problems).set({ currentRevisionId: revision!.id }).where(eq(problems.id, problemId));
+  await db
+    .update(problems)
+    .set({ currentRevisionId: revision!.id })
+    .where(eq(problems.id, problemId));
   return revision!.id;
 }
 
@@ -285,7 +319,8 @@ export async function insertGradedSubmission(
       .select({ currentRevisionId: problems.currentRevisionId })
       .from(problems)
       .where(eq(problems.id, opts.problemId));
-    if (!problem?.currentRevisionId) throw new Error(`no published revision for problem ${opts.problemId}`);
+    if (!problem?.currentRevisionId)
+      throw new Error(`no published revision for problem ${opts.problemId}`);
     revisionId = problem.currentRevisionId;
   }
   const [row] = await db

@@ -72,6 +72,21 @@ export const JUDGE_SILENCE_SECONDS = 90;
 /** How many failures the dashboard carries. A readout, not a log. */
 const RECENT_FAILURE_LIMIT = 20;
 
+/**
+ * `capabilities -> 'executors'` as a sorted `string[]`.
+ *
+ * Defensive about the shape on purpose: `judge_nodes.capabilities` is an
+ * unconstrained `jsonb` column written by whatever driver connected, and a
+ * dashboard is the last place that should 500 because one judge announced
+ * something unexpected. Anything that is not an array of strings reads as
+ * "nothing announced", which is also what a judge that has never connected
+ * reads as.
+ */
+function executorNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === 'string').sort();
+}
+
 export const REDIS_HEALTH = Symbol('REDIS_HEALTH');
 
 export interface RedisHealth {
@@ -105,7 +120,9 @@ export class RedisHealthProbe implements RedisHealth, OnModuleDestroy {
       // Debug, not warn: this method's whole purpose is to answer "is it
       // down", and a dashboard poll every 15 seconds against a Redis that is
       // legitimately down must not become a log flood.
-      this.logger.debug(`redis unreachable: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(
+        `redis unreachable: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return false;
     }
   }
@@ -205,7 +222,11 @@ export class DashboardService {
    */
   private requireAdmin(actor: Actor): void {
     if (!isAdmin(actor)) {
-      throw new AppError(403, 'admin_forbidden', 'Only an admin may read the operations dashboard.');
+      throw new AppError(
+        403,
+        'admin_forbidden',
+        'Only an admin may read the operations dashboard.',
+      );
     }
   }
 
@@ -302,10 +323,15 @@ export class DashboardService {
       driver: string;
       last_seen: Date | null;
       online: boolean;
+      executors: unknown;
     }>(sql`
       select id, name, driver, last_seen,
              (last_seen is not null
-              and last_seen > now() - make_interval(secs => ${JUDGE_SILENCE_SECONDS}::double precision)) as online
+              and last_seen > now() - make_interval(secs => ${JUDGE_SILENCE_SECONDS}::double precision)) as online,
+             -- capabilities is jsonb written by the bridge on every
+             -- handshake (D68) and, until F-39, read by nothing: the panel
+             -- could show that a judge was online but not what it could run.
+             capabilities -> 'executors' as executors
         from judge_nodes
        order by name
     `);
@@ -320,7 +346,10 @@ export class DashboardService {
        group by judge_node_id
     `);
 
-    const throughput = await this.db.execute<{ judge_node_id: string; graded_last_hour: string }>(sql`
+    const throughput = await this.db.execute<{
+      judge_node_id: string;
+      graded_last_hour: string;
+    }>(sql`
       select j.judge_node_id, count(*) as graded_last_hour
         from submissions s
         join grading_jobs j on j.submission_id = s.id
@@ -329,7 +358,9 @@ export class DashboardService {
        group by j.judge_node_id
     `);
 
-    const gradingNow = new Map(live.map((row) => [String(row.judge_node_id), num(row.grading_now)]));
+    const gradingNow = new Map(
+      live.map((row) => [String(row.judge_node_id), num(row.grading_now)]),
+    );
     const gradedLastHour = new Map(
       throughput.map((row) => [String(row.judge_node_id), num(row.graded_last_hour)]),
     );
@@ -341,6 +372,7 @@ export class DashboardService {
       online: row.online === true,
       gradingNow: gradingNow.get(String(row.id)) ?? 0,
       gradedLastHour: gradedLastHour.get(String(row.id)) ?? 0,
+      executors: executorNames(row.executors),
     }));
   }
 
@@ -468,7 +500,8 @@ export class DashboardService {
 
     for (const r of live) {
       const target = row(r.worker_id);
-      target.currentSubmissionId = r.current_submission_id === null ? null : num(r.current_submission_id);
+      target.currentSubmissionId =
+        r.current_submission_id === null ? null : num(r.current_submission_id);
       target.currentJobId = r.current_job_id === null ? null : num(r.current_job_id);
     }
     for (const r of throughput) {
@@ -480,7 +513,9 @@ export class DashboardService {
     // `order by worker_id` moved out of SQL with the single query it belonged
     // to. Sorted here so the panel's row order is still stable across polls,
     // which is what an operator watching one row actually depends on.
-    return [...byWorker.values()].sort((a, b) => (a.workerId < b.workerId ? -1 : a.workerId > b.workerId ? 1 : 0));
+    return [...byWorker.values()].sort((a, b) =>
+      a.workerId < b.workerId ? -1 : a.workerId > b.workerId ? 1 : 0,
+    );
   }
 
   private async recentFailures(): Promise<AdminDashboardResponseDto['recentFailures']> {

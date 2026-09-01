@@ -3953,6 +3953,7 @@ export interface paths {
                                 online: boolean;
                                 gradingNow: number;
                                 gradedLastHour: number;
+                                executors: string[];
                             }[];
                             workers: {
                                 workerId: string;
@@ -4955,6 +4956,8 @@ export interface paths {
                                 name: string;
                                 extension: string;
                                 isActive: boolean;
+                                timeMultiplierPct: number;
+                                memoryExtraKb: number;
                             }[];
                         };
                     };
@@ -7534,6 +7537,13 @@ export interface paths {
                             attemptedCount: number;
                             solvedCount: number;
                             statement: string;
+                            languageLimits: {
+                                languageKey: string;
+                                languageName: string;
+                                timeMs: number;
+                                memoryKb: number;
+                                allowed: boolean;
+                            }[];
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
                             totalPoints: number | null;
@@ -7698,6 +7708,13 @@ export interface paths {
                             attemptedCount: number;
                             solvedCount: number;
                             statement: string;
+                            languageLimits: {
+                                languageKey: string;
+                                languageName: string;
+                                timeMs: number;
+                                memoryKb: number;
+                                allowed: boolean;
+                            }[];
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
                             totalPoints: number | null;
@@ -7815,6 +7832,13 @@ export interface paths {
                             attemptedCount: number;
                             solvedCount: number;
                             statement: string;
+                            languageLimits: {
+                                languageKey: string;
+                                languageName: string;
+                                timeMs: number;
+                                memoryKb: number;
+                                allowed: boolean;
+                            }[];
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
                             totalPoints: number | null;
@@ -8085,6 +8109,13 @@ export interface paths {
                             attemptedCount: number;
                             solvedCount: number;
                             statement: string;
+                            languageLimits: {
+                                languageKey: string;
+                                languageName: string;
+                                timeMs: number;
+                                memoryKb: number;
+                                allowed: boolean;
+                            }[];
                             /** @enum {string} */
                             sourceAccess: "private" | "solved";
                             totalPoints: number | null;

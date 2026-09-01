@@ -156,7 +156,7 @@ registry.registerPath({
   method: 'post',
   path: '/admin/problems/{code}/rejudge',
   tags: ['Admin'],
-  summary: "Re-queue every submission of a problem against its current published revision",
+  summary: 'Re-queue every submission of a problem against its current published revision',
   request: { params: z.object({ code: z.string() }) },
   responses: {
     202: {
@@ -170,7 +170,8 @@ registry.registerPath({
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     409: {
-      description: 'The problem has no published revision to grade against (`problem_not_submittable`)',
+      description:
+        'The problem has no published revision to grade against (`problem_not_submittable`)',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },
@@ -251,6 +252,22 @@ export const AdminDashboardResponse = z.object({
       gradingNow: z.number().int(),
       /** Jobs dispatched here whose verdict landed in the last hour. */
       gradedLastHour: z.number().int(),
+      /**
+       * The driver's OWN executor names, as this judge announced them in its
+       * handshake — `CPP17`, `PY3` — sorted, and `[]` for a judge that has
+       * never connected since `judge_nodes.capabilities` began being written
+       * (D68).
+       *
+       * Deliberately the raw executor names and not our language keys (which
+       * are in `languages` beside them), because the question this answers is
+       * the one only these names can: a language whose `executor_key` appears
+       * on no connected judge is a language whose submissions will sit
+       * `queued` forever, and F-39 found exactly that — an image carrying
+       * CPython and four C++ standards announcing one executor, because a
+       * `--only-executors` flag in Compose said so. An operator could see the
+       * judge was online and could not see what it could run.
+       */
+      executors: z.array(z.string()),
     }),
   ),
   /**
@@ -294,9 +311,7 @@ export const AdminDashboardResponse = z.object({
    * Counted from the `refused:`-prefixed marker rows the limiter writes
    * (D47); the purpose here is the bare one, with the prefix stripped.
    */
-  refusalsLastHour: z.array(
-    z.object({ purpose: z.string(), count: z.number().int() }),
-  ),
+  refusalsLastHour: z.array(z.object({ purpose: z.string(), count: z.number().int() })),
   /**
    * Reachability, probed on this request. `database` is necessarily `up` if
    * you are reading this at all — the panels above are database reads — but

@@ -36,6 +36,13 @@ export class LanguagesService {
         name: schema.languages.name,
         extension: schema.languages.extension,
         isActive: schema.languages.isActive,
+        // D154. On the wire because they change the limit a pupil is graded
+        // against: a multiplier the judge enforces but the API will not name
+        // is not a limit, it is a surprise. The number actually in force on a
+        // given problem is `ProblemDetail.languageLimits` — these are the
+        // defaults it is computed from.
+        timeMultiplierPct: schema.languages.timeMultiplierPct,
+        memoryExtraKb: schema.languages.memoryExtraKb,
       })
       .from(schema.languages)
       .orderBy(asc(schema.languages.key));

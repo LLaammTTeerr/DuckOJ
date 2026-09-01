@@ -8466,6 +8466,12 @@
                           },
                           "gradedLastHour": {
                             "type": "integer"
+                          },
+                          "executors": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         },
                         "required": [
@@ -8474,7 +8480,8 @@
                           "lastSeen",
                           "online",
                           "gradingNow",
-                          "gradedLastHour"
+                          "gradedLastHour",
+                          "executors"
                         ]
                       }
                     },
@@ -10063,13 +10070,21 @@
                           },
                           "isActive": {
                             "type": "boolean"
+                          },
+                          "timeMultiplierPct": {
+                            "type": "integer"
+                          },
+                          "memoryExtraKb": {
+                            "type": "integer"
                           }
                         },
                         "required": [
                           "key",
                           "name",
                           "extension",
-                          "isActive"
+                          "isActive",
+                          "timeMultiplierPct",
+                          "memoryExtraKb"
                         ]
                       }
                     }
@@ -15687,6 +15702,36 @@
                     "statement": {
                       "type": "string"
                     },
+                    "languageLimits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "languageKey": {
+                            "type": "string"
+                          },
+                          "languageName": {
+                            "type": "string"
+                          },
+                          "timeMs": {
+                            "type": "integer"
+                          },
+                          "memoryKb": {
+                            "type": "integer"
+                          },
+                          "allowed": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "languageKey",
+                          "languageName",
+                          "timeMs",
+                          "memoryKb",
+                          "allowed"
+                        ]
+                      }
+                    },
                     "sourceAccess": {
                       "type": "string",
                       "enum": [
@@ -15802,6 +15847,7 @@
                     "attemptedCount",
                     "solvedCount",
                     "statement",
+                    "languageLimits",
                     "sourceAccess",
                     "totalPoints",
                     "checkerKind",
@@ -16151,6 +16197,36 @@
                     "statement": {
                       "type": "string"
                     },
+                    "languageLimits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "languageKey": {
+                            "type": "string"
+                          },
+                          "languageName": {
+                            "type": "string"
+                          },
+                          "timeMs": {
+                            "type": "integer"
+                          },
+                          "memoryKb": {
+                            "type": "integer"
+                          },
+                          "allowed": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "languageKey",
+                          "languageName",
+                          "timeMs",
+                          "memoryKb",
+                          "allowed"
+                        ]
+                      }
+                    },
                     "sourceAccess": {
                       "type": "string",
                       "enum": [
@@ -16266,6 +16342,7 @@
                     "attemptedCount",
                     "solvedCount",
                     "statement",
+                    "languageLimits",
                     "sourceAccess",
                     "totalPoints",
                     "checkerKind",
@@ -16569,6 +16646,36 @@
                     "statement": {
                       "type": "string"
                     },
+                    "languageLimits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "languageKey": {
+                            "type": "string"
+                          },
+                          "languageName": {
+                            "type": "string"
+                          },
+                          "timeMs": {
+                            "type": "integer"
+                          },
+                          "memoryKb": {
+                            "type": "integer"
+                          },
+                          "allowed": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "languageKey",
+                          "languageName",
+                          "timeMs",
+                          "memoryKb",
+                          "allowed"
+                        ]
+                      }
+                    },
                     "sourceAccess": {
                       "type": "string",
                       "enum": [
@@ -16684,6 +16791,7 @@
                     "attemptedCount",
                     "solvedCount",
                     "statement",
+                    "languageLimits",
                     "sourceAccess",
                     "totalPoints",
                     "checkerKind",
@@ -17223,6 +17331,36 @@
                     "statement": {
                       "type": "string"
                     },
+                    "languageLimits": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "languageKey": {
+                            "type": "string"
+                          },
+                          "languageName": {
+                            "type": "string"
+                          },
+                          "timeMs": {
+                            "type": "integer"
+                          },
+                          "memoryKb": {
+                            "type": "integer"
+                          },
+                          "allowed": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "languageKey",
+                          "languageName",
+                          "timeMs",
+                          "memoryKb",
+                          "allowed"
+                        ]
+                      }
+                    },
                     "sourceAccess": {
                       "type": "string",
                       "enum": [
@@ -17338,6 +17476,7 @@
                     "attemptedCount",
                     "solvedCount",
                     "statement",
+                    "languageLimits",
                     "sourceAccess",
                     "totalPoints",
                     "checkerKind",

@@ -302,8 +302,48 @@ export const ProblemSample = z.object({
 });
 export type ProblemSampleDto = z.infer<typeof ProblemSample>;
 
+/**
+ * The limits ACTUALLY IN FORCE for one language on one problem (D154) —
+ * the published revision's authored limits with the language's multiplier
+ * and memory floor applied, and the problem's own override resolved over
+ * that.
+ *
+ * Resolved on the server and carried whole, rather than shipping the pupil a
+ * multiplier and letting the web app multiply. The arithmetic that decides a
+ * verdict exists once, in `@duckoj/db`'s `effectiveLimits`, and the browser
+ * re-implementing it is exactly how a scoreboard comes to say 2.0 s about a
+ * run the judge gave 6.0 s.
+ */
+export const ProblemLanguageLimit = z.object({
+  languageKey: z.string(),
+  /** The language's display name, so a picker need not join against `/languages`. */
+  languageName: z.string(),
+  /** Milliseconds this language is actually given. */
+  timeMs: z.number().int(),
+  /** Kilobytes this language is actually given. */
+  memoryKb: z.number().int(),
+  /**
+   * `false` when this problem refuses this language — a setter's "the whole
+   * point of this problem is the constant factor" (D154). The picker must
+   * omit it, and `POST /submissions` answers 404 for it.
+   */
+  allowed: z.boolean(),
+});
+export type ProblemLanguageLimitDto = z.infer<typeof ProblemLanguageLimit>;
+
 export const ProblemDetail = ProblemSummary.extend({
   statement: z.string(),
+  /**
+   * One entry per ACTIVE language, ordered by key — what each of them is
+   * really given on this problem (D154). Empty when the problem has no
+   * published revision, for the same reason `timeMs`/`memoryKb` are null
+   * then: there are no authored limits to adjust.
+   *
+   * On the detail and not the summary, on `testCount`'s rule in reverse: no
+   * list row renders it, and a five-entry array per row would be payload on
+   * every page of every search to answer a question only the submit box asks.
+   */
+  languageLimits: z.array(ProblemLanguageLimit),
   // On the detail, not the summary: `PATCH /problems/:code` answers with a
   // `ProblemDetail`, so without this the round-trip would be write-only —
   // a client could set the flag and never read back what it now is.
@@ -525,7 +565,9 @@ export const CreateCommentRequest = z
   .strict();
 export type CreateCommentRequestDto = z.infer<typeof CreateCommentRequest>;
 
-export const UpdateCommentRequest = z.object({ body: z.string().min(1).max(COMMENT_BODY_MAX) }).strict();
+export const UpdateCommentRequest = z
+  .object({ body: z.string().min(1).max(COMMENT_BODY_MAX) })
+  .strict();
 export type UpdateCommentRequestDto = z.infer<typeof UpdateCommentRequest>;
 
 /**
@@ -577,7 +619,10 @@ export const RevisionVersionParam = z.coerce.number().pipe(RevisionVersionParamS
 export type RevisionVersionParamDto = z.infer<typeof RevisionVersionParam>;
 
 const ProblemCodeParam = z.object({ code: z.string() });
-const ProblemCodeAndVersionParam = z.object({ code: z.string(), version: RevisionVersionParamSchema });
+const ProblemCodeAndVersionParam = z.object({
+  code: z.string(),
+  version: RevisionVersionParamSchema,
+});
 
 const NOT_SIGNED_IN = {
   description: 'Not signed in',
@@ -600,14 +645,18 @@ registry.registerPath({
   method: 'get',
   path: '/problems',
   tags: ['Problems'],
-  summary: 'Problems visible to the caller, filtered by search text, tags, difficulty and the caller’s own status',
+  summary:
+    'Problems visible to the caller, filtered by search text, tags, difficulty and the caller’s own status',
   description:
     'The `status` filter (`solved` | `attempted` | `unsolved`) is per-viewer and authenticated only: an ' +
     'anonymous caller who sends it is answered 422 `status_requires_auth` (D125). "solved" needs an `AC` ' +
     'whose contest window has closed (D49), so an in-contest `AC` counts as "attempted" until the round ends.',
   request: { query: ProblemListQuery },
   responses: {
-    200: { description: 'A page of problems', content: { 'application/json': { schema: ProblemPage } } },
+    200: {
+      description: 'A page of problems',
+      content: { 'application/json': { schema: ProblemPage } },
+    },
     422: VALIDATION_FAILED,
   },
 });
@@ -649,7 +698,7 @@ registry.registerPath({
   tags: ['Problems'],
   summary: 'Create a new problem from an existing one',
   description:
-    "Copies the statement, the editorial (unpublished), the tags, the difficulty and the current " +
+    'Copies the statement, the editorial (unpublished), the tags, the difficulty and the current ' +
     "published revision's package — as revision 1 of the new problem, in `draft` state. The copy is " +
     'private and its only member is the caller. Nothing about how the source was USED is copied: no ' +
     'submissions, no statistics, no organization shares, no membership. Cloning requires the right ' +
@@ -660,7 +709,10 @@ registry.registerPath({
     body: { content: { 'application/json': { schema: CloneProblemRequest } } },
   },
   responses: {
-    201: { description: 'The new problem', content: { 'application/json': { schema: ProblemDetail } } },
+    201: {
+      description: 'The new problem',
+      content: { 'application/json': { schema: ProblemDetail } },
+    },
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: PROBLEM_NOT_FOUND,
@@ -679,7 +731,10 @@ registry.registerPath({
   summary: 'Create a problem',
   request: { body: { content: { 'application/json': { schema: CreateProblemRequest } } } },
   responses: {
-    201: { description: 'The created problem', content: { 'application/json': { schema: ProblemDetail } } },
+    201: {
+      description: 'The created problem',
+      content: { 'application/json': { schema: ProblemDetail } },
+    },
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     409: {
@@ -694,15 +749,19 @@ registry.registerPath({
   method: 'patch',
   path: '/problems/{code}',
   tags: ['Problems'],
-  summary: "Update a problem's name, statement, visibility, sharing, membership, tags, difficulty or editorial",
+  summary:
+    "Update a problem's name, statement, visibility, sharing, membership, tags, difficulty or editorial",
   request: {
     params: ProblemCodeParam,
     body: { content: { 'application/json': { schema: UpdateProblemRequest } } },
   },
   responses: {
-    200: { description: 'The updated problem', content: { 'application/json': { schema: ProblemDetail } } },
+    200: {
+      description: 'The updated problem',
+      content: { 'application/json': { schema: ProblemDetail } },
+    },
     400: {
-      description: "The patch carried `code` (immutable) or would leave the problem with no author",
+      description: 'The patch carried `code` (immutable) or would leave the problem with no author',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     401: NOT_SIGNED_IN,
@@ -744,7 +803,10 @@ registry.registerPath({
   summary: "A problem's revision history — draft, published and archived alike",
   request: { params: ProblemCodeParam },
   responses: {
-    200: { description: 'Every revision, oldest first', content: { 'application/json': { schema: RevisionList } } },
+    200: {
+      description: 'Every revision, oldest first',
+      content: { 'application/json': { schema: RevisionList } },
+    },
     404: {
       description:
         'No such problem, or the caller is not a member (any role) or admin — unlike GET /problems/{code}, ' +
@@ -814,7 +876,10 @@ registry.registerPath({
     'shape, the same one a problem nobody has attempted returns (D35).',
   request: { params: ProblemCodeParam },
   responses: {
-    200: { description: 'The statistics', content: { 'application/json': { schema: ProblemStats } } },
+    200: {
+      description: 'The statistics',
+      content: { 'application/json': { schema: ProblemStats } },
+    },
     404: PROBLEM_NOT_FOUND,
   },
 });
@@ -831,7 +896,10 @@ registry.registerPath({
     'unaffected. A deleted comment appears as a tombstone only while it anchors a visible reply.',
   request: { params: ProblemCodeParam, query: PaginationQuery },
   responses: {
-    200: { description: 'A page of discussion threads', content: { 'application/json': { schema: ProblemCommentPage } } },
+    200: {
+      description: 'A page of discussion threads',
+      content: { 'application/json': { schema: ProblemCommentPage } },
+    },
     404: PROBLEM_NOT_FOUND,
     422: VALIDATION_FAILED,
   },
@@ -845,14 +913,17 @@ registry.registerPath({
   description:
     'Authenticated. Rate-limited to 10 per user per hour (429 `comment_rate_limited`, with ' +
     '`Retry-After`). Withheld exactly as the read is while the caller sits a running contest that ' +
-    "uses this problem (D109). A `parentId` must name a top-level, non-deleted comment on this " +
+    'uses this problem (D109). A `parentId` must name a top-level, non-deleted comment on this ' +
     'problem, or the request is 422.',
   request: {
     params: ProblemCodeParam,
     body: { content: { 'application/json': { schema: CreateCommentRequest } } },
   },
   responses: {
-    201: { description: 'The created comment', content: { 'application/json': { schema: ProblemComment } } },
+    201: {
+      description: 'The created comment',
+      content: { 'application/json': { schema: ProblemComment } },
+    },
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: PROBLEM_NOT_FOUND,
@@ -868,17 +939,21 @@ registry.registerPath({
   method: 'patch',
   path: '/problems/{code}/comments/{id}',
   tags: ['Problems'],
-  summary: "Edit one of your own comments",
+  summary: 'Edit one of your own comments',
   request: {
     params: ProblemCodeAndCommentParam,
     body: { content: { 'application/json': { schema: UpdateCommentRequest } } },
   },
   responses: {
-    200: { description: 'The edited comment', content: { 'application/json': { schema: ProblemComment } } },
+    200: {
+      description: 'The edited comment',
+      content: { 'application/json': { schema: ProblemComment } },
+    },
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: {
-      description: 'No such problem, no such comment, or one the caller may not see — indistinguishable',
+      description:
+        'No such problem, no such comment, or one the caller may not see — indistinguishable',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     422: VALIDATION_FAILED,
@@ -896,7 +971,8 @@ registry.registerPath({
     401: NOT_SIGNED_IN,
     403: FORBIDDEN,
     404: {
-      description: 'No such problem, no such comment, or one the caller may not see — indistinguishable',
+      description:
+        'No such problem, no such comment, or one the caller may not see — indistinguishable',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
   },

@@ -28,7 +28,11 @@ import type { Actor } from './actor.js';
 import { canViewProblem, loadProblemContext } from './problem.visibility.js';
 import { resolveContestTarget } from './participation.js';
 import { canViewContest, loadContestContext } from './contest.visibility.js';
-import { canViewSubmission, loadSubmissionContext, visibleSubmissionsWhere } from './submission.visibility.js';
+import {
+  canViewSubmission,
+  loadSubmissionContext,
+  visibleSubmissionsWhere,
+} from './submission.visibility.js';
 import {
   frozenSubmissionsWhere,
   isContestSourceHidden,
@@ -110,7 +114,7 @@ export class SubmissionAccessService {
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(RateLimiter) limiter?: RateLimiter,
-    ) {
+  ) {
     // Defaulted rather than required so the dozens of specs that construct
     // this service by hand keep doing so — and they get the REAL limiter, not
     // a bypass, which is the point: a test that submits repeatedly as one
@@ -194,7 +198,11 @@ export class SubmissionAccessService {
 
     const problem = (
       await this.db
-        .select({ id: problems.id, currentRevisionId: problems.currentRevisionId, visibility: problems.visibility })
+        .select({
+          id: problems.id,
+          currentRevisionId: problems.currentRevisionId,
+          visibility: problems.visibility,
+        })
         .from(problems)
         .where(sql`lower(${problems.code}) = lower(${input.problemCode})`)
         .limit(1)
@@ -221,17 +229,41 @@ export class SubmissionAccessService {
       throw new AppError(404, 'problem_not_found', 'No such problem.');
     }
     if (!problem.currentRevisionId) {
-      throw new AppError(409, 'problem_not_submittable', 'This problem has no published tests yet.');
+      throw new AppError(
+        409,
+        'problem_not_submittable',
+        'This problem has no published tests yet.',
+      );
     }
 
     const language = (
       await this.db
-        .select({ id: schema.languages.id, isActive: schema.languages.isActive })
+        .select({
+          id: schema.languages.id,
+          isActive: schema.languages.isActive,
+          // D154: `false` is a setter saying this problem refuses this
+          // language. NULL — the ordinary case, no override row — is
+          // allowed, which is why the coalesce is here and not a filter.
+          allowed: sql<boolean>`coalesce(${schema.problemLanguageLimits.allowed}, true)`,
+        })
         .from(schema.languages)
+        .leftJoin(
+          schema.problemLanguageLimits,
+          and(
+            eq(schema.problemLanguageLimits.languageId, schema.languages.id),
+            eq(schema.problemLanguageLimits.problemId, problem.id),
+          ),
+        )
         .where(eq(schema.languages.key, input.languageKey))
         .limit(1)
     )[0];
-    if (!language?.isActive) {
+    // One 404 for three situations — no such key, a key that has been
+    // deactivated, and a key this problem refuses — on the same rule the
+    // problem lookup above follows: the refusal must not become an oracle,
+    // and a pupil who cannot submit in a language needs the picker to have
+    // omitted it, not a distinct error code to interpret. `languageLimits`
+    // on the problem detail is where the picker learns which those are.
+    if (!language?.isActive || !language.allowed) {
       throw new AppError(404, 'language_not_found', 'No such language.');
     }
 
@@ -251,7 +283,11 @@ export class SubmissionAccessService {
     // gradeable behind this problem code right now. Same answer, too —
     // visibility already passed above, so the 409 discloses nothing.
     if (!revision || revision.state !== 'published') {
-      throw new AppError(409, 'problem_not_submittable', 'This problem has no published tests yet.');
+      throw new AppError(
+        409,
+        'problem_not_submittable',
+        'This problem has no published tests yet.',
+      );
     }
 
     // Resolved BEFORE the transaction opens, and before anything is written.
@@ -272,7 +308,11 @@ export class SubmissionAccessService {
     // deletes this key's rows older than the window it is handed, so passing
     // ten seconds would sweep away the very rows the twenty-in-ten-minutes
     // count is made of, and the sustained bound would silently never fire.
-    await this.limiter.record(SUBMISSION_PURPOSE, meterKeyFor(actor), SUBMISSION_SUSTAINED_WINDOW_MS);
+    await this.limiter.record(
+      SUBMISSION_PURPOSE,
+      meterKeyFor(actor),
+      SUBMISSION_SUSTAINED_WINDOW_MS,
+    );
 
     // One transaction: a submission must never exist without a job to grade
     // it, or it would sit at `queued` forever with nothing to move it. The
@@ -456,7 +496,10 @@ export class SubmissionAccessService {
       .innerJoin(schema.languages, eq(schema.languages.id, submissions.languageId))
       .innerJoin(schema.users, eq(schema.users.id, submissions.userId))
       .leftJoin(contestLink, eq(contestLink.submissionId, submissions.id))
-      .leftJoin(contestLinkParticipation, eq(contestLinkParticipation.id, contestLink.participationId))
+      .leftJoin(
+        contestLinkParticipation,
+        eq(contestLinkParticipation.id, contestLink.participationId),
+      )
       .leftJoin(contestLinkContest, eq(contestLinkContest.id, contestLinkParticipation.contestId))
       .leftJoin(contestLinkTeam, eq(contestLinkTeam.id, contestLinkParticipation.teamId))
       .where(and(...conditions))
@@ -534,7 +577,10 @@ export class SubmissionAccessService {
       .innerJoin(schema.languages, eq(schema.languages.id, submissions.languageId))
       .innerJoin(schema.users, eq(schema.users.id, submissions.userId))
       .leftJoin(contestLink, eq(contestLink.submissionId, submissions.id))
-      .leftJoin(contestLinkParticipation, eq(contestLinkParticipation.id, contestLink.participationId))
+      .leftJoin(
+        contestLinkParticipation,
+        eq(contestLinkParticipation.id, contestLink.participationId),
+      )
       .leftJoin(contestLinkContest, eq(contestLinkContest.id, contestLinkParticipation.contestId))
       .leftJoin(contestLinkTeam, eq(contestLinkTeam.id, contestLinkParticipation.teamId))
       .where(eq(submissions.id, id))
@@ -599,7 +645,9 @@ export class SubmissionAccessService {
               feedback: submissionCases.feedback,
             })
             .from(submissionCases)
-            .where(and(eq(submissionCases.submissionId, id), eq(submissionCases.attempt, maxAttempt)))
+            .where(
+              and(eq(submissionCases.submissionId, id), eq(submissionCases.attempt, maxAttempt)),
+            )
             .orderBy(
               asc(submissionCases.groupIndex),
               asc(submissionCases.caseIndex),
@@ -721,7 +769,11 @@ export class SubmissionAccessService {
     // nothing they could not already read — so this is an honest 422 rather
     // than another 404: a diff across two problems is a mistake, not a secret.
     if (base.problemCode !== other.problemCode) {
-      throw new AppError(422, 'diff_problem_mismatch', 'Those submissions are for different problems.');
+      throw new AppError(
+        422,
+        'diff_problem_mismatch',
+        'Those submissions are for different problems.',
+      );
     }
     return {
       base: { id: base.id, languageKey: base.languageKey, source: base.source },
