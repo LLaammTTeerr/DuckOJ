@@ -7691,3 +7691,214 @@ the previous statement exactly, because the public path is untouched. Tests:
 `apps/api/test/progress-plan.spec.ts`. Red→green: reverting the branch reds the
 "emitted SQL mentions no `problems`" assertion — an assertion on the text
 drizzle built, not on a transcription of it.*
+
+## D165 — A submission remembers what its cases came to, and the scoreboard reads that
+
+F-44's statement 34 is the one real hazard it found on any contest-morning
+route. The cold scoreboard fold read **every subtask case row of the contest**:
+
+```
+Gather Merge  (rows=240000)
+  Buffers: shared hit=16050, temp read=1589 written=1593
+  -> Sort  (Sort Key: submission_cases.id)
+       Sort Method: external merge  Disk: 4.7 MB
+       -> Hash Join
+            -> Parallel Seq Scan on submission_cases
+                 Filter: submission_id = ANY ('{1,2,3,...16000 ids}')
+            -> HashAggregate (max(attempt))
+                 -> Seq Scan on submission_cases
+                      Filter: submission_id = ANY ('{...the same 16000...}')
+Execution Time: 169 ms
+```
+
+Two scans of the same table, a bind list linear in the contest's submissions, a
+sort that spills, and 240 000 rows shipped to Node so that Node could reduce
+them per group. F-44's verdict was that **no index fixes it** — a sequential
+scan is already optimal for reading 96 % of a table — and that the query itself
+was the finding.
+
+**The ruling: the reduction happens once, when the verdict is written, and the
+fold reads the result.** `submissions.subtask_summary` (migration 0045) holds
+the submission's cases reduced per group. `EventWriter.writeTerminal` writes it
+in the same fenced UPDATE that writes the verdict. The fold reads it off the
+statement that was already loading every submission of the contest.
+
+| | before | after |
+| --- | --- | --- |
+| statement 34 (cases) | 16 050 buffers, 4.7 MB temp, 169 ms, 240 000 rows | **does not run** |
+| statement 33 (submissions) | — | 1 838 buffers, no temp, 16.3 ms, 16 000 rows |
+| statement 33, summary column removed | — | 1 838 buffers, 15.2 ms |
+
+Measured on a 2 000-pupil × 8-problem round with 300 000 case rows, the shape
+F-44 measured on. **The summary costs the read it rides 1.1 ms and no extra
+buffers.**
+
+**Why nothing in `@duckoj/contest-formats` loses anything.** Nothing in that
+package ever read an individual case. `aggregateCases` reduced them per batch
+behind `contestSubmissionPoints`; `ioi16`'s `get_best_subtask_point` reduced
+them per batch too. Both factor through one per-group record — `min(points)`,
+`max(total)`, and the loose group's running sums — which is what `subtasks.ts`
+now is. `packages/contest-formats/test/subtask-summary.spec.ts` keeps both
+pre-redesign implementations as literal oracles and compares 400 generated case
+lists bit for bit.
+
+That proof had to be rewritten once, and the rewrite is the interesting part.
+Its first version compared only the ROUNDED output, and `pyRound(_, 1)` erases
+any discrepancy below 0.05 — so it passed an implementation that folded the
+batches in ahead of the loose cases, which is a reassociated sum and therefore
+a different scoreboard. It now compares the accumulation *before* rounding, and
+generates fractional points across eleven orders of magnitude, because a
+generator confined to one magnitude cannot see an addition performed out of
+order at all.
+
+Rulings taken during the F-45 slot, with nobody available to consult.
+
+- **The summary is written by the statement that writes the verdict, not
+  beside it.** `writeTerminal` is the only place grading ends — `finished`,
+  `compileError`, `internalError`, `terminated` all land there — and it already
+  runs in a transaction that reads the prior outcome `for update` and applies a
+  fenced UPDATE. Riding that UPDATE means the summary inherits D29's attempt
+  fencing for free (a superseded attempt matches no row and so can set neither
+  field), and there is no window in which a submission is terminal with a
+  verdict and no summary.
+- **It is `summariseCases`, the same function the fold would have called**, on
+  the same rows in the same order. Equality with the fold it replaces is by
+  construction rather than by test — which is the property that made write-time
+  storage cheaper to *prove* than read-time summarisation, not just cheaper to
+  run.
+- **Null means "ask the case rows", and the fold does.** The summary is trusted
+  only while `state` is `done` or `errored`. A submission grading right now has
+  case rows newer than any summary, and its partial score is exactly what the
+  board is supposed to show, so those fall back to the old per-case read —
+  bound to the ids actually in flight (tens, at 35 graded submissions a minute)
+  rather than to every submission the contest ever took. That is what makes
+  this an optimisation and not a second source of truth, and it cannot rot:
+  every fold of a live contest runs it.
+- **Terminal state is the staleness guard, and no second column is needed.**
+  `reclaimExpiredLeases` bumps an attempt without touching `submissions`, so
+  "graded, then regraded" was the one way a stored summary could describe an
+  older attempt than the case rows. It cannot: the first thing a re-dispatch
+  does is `setState(..., 'queued')`, which takes the submission off the
+  terminal states the summary is trusted in, before a single case of the new
+  attempt lands.
+- **`requeueAll` clears it anyway**, in the statement that already clears the
+  verdict and three lines above the `DELETE` of the case rows it summarises.
+  Redundant given the rule above, and kept: silent drift in this exact path was
+  a real defect once, fixed with `FOR UPDATE`, and a summary describing rows
+  that no longer exist is not a state worth being relaxed about. Disqualifying
+  a participant needs no maintenance at all — it writes
+  `contest_participations`, and no verdict changes.
+- **jsonb, not a child table.** `similarity_reports.pairs`' precedent: written
+  once, read whole, never queried inside. It also means the summary rides
+  statement 33 instead of adding a statement.
+- **`SET LOCAL extra_float_digits = 3` in the backfill.** At `0`, `to_jsonb` of
+  a `double precision` failed to round-trip 48 861 of 50 000 generated values
+  on this cluster; at 1, 2 and 3 it round-tripped 100 000 of 100 000. The
+  runtime writer does not depend on the setting at all — it hands Postgres a
+  JSON value JavaScript serialised — but the backfill formats floats
+  server-side and would otherwise inherit whatever the session had.
+- **`ORDER BY contest_submissions.id` moved into JavaScript.** Carrying the
+  summary made statement 33's rows wide enough that its sort stopped fitting in
+  `work_mem`: an in-memory quicksort at 15 ms became an external merge spilling
+  ~10 MB at 40 ms. The order is still load-bearing (it is `groupByProblem`'s
+  first-seen order, which `ioi16` sums in) and it is still the caller's
+  responsibility; sixteen thousand rows on a `bigserial` key is nothing to sort
+  in Node.
+- **Backfilled, not left to fill in.** Without the backfill every fold of every
+  historical contest would take the residue path forever, which is the old
+  query with extra steps. A submission that finished having graded no case at
+  all — a compile error — is backfilled to `[]`, not left null, for the same
+  reason.
+- **No wire change, so no contract regenerated.** The scoreboard's response is
+  byte-identical; `subtask_summary` is never serialised anywhere.
+
+**What this costs a province at deploy.** Migration 0045 runs in drizzle's
+transaction and its backfill is a full pass over `submission_cases` with an
+ordered aggregate — the expensive shape D166 refuses per fold. On the live
+database (881 submissions) that is milliseconds; on a province's second season
+it is the one minute this design spends, once, instead of 169 ms on every cold
+fold. It should be run outside a contest window, as migration 0044's
+`CREATE INDEX` should.
+
+*Ruled by the implementer during the F-45 slot, no human available to consult.
+Cost if wrong: the column is additive and the residue read is the pre-D165 fold,
+so deleting the write and the read restores the previous behaviour with the
+column left unread. Tests: `packages/contest-formats/test/subtask-summary.spec
+.ts`, `apps/judged/test/event-writer.spec.ts`,
+`apps/api/test/contest-scoreboard-fold-plan.spec.ts`, plus the 23 golden
+replays, which now seed summaries the way the judge writes them.
+Red→green: removing `subtaskSummary` from `writeTerminal`'s UPDATE reds all
+three judged tests; folding the batches in ahead of the loose group reds the
+property test; poisoning a stored summary with 999 points while a submission
+grades must NOT move the board, and does not.*
+
+## D166 — Summarising the cases per fold was measured and refused
+
+D165 stores the summary. The obvious alternative was to compute it per fold —
+one `GROUP BY (submission_id, attempt, group_index)` returning `min(points)`,
+`max(max_points)` and the loose group's sums, instead of one row per case. It
+was built, it was correct, and it is **slower than the query it replaces**.
+Recorded here the way F-44 recorded its refused indexes, because the reason is
+structural and the next person to have the idea deserves the measurement.
+
+**Why it cannot work.** Staying bit-identical requires `sum(points ORDER BY
+id)`: `points` is `double precision`, the fold accumulates the loose group with
+`+` in `submission_cases.id` order, and an unordered `sum` is not merely a
+different order but a **non-deterministic** one — a parallel aggregate combines
+partial sums in worker-completion order. An `ORDER BY` inside an aggregate sets
+`numOrderedAggs > 0` in the planner, which disables **both** hash aggregation
+and parallel aggregation. Every variant therefore collapses to a
+`GroupAggregate` fed by a full sort.
+
+All measured on the same province round: 330 000 case rows, 17 600 contest
+submissions, 2 000 pupils × 8 problems, `VACUUM (ANALYZE)`d.
+
+| # | Variant | Plan | Buffers | Temp | Time |
+| --- | --- | --- | --- | --- | --- |
+| V0 | **before** — two scans, `ANY(<16 000 ids>)`, sort by id | `Gather Merge` / 2 workers | 17 650 | 4.5 MB | **163 ms** |
+| V1 | `GROUP BY` + ordered sums + `ORDER BY min(id)` | `Incremental Sort` → `GroupAggregate` → **`Index Scan`** | **334 641** | none | 253 ms |
+| V2 | same, no outer `ORDER BY` | identical index scan | 334 641 | none | 228 ms |
+| V3 | same but **plain `sum`** (not bit-identical) | `HashAggregate` → `Seq Scan` | 4 547 | 1.6 MB | 184 ms |
+| V4 | ordered sums, `enable_indexscan = off` | `GroupAggregate` → `Sort` → `Seq Scan` | 4 550 | **14.7 MB** | 228 ms |
+| V5 | ordered sums over a projected subquery | index scan again | 334 641 | none | 227 ms |
+| V6 | ordered sums under a `MATERIALIZED` CTE | seq scan, then sort | 4 553 | 14.7 MB | **308 ms** |
+| V7 | as V6, pre-sorted inside the CTE | index scan **and** sort | 334 641 | 14.7 MB | 352 ms |
+| V8 | plain sums, hash aggregate (the ceiling) | `HashAggregate` → `Seq Scan` | 4 547 | 1.6 MB | 186 ms |
+
+Read it as three findings.
+
+- **The planner's own choice is a 19× regression in buffers.** Given the
+  ordered aggregate it prefers an index scan for its presorted keys (V1, V2,
+  V5) — 326 000 random heap fetches, 334 641 buffers against V0's 17 650. On a
+  cluster whose cache does not already hold `submission_cases`, that is random
+  I/O where the old plan was sequential.
+- **Fenced onto the sequential scan it is still slower.** V4 and V6 buy the
+  buffer reduction — 4 550 against 17 650, which is real — and pay 228–308 ms
+  single-threaded against 163 ms across three workers, with a 14.7 MB spill
+  against 4.5 MB. Fencing also means `enable_indexscan = off` or a
+  `MATERIALIZED` CTE in production code, which is a planner hint with a shelf
+  life.
+- **The ceiling is not worth having either.** V3/V8 drop the ordering and reach
+  186 ms — still no faster than the query they replace, and no longer
+  bit-identical, which was the one thing that could have justified them.
+
+**The rejected reasoning that made it look attractive.** "Group in the database
+so 240 000 rows do not become 240 000 JavaScript objects" is a real saving, and
+it is genuinely worth 80 000 rows instead of 240 000 — but it is a saving
+outside `EXPLAIN`, bought with more database time on the shared resource, and
+D165 gets it plus the database time by writing the summary once. Also refused,
+for completeness: **an index for statement 34**, which F-44 already refused and
+which no version of this changes — the seq scan was never the problem.
+
+**A commit in this branch's history claims otherwise.** `a32a9a4` shipped the
+`GROUP BY` fold with a message asserting an improvement; the measurement above
+is what came next, and `2c76cc0` replaces it. The commit is left in place
+rather than rewritten, because a history that only contains the ideas that
+worked is a history that teaches nothing.
+
+*Ruled by the implementer during the F-45 slot, no human available to consult.
+Cost if wrong: none — this records what was not done. Measurements are
+reproducible from `f45_scratch`'s seed (in the F-45 report) and the "before"
+half is asserted every run by `apps/api/test/contest-scoreboard-fold-plan.spec
+.ts`, which keeps the old statement as a literal and `EXPLAIN`s it beside the
+new one.*
