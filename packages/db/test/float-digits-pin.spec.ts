@@ -120,8 +120,10 @@ describe('createDb, against a cluster whose default would truncate a double (D17
     // claim below is only interesting if this is 0.
     const bare = postgres(hostileUrl, { max: 1 });
     try {
-      const rows = await bare.unsafe(`select current_setting('extra_float_digits') as v`);
-      expect((rows[0] as { v: string }).v).toBe('0');
+      const rows = await bare.unsafe<{ v: string }[]>(
+        `select current_setting('extra_float_digits') as v`,
+      );
+      expect(rows[0]!.v).toBe('0');
     } finally {
       await bare.end({ timeout: 5 });
     }
@@ -194,8 +196,8 @@ describe('createDb, against a cluster whose default would truncate a double (D17
     const bare = postgres(hostileUrl, { max: 1 });
     const { db, close } = createDb(hostileUrl);
     try {
-      const truncated = await bare.unsafe(`select ${ADVERSARIAL}::text as t`);
-      expect(Number((truncated[0] as { t: string }).t)).not.toBe(ONE_THIRD);
+      const truncated = await bare.unsafe<{ t: string }[]>(`select ${ADVERSARIAL}::text as t`);
+      expect(Number(truncated[0]!.t)).not.toBe(ONE_THIRD);
 
       const pinned = await db.execute<{ t: string }>(sql.raw(`select ${ADVERSARIAL}::text as t`));
       expect(Number(pinned[0]!.t)).toBe(ONE_THIRD);

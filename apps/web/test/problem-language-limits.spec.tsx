@@ -52,6 +52,11 @@ const SETTINGS = {
       allowed: true,
     },
   ],
+  // D176's token. Present so these six cases walk the same path a real
+  // response does — without it every save here would send no
+  // `expectedVersion` at all and the tab's own concurrency check would be
+  // untested by the file that owns the tab.
+  version: 'v1',
 };
 
 function renderTab(): ReturnType<typeof render> {
