@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { meQueryOptions } from '../me.js';
@@ -113,6 +113,7 @@ const EMPTY_FORM: FormShape = {
 export function ProblemEditPage(props: { code?: string }) {
   const t = useT();
   const { locale } = useLocale();
+  const client = useQueryClient();
   const isEdit = props.code !== undefined;
 
   const query = useQuery({
@@ -387,6 +388,21 @@ export function ProblemEditPage(props: { code?: string }) {
       );
       release();
       setSaved(true);
+      // The screens that read what was just written. `['problem', code]` is
+      // the important one and NOT for cosmetic reasons: this very form is
+      // prefilled from it, the seeding effect above runs ONCE per code, and a
+      // remount seeds from the cache synchronously — before the mount's own
+      // refetch can land. Left stale, a setter who saves, leaves and comes
+      // back inside `gcTime` is shown the statement they replaced, and the
+      // next save PUTs it back over the one they wrote. The sibling language
+      // limits tab has always refreshed this key after ITS save (D159); the
+      // form that owns the statement never did.
+      //
+      // `['problems']` is a prefix, so it also reaches the filtered list
+      // (`['problems', q, tags, …]`) that carries the name, tags, difficulty
+      // and visibility this save may have changed.
+      if (isEdit) await client.invalidateQueries({ queryKey: ['problem', props.code] });
+      await client.invalidateQueries({ queryKey: ['problems'] });
     } catch {
       setSubmitError({ message: t('common.networkError') });
     } finally {

@@ -15,7 +15,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { paths } from '@duckoj/sdk';
 import { api } from '../api.js';
 import { apiError } from '../api-error.js';
@@ -120,6 +120,7 @@ function instantFor(value: string, seed: { local: string; iso: string } | null):
 export function ContestEditPage({ contestKey }: { contestKey: string }) {
   const t = useT();
   const navigate = useNavigate();
+  const client = useQueryClient();
   const query = useQuery({
     queryKey: ['contest', contestKey],
     queryFn: async (): Promise<ContestDetail> => {
@@ -339,6 +340,26 @@ export function ContestEditPage({ contestKey }: { contestKey: string }) {
       }
       // Saved; the guard must not block the navigation that says so.
       release();
+      // BEFORE the navigation, because the navigation's destination is one of
+      // the readers: `/contests/$key` reads this very `['contest', contestKey]`
+      // entry, so an uninvalidated save lands the organiser on the contest they
+      // just edited, showing the times and problem list they just replaced.
+      //
+      // The worse half is this form itself. It is prefilled from the same key,
+      // the seeding effect above runs ONCE per contest key, and a remount seeds
+      // from the cache synchronously — before its own refetch can land. So an
+      // organiser who saves and comes back inside `gcTime` gets the pre-save
+      // form, and `problems` is the all-or-nothing field this file's own
+      // `ProblemRow` comment calls out: the next save writes the old list back
+      // and destroys the change.
+      //
+      // `['contests']` carries the name, times and visibility on the index.
+      // `['scoreboard']` is included because `problems`, `points` and
+      // `frozenLastMinutes` are the board's columns and its scoring — a board
+      // left open across this save is scoring a contest that no longer exists.
+      await client.invalidateQueries({ queryKey: ['contest', contestKey] });
+      await client.invalidateQueries({ queryKey: ['contests'] });
+      await client.invalidateQueries({ queryKey: ['scoreboard', contestKey] });
       await navigate({ to: '/contests/$key', params: { key: contestKey } });
     } catch {
       // openapi-fetch rethrows network-level failures rather than resolving
