@@ -76,6 +76,7 @@ describe('DmojDriver', () => {
   it('accepts a handshake and answers handshake-success', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -87,6 +88,7 @@ describe('DmojDriver', () => {
   it('translates a submission into a submission-request', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -115,6 +117,7 @@ describe('DmojDriver', () => {
     // A dispatch that sent first would still "call ensure".
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -148,6 +151,7 @@ describe('DmojDriver', () => {
     // lacks the package grades as a mystery internal error.
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -176,6 +180,7 @@ describe('DmojDriver', () => {
     // Guards the identity mapping. If someone reintroduces a lookup, this fails.
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -196,6 +201,7 @@ describe('DmojDriver', () => {
     // fakeJudge already sends a handshake with a problems array.
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -211,6 +217,7 @@ describe('DmojDriver', () => {
     // a judge that dropped a package must not appear to still have it.
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -227,6 +234,7 @@ describe('DmojDriver', () => {
   it('translates a full grading run into our events', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -264,6 +272,7 @@ describe('DmojDriver', () => {
   it('computes the correct verdict when test-case-status and grading-end arrive in the same TCP chunk', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -306,6 +315,7 @@ describe('DmojDriver', () => {
   it('does not let a skipped case override a genuine failure in the aggregate verdict', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -347,6 +357,7 @@ describe('DmojDriver', () => {
   it('reports IE, not AC, when every case in the run was skipped', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -380,6 +391,7 @@ describe('DmojDriver', () => {
   it('still reports AC for a normal all-passing run', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -413,6 +425,7 @@ describe('DmojDriver', () => {
   it('surfaces a compile error', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -437,6 +450,7 @@ describe('DmojDriver', () => {
   it('sends terminate-submission when a job is cancelled', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -456,6 +470,7 @@ describe('DmojDriver', () => {
   it('terminates an orphan a reconnecting judge reports that we hold no job for', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -476,6 +491,7 @@ describe('DmojDriver', () => {
   it('sends periodic ping frames to a connected judge on the configured interval', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
       // A short injected interval so the test doesn't wait out the real 30s default.
       pingIntervalMs: 20,
@@ -491,6 +507,7 @@ describe('DmojDriver', () => {
   it('closes the displaced connection and keeps exactly one live entry when a judge reconnects with the same id', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
     });
     const port = await server.listen(0);
@@ -548,6 +565,7 @@ describe('DmojDriver', () => {
   it('drops a judge connection that stops answering, and no longer broadcasts to it', async () => {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
       pingIntervalMs: 20,
     });
@@ -597,7 +615,7 @@ describe('DmojDriver — compile output is fit to show the submitter', () => {
   });
 
   async function compileLog(packetName: 'compile-error' | 'compile-message', log: string): Promise<string> {
-    server = new BridgeServer({ languageToExecutor: () => 'CPP17', verifyJudge: async () => true });
+    server = new BridgeServer({ languageToExecutor: () => 'CPP17', executorToLanguage: (e) => (e === 'CPP17' ? 'cpp17' : undefined), verifyJudge: async () => true });
     const port = await server.listen(0);
     const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);

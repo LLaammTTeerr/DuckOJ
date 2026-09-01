@@ -325,20 +325,56 @@ export class Worker {
     const now = Date.now();
     if (now - this.lastBlockedScanAt < BLOCKED_SCAN_MS) return;
     this.lastBlockedScanAt = now;
+    // An empty claim is also the one moment worth asking whether the
+    // *mapping* moved under us (D173). Unconditional within the window, not
+    // conditional on anything `markBlocked` reports: a job blocked before the
+    // rows landed keeps the same `blocked_reason`, so `changed` stays empty,
+    // and that standing-blocked job is exactly the F-47 incident. A rejection
+    // is absorbed by the driver and leaves `languages` as it was.
+    const current = (await this.refreshLanguages()) ? this.supported(languages) : languages;
+    // The refresh can only shrink the list to empty by removing every row, and
+    // then "no judge speaks your language" is again the wrong diagnosis — the
+    // same rule the entry check applies, re-applied to the fresher answer.
+    if (current.length === 0) return;
     try {
-      const changed = await this.jobs.markBlocked(languages);
+      const changed = await this.jobs.markBlocked(current);
       if (changed.length > 0) {
         console.warn(
           JSON.stringify({
             msg: 'queue blocked_reason reconciled',
             jobIds: changed,
-            supportedLanguages: languages,
+            supportedLanguages: current,
           }),
         );
       }
     } catch (error: unknown) {
       console.error(JSON.stringify({ msg: 'blocked scan failed', error: describeError(error) }));
     }
+  }
+
+  /**
+   * `driver.refreshCapabilities()`, with every failure absorbed: a driver
+   * that declares none (every in-process double) and a driver whose reload
+   * rejected are the same answer here — "the fleet's languages are what they
+   * were". Never allowed to end the claim loop, on exactly the reasoning the
+   * unguarded `claim()` earned.
+   */
+  private async refreshLanguages(): Promise<boolean> {
+    const refresh = this.driver.refreshCapabilities;
+    if (!refresh) return false;
+    try {
+      return await refresh.call(this.driver);
+    } catch (error: unknown) {
+      console.error(
+        JSON.stringify({ msg: 'capability refresh failed', error: describeError(error) }),
+      );
+      return false;
+    }
+  }
+
+  /** What the driver says the fleet can grade, or `fallback` if it says nothing. */
+  private supported(fallback: string[]): string[] {
+    return this.driver.supportedLanguages?.() ?? fallback;
   }
 
   /**

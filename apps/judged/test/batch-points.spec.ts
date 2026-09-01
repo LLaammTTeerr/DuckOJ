@@ -66,7 +66,7 @@ describe('batched points are aggregated, not summed', () => {
   });
 
   async function runAll(sendCases: (send: (p: unknown) => void, id: number) => void): Promise<GradingEvent[]> {
-    server = new BridgeServer({ languageToExecutor: () => 'CPP17', verifyJudge: async () => true });
+    server = new BridgeServer({ languageToExecutor: () => 'CPP17', executorToLanguage: (e) => (e === 'CPP17' ? 'cpp17' : undefined), verifyJudge: async () => true });
     const port = await server.listen(0);
     const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
@@ -138,7 +138,7 @@ describe('batch-end closes a batch', () => {
   });
 
   async function runAll(sendCases: (send: (p: unknown) => void, id: number) => void): Promise<GradingEvent[]> {
-    server = new BridgeServer({ languageToExecutor: () => 'CPP17', verifyJudge: async () => true });
+    server = new BridgeServer({ languageToExecutor: () => 'CPP17', executorToLanguage: (e) => (e === 'CPP17' ? 'cpp17' : undefined), verifyJudge: async () => true });
     const port = await server.listen(0);
     const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);

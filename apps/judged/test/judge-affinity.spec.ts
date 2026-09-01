@@ -73,7 +73,7 @@ describe('one submission per judge connection', () => {
   });
 
   async function bridge(judgeIds: string[]) {
-    server = new BridgeServer({ languageToExecutor: () => 'CPP17', verifyJudge: async () => true });
+    server = new BridgeServer({ languageToExecutor: () => 'CPP17', executorToLanguage: (e) => (e === 'CPP17' ? 'cpp17' : undefined), verifyJudge: async () => true });
     const port = await server.listen(0);
     for (const id of judgeIds) judges.push(fakeJudge(port, id));
     for (const judge of judges) await judge.ready;

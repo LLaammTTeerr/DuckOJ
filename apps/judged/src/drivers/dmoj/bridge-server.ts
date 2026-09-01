@@ -1,7 +1,7 @@
 import { createServer, type Server, type Socket } from 'node:net';
 import { describeError } from '@duckoj/observability';
 import { createPacketDecoder, encodePacket } from '@duckoj/judge-protocol';
-import type { BridgeToJudgePacket, HandshakePacket, JudgeToBridgePacket } from '@duckoj/judge-protocol';
+import type { BridgeToJudgePacket, JudgeToBridgePacket } from '@duckoj/judge-protocol';
 
 // judge-server sets a 300s read timeout on its end of this socket
 // (dmoj/packet.py:104) and expects *us* to send `ping` so it has traffic to
@@ -56,13 +56,33 @@ export interface BridgeOptions {
    * `languages` table uses, so dispatch can ask "can this judge run cpp17"
    * rather than trusting that every judge runs everything.
    *
-   * Defaults to lowercasing, which is exactly the inverse of production's
-   * `key.toUpperCase()` mapping — see `main.ts`, where the two directions
-   * are written as one pair for that reason. A future language whose
-   * executor name is not simply its key uppercased must supply both halves
-   * there, not lean on this default.
+   * **Returns `undefined` for an executor no language maps**, and is
+   * **required, not optional** — the same argument `verifyJudge` carries a
+   * few lines down: a caller must not be able to construct a `BridgeServer`
+   * without deciding how the judge's names become ours.
+   *
+   * It used to default to lowercasing, "exactly the inverse of production's
+   * `key.toUpperCase()` mapping". On 2026-09-01 production's mapping stopped
+   * being `toUpperCase()` — it is a table — and the default quietly turned
+   * the judge's `PAS` into a language key `pas` that does not exist, so
+   * every Pascal submission was blocked against a judge that could run it.
+   * D172: an unmapped executor is dropped, loudly, never renamed.
    */
-  executorToLanguage?(executorKey: string): string;
+  executorToLanguage(executorKey: string): string | undefined;
+  /**
+   * Re-reads the `executorToLanguage`/`languageToExecutor` pair from
+   * wherever it came from, resolving `true` when it changed (D173).
+   *
+   * `BridgeServer` calls it after every successful handshake — a judge
+   * dialling in is the cheapest moment to notice the table moved — and
+   * `DmojDriver` exposes it to the claim loop, which is the trigger that
+   * actually covers the incident: rows added by a migration against a
+   * running `judged` involve no reconnect at all.
+   *
+   * Optional and fail-open: a rejection leaves the mapping exactly as it
+   * was, and never touches a connection.
+   */
+  refreshLanguageMap?(): Promise<boolean>;
   /**
    * Records what a judge said it can do, from its `handshake` — production
    * wires this to `@duckoj/db`'s `recordJudgeCapabilities`, which writes
@@ -213,6 +233,8 @@ export class BridgeServer {
   private revalidateTimer: ReturnType<typeof setInterval> | undefined;
   /** True while a revalidation query is in flight, so a slow one cannot stack up. */
   private revalidating = false;
+  /** The same rule for `refreshLanguages`: one reload in flight at a time. */
+  private refreshingLanguages = false;
   private readonly pingIntervalMs: number;
   private readonly lastSeenThrottleMs: number;
   private readonly revalidateIntervalMs: number;
@@ -223,9 +245,28 @@ export class BridgeServer {
     this.revalidateIntervalMs = options.revalidateIntervalMs ?? REVALIDATE_INTERVAL_MS;
   }
 
-  /** Our language key for one of the judge's executor names. */
-  private toLanguage(executorKey: string): string {
-    return this.options.executorToLanguage?.(executorKey) ?? executorKey.toLowerCase();
+  /**
+   * Our language key for one of the judge's executor names, or `undefined`
+   * when no row names it (D172). Every caller drops the undefined rather
+   * than substituting anything for it.
+   */
+  private toLanguage(executorKey: string): string | undefined {
+    return this.options.executorToLanguage(executorKey);
+  }
+
+  /**
+   * The language keys one judge's announced executors map to, and the
+   * executors that map to nothing.
+   */
+  private translate(executors: Iterable<string>): { languages: string[]; unmapped: string[] } {
+    const languages = new Set<string>();
+    const unmapped: string[] = [];
+    for (const executor of executors) {
+      const language = this.toLanguage(executor);
+      if (language === undefined) unmapped.push(executor);
+      else languages.add(language);
+    }
+    return { languages: [...languages], unmapped };
   }
 
   onPacket(handler: PacketHandler): void {
@@ -291,9 +332,81 @@ export class BridgeServer {
   supportedLanguages(): string[] {
     const languages = new Set<string>();
     for (const id of this.connections.keys()) {
-      for (const executor of this.executorsFor(id)) languages.add(this.toLanguage(executor));
+      // Executors no row names are dropped, not lowercased into a key that
+      // does not exist (D172). Deliberately silent HERE: the claim loop calls
+      // this every poll turn, so a warning would be a line twice a second
+      // forever. The loud one is at handshake and after a refresh, which are
+      // the two moments the answer can change.
+      for (const executor of this.executorsFor(id)) {
+        const language = this.toLanguage(executor);
+        if (language !== undefined) languages.add(language);
+      }
     }
     return [...languages];
+  }
+
+  /**
+   * Re-reads the language mapping (`BridgeOptions.refreshLanguageMap`) and,
+   * if it moved, says so and re-announces every connected judge's
+   * capabilities — `judge_nodes.capabilities` is written at handshake, so
+   * without this a judge that gained a language on our side would keep
+   * showing the old list on the dashboard until it reconnected.
+   *
+   * Never two at once, and a rejection changes nothing: exactly
+   * `revalidate`'s two rules, for the same reason. Resolves `true` only when
+   * the mapping actually changed.
+   */
+  async refreshLanguages(): Promise<boolean> {
+    const refresh = this.options.refreshLanguageMap;
+    if (!refresh) return false;
+    if (this.refreshingLanguages) return false;
+    this.refreshingLanguages = true;
+    try {
+      const changed = await refresh();
+      if (!changed) return false;
+      console.warn(
+        JSON.stringify({
+          msg: 'language mapping reloaded',
+          supportedLanguages: this.supportedLanguages().sort(),
+        }),
+      );
+      for (const id of this.connections.keys()) {
+        this.reportUnmapped(id);
+        this.recordCapabilities(id);
+      }
+      return true;
+    } catch (error: unknown) {
+      // Fail open, and say so: the mapping this process already has is a
+      // valid one, and a database blip must never cost a judge its
+      // connection or shrink what the fleet is believed to support.
+      console.error(
+        JSON.stringify({ msg: 'language mapping reload failed', error: describeError(error) }),
+      );
+      return false;
+    } finally {
+      this.refreshingLanguages = false;
+    }
+  }
+
+  /**
+   * Names, once, every executor a judge announced that no `languages` row
+   * claims — the line whose absence made F-47 a silent defect.
+   *
+   * This is not a fault by itself: a judge legitimately ships `AWK`, `SED`
+   * and `TEXT`, and `--only-executors` is what narrows that. It IS the one
+   * place where "the judge can run it and we cannot name it" is visible, so
+   * it is a `warn` with the whole list rather than a debug line.
+   */
+  private reportUnmapped(id: string): void {
+    const { unmapped } = this.translate(this.executorsFor(id));
+    if (unmapped.length === 0) return;
+    console.warn(
+      JSON.stringify({
+        msg: 'judge announces executors no language maps',
+        id,
+        executors: unmapped.sort(),
+      }),
+    );
   }
 
   /**
@@ -332,17 +445,25 @@ export class BridgeServer {
    * terms `touchLastSeen` uses — a synchronous throw from a double and an
    * async rejection from the real implementation land in the same empty
    * `catch`, and neither can affect the handshake.
+   *
+   * Reads the sets this class already holds rather than the handshake packet,
+   * so `refreshLanguages` can re-announce a judge whose executors did not
+   * change but whose *translation* did. Callers must therefore invoke it only
+   * after `executorSets`/`problemSets` are populated for `id`.
    */
-  private recordCapabilities(id: string, handshake: HandshakePacket): void {
+  private recordCapabilities(id: string): void {
     const record = this.options.recordCapabilities;
     if (!record) return;
-    const executors = Object.keys(handshake.executors);
+    const executors = [...this.executorsFor(id)];
     const capabilities: JudgeCapabilities = {
-      languages: [...new Set(executors.map((executor) => this.toLanguage(executor)))],
+      // Only what we can name. An executor with no row is still reported in
+      // `executors` — that is what the judge said — but it is not a language
+      // this deployment can grade, and claiming otherwise is what D172 bans.
+      languages: this.translate(executors).languages,
       executors,
       // D29: one grade per connection. The handshake carries no such field.
       concurrency: 1,
-      problems: handshake.problems.length,
+      problems: this.problemsFor(id).size,
     };
     void Promise.resolve()
       .then(() => record(id, capabilities))
@@ -600,8 +721,19 @@ export class BridgeServer {
             connection.send({ name: 'handshake-success' });
             this.lastSeenAt.set(id, Date.now());
             this.touchLastSeen(id);
-            this.recordCapabilities(id, handshake);
+            this.recordCapabilities(id);
+            // The one line that would have named F-47 at boot: this judge
+            // self-tested `PAS`, announced it, and nothing here could say
+            // which language that was.
+            this.reportUnmapped(id);
             this.handler(connection, packet);
+            // AFTER the handshake is complete and the dispatches are woken,
+            // and detached: a judge dialling in is a cheap moment to notice
+            // the table moved, but it must not add a database round-trip to
+            // the critical path or a failure mode to a handshake that has
+            // already succeeded. `refreshLanguages` re-announces
+            // capabilities itself if the answer changed.
+            void this.refreshLanguages();
           })();
           return;
         }

@@ -80,13 +80,20 @@ function fakeAgent() {
 const settle = () => new Promise((r) => setTimeout(r, 300));
 
 /**
- * Production's pair (`apps/judged/src/main.ts`), not the constant
- * `() => 'CPP17'` the affinity suite uses: a test that maps every language
- * to the same executor cannot tell a routed dispatch from a broadcast one.
+ * A two-row stand-in for `language_driver_keys`, not the constant
+ * `() => 'CPP17'` the affinity suite uses: a test that maps every language to
+ * the same executor cannot tell a routed dispatch from a broadcast one.
+ *
+ * A TABLE, and no longer `executor.toLowerCase()` — which is the fallback
+ * F-47 removed (D172). Keeping it here would have left the suite that most
+ * closely models a heterogeneous fleet asserting against the exact behaviour
+ * that manufactured `pas` in production.
  */
+const ROWS: Record<string, string> = { cpp17: 'CPP17', py3: 'PY3' };
 const LANGUAGE_MAP = {
-  languageToExecutor: (key: string) => (key === 'cpp17' ? 'CPP17' : key.toUpperCase()),
-  executorToLanguage: (executor: string) => executor.toLowerCase(),
+  languageToExecutor: (key: string) => ROWS[key] ?? key.toUpperCase(),
+  executorToLanguage: (executor: string) =>
+    Object.entries(ROWS).find(([, value]) => value === executor)?.[0],
 };
 
 describe('a fleet of two judges', () => {

@@ -44,8 +44,16 @@ async function main(): Promise<void> {
   // The `python3` -> `PY3` row F-39 seeds is exactly the language the old
   // hard-coded closure here warned about ("must extend BOTH lines here, not
   // one"). Rather than extend it, both directions now come from
-  // `language_driver_keys`, read once at startup — one source of truth, and
-  // the same one the migration writes (D68, D154).
+  // `language_driver_keys` — one source of truth, and the same one the
+  // migration writes (D68, D154).
+  //
+  // Read at startup and RE-READ thereafter (D173). "Once at startup" held
+  // only while adding a language meant a deploy; F-46 made it a migration,
+  // and on 2026-09-01 0046 landed against this running process. The judge had
+  // self-tested `PAS` and announced it; this map had booted before the row
+  // existed; and the executor came back as the language key `pas`, which no
+  // row names. Every Pascal submission was blocked against a judge that could
+  // run it, and only a restart fixed it.
   const languageMap = await loadDriverLanguageMap(db, 'dmoj');
 
   const bridge = new BridgeServer({
@@ -56,6 +64,11 @@ async function main(): Promise<void> {
     // guarantees they cannot.
     languageToExecutor: (key) => languageMap.languageToExecutor(key),
     executorToLanguage: (executor) => languageMap.executorToLanguage(executor),
+    // The other half of D173: the bridge calls this on every handshake, and
+    // `DmojDriver` hands it to the claim loop, which is the trigger a
+    // migration against a live stack actually reaches (no judge reconnects
+    // when a row is inserted).
+    refreshLanguageMap: () => languageMap.reload(),
     // Same check, same table, as the API's `JudgeGuard` — see
     // `verifyJudgeCredential`'s doc comment in `@duckoj/db`.
     verifyJudge: (id, key) => verifyJudgeCredential(db, id, key),

@@ -156,3 +156,86 @@ describe('a claim loop against a heterogeneous fleet', () => {
     expect(release).toHaveBeenCalledWith(7, 1);
   }, 20_000);
 });
+
+/**
+ * F-47 / D173 — the claim loop is where a language added to the database
+ * while `judged` runs actually becomes reachable.
+ *
+ * The brief proposed reloading on handshake, and on its own that would not
+ * have covered the incident: `FORCE_MIGRATE=1` applied 0046 against a running
+ * `judged` with no judge reconnecting, and D171's sanctioned deploy order
+ * puts the judge's restart BEFORE the migration, so in the blessed flow every
+ * handshake precedes the rows. An empty claim is the moment that does cover
+ * it — it is exactly the state a newly-added language is stuck behind, it is
+ * already throttled to one every five seconds, and it never fires while the
+ * fleet is busy.
+ */
+describe('a language added while the loop is running', () => {
+  it('refreshes the mapping on an empty claim, and reconciles against the fresher list', async () => {
+    const markBlocked = vi.fn(async () => []);
+    const store = stubStore({ markBlocked: markBlocked as never });
+    let languages = ['cpp17'];
+    const refreshCapabilities = vi.fn(async () => {
+      // Migration 0046 landing: the mapping gains `pascal`.
+      languages = ['cpp17', 'pascal'];
+      return true;
+    });
+    const driver = {
+      start: async () => {},
+      capabilities: () => ({ languages, concurrency: 1 }),
+      supportedLanguages: () => languages,
+      refreshCapabilities,
+      dispatch: async () => {},
+      cancel: async () => {},
+      stop: async () => {},
+    } satisfies JudgeDriver;
+
+    await runBriefly(new Worker(store, silentWriter, driver, 'w1'));
+
+    expect(refreshCapabilities).toHaveBeenCalled();
+    // The reconciliation runs against what the fleet can grade NOW, so the
+    // Pascal job blocked before the row landed has its `blocked_reason`
+    // cleared on this pass rather than on the next restart.
+    expect(markBlocked).toHaveBeenCalledWith(['cpp17', 'pascal']);
+  }, 20_000);
+
+  it('reconciles against the list it had when the refresh fails', async () => {
+    const markBlocked = vi.fn(async () => []);
+    const store = stubStore({ markBlocked: markBlocked as never });
+    const driver = {
+      start: async () => {},
+      capabilities: () => ({ languages: ['cpp17'], concurrency: 1 }),
+      supportedLanguages: () => ['cpp17'],
+      refreshCapabilities: async () => {
+        throw new Error('database went away');
+      },
+      dispatch: async () => {},
+      cancel: async () => {},
+      stop: async () => {},
+    } satisfies JudgeDriver;
+
+    await runBriefly(new Worker(store, silentWriter, driver, 'w1'));
+
+    // The loop is still turning and still diagnosing — a blip in a refresh
+    // must not end it, on exactly the reasoning the unguarded `claim()` earned.
+    expect(markBlocked).toHaveBeenCalledWith(['cpp17']);
+  }, 20_000);
+
+  it('does not refresh while the fleet is down — there is nothing to reconcile against', async () => {
+    const refreshCapabilities = vi.fn(async () => false);
+    const store = stubStore({});
+    const driver = {
+      start: async () => {},
+      capabilities: () => ({ languages: [], concurrency: 0 }),
+      supportedLanguages: () => [],
+      refreshCapabilities,
+      dispatch: async () => {},
+      cancel: async () => {},
+      stop: async () => {},
+    } satisfies JudgeDriver;
+
+    await runBriefly(new Worker(store, silentWriter, driver, 'w1'));
+
+    expect(refreshCapabilities).not.toHaveBeenCalled();
+  }, 20_000);
+});

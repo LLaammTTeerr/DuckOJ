@@ -58,6 +58,7 @@ describe('BridgeServer authentication', () => {
     const verifyJudge = vi.fn(async () => true);
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge,
     });
     const port = await server.listen(0);
@@ -82,6 +83,7 @@ describe('BridgeServer authentication', () => {
     const recordLastSeen = vi.fn(async () => {});
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge,
       recordLastSeen,
     });
@@ -98,6 +100,7 @@ describe('BridgeServer authentication', () => {
     const recordLastSeen = vi.fn(async () => {});
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge,
       recordLastSeen,
       // The handshake's own write opens the throttle window (D68), so with
@@ -130,6 +133,7 @@ describe('BridgeServer authentication', () => {
     const recordLastSeen = vi.fn(async () => {});
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge,
       recordLastSeen,
     });
@@ -150,6 +154,7 @@ describe('BridgeServer authentication', () => {
     const recordLastSeen = vi.fn(async () => {});
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge,
       recordLastSeen,
       lastSeenThrottleMs: 0,
@@ -176,6 +181,7 @@ describe('BridgeServer authentication', () => {
     const recordLastSeen = vi.fn(async () => {});
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge,
       recordLastSeen,
     });
@@ -209,6 +215,7 @@ describe('BridgeServer authentication', () => {
     const recordLastSeen = vi.fn(async () => {});
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge,
       recordLastSeen,
     });
@@ -238,6 +245,7 @@ describe('BridgeServer authentication', () => {
     const verifyJudge = vi.fn(async () => false);
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge,
     });
     const port = await server.listen(0);
@@ -294,6 +302,7 @@ describe('BridgeServer revalidates connected judges', () => {
   ): Promise<void> {
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
       revalidateIntervalMs: 50,
       ...options,
@@ -363,6 +372,7 @@ describe('BridgeServer revalidates connected judges', () => {
     const admittedJudges = vi.fn(async (ids: string[]) => ids);
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
       verifyJudge: async () => true,
       revalidateIntervalMs: 20,
       admittedJudges,

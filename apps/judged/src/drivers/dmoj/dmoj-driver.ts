@@ -193,6 +193,22 @@ export class DmojDriver implements JudgeDriver {
     return this.bridge.supportedLanguages();
   }
 
+  /**
+   * `JudgeDriver.refreshCapabilities`: re-read `language_driver_keys`, so a
+   * language seeded while this process runs becomes gradeable without a
+   * restart (D173).
+   *
+   * The bridge already refreshes on handshake, and that is not enough on its
+   * own: a migration run against a live stack — `FORCE_MIGRATE=1` on
+   * 2026-09-01 — changes the rows with no judge reconnecting, and D171's
+   * sanctioned ordering deploys the judge *before* the migration, so in the
+   * blessed flow the handshake always precedes the rows. The claim loop is
+   * the trigger that covers both.
+   */
+  refreshCapabilities(): Promise<boolean> {
+    return this.bridge.refreshLanguages();
+  }
+
   /** The connections that could run `language`, connected right now, busy or not. */
   private capableConnections(language: string): string[] {
     const executor = this.bridge.options.languageToExecutor(language);

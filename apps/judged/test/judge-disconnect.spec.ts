@@ -88,7 +88,7 @@ describe('a judge that disconnects mid-grade', () => {
   });
 
   it('abandons the in-flight dispatch instead of leaving it to the ceiling', async () => {
-    server = new BridgeServer({ languageToExecutor: () => 'CPP17', verifyJudge: async () => true });
+    server = new BridgeServer({ languageToExecutor: () => 'CPP17', executorToLanguage: (e) => (e === 'CPP17' ? 'cpp17' : undefined), verifyJudge: async () => true });
     const port = await server.listen(0);
     const driver = new DmojDriver(server, fakeAgent());
     judge = fakeJudge(port);
@@ -131,7 +131,7 @@ describe('a judge that disconnects mid-grade', () => {
       const writer = new EventWriter(db, store, { publish: vi.fn(async () => {}) } as never);
       const seeded = await seed(db, store);
 
-      server = new BridgeServer({ languageToExecutor: () => 'CPP17', verifyJudge: async () => true });
+      server = new BridgeServer({ languageToExecutor: () => 'CPP17', executorToLanguage: (e) => (e === 'CPP17' ? 'cpp17' : undefined), verifyJudge: async () => true });
       const port = await server.listen(0);
       const driver = new DmojDriver(server, fakeAgent());
       judge = fakeJudge(port);

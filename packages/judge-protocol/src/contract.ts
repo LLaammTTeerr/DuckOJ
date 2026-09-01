@@ -160,4 +160,21 @@ export interface JudgeDriver {
    * a caller must claim nothing.
    */
   supportedLanguages?(): string[];
+  /**
+   * Re-reads whatever the driver uses to translate a judge's announced
+   * capabilities into our language keys, so a language added to the database
+   * while this process runs becomes reachable **without a restart** (D173).
+   * Resolves `true` when that translation actually changed.
+   *
+   * A claim loop calls it on the same throttle as its `blocked_reason`
+   * reconciliation — i.e. only while claims are coming back empty, which is
+   * exactly the state a newly-added language would be stuck behind, and
+   * never while the fleet is busy.
+   *
+   * Optional: a driver that omits it declares a translation that cannot go
+   * stale, which is what every in-process test double is. It must never
+   * reject on a transient failure it can absorb — a caller treats a
+   * rejection as "the fleet's languages are what they were".
+   */
+  refreshCapabilities?(): Promise<boolean>;
 }
