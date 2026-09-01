@@ -467,6 +467,25 @@ export const submissions = pgTable(
     timeMs: integer('time_ms'),
     memoryKb: integer('memory_kb'),
     compileOutput: text('compile_output'),
+    /**
+     * This submission's cases reduced per group — `SubtaskSummary[]` as
+     * `@duckoj/contest-formats` defines it, in first-seen group order (D165).
+     *
+     * A jsonb SUMMARY rather than a child table, for `similarity_reports
+     * .pairs`' reason: it is written once, read whole, and never queried
+     * inside. It exists so the cold scoreboard fold stops re-deriving it from
+     * every `submission_cases` row of the contest — F-44's statement 34, the
+     * one real hazard that slot found.
+     *
+     * **Null means "ask the case rows".** It is null for a submission that has
+     * never finished grading, for one a rejudge has re-queued, and for
+     * anything migration 0045 has not backfilled; the fold falls back to the
+     * per-case read for exactly those, so this column is an optimisation and
+     * never a second source of truth. It is trusted **only** while
+     * `state` is terminal: an attempt that is currently grading has case rows
+     * newer than this summary, and those are what the board must show.
+     */
+    subtaskSummary: jsonb('subtask_summary'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     judgedAt: timestamp('judged_at', { withTimezone: true }),
   },
