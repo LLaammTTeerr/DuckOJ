@@ -68,9 +68,45 @@ const PASSWORD = 'fe42-not-a-real-password-2026';
 /** D153: `^fe[0-9]+` for accounts, `^fe[0-9]+-` for everything else. */
 const ORG = 'fe42-truong';
 const MONITOR_KEY = `fe42-monitor-${RUN}`;
-const TEAM_KEY = `fe42-doi-${RUN}`;
-const ALPHA = `fe42-alpha-${RUN}`;
-const BRAVO = `fe42-bravo-${RUN}`;
+const TEAM_KEY = `fe42-thi-doi-${RUN}`;
+
+/**
+ * **The two teams this walk KEEPS, and why they stopped being per-run.**
+ *
+ * Journey 2 seats a pair of teams in a contest, and D101 rightly refuses to
+ * delete a team that has competed — so `test.afterAll`'s delete loop could
+ * never reach them and every run left two more behind. On 2026-09-02 the one
+ * shared school held **32** of them, all undeletable by design, growing by two
+ * a run, on a list that pages at twenty-five. That is the same self-inflicted
+ * failure the teardown was written to prevent (a walk whose own history moves
+ * its row off page one), arriving by a door the teardown cannot close.
+ *
+ * The fix is not a bigger delete loop. It is a fixture the walk can afford to
+ * LEAVE: two teams with stable slugs, get-or-created every run, rosters reset
+ * to a known state, and never deleted. Two forever instead of two more.
+ *
+ * The slugs deliberately do NOT begin `fe42-alpha`/`fe42-bravo`: the 32 rows
+ * already on the live host are slugged that way, and `hasText` is a SUBSTRING
+ * match, so a stable `fe42-alpha` would select 17 rows and every row lookup in
+ * this file would be ambiguous. They still match `^fe[0-9]+-`, so D153's
+ * inventory classifies them exactly as it did before.
+ */
+const ALPHA = 'fe42-doi-a';
+const BRAVO = 'fe42-doi-b';
+const ALPHA_NAME = 'FE42 Đội A';
+const BRAVO_NAME = 'FE42 Đội B';
+
+/**
+ * The team the CREATE form is exercised on, and the one whose record is
+ * asserted empty.
+ *
+ * Per-run, because both of those assertions are about a team that has just
+ * come into existence: "Lập đội" cannot be walked against a slug that already
+ * exists, and "this team has entered no contest" stops being true of anything
+ * this walk seats. It is never seated, so D101 lets the teardown delete it and
+ * it leaves nothing behind.
+ */
+const FRESH = `fe42-moi-${RUN}`;
 const PUPILS = ['fe42-a1', 'fe42-a2', 'fe42-c1'] as const;
 
 /** A+B, correct — what `aplusb`, the seeded public problem, wants. */
@@ -417,16 +453,19 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   await expect(page.getByRole('heading', { name: 'Đội tuyển' })).toBeVisible();
 
   // ── assemble one, in the form ──────────────────────────────────────
+  //
+  // On the per-run team, not on the pair this walk keeps: "Lập đội" is a
+  // CREATE, and a create form cannot be walked twice against the same slug.
   await page.getByRole('button', { name: 'Lập đội' }).click();
-  await page.getByLabel('Định danh').fill(ALPHA);
-  await page.getByLabel('Tên đội').fill(`FE42 Alpha ${RUN}`);
+  await page.getByLabel('Định danh').fill(FRESH);
+  await page.getByLabel('Tên đội').fill(`FE42 Đội mới ${RUN}`);
   await page.getByLabel('Thành viên').fill('fe42-a1');
   await page.getByRole('button', { name: 'Lưu' }).click();
 
-  const alphaRow = page.getByRole('row').filter({ hasText: ALPHA });
-  await expect(alphaRow).toHaveCount(1);
-  await expect(alphaRow.getByRole('link', { name: `FE42 Alpha ${RUN}` })).toBeVisible();
-  await expect(alphaRow.getByRole('link', { name: 'fe42-a1' })).toBeVisible();
+  const freshRow = page.getByRole('row').filter({ hasText: FRESH });
+  await expect(freshRow).toHaveCount(1);
+  await expect(freshRow.getByRole('link', { name: `FE42 Đội mới ${RUN}` })).toBeVisible();
+  await expect(freshRow.getByRole('link', { name: 'fe42-a1' })).toBeVisible();
 
   // ── add a member, in the form ──────────────────────────────────────
   //
@@ -434,14 +473,14 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   // says so), so adding one means sending both — which is exactly the shape a
   // teacher types, and exactly the shape that loses a pupil if the form ever
   // renders an empty box over a roster that failed to load.
-  await alphaRow.getByRole('button', { name: 'Sửa' }).click();
+  await freshRow.getByRole('button', { name: 'Sửa' }).click();
   await expect(page.getByLabel('Thành viên')).toHaveValue('fe42-a1');
   await page.getByLabel('Thành viên').fill('fe42-a1, fe42-a2');
-  expect(await saveRoster(page, ALPHA)).toBe(200);
+  expect(await saveRoster(page, FRESH)).toBe(200);
 
   // The server first, so a trace of a failure here reads "server right,
   // screen wrong" rather than leaving the two indistinguishable.
-  const saved = (await (await adminCtx.get(`/api/v1/orgs/${ORG}/teams/${ALPHA}`)).json()) as {
+  const saved = (await (await adminCtx.get(`/api/v1/orgs/${ORG}/teams/${FRESH}`)).json()) as {
     members: { username: string }[];
   };
   expect(saved.members.map((m) => m.username).sort()).toEqual(['fe42-a1', 'fe42-a2']);
@@ -454,22 +493,49 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   // once the edge carries it; the rest of this walk is about the one-seat
   // rule and must not be held hostage to that.
   await page.reload();
-  await expect(alphaRow.getByRole('link', { name: 'fe42-a2' })).toBeVisible();
-  await expect(alphaRow.getByRole('link', { name: 'fe42-a1' })).toBeVisible();
+  await expect(freshRow.getByRole('link', { name: 'fe42-a2' })).toBeVisible();
+  await expect(freshRow.getByRole('link', { name: 'fe42-a1' })).toBeVisible();
 
   // The team's own page — D99's "a team has a RECORD, and a record is a thing
-  // you link to". It has entered nothing yet, and says so.
-  await alphaRow.getByRole('link', { name: `FE42 Alpha ${RUN}` }).click();
-  await expect(page.getByRole('heading', { level: 1, name: `FE42 Alpha ${RUN}` })).toBeVisible();
+  // you link to". It has entered nothing yet, and says so. This assertion is
+  // on the per-run team for that reason alone: it is only ever true of a team
+  // that has never competed, so it cannot live on a fixture the walk keeps.
+  await freshRow.getByRole('link', { name: `FE42 Đội mới ${RUN}` }).click();
+  await expect(page.getByRole('heading', { level: 1, name: `FE42 Đội mới ${RUN}` })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Các kỳ thi đã dự' })).toBeVisible();
   await expect(page.getByText('Đội này chưa dự kỳ thi nào.')).toBeVisible();
 
-  // ── a second team, and a round both of them enter ──────────────────
-  const bravo = await adminCtx.post(`/api/v1/orgs/${ORG}/teams`, {
-    headers: SAME_ORIGIN,
-    data: { slug: BRAVO, name: `FE42 Bravo ${RUN}`, members: ['fe42-c1'] },
-  });
-  expect(bravo.ok(), `create ${BRAVO}: ${String(bravo.status())} ${await bravo.text()}`).toBe(true);
+  // ── the two teams this walk keeps, and a round both of them enter ──
+  //
+  // Get-or-created, then their rosters PATCHed to the state the rest of this
+  // walk assumes: 201 the first time this walk ever ran on this host, 409
+  // every time since, and the roster reset either way so a previous run's
+  // one-seat attempt cannot leave them in a shape that makes the refusal below
+  // pass for the wrong reason. Both PATCHes happen BEFORE the contest exists,
+  // so F-25's roster lock is not in play here.
+  for (const team of [
+    { slug: ALPHA, name: ALPHA_NAME, members: ['fe42-a1', 'fe42-a2'] },
+    { slug: BRAVO, name: BRAVO_NAME, members: ['fe42-c1'] },
+  ]) {
+    const made = await adminCtx.post(`/api/v1/orgs/${ORG}/teams`, {
+      headers: SAME_ORIGIN,
+      data: { slug: team.slug, name: team.name, members: team.members },
+    });
+    expect(
+      [201, 409],
+      `create ${team.slug}: ${String(made.status())} ${await made.text()}`,
+    ).toContain(made.status());
+    if (made.status() === 409) {
+      const reset = await adminCtx.patch(`/api/v1/orgs/${ORG}/teams/${team.slug}`, {
+        headers: SAME_ORIGIN,
+        data: { slug: team.slug, name: team.name, members: team.members },
+      });
+      expect(
+        reset.ok(),
+        `reset ${team.slug}: ${String(reset.status())} ${await reset.text()}`,
+      ).toBe(true);
+    }
+  }
 
   const now = Date.now();
   const contest = await adminCtx.post('/api/v1/contests', {
@@ -501,8 +567,10 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
     );
   }
 
-  // The record the team page exists for, now that there is one.
-  await page.reload();
+  // The record the team page exists for, now that there is one — read on the
+  // team that was just seated, which is the pair this walk keeps.
+  await page.goto(`/orgs/${ORG}/teams/${ALPHA}`);
+  await expect(page.getByRole('heading', { level: 1, name: ALPHA_NAME })).toBeVisible();
   await expect(page.getByRole('link', { name: `FE42 đồng đội ${RUN}` })).toBeVisible();
   await expect(page.getByRole('status')).toContainText('đang thi');
 
@@ -518,6 +586,8 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   // first; the organiser running the contest is exempt, which is what puts
   // the seat rule in reach at all.
   await page.goto(`/orgs/${ORG}`);
+  const alphaRow = page.getByRole('row').filter({ hasText: ALPHA });
+  await expect(alphaRow).toHaveCount(1);
   await alphaRow.getByRole('button', { name: 'Sửa' }).click();
   // Wait for the prefill before typing over it, exactly as the first edit
   // above does. This walk typed straight after the click and B-33 is what it
@@ -635,13 +705,23 @@ test('journey 2b — the panel shows the added pupil with no reload', async ({
  * Teams, not contests: journeys 1 and 2 already close their contests, and a
  * team is the only fixture here with a DELETE and no cleanup. Failures are
  * swallowed — a walk that already failed must not be reported as failing in
- * teardown instead, and a team seeded into a contest legitimately refuses
- * deletion.
+ * teardown instead.
+ *
+ * **`ALPHA` and `BRAVO` are deliberately NOT in this list.** They are the two
+ * teams journey 2 seats in a contest, D101 refuses to delete a team that has
+ * competed, and this loop could therefore never delete them — it only looked
+ * as though it might, which is how 32 of them accumulated. They are now stable
+ * fixtures that every run reuses, so there is nothing here to delete: the
+ * accumulation is fixed at its source rather than by a delete that was always
+ * going to be refused.
+ *
+ * What is left are the two teams that never compete, which is exactly the
+ * class a DELETE can reach.
  */
 test.afterAll(async () => {
   const admin = adminCredentials();
   const ctx = await actorContext(admin.username, admin.password);
-  for (const slug of [ALPHA, BRAVO, `fe42-charlie-${RUN}`]) {
+  for (const slug of [FRESH, `fe42-charlie-${RUN}`]) {
     try {
       await ctx.delete(`/api/v1/orgs/${ORG}/teams/${slug}`, { headers: SAME_ORIGIN });
     } catch {
