@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import type { paths } from '@duckoj/sdk';
@@ -263,21 +263,85 @@ export function ContestCountdown({ startTime, endTime }: { startTime: string; en
   return null;
 }
 
-export function ContestsPage() {
+/**
+ * Which slice of the judge's history the list is showing (D180).
+ *
+ * `undefined` is "everything", which is the unfiltered endpoint — id order,
+ * id cursor — and stays the default: this is the browse-the-archive page, and
+ * `home.tsx` already asks `phase=active&mine=true` for the reader who wants
+ * only today. The three values are D151's own enum, so an unknown one from a
+ * hand-edited URL is dropped by the route rather than sent to a 422.
+ */
+export type ContestPhaseChoice = 'running' | 'upcoming' | 'active';
+
+const PHASE_CHOICE_KEYS: Record<ContestPhaseChoice, MsgKey> = {
+  active: 'contests.phaseActive',
+  running: 'phase.running',
+  upcoming: 'phase.upcoming',
+};
+
+export function ContestsPage(props: {
+  /**
+   * The filter this page opens with, seeded from `?phase=` by
+   * `ContestsRouteComponent` (router.tsx). A seed, not a controlled value —
+   * the same shape `ProblemsPage` uses, and for the same reason: the route
+   * keys this component by it, so a change from OUTSIDE remounts with a fresh
+   * seed, while a change in the control below updates local state and then
+   * tells the URL.
+   */
+  initialPhase?: ContestPhaseChoice | undefined;
+  onPhaseChange?: ((next: ContestPhaseChoice | undefined) => void) | undefined;
+} = {}) {
   const t = useT();
   const { locale, timeZone } = useLocale();
   const me = useQuery(meQueryOptions);
-  const query = useQuery({
-    queryKey: ['contests'],
-    queryFn: async () => {
-      const result = await api.GET('/contests', {});
+  const [phase, setPhase] = useState<ContestPhaseChoice | undefined>(props.initialPhase);
+
+  /**
+   * **Paged and filterable since D180.** It was a plain `useQuery` with no
+   * parameters at all: it read `.items`, dropped `nextCursor`, and never
+   * asked for `phase` — so of 167 rounds on the live judge, 25 were on screen
+   * and **142 were unreachable from any control the app offers**, and the one
+   * question this page is opened with ("which round is on?") could only be
+   * answered by scanning the oldest rounds the judge has ever run.
+   *
+   * The unfiltered order is KEPT at `asc(id)`. Nobody's order changes: an
+   * archive is browsed rather than tailed, `PhaseChip` already says which
+   * rows are live, and the filter — not a reordering — is what answers
+   * "today". D177 flipped the teams list because a teacher tails it; this is
+   * the opposite reader.
+   *
+   * **`phase` is part of the query key**, which is not a detail. A `phase`
+   * page is ordered by start time and its cursor is D151's composite
+   * `<millis>_<id>`, while the unfiltered page's cursor is a bare id. Sharing
+   * a key would carry one grammar's cursor into the other's seek — the
+   * mismatched-seek bug D177 caught in the API, which truncates a walk
+   * silently and cannot be seen from page one.
+   */
+  const query = useInfiniteQuery({
+    queryKey: ['contests', 'list', phase ?? 'all'],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const search: { cursor?: string; phase?: ContestPhaseChoice } = {};
+      if (pageParam !== undefined) search.cursor = pageParam;
+      if (phase !== undefined) search.phase = phase;
+      const result = await api.GET('/contests', { params: { query: search } });
       // `GET /contests` declares no error response, so `error` is typed
       // `never` — there is nothing to read a message off, and a transport
       // failure still lands here.
       if (result.error) throw apiError(result, t('contests.loadError'));
       return result.data;
     },
+    getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
   });
+  const rows: Contest[] | undefined = query.data
+    ? query.data.pages.flatMap((page) => page?.items ?? [])
+    : undefined;
+
+  function choose(next: ContestPhaseChoice | undefined): void {
+    setPhase(next);
+    props.onPhaseChange?.(next);
+  }
 
   return (
     <section className="panel">
@@ -287,6 +351,27 @@ export function ContestsPage() {
           <Link to="/contests/new">{t('contests.new')}</Link>
         </p>
       ) : null}
+      {/* D151's filter, surfaced at last. The API has had `phase` since D151
+          and this page never asked for it; a reader who wants "what is on
+          now" should not have to walk an archive to find out. `''` is
+          "everything", which is the unfiltered endpoint rather than a fourth
+          phase — there is deliberately no `finished` in the enum. */}
+      <p>
+        <label>
+          {t('contests.filterPhase')}{' '}
+          <select
+            value={phase ?? ''}
+            onChange={(e) => choose(e.target.value === '' ? undefined : (e.target.value as ContestPhaseChoice))}
+          >
+            <option value="">{t('contests.phaseAny')}</option>
+            {(['active', 'running', 'upcoming'] as const).map((value) => (
+              <option key={value} value={value}>
+                {t(PHASE_CHOICE_KEYS[value])}
+              </option>
+            ))}
+          </select>
+        </label>
+      </p>
       {query.error ? (
         <LoadError
           error={query.error}
@@ -294,49 +379,71 @@ export function ContestsPage() {
           onRetry={() => void query.refetch()}
         />
       ) : null}
-      {query.data && query.data.items.length === 0 ? (
+      {rows && rows.length === 0 ? (
         <div className="empty">
-          <p>{t('contests.empty')}</p>
+          {/* A filter that matches nothing is not an empty judge, and telling
+              a reader to go solve problems because no round is running right
+              now would be answering a question they did not ask. */}
+          <p>{phase === undefined ? t('contests.empty') : t('contests.emptyForPhase')}</p>
           <p>
-            <Link to="/problems">{t('contests.emptyAction')}</Link>
+            {phase === undefined ? (
+              <Link to="/problems">{t('contests.emptyAction')}</Link>
+            ) : (
+              <button type="button" onClick={() => choose(undefined)}>
+                {t('contests.phaseAny')}
+              </button>
+            )}
           </p>
         </div>
       ) : null}
       {/* D143 — the head is drawn WHILE the rows load, so the one question a
           contest list is asked on contest day ("which round is on?") has a
           shape to appear in rather than displacing the page when it lands. */}
-      {query.isPending || (query.data && query.data.items.length > 0) ? (
-        <table>
-          <thead>
-            <tr>
-              <th>{t('contests.colContest')}</th>
-              <th>{t('contests.colFormat')}</th>
-              <th>{t('contests.colStarts')}</th>
-              <th>{t('contests.colEnds')}</th>
-              <th>{t('contests.colOrgs')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {query.isPending ? <SkeletonRows rows={6} columns={5} /> : null}
-            {(query.data?.items ?? []).map((contest: Contest) => (
-              <tr key={contest.key}>
-                <td>
-                  <Link to="/contests/$key" params={{ key: contest.key }}>
-                    {contest.name}
-                  </Link>{' '}
-                  <PhaseChip phase={phaseOf(contest)} />
-                </td>
-                {/* `format` is the registry's own key (`icpc`, `ioi16`) —
-                    an identifier every setter types into the create form,
-                    not a word to translate. */}
-                <td>{contest.format}</td>
-                <td>{when(contest.startTime, locale, timeZone)}</td>
-                <td>{when(contest.endTime, locale, timeZone)}</td>
-                <td>{contest.orgs.length === 0 ? '—' : <OrgBadges orgs={contest.orgs} />}</td>
+      {query.isPending || (rows && rows.length > 0) ? (
+        <div className="table-wrap" tabIndex={0}>
+          <table>
+            <thead>
+              <tr>
+                <th>{t('contests.colContest')}</th>
+                <th>{t('contests.colFormat')}</th>
+                <th>{t('contests.colStarts')}</th>
+                <th>{t('contests.colEnds')}</th>
+                <th>{t('contests.colOrgs')}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {query.isPending ? <SkeletonRows rows={6} columns={5} /> : null}
+              {(rows ?? []).map((contest: Contest) => (
+                <tr key={contest.key}>
+                  <td>
+                    <Link to="/contests/$key" params={{ key: contest.key }}>
+                      {contest.name}
+                    </Link>{' '}
+                    <PhaseChip phase={phaseOf(contest)} />
+                  </td>
+                  {/* `format` is the registry's own key (`icpc`, `ioi16`) —
+                      an identifier every setter types into the create form,
+                      not a word to translate. */}
+                  <td>{contest.format}</td>
+                  <td>{when(contest.startTime, locale, timeZone)}</td>
+                  <td>{when(contest.endTime, locale, timeZone)}</td>
+                  <td>{contest.orgs.length === 0 ? '—' : <OrgBadges orgs={contest.orgs} />}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {query.hasNextPage ? (
+        <p>
+          <button
+            type="button"
+            onClick={() => void query.fetchNextPage()}
+            disabled={query.isFetchingNextPage}
+          >
+            {t('common.loadMore')}
+          </button>
+        </p>
       ) : null}
     </section>
   );

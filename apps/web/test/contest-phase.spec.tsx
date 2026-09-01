@@ -103,8 +103,20 @@ describe('the phase of a contest on the list (D134)', () => {
     // One class per phase, so `.phase::before` can give each its own glyph
     // (D46/D77: a state signalled by colour alone is a state a colour-blind
     // reader and a monochrome print both lose).
-    expect(screen.getByText('đang diễn ra')).toHaveClass('phase', 'running');
-    expect(screen.getByText('sắp diễn ra')).toHaveClass('phase', 'upcoming');
+    //
+    // Scoped to the `<span>` since D180: the page's own phase FILTER offers
+    // the same two words as `<option>` labels, deliberately — the control and
+    // the chip naming one state differently would be the worse bug — so the
+    // query has to say which of the two it means.
+    const chip = (text: string): HTMLElement => {
+      const found = screen
+        .getAllByText(text)
+        .find((el) => el.tagName === 'SPAN');
+      if (!found) throw new Error(`no chip reading "${text}"`);
+      return found;
+    };
+    expect(chip('đang diễn ra')).toHaveClass('phase', 'running');
+    expect(chip('sắp diễn ra')).toHaveClass('phase', 'upcoming');
     expect(screen.getByText('đã kết thúc')).toHaveClass('phase', 'finished');
   });
 

@@ -12,7 +12,7 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a href="#">{children}</a>,
 }));
 
-const { ContestPage, ScoreboardPage } = await import('../src/routes/contests.js');
+const { ContestPage, ContestsPage, ScoreboardPage } = await import('../src/routes/contests.js');
 
 /** A fresh client per render: no retries, so an error surfaces immediately. */
 function wrap(ui: React.ReactElement) {
@@ -441,5 +441,120 @@ describe('score display precision', () => {
 
     // Three decimals because the contest says three — not the default two.
     expect(await screen.findByText('33.333')).toBeInTheDocument();
+  });
+});
+
+/**
+ * The contest list can reach page two, and can ask for the round that is on
+ * (D180).
+ *
+ * **The defect this pins.** `ContestsPage` fired `GET /contests` with no
+ * parameters at all, read `.items` and dropped `nextCursor`: 167 rounds on
+ * the live judge, 25 on screen, and **142 unreachable from any control**. The
+ * list also never asked for `phase`, which D151 built for exactly this
+ * reader — so the one question a contest list is opened with, "which round is
+ * on?", could only be answered by reading a page of the oldest rounds the
+ * judge has ever run.
+ *
+ * Both halves are asserted, and the second cursor grammar with them: a
+ * `phase` page is ordered by START TIME and its cursor is `<millis>_<id>`
+ * (D151), so the walk has to carry that composite through unchanged and has
+ * to START OVER when the filter changes. A stale id cursor sent to a
+ * start-time page is the mismatched-seek bug D177 caught in the API, wearing
+ * a different hat.
+ */
+describe('ContestsPage past one page (D180)', () => {
+  function round(n: number) {
+    return {
+      key: `round-${String(n)}`,
+      name: `Round ${String(n)}`,
+      format: 'icpc',
+      startTime: new Date(Date.now() - 86_400_000 * n).toISOString(),
+      endTime: new Date(Date.now() - 86_400_000 * n + 3_600_000).toISOString(),
+      orgs: [],
+      isRated: false,
+    };
+  }
+  function rounds(from: number, to: number) {
+    return Array.from({ length: to - from + 1 }, (_, i) => round(from + i));
+  }
+
+  type Ask = { phase?: string | undefined; cursor?: string | undefined };
+
+  function serve(asks: Ask[], pages: Record<string, unknown>) {
+    get.mockImplementation((path: string, init?: Record<string, unknown>) => {
+      if (path === '/auth/me') return Promise.resolve({ data: undefined });
+      if (path !== '/contests') return Promise.resolve({ data: undefined });
+      const query = (init?.params as { query?: Ask } | undefined)?.query ?? {};
+      asks.push({ phase: query.phase, cursor: query.cursor });
+      const key = `${query.phase ?? 'all'}:${query.cursor ?? ''}`;
+      return Promise.resolve({ data: pages[key] ?? { items: [], nextCursor: null } });
+    });
+  }
+
+  it('offers "load more" and sends the first page’s cursor for the rest', async () => {
+    const asks: Ask[] = [];
+    serve(asks, {
+      'all:': { items: rounds(1, 25), nextCursor: '25' },
+      'all:25': { items: rounds(26, 27), nextCursor: null },
+    });
+    wrap(<ContestsPage />);
+
+    expect(await screen.findByText('Round 1')).toBeInTheDocument();
+    expect(screen.queryByText('Round 26')).toBeNull();
+
+    await userEvent.click(await screen.findByRole('button', { name: /tải thêm|load more/i }));
+
+    expect(await screen.findByText('Round 27')).toBeInTheDocument();
+    expect(screen.getByText('Round 1')).toBeInTheDocument();
+    expect(asks).toEqual([
+      { phase: undefined, cursor: undefined },
+      { phase: undefined, cursor: '25' },
+    ]);
+    expect(screen.queryByRole('button', { name: /tải thêm|load more/i })).toBeNull();
+  });
+
+  it('asks the API for the round that is happening, and says so upward', async () => {
+    const asks: Ask[] = [];
+    serve(asks, {
+      'all:': { items: rounds(1, 2), nextCursor: null },
+      'running:': { items: [round(9)], nextCursor: null },
+    });
+    const seen: (string | undefined)[] = [];
+    wrap(<ContestsPage onPhaseChange={(next) => seen.push(next)} />);
+    await screen.findByText('Round 1');
+
+    await userEvent.selectOptions(
+      screen.getByLabelText(/giai đoạn|phase/i),
+      'running',
+    );
+    expect(await screen.findByText('Round 9')).toBeInTheDocument();
+    expect(asks.at(-1)).toEqual({ phase: 'running', cursor: undefined });
+    // The URL is told, so the filtered list is a link a teacher can send.
+    expect(seen).toEqual(['running']);
+  });
+
+  it('walks a phase page with D151’s composite cursor, and starts over when the filter changes', async () => {
+    const asks: Ask[] = [];
+    serve(asks, {
+      'active:': { items: rounds(1, 2), nextCursor: '1772000000000_9' },
+      'active:1772000000000_9': { items: [round(30)], nextCursor: null },
+      'all:': { items: rounds(40, 41), nextCursor: null },
+    });
+    wrap(<ContestsPage initialPhase="active" />);
+    await screen.findByText('Round 1');
+    await userEvent.click(await screen.findByRole('button', { name: /tải thêm|load more/i }));
+    expect(await screen.findByText('Round 30')).toBeInTheDocument();
+    expect(asks).toEqual([
+      { phase: 'active', cursor: undefined },
+      { phase: 'active', cursor: '1772000000000_9' },
+    ]);
+
+    // Back to everything: a start-time cursor must NOT be carried into an
+    // id-ordered page — that is the mismatched seek, and it silently
+    // truncates the walk.
+    await userEvent.selectOptions(screen.getByLabelText(/giai đoạn|phase/i), '');
+    expect(await screen.findByText('Round 40')).toBeInTheDocument();
+    expect(asks.at(-1)).toEqual({ phase: undefined, cursor: undefined });
   });
 });

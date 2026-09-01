@@ -27,7 +27,13 @@ import {
   ResetPasswordPage,
   VerifyEmailPage,
 } from './routes/account-recovery.js';
-import { ContestPage, ContestsPage, ScoreboardPage, SimilarityPairPage } from './routes/contests.js';
+import {
+  ContestPage,
+  ContestsPage,
+  ScoreboardPage,
+  SimilarityPairPage,
+  type ContestPhaseChoice,
+} from './routes/contests.js';
 import { ContestMonitorPage } from './routes/contest-monitor.js';
 import { ContestNewPage } from './routes/contest-new.js';
 import { ContestEditPage } from './routes/contest-edit.js';
@@ -536,10 +542,45 @@ function UserRouteComponent() {
   return <UserPage username={username} />;
 }
 
+/**
+ * `?phase=` — D151's filter, deep-linked (D180).
+ *
+ * The same seed-plus-callback shape `ProblemsRouteComponent` uses: the page
+ * owns the control, the route owns the URL, and `key` remounts the page when
+ * the filter changes from OUTSIDE (a link, the back button) so the walk
+ * starts over rather than carrying one cursor grammar into the other's seek.
+ */
+function ContestsRouteComponent() {
+  const { phase } = useSearch({ from: '/contests' });
+  const navigate = useNavigate();
+  return (
+    <ContestsPage
+      key={phase ?? 'all'}
+      initialPhase={phase}
+      onPhaseChange={(next) => {
+        void navigate({
+          to: '/contests',
+          replace: true,
+          // Absent, never present-but-undefined: "everything" must leave the
+          // URL clean rather than spell out `?phase=`.
+          search: next === undefined ? {} : { phase: next },
+        });
+      }}
+    />
+  );
+}
+
 const contestsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/contests',
-  component: ContestsPage,
+  // An unknown phase is DROPPED rather than passed on — the API answers 422
+  // for it, and a hand-edited URL should widen to everything rather than
+  // break the page, exactly as an out-of-range difficulty does on /problems.
+  validateSearch: (search: Record<string, unknown>): { phase?: ContestPhaseChoice } =>
+    search.phase === 'running' || search.phase === 'upcoming' || search.phase === 'active'
+      ? { phase: search.phase }
+      : {},
+  component: ContestsRouteComponent,
 });
 const contestNewRoute = createRoute({
   getParentRoute: () => rootRoute,
