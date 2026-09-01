@@ -459,7 +459,12 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   await page.getByRole('button', { name: 'Lập đội' }).click();
   await page.getByLabel('Định danh').fill(FRESH);
   await page.getByLabel('Tên đội').fill(`FE42 Đội mới ${RUN}`);
-  await page.getByLabel('Thành viên').fill('fe42-a1');
+  // `exact: true` because F-51 put a member SEARCH box on the same screen,
+  // labelled "Tìm thành viên" — which contains "Thành viên", so the loose
+  // locator matches the team form's textarea and the search input both. The
+  // ambiguity is the walk's to resolve, not the app's: two controls about
+  // members on one screen is correct, and a reader is not confused by them.
+  await page.getByLabel('Thành viên', { exact: true }).fill('fe42-a1');
   await page.getByRole('button', { name: 'Lưu' }).click();
 
   const freshRow = page.getByRole('row').filter({ hasText: FRESH });
@@ -474,8 +479,8 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   // teacher types, and exactly the shape that loses a pupil if the form ever
   // renders an empty box over a roster that failed to load.
   await freshRow.getByRole('button', { name: 'Sửa' }).click();
-  await expect(page.getByLabel('Thành viên')).toHaveValue('fe42-a1');
-  await page.getByLabel('Thành viên').fill('fe42-a1, fe42-a2');
+  await expect(page.getByLabel('Thành viên', { exact: true })).toHaveValue('fe42-a1');
+  await page.getByLabel('Thành viên', { exact: true }).fill('fe42-a1, fe42-a2');
   expect(await saveRoster(page, FRESH)).toBe(200);
 
   // The server first, so a trace of a failure here reads "server right,
@@ -601,8 +606,8 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   // renders a field before it holds the roster it is editing (D183), and
   // `test/teams-edit-seed-race.spec.tsx` is what guards that. This line only
   // stops the walk racing a prefill it never meant to be testing.
-  await expect(page.getByLabel('Thành viên')).toHaveValue('fe42-a1, fe42-a2');
-  await page.getByLabel('Thành viên').fill('fe42-a1, fe42-a2, fe42-c1');
+  await expect(page.getByLabel('Thành viên', { exact: true })).toHaveValue('fe42-a1, fe42-a2');
+  await page.getByLabel('Thành viên', { exact: true }).fill('fe42-a1, fe42-a2, fe42-c1');
   expect(await saveRoster(page, ALPHA), 'the one-seat rule answers 409, never 500').toBe(409);
 
   // Scoped to the alert that names the pupil, which is both the assertion and
@@ -672,8 +677,8 @@ test('journey 2b — the panel shows the added pupil with no reload', async ({
   await expect(row.getByRole('link', { name: 'fe42-a1' })).toBeVisible();
 
   await row.getByRole('button', { name: 'Sửa' }).click();
-  await expect(page.getByLabel('Thành viên')).toHaveValue('fe42-a1');
-  await page.getByLabel('Thành viên').fill('fe42-a1, fe42-a2');
+  await expect(page.getByLabel('Thành viên', { exact: true })).toHaveValue('fe42-a1');
+  await page.getByLabel('Thành viên', { exact: true }).fill('fe42-a1, fe42-a2');
   expect(await saveRoster(page, slug)).toBe(200);
 
   // The save landed — asserted against the server, so what follows is about
