@@ -88,14 +88,13 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
   async function refresh(): Promise<void> {
     setCreating(false);
     setEditing(null);
-    // BOTH keys. The summary list carries a member COUNT; the names on each
-    // row — and the edit form's prefill — come from `TeamMembers`' own query
-    // under `['org-team', slug, teamSlug]`, and an invalidation matches by
-    // key PREFIX, so `['org-teams', slug]` never touched it. A teacher who
-    // added a pupil saw the count move to 2 and the names stay at one; worse,
-    // re-opening the form prefilled from that stale roster, and `members`
-    // REPLACES the whole roster — so the next save wrote the pre-edit list
-    // back and dropped the pupil who had just been added.
+    // BOTH keys, still. Since D182 the names on each row come from the
+    // SUMMARY, so `teamsKey(slug)` is what refreshes the panel — but
+    // `['org-team', slug, teamSlug]` still backs the edit form's prefill, and
+    // an invalidation matches by key PREFIX, so `['org-teams', slug]` never
+    // touches it. That was F-42: re-opening the form prefilled from a stale
+    // roster, and `members` REPLACES the whole roster, so the next save wrote
+    // the pre-edit list back and dropped the pupil who had just been added.
     await client.invalidateQueries({ queryKey: teamsKey(slug) });
     await client.invalidateQueries({ queryKey: ['org-team', slug] });
   }
@@ -174,7 +173,7 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
                     ) : null}
                   </td>
                   <td>
-                    <TeamMembers slug={slug} teamSlug={team.slug} count={team.memberCount} />
+                    <TeamMembers members={team.members} />
                   </td>
                   {canManage ? (
                     <td>
@@ -226,40 +225,31 @@ export function OrgTeams({ slug, canManage }: { slug: string; canManage: boolean
 }
 
 /**
- * A team's people, as links.
+ * A team's people, as links — **rendered from the row, not fetched (D182).**
  *
- * Its own query per row rather than a `members` array on the summary: the
- * list endpoint serves a COUNT, and widening it to carry every roster would
- * make a page of twenty teams a page of sixty usernames nobody asked for.
- * The detail is only fetched for teams already on screen, and the panel
- * prints the count while it loads so the row never jumps.
+ * This used to hold a query of its own, and the comment here argued for it:
+ * the list endpoint served a COUNT, and widening it to carry every roster
+ * "would make a page of twenty teams a page of sixty usernames nobody asked
+ * for". F-49 measured the panel and that reasoning was wrong on its own
+ * terms — **the panel asked for every one of those sixty usernames, one HTTP
+ * request per row.** One screen of twenty-five teams was 26 requests and 181
+ * statements, ≈20 ms of database time, against ONE statement at 0.175 ms for
+ * the whole page; and each of those 25 detail responses also carried a
+ * `contests` array and a D176 `version` token this component threw away, so
+ * the N+1 moved MORE bytes than the widening does. The payload it defended
+ * was ~2.3 kB of names the page displays anyway.
+ *
+ * So it is a leaf with no query at all. There is no "members could not be
+ * read" state any more, because there is no second request to fail: if the
+ * list loaded, the names are on it, and if it did not, the panel's own
+ * `LoadError` above is the answer.
  */
-function TeamMembers({ slug, teamSlug, count }: { slug: string; teamSlug: string; count: number }) {
+function TeamMembers({ members }: { members: TeamSummary['members'] }) {
   const t = useT();
-  const detail = useQuery({
-    queryKey: ['org-team', slug, teamSlug],
-    queryFn: async () => {
-      const result = await api.GET('/orgs/{slug}/teams/{teamSlug}', {
-        params: { path: { slug, teamSlug } },
-      });
-      return read(result, t('teams.membersError'));
-    },
-  });
-  // The COUNT is real either way — it arrived with the summary row — so it
-  // stays. What `?? null` cost was the difference between "still loading"
-  // and "asked, and never answered", which are the same picture and
-  // different facts.
-  if (detail.isError) {
-    return (
-      <span className="muted">
-        {t('teams.memberCount', { n: count })} · {t('teams.membersError')}
-      </span>
-    );
-  }
-  if (!detail.data) return <span className="muted">{t('teams.memberCount', { n: count })}</span>;
+  if (members.length === 0) return <span className="muted">{t('teams.noMembers')}</span>;
   return (
     <>
-      {detail.data.members.map((member, index) => (
+      {members.map((member, index) => (
         <span key={member.username}>
           {index > 0 ? ', ' : ''}
           <Link to="/users/$username" params={{ username: member.username }}>
@@ -267,9 +257,6 @@ function TeamMembers({ slug, teamSlug, count }: { slug: string; teamSlug: string
           </Link>
         </span>
       ))}
-      {detail.data.members.length === 0 ? (
-        <span className="muted">{t('teams.noMembers')}</span>
-      ) : null}
     </>
   );
 }

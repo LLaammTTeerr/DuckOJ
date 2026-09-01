@@ -27110,6 +27110,29 @@
                           "memberCount": {
                             "type": "integer"
                           },
+                          "members": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "username": {
+                                  "type": "string"
+                                },
+                                "displayName": {
+                                  "type": "string"
+                                },
+                                "joinedAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              },
+                              "required": [
+                                "username",
+                                "displayName",
+                                "joinedAt"
+                              ]
+                            }
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
@@ -27124,6 +27147,7 @@
                           "orgSlug",
                           "orgName",
                           "memberCount",
+                          "members",
                           "createdAt",
                           "inRunningContest"
                         ]
@@ -27310,13 +27334,6 @@
                     "memberCount": {
                       "type": "integer"
                     },
-                    "createdAt": {
-                      "type": "string",
-                      "format": "date-time"
-                    },
-                    "inRunningContest": {
-                      "type": "boolean"
-                    },
                     "members": {
                       "type": "array",
                       "items": {
@@ -27339,6 +27356,13 @@
                           "joinedAt"
                         ]
                       }
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "inRunningContest": {
+                      "type": "boolean"
                     },
                     "contests": {
                       "type": "array",
@@ -27396,9 +27420,9 @@
                     "orgSlug",
                     "orgName",
                     "memberCount",
+                    "members",
                     "createdAt",
                     "inRunningContest",
-                    "members",
                     "contests",
                     "canEdit",
                     "version"
@@ -27683,13 +27707,6 @@
                     "memberCount": {
                       "type": "integer"
                     },
-                    "createdAt": {
-                      "type": "string",
-                      "format": "date-time"
-                    },
-                    "inRunningContest": {
-                      "type": "boolean"
-                    },
                     "members": {
                       "type": "array",
                       "items": {
@@ -27712,6 +27729,13 @@
                           "joinedAt"
                         ]
                       }
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "inRunningContest": {
+                      "type": "boolean"
                     },
                     "contests": {
                       "type": "array",
@@ -27769,9 +27793,9 @@
                     "orgSlug",
                     "orgName",
                     "memberCount",
+                    "members",
                     "createdAt",
                     "inRunningContest",
-                    "members",
                     "contests",
                     "canEdit",
                     "version"
@@ -27952,13 +27976,6 @@
                     "memberCount": {
                       "type": "integer"
                     },
-                    "createdAt": {
-                      "type": "string",
-                      "format": "date-time"
-                    },
-                    "inRunningContest": {
-                      "type": "boolean"
-                    },
                     "members": {
                       "type": "array",
                       "items": {
@@ -27981,6 +27998,13 @@
                           "joinedAt"
                         ]
                       }
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "inRunningContest": {
+                      "type": "boolean"
                     },
                     "contests": {
                       "type": "array",
@@ -28038,9 +28062,9 @@
                     "orgSlug",
                     "orgName",
                     "memberCount",
+                    "members",
                     "createdAt",
                     "inRunningContest",
-                    "members",
                     "contests",
                     "canEdit",
                     "version"
@@ -28533,6 +28557,29 @@
                           "memberCount": {
                             "type": "integer"
                           },
+                          "members": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "username": {
+                                  "type": "string"
+                                },
+                                "displayName": {
+                                  "type": "string"
+                                },
+                                "joinedAt": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              },
+                              "required": [
+                                "username",
+                                "displayName",
+                                "joinedAt"
+                              ]
+                            }
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
@@ -28568,6 +28615,7 @@
                           "orgSlug",
                           "orgName",
                           "memberCount",
+                          "members",
                           "createdAt",
                           "inRunningContest",
                           "eligible",

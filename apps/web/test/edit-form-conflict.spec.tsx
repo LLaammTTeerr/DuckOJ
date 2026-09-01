@@ -485,6 +485,11 @@ describe('the team form while a co-admin is saving (D176)', () => {
                 orgSlug: 'thpt',
                 orgName: 'THPT',
                 memberCount: 2,
+                // Carried on the summary since D182.
+                members: [
+                  { username: 'an', displayName: 'An', joinedAt: '2026-01-01T00:00:00Z' },
+                  { username: 'binh', displayName: 'Bình', joinedAt: '2026-01-01T00:00:00Z' },
+                ],
                 createdAt: '2026-01-01T00:00:00Z',
                 inRunningContest: false,
               },

@@ -59,7 +59,34 @@ export const TeamSummary = z.object({
   name: z.string(),
   orgSlug: z.string(),
   orgName: z.string(),
+  /**
+   * How many people are on it.
+   *
+   * Derivable from `members` below since D182 and kept anyway: it is what the
+   * eligibility check compares against a contest's `maxTeamSize`, it is what a
+   * caller counting rosters reads, and removing a served field is a breaking
+   * change that buys back one integer per row.
+   */
   memberCount: z.number().int(),
+  /**
+   * The people on it — **on the SUMMARY since D182**, not only on the detail.
+   *
+   * This used to be detail-only, and the web panel's comment argued that
+   * widening it "would make a page of twenty teams a page of sixty usernames
+   * nobody asked for". F-49 measured the panel and the comment was wrong on
+   * its own terms: the panel asked for every one of those sixty usernames,
+   * one HTTP request per row. One screen of twenty-five teams cost 26
+   * requests and 181 statements, ≈20 ms of database time, against ONE
+   * statement at 0.175 ms for every roster on the page — and each of those 25
+   * detail responses also shipped a `contests` array and a D176 `version`
+   * token the panel threw away, so the N+1 moved MORE bytes than the widening
+   * does.
+   *
+   * The page size is what bounds it: at most `limit` rosters, each at most
+   * `TEAM_MAX_MEMBERS`, which is the ceiling `memberCount` was already
+   * promising to stay under.
+   */
+  members: z.array(TeamMember),
   createdAt: Timestamp,
   /**
    * This team is entered in a contest that is running RIGHT NOW (D99 as
@@ -105,7 +132,9 @@ export const TeamContestEntry = z.object({
 export type TeamContestEntryDto = z.infer<typeof TeamContestEntry>;
 
 export const TeamDetail = TeamSummary.extend({
-  members: z.array(TeamMember),
+  // `members` is INHERITED from `TeamSummary` since D182. It used to be added
+  // here, which is what made the summary a count and the detail the names —
+  // and the panel an N+1.
   /** Every contest this team has entered, newest first. */
   contests: z.array(TeamContestEntry),
   /**

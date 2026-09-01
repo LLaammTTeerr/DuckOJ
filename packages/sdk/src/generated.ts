@@ -12587,6 +12587,12 @@ export interface paths {
                                 orgSlug: string;
                                 orgName: string;
                                 memberCount: number;
+                                members: {
+                                    username: string;
+                                    displayName: string;
+                                    /** Format: date-time */
+                                    joinedAt: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 inRunningContest: boolean;
@@ -12674,15 +12680,15 @@ export interface paths {
                             orgSlug: string;
                             orgName: string;
                             memberCount: number;
-                            /** Format: date-time */
-                            createdAt: string;
-                            inRunningContest: boolean;
                             members: {
                                 username: string;
                                 displayName: string;
                                 /** Format: date-time */
                                 joinedAt: string;
                             }[];
+                            /** Format: date-time */
+                            createdAt: string;
+                            inRunningContest: boolean;
                             contests: {
                                 key: string;
                                 name: string;
@@ -12842,15 +12848,15 @@ export interface paths {
                             orgSlug: string;
                             orgName: string;
                             memberCount: number;
-                            /** Format: date-time */
-                            createdAt: string;
-                            inRunningContest: boolean;
                             members: {
                                 username: string;
                                 displayName: string;
                                 /** Format: date-time */
                                 joinedAt: string;
                             }[];
+                            /** Format: date-time */
+                            createdAt: string;
+                            inRunningContest: boolean;
                             contests: {
                                 key: string;
                                 name: string;
@@ -13055,15 +13061,15 @@ export interface paths {
                             orgSlug: string;
                             orgName: string;
                             memberCount: number;
-                            /** Format: date-time */
-                            createdAt: string;
-                            inRunningContest: boolean;
                             members: {
                                 username: string;
                                 displayName: string;
                                 /** Format: date-time */
                                 joinedAt: string;
                             }[];
+                            /** Format: date-time */
+                            createdAt: string;
+                            inRunningContest: boolean;
                             contests: {
                                 key: string;
                                 name: string;
@@ -13219,6 +13225,12 @@ export interface paths {
                                 orgSlug: string;
                                 orgName: string;
                                 memberCount: number;
+                                members: {
+                                    username: string;
+                                    displayName: string;
+                                    /** Format: date-time */
+                                    joinedAt: string;
+                                }[];
                                 /** Format: date-time */
                                 createdAt: string;
                                 inRunningContest: boolean;

@@ -156,6 +156,47 @@ describe('GET /orgs/{slug}/teams — newest first, walked whole (D177)', () => {
     });
   });
 
+  /**
+   * D182 — the page carries every roster on it, so the panel needs no second
+   * request per row.
+   *
+   * The N+1 this removes, measured by F-49: one screen of twenty-five teams
+   * was 26 HTTP requests and 181 statements (≈20 ms), each detail
+   * re-resolving the session and re-running the org visibility gate before it
+   * answered — against ONE statement at 0.175 ms for every roster on the
+   * page. `memberCount` is now derived from the array rather than counted
+   * separately, which is what makes the two incapable of disagreeing.
+   */
+  it('carries every roster on the page, and a count that agrees with it', async () => {
+    await withTestDb(async (db) => {
+      const app = await buildApp(db);
+      try {
+        const teacher = await seedSchool(app, db);
+        const made = await teacher
+          .post(`/api/v1/orgs/${SLUG}/teams`)
+          .send({ slug: 'doi-co-nguoi', name: 'Đội có người', members: ['nhieu-doi-teacher'] });
+        expect(made.status, JSON.stringify(made.body)).toBe(201);
+
+        const page = await teacher.get(`/api/v1/orgs/${SLUG}/teams`);
+        expect(page.status).toBe(200);
+        const rows = page.body.items as { slug: string; memberCount: number; members: unknown[] }[];
+        // EVERY row, not just the one with a member on it: a summary that
+        // carries the array for some rows and not others is the same N+1 with
+        // a harder-to-find edge.
+        for (const row of rows) {
+          expect(Array.isArray(row.members), `${row.slug} has no roster`).toBe(true);
+          expect(row.members).toHaveLength(row.memberCount);
+        }
+        const seeded = rows.find((row) => row.slug === 'doi-co-nguoi');
+        expect(seeded?.members).toEqual([
+          expect.objectContaining({ username: 'nhieu-doi-teacher' }),
+        ]);
+      } finally {
+        await app.close();
+      }
+    });
+  });
+
   it('walks the same rows at a page size the caller chose', async () => {
     await withTestDb(async (db) => {
       const app = await buildApp(db);

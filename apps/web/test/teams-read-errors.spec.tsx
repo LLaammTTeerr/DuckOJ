@@ -51,6 +51,10 @@ function summary(over: Record<string, unknown> = {}) {
     orgSlug: 'thpt',
     orgName: 'THPT Chuyên',
     memberCount: 2,
+    members: [
+      { username: 'an', displayName: 'An', joinedAt: '' },
+      { username: 'binh', displayName: 'Bình', joinedAt: '' },
+    ],
     createdAt: '',
     inRunningContest: false,
     ...over,
@@ -76,7 +80,15 @@ describe('the org teams panel', () => {
     expect(screen.queryByText('Chưa có đội nào.')).toBeNull();
   });
 
-  it('marks a row whose members could not be read, instead of showing only the count', async () => {
+  /**
+   * D182 replaced this case. There used to be a per-row `GET
+   * /orgs/{slug}/teams/{teamSlug}` behind every roster on the panel, and this
+   * test pinned what a row said when that request failed on its own — a
+   * failure mode that now cannot happen, because the names ride on the
+   * summary. What is asserted instead is the property that removed it: the
+   * panel renders a roster having made NO request for it.
+   */
+  it('prints a roster without asking a second time for it', async () => {
     get.mockImplementation((path: string) => {
       if (path === '/auth/me') return Promise.resolve({ data: ME });
       if (path === '/orgs/{slug}/teams')
@@ -85,9 +97,13 @@ describe('the org teams panel', () => {
     });
     wrap(<OrgTeams slug="thpt" canManage />);
 
-    // The count is real — it came with the summary — so it stays; what must
-    // not stay is the impression that the names are simply still loading.
-    expect(await screen.findByText(/không đọc được thành viên/)).toBeTruthy();
+    expect(await screen.findByRole('link', { name: 'an' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'binh' })).toBeTruthy();
+    // The N+1, said as an assertion: one list request, and no detail request
+    // behind the row. Twenty-five rows used to mean twenty-five of these.
+    expect(
+      get.mock.calls.filter((call) => call[0] === '/orgs/{slug}/teams/{teamSlug}'),
+    ).toHaveLength(0);
   });
 
   it('refuses to open an edit form on a roster it could not load', async () => {

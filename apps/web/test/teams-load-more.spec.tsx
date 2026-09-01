@@ -48,6 +48,9 @@ function summary(slug: string) {
     orgSlug: 'thpt',
     orgName: 'THPT Chuyên',
     memberCount: 3,
+    // Carried on the SUMMARY since D182 — the panel used to fetch these one
+    // HTTP request per row.
+    members: [{ username: 'an', displayName: 'An', joinedAt: '' }],
     createdAt: '',
     inRunningContest: false,
   };

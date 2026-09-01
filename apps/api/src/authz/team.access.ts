@@ -143,13 +143,20 @@ export class TeamAccessService {
       .limit(page.limit + 1);
 
     const kept = rows.slice(0, page.limit);
-    const counts = await this.memberCounts(kept.map((row) => row.id));
+    // D182 — ONE query for every roster on the page, where the panel used to
+    // fire `GET /orgs/{slug}/teams/{teamSlug}` per row to print the names: 25
+    // extra HTTP requests, each re-resolving the session and re-running the
+    // visibility gate, 181 statements and ≈20 ms against one statement at
+    // 0.175 ms. `memberCount` is now derived from what was fetched rather
+    // than counted separately, so the widening costs no extra query at all —
+    // it REPLACES `memberCounts` here.
+    const rosters = await this.membersByTeam(kept.map((row) => row.id));
     const locked = await this.teamsInRunningContest(kept.map((row) => row.id));
     return {
       items: kept.map((row) =>
         toSummary(
           { ...row, orgSlug: org.slug, orgName: org.name },
-          counts.get(row.id) ?? 0,
+          rosters.get(row.id) ?? [],
           locked.has(row.id),
         ),
       ),
@@ -184,7 +191,12 @@ export class TeamAccessService {
 
     const kept = rows.slice(0, MY_TEAMS_LIMIT);
     const ids = kept.map((row) => row.id);
-    const counts = await this.memberCounts(ids);
+    // D182: the rosters, not just the counts — `MyTeamSummary` extends
+    // `TeamSummary`, so it carries `members` too. Bounded by
+    // `MY_TEAMS_LIMIT`, which is why this route was never the N+1 the org
+    // panel was.
+    const rosters = await this.membersByTeam(ids);
+    const counts = new Map([...rosters].map(([id, members]) => [id, members.length]));
     const locked = await this.teamsInRunningContest(ids);
     const eligibility = query.contest
       ? await this.eligibilityFor(actor, query.contest, kept, counts)
@@ -194,7 +206,7 @@ export class TeamAccessService {
       items: kept.map((row): MyTeamSummaryDto => {
         const verdict = eligibility.get(row.id);
         return {
-          ...toSummary(row, counts.get(row.id) ?? 0, locked.has(row.id)),
+          ...toSummary(row, rosters.get(row.id) ?? [], locked.has(row.id)),
           // BOTH null without a `?contest=`: "may this team enter" has no
           // answer without a contest, and `true` would make a picker that
           // forgot the parameter look like it worked.
@@ -802,15 +814,43 @@ export class TeamAccessService {
       .orderBy(asc(schema.users.username));
   }
 
-  /** One query for a whole page, never one per row. */
-  private async memberCounts(teamIds: number[]): Promise<Map<number, number>> {
+  /**
+   * Every roster on a page, in ONE query — never one per row (D182).
+   *
+   * This replaced `memberCounts`, which issued the same `IN` over the same
+   * index and answered `count(*)` instead of the rows. The count is now
+   * `members.length`, so a page costs the same one statement it always did
+   * and the twenty-five detail requests the panel used to make for the names
+   * are gone entirely.
+   *
+   * Ordered by `(team_id, username)` so a roster reads the same way it does
+   * on a team's own page — `membersOf` sorts by username too, and two orders
+   * for one list is how a teacher comes to believe a pupil moved.
+   */
+  private async membersByTeam(teamIds: number[]): Promise<Map<number, TeamMemberDto[]>> {
     if (teamIds.length === 0) return new Map();
     const rows = await this.db
-      .select({ teamId: teamMembers.teamId, count: sql<number>`count(*)::int` })
+      .select({
+        teamId: teamMembers.teamId,
+        username: schema.users.username,
+        displayName: schema.users.displayName,
+        joinedAt: teamMembers.joinedAt,
+      })
       .from(teamMembers)
+      .innerJoin(schema.users, eq(schema.users.id, teamMembers.userId))
       .where(inArray(teamMembers.teamId, teamIds))
-      .groupBy(teamMembers.teamId);
-    return new Map(rows.map((row) => [row.teamId, row.count]));
+      .orderBy(asc(teamMembers.teamId), asc(schema.users.username));
+    const byTeam = new Map<number, TeamMemberDto[]>();
+    for (const row of rows) {
+      const list = byTeam.get(row.teamId) ?? [];
+      list.push({
+        username: row.username,
+        displayName: row.displayName,
+        joinedAt: row.joinedAt.toISOString(),
+      });
+      byTeam.set(row.teamId, list);
+    }
+    return byTeam;
   }
 }
 
@@ -830,9 +870,13 @@ function teamNotFound(): AppError {
   return new AppError(404, 'team_not_found', 'No such team.');
 }
 
+/**
+ * `members` rather than a count since D182, and `memberCount` derived from it
+ * — one source for both, so the two can never disagree about a team.
+ */
 function toSummary(
   team: TeamRow,
-  memberCount: number,
+  members: TeamMemberDto[],
   inRunningContest: boolean,
 ): TeamSummaryDto {
   return {
@@ -840,7 +884,8 @@ function toSummary(
     name: team.name,
     orgSlug: team.orgSlug,
     orgName: team.orgName,
-    memberCount,
+    memberCount: members.length,
+    members,
     createdAt: team.createdAt.toISOString(),
     inRunningContest,
   };
@@ -865,8 +910,10 @@ function toDetail(
     joinedAt: member.joinedAt.toISOString(),
   }));
   return {
-    ...toSummary(team, items.length, contests.some((entry) => entry.running)),
-    members: items,
+    // `members` comes from the summary since D182 — it is the same array, and
+    // spreading it once is what makes `memberCount` and the roster incapable
+    // of disagreeing.
+    ...toSummary(team, items, contests.some((entry) => entry.running)),
     contests,
     canEdit,
     version,

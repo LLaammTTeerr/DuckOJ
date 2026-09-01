@@ -75,6 +75,13 @@ describe('the teams panel after a roster edit', () => {
                 orgSlug: 'thpt',
                 orgName: 'THPT Chuyên',
                 memberCount: members.length,
+                // The names ride on the SUMMARY since D182, so the list
+                // invalidation is what puts a newly added pupil on screen.
+                members: members.map((username) => ({
+                  username,
+                  displayName: username,
+                  joinedAt: '',
+                })),
                 createdAt: '',
                 inRunningContest: false,
               },
@@ -136,6 +143,13 @@ describe('the teams panel after a roster edit', () => {
                 orgSlug: 'thpt',
                 orgName: 'THPT Chuyên',
                 memberCount: members.length,
+                // The names ride on the SUMMARY since D182, so the list
+                // invalidation is what puts a newly added pupil on screen.
+                members: members.map((username) => ({
+                  username,
+                  displayName: username,
+                  joinedAt: '',
+                })),
                 createdAt: '',
                 inRunningContest: false,
               },

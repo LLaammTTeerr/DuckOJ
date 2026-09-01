@@ -53,6 +53,9 @@ function summary(over: Record<string, unknown> = {}) {
     orgSlug: 'thpt',
     orgName: 'THPT Chuyên',
     memberCount: 2,
+    // On the SUMMARY since D182 — `detail()` below inherits it rather than
+    // adding it, exactly as `TeamDetail` inherits it from `TeamSummary`.
+    members: [{ username: 'anh', displayName: 'Anh', joinedAt: '' }],
     createdAt: '',
     inRunningContest: false,
     ...over,
@@ -62,7 +65,6 @@ function summary(over: Record<string, unknown> = {}) {
 function detail(over: Record<string, unknown> = {}) {
   return {
     ...summary(),
-    members: [{ username: 'anh', displayName: 'Anh', joinedAt: '' }],
     contests: [],
     canEdit: true,
     ...over,
