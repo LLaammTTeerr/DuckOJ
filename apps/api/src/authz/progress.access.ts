@@ -274,6 +274,20 @@ export class ProgressService {
    * worked — and a submission at 06:00 ICT would land on the previous day
    * for half the readers. The zone travels with the answer so the client
    * cannot re-bucket it by accident.
+   *
+   * **The `problems` join is JOINED ONLY WHEN IT FILTERS (D164).** On the
+   * public route it carries `visibility = 'public'`, which is §3/§4's rule
+   * and cannot be dropped. On your own page there is no predicate on
+   * `problems` at all, and `submissions.problem_id` is `NOT NULL` with a
+   * foreign key to `problems.id` — a primary key — so the join can neither
+   * remove a row nor duplicate one. It is semantically free and was costing
+   * the whole query its index: with the join present the planner has to
+   * visit the heap for `problem_id`, so the calendar read a hundred heap
+   * blocks and then probed `problems_pkey` once per submission (305 buffers
+   * on a province-shaped database). Without it, `user_id` and `created_at`
+   * are the only columns the statement mentions and
+   * `submissions_user_created_idx` answers it as an **Index Only Scan with
+   * `Heap Fetches: 0` — 10 buffers** (F-44, measured at 200 880 rows).
    */
   private async heatmap(
     subject: { id: number; timezone: string },
@@ -282,17 +296,21 @@ export class ProgressService {
     const to = todayIn(subject.timezone, new Date());
     const from = addDays(to, -(HEATMAP_DAYS - 1));
     const day = sql<string>`to_char((${submissions.createdAt} at time zone ${subject.timezone}::text)::date, 'YYYY-MM-DD')`;
-    const rows = await this.db
-      .select({ date: day, count: sql<number>`count(*)::int` })
-      .from(submissions)
-      .innerJoin(problems, eq(problems.id, submissions.problemId))
+    const base = this.db.select({ date: day, count: sql<number>`count(*)::int` }).from(submissions);
+    const rows = await (publicOnly
+      ? base.innerJoin(problems, eq(problems.id, submissions.problemId))
+      : base
+    )
       .where(
         and(
           eq(submissions.userId, subject.id),
           publicOnly ? eq(problems.visibility, 'public') : undefined,
           // A sargable bound as well as the exact one: a day either side
           // covers every zone offset, and it is the clause that can use
-          // `submissions`' indexes instead of scanning a lifetime.
+          // `submissions`' indexes instead of scanning a lifetime. The
+          // `between` beside it is NOT sargable and is not meant to be — it
+          // is the exact edge of the calendar, applied as a filter to the
+          // handful of rows the bound above already narrowed the read to.
           gte(submissions.createdAt, new Date(Date.parse(`${from}T00:00:00Z`) - DAY_MS)),
           sql`${day} between ${from} and ${to}`,
         ),
