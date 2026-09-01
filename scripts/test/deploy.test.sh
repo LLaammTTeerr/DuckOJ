@@ -249,6 +249,24 @@ printf '%s\n' "0000000000000000000000000000000000000000" >"$WORK/deploystate/las
 run_deploy api
 check "D4 a marker this repo does not have means migrate" compose_log_has "up --no-deps --force-recreate migrate"
 
+# D4b — a run that deliberately did not migrate must not claim it did.
+# On 2026-09-01 `SKIP_MIGRATE=1 deploy.sh judge` wrote the marker anyway, and
+# the next deploy at the same commit compared migrations against it, found
+# nothing changed, and skipped 0046 permanently: seven executors announced by
+# the judge, five language rows served by the API. Production sat one
+# migration short exactly the way D131 describes, reached through the deploy
+# tool instead of the journal.
+reset_state
+SKIP_MIGRATE=1 run_deploy api
+if compose_log_has "up --no-deps --force-recreate migrate"; then
+  notok "D4b SKIP_MIGRATE=1 does not migrate"
+else
+  ok "D4b SKIP_MIGRATE=1 does not migrate"
+fi
+check "D4b SKIP_MIGRATE=1 leaves no marker behind" test ! -f "$WORK/deploystate/last-deploy"
+run_deploy api
+check "D4b so the next ordinary deploy still migrates" compose_log_has "up --no-deps --force-recreate migrate"
+
 # ===========================================================================
 echo "# --- D5: never healthy -> rollback"
 reset_state

@@ -8176,3 +8176,42 @@ a non-public main class.
 Cost if wrong: one `if` and one template string. Tests:
 `apps/web/test/editor.spec.tsx` pins the mode, the starter's `{$H+}` and the
 fact that an unknown key still gets nothing.*
+
+## D171 — A deploy that did not migrate does not write the marker
+
+`scripts/deploy.sh` decides whether to migrate by comparing
+`packages/db/migrations` against the commit named in `.deploy/last-deploy`.
+The marker therefore means one thing: **migrations up to this commit have been
+applied.**
+
+On 2026-09-01, deploying F-46 (Pascal and Java), the controller ran
+`SKIP_MIGRATE=1 scripts/deploy.sh judge` first, deliberately: the judge had to
+announce the `PAS` and `JAVA` executors *before* migration 0046 seeded the
+language rows naming them, so that no pupil could submit in a language no
+judge could take. That ordering was right.
+
+The marker was written anyway. The very next command,
+`scripts/deploy.sh api judged`, ran at the **same commit**, compared
+`packages/db/migrations` against a marker that already named it, found nothing
+changed, and skipped 0046 — not once, but **permanently**, because every later
+deploy would make the same comparison. The judge announced seven languages and
+`GET /languages` served five. Nothing failed. No log said anything. It was
+found by reading the two lists side by side.
+
+That is **D131 exactly** — production one migration short, with no mechanism
+that would ever notice — reached through the deploy tool instead of the
+drizzle journal. D133 taught the migrator to refuse to lie about the journal;
+this teaches the deployer to refuse to lie about the marker.
+
+- **`SKIP_MIGRATE=1` writes no marker.** The next ordinary deploy then still
+  sees the migrations as unapplied and runs them. A skipped migration stays
+  visible instead of becoming permanent.
+- **The recovery is `FORCE_MIGRATE=1`**, which is what applied 0046 here.
+- `scripts/test/deploy.test.sh` case **D4b** pins all three halves: the skip
+  happens, the marker is absent afterwards, and the following deploy migrates.
+  Demonstrated red against the unfixed script — `not ok - D4b SKIP_MIGRATE=1
+  leaves no marker behind`.
+
+*Cost if wrong: an extra no-op migrate container on the deploy after any
+skipped one, which the journal makes idempotent. The failure it prevents is a
+province running a schema its code does not match, silently.*

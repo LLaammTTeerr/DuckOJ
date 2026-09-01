@@ -394,6 +394,24 @@ if [ -n "$last_reason" ]; then
 fi
 
 mkdir -p "$DEPLOY_STATE_DIR"
-printf '%s\n' "$HEAD_SHA" > "$MARKER"
 say "deployed [$SERVICES] at $HEAD_SHA — healthy, $PROBE_URL answered 200, api log quiet"
-say "marker written to $MARKER"
+
+# The marker means "migrations up to this commit HAVE BEEN APPLIED", so a run
+# that deliberately did not migrate must not write it. On 2026-09-01 a
+# `SKIP_MIGRATE=1 deploy.sh judge` — correct in itself, to get the new
+# executors announced before the rows naming them existed — wrote the marker
+# anyway. The very next `deploy.sh api judged`, at the same commit, compared
+# migrations against that marker, found nothing changed, and skipped 0046
+# **permanently**: the languages were seeded on no host, the API served five
+# rows while the judge announced seven, and only a hand check found it.
+#
+# That is D131 exactly — production sat one migration short and drizzle would
+# never have noticed — arrived at through the deploy tool instead of the
+# journal. A marker that records a deploy which did not migrate is a marker
+# that lies, so it is not written.
+if [ "${SKIP_MIGRATE:-0}" = "1" ]; then
+  say "SKIP_MIGRATE=1 — marker NOT written, so the next deploy still migrates"
+else
+  printf '%s\n' "$HEAD_SHA" > "$MARKER"
+  say "marker written to $MARKER"
+fi
