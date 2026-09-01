@@ -7365,3 +7365,217 @@ removable without a migration. Nothing about the grading path changed — no
 state machine, no sweeper, no new column — and the unreachability of the
 condition on the current fleet is why it is covered by a spec rather than by a
 live probe.*
+
+## D161 — Two teachers, one problem: the server refuses the second write, and the form says which version it lost
+
+B-31 fixed the half of the seed-once defect where the stale value was **your
+own**: a setter saved, left the form, came back inside `gcTime`, and was
+prefilled from the entry their own save had left stale. It recorded, and could
+not fix without a ruling, the half with two people in it.
+
+**The case.** Teacher A opens `/problems/abc/edit`. Teacher B saves a rewritten
+statement. Teacher A fixes a typo in the *name* and presses Lưu. The PATCH body
+carries every field, because both these forms **replace** rather than merge, and
+the statement in it is the copy A's form has been holding since before B saved.
+B's rewrite is gone. No request failed. Nobody was told. The system held both
+versions and threw one away.
+
+The same shape on `contest-edit`, where the field at risk is `problems` — the
+all-or-nothing one that file's own `ProblemRow` comment calls out. An organiser
+who removes a problem, then a co-organiser who adjusts the freeze, has put the
+problem back into a round.
+
+### The two answers, and why only one of them is a guarantee
+
+**A — reseed an undirty form when fresh data arrives.** Both files already have
+the machinery: a `seed` fingerprint and D147's dirty comparison against it. When
+the query delivers a newer copy and the form is untouched, take it.
+
+It fixes the common case and it cannot fix the case that matters. "Undirty" is
+exactly "this teacher has typed nothing", and the teacher who loses work is the
+one who *has* typed: a dirty form must never be reseeded — that would be the
+same data loss with the victims swapped — so the moment A has changed the name,
+A is back to holding a stale statement with nothing on screen. It also depends
+on a refetch happening at all. A form that stays mounted with the window
+focused may never see B's write.
+
+**B — an optimistic-concurrency check at the API.** The PATCH carries the
+version of the state the form was seeded from; the server compares it against
+what is stored; a mismatch is refused with 409 and nothing is written.
+
+This is the one that satisfies the requirement the slot was opened for — *a
+teacher must never lose work without being told* — because it does not depend
+on what the client noticed, when it refetched, or whether it is this app at
+all. A `curl` in a shell script gets the same protection.
+
+**The ruling is B, and A is adopted as well.** Not as an alternative: A is what
+keeps B's refusal rare. Without it, every second teacher to open a form after
+anyone else's save is refused on their first attempt, and a conflict a teacher
+meets routinely is a conflict they learn to click through. With it, the 409 is
+reserved for the case that genuinely cannot be resolved without a human: two
+people holding different unsaved edits to one thing.
+
+### The token is a content hash of the stored editable state
+
+Three shapes were available.
+
+**A version column** (`problems.version`, `contests.version`, bumped in the two
+PATCH paths) is the textbook answer and was rejected on two counts. It needs a
+migration — the live stack is production at 0043, and a schema change is a
+deploy-ordering hazard this defect does not need. And its correctness is a
+*discipline*, not a constraint: it is right only for as long as every future
+writer of those tables remembers whether to bump it. `problems` is written by
+the revision publish path (`current_revision_id`), by the language-limits PUT's
+sibling table, and by the admin rate toggle on contests — none of which the
+edit form owns, and each of which would manufacture a conflict for a teacher
+who changed nothing, or fail to raise one, depending on which way the next
+author guessed.
+
+**A hash of the detail DTO** is wrong for a reason worth writing down, because
+it is the shape that looks cheapest: **that DTO is viewer-dependent.** D35
+blanks `tags` and `difficulty` for a viewer sitting a running contest that uses
+the problem. `loadMembersAndOrgs` withholds `orgSlugs` from a viewer who may not
+edit. And `ContestDetail.problems` is empty before the start for everyone who
+does not run the contest, and populates *at the start instant with no edit at
+all*. A token over that would differ between two people who may both edit the
+same thing, and would move on a clock. It would refuse saves nobody could
+explain.
+
+**What is ruled: a SHA-256 over the stored editable columns, read in one
+query, identical for every caller.** For a problem: `name`, `statement`,
+`visibility`, `sourceAccess`, `difficulty`, `editorial`, whether the editorial
+is published, and the tag / org / member sets in a sorted order. For a contest:
+`name`, both instants, `format`, `formatConfig`, `pointsPrecision`,
+`frozenLastMinutes`, `timeLimitSeconds`, `visibility`, `participationMode`,
+`maxTeamSize`, the org set and the problem list with its labels, points and
+ordering. That list is exactly `UpdateProblemRequest` and
+`UpdateContestRequest` — the token is over what the PATCH can write and over
+nothing else, which is what makes "the state I was shown" and "the state I am
+about to replace" the same sentence.
+
+Being a **content** hash rather than a counter buys one thing a counter cannot:
+two writes that produce the same state do not conflict. A double-submitted
+form, a retried request, an organiser who opens the form and saves it back
+unchanged — none of them refuses anybody. And a write that moves something
+outside the list, a published revision above all, moves nothing here, so the
+setter who publishes a corrected test set does not lock the co-author out of
+the statement.
+
+**Served only to a caller who may edit** — `version: string | null`, on
+`ContestDetail.canEdit`'s precedent. A reader who cannot PATCH has no use for
+it, and the field costs one extra query, which no pupil reading a statement
+should pay.
+
+### `expectedVersion` is optional on the wire, and the forms always send it
+
+Absent means unchecked. That is deliberate and it is the honest weak point of
+this ruling: the API is a documented surface with personal access tokens behind
+it, an import script writes problems, and refusing every PATCH that did not
+first read a detail would break automation that never had this problem. What
+the rule actually says is **"a client that tells me what it thinks it is
+overwriting will not be allowed to overwrite something else"**, and both edit
+forms tell it, on every save, from the value they were seeded with.
+
+### Checked under the row's own lock, inside the transaction that writes
+
+The token is recomputed inside the update transaction, after a `SELECT … FOR
+UPDATE` on the parent row, and compared there. Read outside, it is a read of a
+state that may not hold by the time the write lands — two teachers pressing Lưu
+in the same second would both see their own version confirmed and one would
+still be lost, which is the entire defect with a smaller window.
+`ContestClarificationsService.answer` locks for the same reason and says so; so
+does `OrgAccessService.decideRequest`.
+
+### 409, and a form failure that looks like the others
+
+`problem_version_conflict` / `contest_version_conflict`, 409 rather than 422:
+nothing about the request is malformed, and the contest route already answers
+409 for `contest_started`, which is the same kind of "the world moved" refusal.
+
+On the client it is rendered in the house shape — D110's focusable summary,
+D146's field attribution where the server offers it, D148's button that says
+what it is doing — with one addition: **an explicit "load the newer version"
+button, never an automatic reload.** A conflict is by definition a form holding
+work, and a page that silently replaced it with somebody else's copy would be
+the very loss this decision exists to forbid. The teacher chooses, and until
+they choose, everything they typed is still on screen and still copyable.
+
+The undirty reseed of clause A is **announced**, not silent: a line saying the
+record was changed elsewhere and the form now shows the newer version. Nothing
+was lost, and saying so is what stops a teacher who looks away for a minute
+from concluding the site ate their draft.
+
+### What this costs when it is wrong
+
+**It is coarse, and there is no merge.** The token is over the whole editable
+object, so a teacher who changed only the name is refused because somebody else
+changed the statement, and the remedy is to load the newer version and retype
+the name. Field-level three-way merging is a much larger feature with its own
+failure modes, and refusing a write is a recoverable outcome where losing one
+is not.
+
+**The hash cannot say what changed.** The refusal names the conflict, not the
+field. Answering that properly needs the pre-image, which means storing history
+these two tables do not have.
+
+**One extra query per editor's detail read**, on two routes an editor opens by
+hand.
+
+**And a client that does not send the token is exactly as exposed as before.**
+That is the price of not breaking every script, and it is why the *forms* are
+required to send it rather than merely allowed to.
+
+*Ruled by the implementer during the F-43 slot, no human available to consult.
+Reversible without a migration in either direction — it adds no column, and
+dropping it is deleting a field from two schemas and a check from two services.
+The alternative it rejects, a version column, remains available if a later
+feature needs a monotonic number for something else; nothing here forecloses
+it.*
+
+## D162 — What busts the monitor's snapshot, and what is allowed to ride its TTL
+
+`monitorCacheKey` carried a comment saying there was no invalidation and
+explaining why it was safe: *"every write that would change this snapshot is a
+submission or a verdict, and the API does not handle the verdict at all"*.
+
+**It was false when it was written.** The snapshot carries a clarifications
+panel — the questions nobody has answered, counted and listed — and every write
+to `contest_clarifications` is handled by this process. So a teacher answered a
+question during a live round and the monitor, the screen they had open
+*because* the round was running, kept the answered question in its "nobody has
+answered these" list until a five-second TTL nobody could see expired. B-31
+found the sentence; this decision is the rule that replaces it.
+
+**The rule: a clarification write deletes the key.** All three writers —
+`ask`, `announce`, `answer` — unconditionally, after their transaction has
+committed.
+
+- **After the commit, not inside it.** A delete issued inside the transaction
+  is a delete a concurrent read can race: the reader folds the pre-commit
+  state into the key that was just emptied and pins the stale answer there for
+  a whole TTL. `RejudgeService`'s scoreboard invalidation is the precedent.
+- **Unconditionally, `announce` included**, whose row the panel's `answer is
+  null` predicate excludes today. That predicate lives in a different file, and
+  a rule that needs cross-file reasoning to stay correct is precisely the rule
+  that just failed here. One `DEL` per announcement is not a price worth
+  reasoning about.
+
+**What is allowed to ride the 5 s TTL, and why each one is.**
+
+| Write | Rides the TTL because |
+| --- | --- |
+| a graded verdict (feed, per-problem counters) | `judged` is a separate process that never calls into the API — D25 records the same asymmetry for the scoreboard, in as many words. There is no call site to add |
+| a judge node's heartbeat | written by the bridge, same reason |
+| the presence set | its own store, its own five-minute window, not this process's to invalidate |
+| a **rejudge** | API-handled, and left alone deliberately. A rejudge *queues* work: at response time nothing has been regraded, so the snapshot it would refresh is not yet the one the organiser wants. The panel it does move immediately — the queue depth — is a number whose whole meaning is "how far behind the judge is", already five seconds behind by construction, and `?recompute=1` (D100) is the organiser's repair when the counters look wrong |
+| a **mid-round contest edit** | API-handled, and left alone. D28 keeps editing diff-safe after the gun and the started-contest guards refuse everything structural; what remains editable mid-round moves the panel's problem *labels*, one poll tick late |
+
+Those last two are named here rather than left implicit **because the defect
+this decision closes was a comment that did not name its exceptions.** A cache
+whose invalidation is partial is fine; a cache whose comment claims it is total
+is not.
+
+*Ruled by the implementer during the F-43 slot, no human available to consult.
+Cost if wrong: one Redis `DEL` on each of three low-frequency writes. The
+failure mode of the rule being too broad is a monitor that recomputes slightly
+more often than it needed to, which is the cheap direction.*
