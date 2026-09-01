@@ -12,14 +12,12 @@ export {
 } from './judge-auth.js';
 export { reclaimExpiredLeases } from './grading.js';
 export { loadDriverLanguageMap, type DriverLanguageMap } from './language-drivers.js';
-export {
-  effectiveLimits,
-  resolveLanguageTuning,
-  type BaseLimits,
-  type LanguageDefaults,
-  type LanguageOverride,
-  type LanguageTuning,
-} from './language-limits.js';
+// Re-exported, not defined here (D159). The arithmetic moved to its own
+// zero-dependency package so `apps/web`'s authoring form can apply the SAME
+// function to values a setter has typed and not yet saved; `apps/api` and
+// `apps/judged` keep importing it from `@duckoj/db`, which is where D154 put
+// it and where every call site already looks.
+export * from '@duckoj/language-limits';
 export {
   contestProblemIdsForSubmissions,
   isTerminalSubmissionState,

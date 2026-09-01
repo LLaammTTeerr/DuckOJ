@@ -16,6 +16,7 @@
     "migrate": "tsx ../../scripts/migrate.ts"
   },
   "dependencies": {
+    "@duckoj/language-limits": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.9"
   },

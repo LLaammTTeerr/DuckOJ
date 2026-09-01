@@ -1,102 +1,36 @@
-import { asc, eq } from 'drizzle-orm';
+import { readFile } from 'node:fs/promises';
+import { asc, eq, sql, type SQL } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { effectiveLimits, resolveLanguageTuning, schema } from '../src/index.js';
+import {
+  MEMORY_EXTRA_KB_MAX,
+  MEMORY_EXTRA_KB_MIN,
+  TIME_MULTIPLIER_PCT_MAX,
+  TIME_MULTIPLIER_PCT_MIN,
+  effectiveLimits,
+  resolveLanguageTuning,
+  schema,
+  type Db,
+} from '../src/index.js';
+import { problems } from '../src/schema/guarded.js';
+import {
+  TIME_MULTIPLIER_PCT_MIN as sharedTimeMin,
+  effectiveLimits as sharedEffectiveLimits,
+  resolveLanguageTuning as sharedResolveLanguageTuning,
+} from '@duckoj/language-limits';
 import { withTestDb } from './harness.js';
 
 /**
- * D154. These are pure functions on purpose — the arithmetic that decides
- * whether a submission TLEs must be testable without a judge, a container or
- * a submission — and they are the SINGLE implementation: `apps/api` calls
- * them to display a limit and `apps/judged` calls them to enforce one.
+ * D159 — the arithmetic itself now lives in `@duckoj/language-limits`, and
+ * its own spec is there. What is asserted HERE is the re-export: `apps/api`
+ * and `apps/judged` both import `effectiveLimits` from `@duckoj/db`, which is
+ * where D154 put it, and a move that quietly stopped exporting it from this
+ * package would break both of them at their call sites rather than here.
  */
-describe('effectiveLimits', () => {
-  it('leaves an unadjusted language exactly as the setter authored it', () => {
-    expect(
-      effectiveLimits(
-        { timeMs: 2000, memoryKb: 262_144 },
-        { timeMultiplierPct: 100, memoryExtraKb: 0, allowed: true },
-      ),
-    ).toEqual({ timeMs: 2000, memoryKb: 262_144 });
-  });
-
-  it('multiplies time and ADDS memory', () => {
-    // 300 % of 2000 ms, and CPython's floor on top of the authored 256 MB —
-    // not 300 % of the memory, which would hand a generous problem three
-    // quarters of a gigabyte for a floor that is 15 MB wide.
-    expect(
-      effectiveLimits(
-        { timeMs: 2000, memoryKb: 262_144 },
-        { timeMultiplierPct: 300, memoryExtraKb: 32_768, allowed: true },
-      ),
-    ).toEqual({ timeMs: 6000, memoryKb: 294_912 });
-  });
-
-  it('rounds a fractional millisecond UP, and stays integral', () => {
-    // 333 % of 1001 ms is 3333.33. The error is one millisecond and it
-    // belongs to the pupil; a `round` here would take it away from them, and
-    // a float would hand the judge a limit no clock can express.
-    const limits = effectiveLimits(
-      { timeMs: 1001, memoryKb: 1024 },
-      { timeMultiplierPct: 333, memoryExtraKb: 0, allowed: true },
-    );
-    expect(limits.timeMs).toBe(3334);
-    expect(Number.isInteger(limits.timeMs)).toBe(true);
-  });
-
-  it('does not consult `allowed` — a refused language is refused, not timed out', () => {
-    // A refusal presents as a 404 at submit time (see
-    // `SubmissionAccessService.create`). If it leaked into the arithmetic as
-    // a zero limit, the pupil would be shown a TLE and told their correct
-    // program was too slow.
-    expect(
-      effectiveLimits(
-        { timeMs: 1000, memoryKb: 65_536 },
-        { timeMultiplierPct: 300, memoryExtraKb: 32_768, allowed: false },
-      ),
-    ).toEqual({ timeMs: 3000, memoryKb: 98_304 });
-  });
-});
-
-describe('resolveLanguageTuning', () => {
-  const defaults = { timeMultiplierPct: 300, memoryExtraKb: 32_768 };
-
-  it('uses the language defaults when the problem says nothing', () => {
-    expect(resolveLanguageTuning(defaults, null)).toEqual({
-      timeMultiplierPct: 300,
-      memoryExtraKb: 32_768,
-      allowed: true,
-    });
-  });
-
-  it('inherits COLUMN BY COLUMN, so pinning the time keeps the memory floor', () => {
-    // The whole reason both override columns are nullable: a setter saying
-    // "no time bonus here, the problem is about the constant factor" has said
-    // nothing about memory, and silently dropping CPython's 32 MB floor with
-    // it would MRE every Python submission on a problem that still accepts
-    // them.
-    expect(
-      resolveLanguageTuning(defaults, {
-        timeMultiplierPct: 100,
-        memoryExtraKb: null,
-        allowed: true,
-      }),
-    ).toEqual({ timeMultiplierPct: 100, memoryExtraKb: 32_768, allowed: true });
-  });
-
-  it('treats an explicit 0 as a value, not as absent', () => {
-    expect(
-      resolveLanguageTuning(defaults, { timeMultiplierPct: null, memoryExtraKb: 0, allowed: true }),
-    ).toEqual({ timeMultiplierPct: 300, memoryExtraKb: 0, allowed: true });
-  });
-
-  it('carries a refusal through', () => {
-    expect(
-      resolveLanguageTuning(defaults, {
-        timeMultiplierPct: null,
-        memoryExtraKb: null,
-        allowed: false,
-      }).allowed,
-    ).toBe(false);
+describe('@duckoj/db re-exports the limit arithmetic (D159)', () => {
+  it('hands back the same functions, and the bounds with them', () => {
+    expect(effectiveLimits).toBe(sharedEffectiveLimits);
+    expect(resolveLanguageTuning).toBe(sharedResolveLanguageTuning);
+    expect(TIME_MULTIPLIER_PCT_MIN).toBe(sharedTimeMin);
   });
 });
 
@@ -192,6 +126,217 @@ describe('migration 0042 seeds the language catalogue', () => {
         { key: 'cpp20', executorKey: 'CPP20' },
         { key: 'python3', executorKey: 'PY3' },
       ]);
+    });
+  });
+});
+
+/**
+ * D159 — migration 0043's bounds, as the database really enforces them.
+ *
+ * B-30 measured what their absence bought: `pct 0 -> {"timeMs":0}`, evaluated
+ * against the built function, on a column an operator could only ever write
+ * with raw SQL. That is D154's forbidden outcome — a refusal presented as a
+ * TLE — reached by a typo instead of by a decision.
+ *
+ * Read out of `pg_constraint` rather than restated as literals, and compared
+ * against the exported constants, because the whole hazard here is three
+ * layers (the CHECK, the contract's zod bounds, the form) drifting apart. If
+ * `@duckoj/language-limits` moves a number and this migration does not, this
+ * fails.
+ */
+describe('migration 0043 bounds a limit adjustment (D159)', () => {
+  /**
+   * The constraint that refused a statement, or `null` if it was accepted.
+   *
+   * Drizzle wraps the driver's error in a `Failed query: …` of its own and
+   * keeps the Postgres error — the half that names the CHECK — on `cause`, so
+   * a bare `rejects.toThrow(/…_ck/)` passes for the WRONG reason on a
+   * statement that failed for any other cause at all. This reads the name.
+   */
+  async function refusedBy(db: Db, statement: SQL): Promise<string | null> {
+    try {
+      // A SAVEPOINT, not a bare statement: the first refusal aborts the
+      // surrounding transaction, and every statement after it in the same one
+      // fails with 25P02 instead of with the CHECK — which would make this
+      // helper report the wrong constraint for every case but the first.
+      await db.transaction(async (tx) => {
+        await tx.execute(statement);
+      });
+      return null;
+    } catch (error) {
+      const cause = (error as { cause?: { constraint_name?: string } }).cause;
+      return cause?.constraint_name ?? String(error);
+    }
+  }
+
+  async function constraintSource(db: Db, name: string): Promise<string | null> {
+    const rows = await db.execute<{ def: string }>(
+      sql`select pg_get_constraintdef(oid) as def from pg_constraint where conname = ${name}`,
+    );
+    return rows[0]?.def ?? null;
+  }
+
+  it('states the exported bounds, on BOTH tables', async () => {
+    await withTestDb(async (db) => {
+      const lo = String(TIME_MULTIPLIER_PCT_MIN);
+      const hi = String(TIME_MULTIPLIER_PCT_MAX);
+      const mlo = String(MEMORY_EXTRA_KB_MIN);
+      const mhi = String(MEMORY_EXTRA_KB_MAX);
+
+      const langTime = await constraintSource(db, 'languages_time_multiplier_pct_ck');
+      expect(langTime).toContain(lo);
+      expect(langTime).toContain(hi);
+      const langMem = await constraintSource(db, 'languages_memory_extra_kb_ck');
+      expect(langMem).toContain(mlo);
+      expect(langMem).toContain(mhi);
+
+      // The override's copy carries the same two numbers AND an `IS NULL`
+      // escape the language default has no use for.
+      const overTime = await constraintSource(db, 'problem_language_limits_time_multiplier_pct_ck');
+      expect(overTime).toContain(lo);
+      expect(overTime).toContain(hi);
+      expect(overTime).toContain('IS NULL');
+      const overMem = await constraintSource(db, 'problem_language_limits_memory_extra_kb_ck');
+      expect(overMem).toContain(mlo);
+      expect(overMem).toContain(mhi);
+      expect(overMem).toContain('IS NULL');
+    });
+  });
+
+  it('refuses the typo that made every submission in a language TLE', async () => {
+    await withTestDb(async (db) => {
+      const refused = async (pct: number): Promise<string | null> =>
+        refusedBy(db, sql`update languages set time_multiplier_pct = ${pct} where key = 'python3'`);
+      expect(await refused(0)).toBe('languages_time_multiplier_pct_ck');
+      expect(await refused(-100)).toBe('languages_time_multiplier_pct_ck');
+      // 99 % is the same lie in miniature: it takes time away from a language
+      // rather than refusing it, and a correct program fails as if it were slow.
+      expect(await refused(TIME_MULTIPLIER_PCT_MIN - 1)).toBe('languages_time_multiplier_pct_ck');
+      // And the floor itself is admitted: "Python gets no bonus on this
+      // problem" is the brief's own example, and it is exactly 100.
+      expect(await refused(TIME_MULTIPLIER_PCT_MIN)).toBeNull();
+    });
+  });
+
+  it('refuses a multiplier that would hold the province’s one judge for a lesson', async () => {
+    await withTestDb(async (db) => {
+      expect(
+        await refusedBy(
+          db,
+          sql`update languages set time_multiplier_pct = ${TIME_MULTIPLIER_PCT_MAX + 1} where key = 'python3'`,
+        ),
+      ).toBe('languages_time_multiplier_pct_ck');
+      expect(
+        await refusedBy(
+          db,
+          sql`update languages set memory_extra_kb = ${MEMORY_EXTRA_KB_MAX + 1} where key = 'python3'`,
+        ),
+      ).toBe('languages_memory_extra_kb_ck');
+      // Below the floor is a language handed LESS memory than the problem
+      // authorised — D154's interpreter floor in reverse, and an MRE for a
+      // correct program.
+      expect(
+        await refusedBy(db, sql`update languages set memory_extra_kb = -1 where key = 'python3'`),
+      ).toBe('languages_memory_extra_kb_ck');
+    });
+  });
+
+  it('admits everything migration 0042 seeds, so a fresh install survives its own seed', async () => {
+    await withTestDb(async (db) => {
+      // 0042 runs immediately before 0043 on an empty database. If the bounds
+      // excluded a seeded value, `runMigrations` in the harness above would
+      // already have thrown — this asserts the values rather than relying on
+      // that, so a later widening of the seed is caught here by name.
+      const rows = await db
+        .select({
+          key: schema.languages.key,
+          pct: schema.languages.timeMultiplierPct,
+          extra: schema.languages.memoryExtraKb,
+        })
+        .from(schema.languages);
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect(row.pct).toBeGreaterThanOrEqual(TIME_MULTIPLIER_PCT_MIN);
+        expect(row.pct).toBeLessThanOrEqual(TIME_MULTIPLIER_PCT_MAX);
+        expect(row.extra).toBeGreaterThanOrEqual(MEMORY_EXTRA_KB_MIN);
+        expect(row.extra).toBeLessThanOrEqual(MEMORY_EXTRA_KB_MAX);
+      }
+    });
+  });
+
+  it('leaves NULL alone, because NULL is “inherit” and not zero', async () => {
+    await withTestDb(async (db) => {
+      const [author] = await db
+        .insert(schema.users)
+        .values({
+          username: 'd159setter',
+          email: 'd159setter@example.invalid',
+          passwordHash: 'x',
+          displayName: 'D159',
+        })
+        .returning({ id: schema.users.id });
+      const [problem] = await db
+        .insert(problems)
+        .values({
+          code: 'd159-bounds',
+          name: 'D159',
+          statement: '',
+          createdBy: author!.id,
+        })
+        .returning({ id: problems.id });
+      const problemId = problem!.id;
+      const language = await db.execute<{ id: number }>(
+        sql`select id from languages where key = 'python3'`,
+      );
+      const languageId = language[0]!.id;
+
+      // The ordinary override: pin the time, say nothing about memory. It is
+      // the row D154 names explicitly, and a CHECK without `IS NULL OR` would
+      // have made it unwritable.
+      await db.execute(
+        sql`insert into problem_language_limits (problem_id, language_id, time_multiplier_pct, memory_extra_kb, allowed)
+            values (${problemId}, ${languageId}, 150, null, true)`,
+      );
+      const stored = await db.execute<{
+        time_multiplier_pct: number | null;
+        memory_extra_kb: number | null;
+      }>(
+        sql`select time_multiplier_pct, memory_extra_kb from problem_language_limits
+             where problem_id = ${problemId} and language_id = ${languageId}`,
+      );
+      expect(stored[0]).toEqual({ time_multiplier_pct: 150, memory_extra_kb: null });
+
+      // And the typo is refused here too — the override replaces the default
+      // column by column, so a range one table admits and the other refuses
+      // would let an override say what a default could not.
+      expect(
+        await refusedBy(
+          db,
+          sql`update problem_language_limits set time_multiplier_pct = 0
+               where problem_id = ${problemId} and language_id = ${languageId}`,
+        ),
+      ).toBe('problem_language_limits_time_multiplier_pct_ck');
+    });
+  });
+
+  it('re-runs without failing, because a migration nobody dares re-run is D133 again', async () => {
+    await withTestDb(async (db) => {
+      const migration = await readFile(
+        new URL('../migrations/0043_language_limit_bounds.sql', import.meta.url),
+        'utf8',
+      );
+      for (const statement of migration.split('--> statement-breakpoint')) {
+        if (statement.trim() === '') continue;
+        await db.execute(sql.raw(statement));
+      }
+      // Still exactly one of each, not two.
+      const rows = await db.execute<{ n: number }>(
+        sql`select count(*)::int as n from pg_constraint
+             where conname in ('languages_time_multiplier_pct_ck', 'languages_memory_extra_kb_ck',
+                               'problem_language_limits_time_multiplier_pct_ck',
+                               'problem_language_limits_memory_extra_kb_ck')`,
+      );
+      expect(rows[0]!.n).toBe(4);
     });
   });
 });

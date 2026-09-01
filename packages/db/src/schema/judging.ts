@@ -3,6 +3,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -13,6 +14,12 @@ import {
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import {
+  MEMORY_EXTRA_KB_MAX,
+  MEMORY_EXTRA_KB_MIN,
+  TIME_MULTIPLIER_PCT_MAX,
+  TIME_MULTIPLIER_PCT_MIN,
+} from '@duckoj/language-limits';
 import { problems, problemRevisions, submissions } from './guarded.js';
 
 export const gradingJobState = pgEnum('grading_job_state', ['queued', 'leased', 'done', 'failed']);
@@ -53,7 +60,21 @@ export const languages = pgTable(
     memoryExtraKb: integer('memory_extra_kb').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('languages_key_idx').on(t.key)],
+  (t) => [
+    uniqueIndex('languages_key_idx').on(t.key),
+    // D159. The bounds are the constants' — `sql.raw` so the numbers are
+    // baked into the DDL rather than sent as parameters, and
+    // `language-limit-bounds.spec.ts` reads them back out of `pg_constraint`
+    // and fails if this file and `@duckoj/language-limits` ever disagree.
+    check(
+      'languages_time_multiplier_pct_ck',
+      sql`${t.timeMultiplierPct} BETWEEN ${sql.raw(String(TIME_MULTIPLIER_PCT_MIN))} AND ${sql.raw(String(TIME_MULTIPLIER_PCT_MAX))}`,
+    ),
+    check(
+      'languages_memory_extra_kb_ck',
+      sql`${t.memoryExtraKb} BETWEEN ${sql.raw(String(MEMORY_EXTRA_KB_MIN))} AND ${sql.raw(String(MEMORY_EXTRA_KB_MAX))}`,
+    ),
+  ],
 );
 
 /**
@@ -113,7 +134,26 @@ export const problemLanguageLimits = pgTable(
      */
     allowed: boolean('allowed').notNull().default(true),
   },
-  (t) => [primaryKey({ columns: [t.problemId, t.languageId] })],
+  (t) => [
+    primaryKey({ columns: [t.problemId, t.languageId] }),
+    // The same bounds as `languages`, and they must be the same: this row
+    // REPLACES that one column by column, so a range one table admits and
+    // the other refuses would mean an override could say what a default
+    // could not.
+    //
+    // `IS NULL OR` on both, and that is the whole reason these are written
+    // out rather than reused: NULL is "inherit", not zero, and a CHECK that
+    // did not say so would forbid the ordinary row — the one that pins the
+    // time and keeps the interpreter's memory floor (D154).
+    check(
+      'problem_language_limits_time_multiplier_pct_ck',
+      sql`${t.timeMultiplierPct} IS NULL OR (${t.timeMultiplierPct} BETWEEN ${sql.raw(String(TIME_MULTIPLIER_PCT_MIN))} AND ${sql.raw(String(TIME_MULTIPLIER_PCT_MAX))})`,
+    ),
+    check(
+      'problem_language_limits_memory_extra_kb_ck',
+      sql`${t.memoryExtraKb} IS NULL OR (${t.memoryExtraKb} BETWEEN ${sql.raw(String(MEMORY_EXTRA_KB_MIN))} AND ${sql.raw(String(MEMORY_EXTRA_KB_MAX))})`,
+    ),
+  ],
 );
 
 export const judgeNodes = pgTable(

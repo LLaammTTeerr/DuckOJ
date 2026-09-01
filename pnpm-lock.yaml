@@ -351,6 +351,9 @@ importers:
       '@duckoj/api-prefix':
         specifier: workspace:^
         version: link:../api-prefix
+      '@duckoj/language-limits':
+        specifier: workspace:^
+        version: link:../language-limits
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -361,6 +364,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@duckoj/language-limits':
+        specifier: workspace:*
+        version: link:../language-limits
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(postgres@3.4.9)
@@ -381,6 +387,8 @@ importers:
   packages/glicko2: {}
 
   packages/judge-protocol: {}
+
+  packages/language-limits: {}
 
   packages/observability: {}
 

@@ -260,6 +260,13 @@
       "when": 1788238652893,
       "tag": "0042_language_multipliers",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1788247148797,
+      "tag": "0043_language_limit_bounds",
+      "breakpoints": true
     }
   ]
 }
