@@ -692,7 +692,18 @@ export class ProblemAccessService {
         ),
       )
       .where(eq(schema.languages.isActive, true))
-      .orderBy(asc(schema.languages.key));
+      // By ID — the order the operator ADDED them — and not by key (D158).
+      //
+      // This array is a menu, and its first entry is what the submit picker
+      // preselects, so its order is a decision rather than a detail. Ordered
+      // alphabetically it began `c11`, which meant a pupil who read the
+      // statement and pressed Submit was offered C11 with a C starter
+      // template on every problem on the site — for no reason except that
+      // `c` sorts before `cpp`. `cpp17` is the language every authored limit
+      // here is written against and the only one that existed for the first
+      // fortnight; it is `languages.id = 1`, and insertion order puts the
+      // rest behind it in the sequence this province adopted them.
+      .orderBy(asc(schema.languages.id));
 
     return rows.map((row) => {
       const tuning = resolveLanguageTuning(

@@ -130,7 +130,30 @@ export function SubmitForm(props: {
 }) {
   const t = useT();
   const firstLanguage = props.languages[0]?.key ?? '';
-  const [languageKey, setLanguageKey] = useState(firstLanguage);
+  /**
+   * The pupil's OWN choice, or `null` while they have not made one (D158).
+   *
+   * Deliberately not `useState(firstLanguage)`. `SubmitPage` reads the
+   * catalogue through TanStack Query under `['problem', code]` — the same key
+   * the statement page uses — so this component has two different first
+   * renders: cold (a direct link) mounts against `FALLBACK_LANGUAGES` and
+   * warm (read the statement, press Submit) mounts against the real one. An
+   * initialiser captures whichever it happened to see and never revisits it,
+   * which made the default language depend on how the pupil got here and,
+   * on a problem that refuses the fallback, left the state pointing at a
+   * language the picker no longer listed — the select showing Python while
+   * the button posted C++17, and the API answering 404 to a submission the
+   * pupil made correctly.
+   *
+   * Derived instead: until they choose, the language is whatever the server
+   * offers first, and a choice that is no longer on offer falls back to it
+   * rather than being posted into a 404.
+   */
+  const [chosen, setChosen] = useState<string | null>(null);
+  const languageKey =
+    chosen !== null && props.languages.some((lang) => lang.key === chosen)
+      ? chosen
+      : firstLanguage;
   const selected = props.languages.find((lang) => lang.key === languageKey);
 
   /**
@@ -213,7 +236,7 @@ export function SubmitForm(props: {
    * inserted after the first render.
    */
   function changeLanguage(next: string): void {
-    setLanguageKey(next);
+    setChosen(next);
     if (source !== '') return;
     const stored = loadDraft(draftKey(props.problemCode, next));
     setSource(stored ?? templateForLanguage(next));

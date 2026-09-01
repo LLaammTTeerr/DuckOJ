@@ -334,10 +334,16 @@ export type ProblemLanguageLimitDto = z.infer<typeof ProblemLanguageLimit>;
 export const ProblemDetail = ProblemSummary.extend({
   statement: z.string(),
   /**
-   * One entry per ACTIVE language, ordered by key — what each of them is
-   * really given on this problem (D154). Empty when the problem has no
-   * published revision, for the same reason `timeMs`/`memoryKb` are null
-   * then: there are no authored limits to adjust.
+   * One entry per ACTIVE language, in the order they were ADDED to this
+   * deployment — what each of them is really given on this problem (D154).
+   * Empty when the problem has no published revision, for the same reason
+   * `timeMs`/`memoryKb` are null then: there are no authored limits to
+   * adjust.
+   *
+   * **The order is part of the contract, because the FIRST entry is what the
+   * submit box preselects** (D158). Ordered by `key` it began `c11`, so a
+   * pupil who reached the submit box from a statement page was offered C11
+   * and a C starter template on every problem on the site.
    *
    * On the detail and not the summary, on `testCount`'s rule in reverse: no
    * list row renders it, and a five-entry array per row would be payload on

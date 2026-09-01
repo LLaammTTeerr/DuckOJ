@@ -54,12 +54,16 @@ describe('GET /problems/:code — the limits each language really gets', () => {
           allowed: boolean;
         }[];
 
-        // Every ACTIVE language, ordered by key — the picker's whole menu.
+        // Every ACTIVE language, in the order they were ADDED — the picker's
+        // whole menu, and its first entry is what the submit box preselects
+        // (D158). Alphabetical put `c11` there, so every pupil who reached
+        // the submit box from a statement page was offered C11 and a C
+        // starter template for no reason but that `c` sorts before `cpp`.
         expect(limits.map((l) => l.languageKey)).toEqual([
-          'c11',
-          'cpp14',
           'cpp17',
           'cpp20',
+          'cpp14',
+          'c11',
           'python3',
         ]);
         expect(limits.find((l) => l.languageKey === 'cpp17')).toEqual({

@@ -7140,3 +7140,49 @@ Reversible in one commit (the `void Promise.resolve().then(...)` becomes an
 reset path is visible only in the log and on the dashboard rather than in the
 response — which is exactly where D26 says it has to be, and is what the
 endpoint already did for the rate limiter's own silent refusal (D13).*
+
+## D158 — The order of `languageLimits` is a decision, because its first entry is the language a pupil submits in
+
+F-39 turned `languageKey` from a constant into a set of five. The submit
+box's picker is built from `ProblemDetail.languageLimits`, and the entry it
+preselects is the first one in that array. Nothing decided what that should
+be: `loadLanguageLimits` ended `.orderBy(asc(languages.key))`, so it was
+`c11` — because `c` sorts before `cpp`.
+
+That is not a cosmetic default. The picker's language also chooses the
+editor's starter template and the draft key, and it is what `POST
+/submissions` is sent. A pupil who reads a statement and presses Submit was
+offered **C11 with a C template on every problem on this site**; paste a C++
+program into it and the verdict is a Compile Error, on contest day, for a
+correct program.
+
+- **Ordered by `languages.id` — the order an operator added them.** `cpp17`
+  is id 1: the only language this judge had for its first fortnight, the
+  language every authored `time_ms` on the site is written against, and what
+  the picker offered before F-39. The rest follow in the sequence migration
+  0042 seeds them (`cpp20`, `cpp14`, `c11`, `python3`), which is the order
+  this province adopted them. Stated in `ProblemDetail`'s contract, because
+  an order a client depends on is part of the contract.
+- **The picker's selection is DERIVED, not captured.** `SubmitPage` reads the
+  catalogue through TanStack Query under `['problem', code]` — the same key
+  the statement page uses — so `SubmitForm` has two different first renders:
+  cold (a direct link) mounts against `FALLBACK_LANGUAGES` and warm (the
+  ordinary path) mounts against the real catalogue. `useState(firstLanguage)`
+  captured whichever it saw, so the default depended on how the pupil got to
+  the page, and the two answers disagreed.
+- **A choice that is no longer on offer falls back rather than being posted.**
+  The same capture made a problem with `allowed = false` on the fallback
+  language unsubmittable: the select listed Python, the state still held
+  `cpp17`, and the button posted `cpp17` into the 404 D154 defines. The
+  screen and the request disagreed and only the request was asked. The key is
+  now `chosen`-if-offered, else the first on offer, so the two cannot drift.
+- **`GET /languages` keeps its own order (by key).** It answers a different
+  question — "what does this `languageKey` mean" — for a catalogue, not a
+  menu, and alphabetical is the right order to look a key up in.
+
+*Ruled by the implementer during the B-30 hunt, no human available to consult.
+Reversible in one line each. No migration and no data change: `languages.id`
+already exists and already holds the order described. The failure mode if the
+insertion order is ever wrong for a new language is a suboptimal default in a
+picker the pupil can still change, which is strictly better than today's,
+where the default is decided by the alphabet.*
