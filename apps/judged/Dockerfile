@@ -5,6 +5,12 @@ WORKDIR /app
 FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/db/package.json packages/db/
+# `@duckoj/contest-formats` became a judged dependency in F-45: the reduction
+# from case rows to one row per group moved there, so that the judge writing
+# `subtask_summary` and the fold reading it run the SAME code (D165). Second
+# time this manifest has gone stale in one day — F-41 did it with
+# language-limits — which is the argument for the guard, not against it.
+COPY packages/contest-formats/package.json packages/contest-formats/
 # `@duckoj/language-limits` is the one implementation of D154's limit
 # arithmetic, depended on by both the API that DISPLAYS a limit and the judge
 # that ENFORCES one. F-41 added it and did not add this line; the images still
