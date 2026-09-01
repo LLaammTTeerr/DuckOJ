@@ -601,3 +601,32 @@ test('journey 2b — the panel shows the added pupil with no reload (red until t
   await adminCtx.dispose();
   expect(watch.errors, `the teams panel reported: ${watch.errors.join(' | ')}`).toEqual([]);
 });
+
+/**
+ * Delete the teams this run created.
+ *
+ * Without this the walk breaks ITSELF: every run adds three teams to the one
+ * shared org, `GET /orgs/{slug}/teams` pages at 25, and on 2026-09-01 the
+ * twenty-seventh team meant journey 2b's own row was no longer on the page it
+ * navigates to — a green walk turning red from nothing but its own history.
+ * The failure looked exactly like a regression in the roster panel it exists
+ * to guard, which is the expensive kind of false signal.
+ *
+ * Teams, not contests: journeys 1 and 2 already close their contests, and a
+ * team is the only fixture here with a DELETE and no cleanup. Failures are
+ * swallowed — a walk that already failed must not be reported as failing in
+ * teardown instead, and a team seeded into a contest legitimately refuses
+ * deletion.
+ */
+test.afterAll(async () => {
+  const admin = adminCredentials();
+  const ctx = await actorContext(admin.username, admin.password);
+  for (const slug of [ALPHA, BRAVO, `fe42-charlie-${RUN}`]) {
+    try {
+      await ctx.delete(`/api/v1/orgs/${ORG}/teams/${slug}`, { headers: SAME_ORIGIN });
+    } catch {
+      /* the walk's verdict is the walk's, not teardown's */
+    }
+  }
+  await ctx.dispose();
+});
