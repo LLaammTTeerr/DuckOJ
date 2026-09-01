@@ -104,6 +104,24 @@ export const UpdateProblemRequest = z
      * that renders blank.
      */
     editorialPublished: z.boolean().optional(),
+    /**
+     * The `version` this client read before it started editing — D161.
+     *
+     * Present, and no longer current, is a 409 `problem_version_conflict` and
+     * **nothing is written**: two teachers had one problem open, and the
+     * second save would otherwise have replaced the first one's work with a
+     * copy taken before it existed. These forms send the whole object on every
+     * save, so the field at risk is every field, not the one that was typed
+     * in.
+     *
+     * **Absent means unchecked**, deliberately. This API is a documented
+     * surface with personal access tokens behind it, and refusing every PATCH
+     * that had not first read a detail would break automation that never had
+     * this problem. The rule is "a client that says what it believes it is
+     * overwriting will not be allowed to overwrite something else"; the edit
+     * form says it, on every save.
+     */
+    expectedVersion: z.string().optional(),
   })
   // Rejecting an unknown key is what turns "code is immutable" from a
   // comment into a rule: a PATCH carrying `code` fails validation instead of
@@ -541,6 +559,21 @@ export const ProblemDetail = ProblemSummary.extend({
    * route is members-and-admins only.
    */
   publishedVersion: z.number().int().positive().nullable(),
+  /**
+   * What this caller must send back as `expectedVersion` to be sure their
+   * PATCH replaces the state they were shown, and not somebody else's — D161.
+   *
+   * An opaque hash of the problem's **stored editable columns**: exactly the
+   * fields `UpdateProblemRequest` can write, and nothing else. So publishing a
+   * revision, adjusting a language's limits or grading a submission does not
+   * move it, and two saves that produce the same state do not conflict.
+   *
+   * **`null` for a caller who may not edit this problem.** It is served on
+   * `ContestDetail.canEdit`'s precedent — a fact about editing, answered by
+   * the server rather than assembled by the client — and computing it costs a
+   * query no pupil reading a statement should pay.
+   */
+  version: z.string().nullable(),
 });
 export type ProblemDetailDto = z.infer<typeof ProblemDetail>;
 

@@ -34,6 +34,7 @@ import type {
   PaginationQueryDto,
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
+import { contestEditVersion, versionConflict } from './edit-version.js';
 import { AppError } from '../common/app.error.js';
 import { seat, toSeatConflict } from './contest.seats.js';
 import { isAdmin, type Actor } from './actor.js';
@@ -128,6 +129,8 @@ export interface UpdateContestInput {
   /** Present replaces the whole set; absent keeps it (D56). */
   orgSlugs?: string[] | undefined;
   problems?: ContestProblemInputDto[] | undefined;
+  /** The `version` the caller read before editing; absent is unchecked (D161). */
+  expectedVersion?: string | undefined;
 }
 
 export type CloneContestInput = CloneContestRequestDto;
@@ -404,6 +407,9 @@ export class ContestAccessService {
         formatConfig: contest.formatConfig as Record<string, unknown> | null,
         canEdit: canRunContest(actor, contest),
         problems: [],
+        // Unreachable with a non-null token: this branch is exactly
+        // `!canRunContest`, so a caller here can never PATCH (D161).
+        version: null,
       };
     }
     const problemRows = await this.loadProblemRows(contest.id);
@@ -411,6 +417,15 @@ export class ContestAccessService {
       ...toSummary(contest, orgs),
       formatConfig: contest.formatConfig as Record<string, unknown> | null,
       canEdit: canRunContest(actor, contest),
+      // D161, beside `canEdit` and gated on the same predicate. Computed from
+      // the STORED rows rather than from the `problems` array below it: that
+      // array is empty before the start for everyone who does not run the
+      // contest and populates AT THE START INSTANT with no edit at all, so a
+      // token over it would move on a clock and refuse saves nobody could
+      // explain.
+      version: canRunContest(actor, contest)
+        ? await contestEditVersion(this.db, contest.id)
+        : null,
       problems: problemRows.map((row) => ({
         code: row.code,
         name: row.name,
@@ -1094,6 +1109,24 @@ export class ContestAccessService {
     }
 
     await this.db.transaction(async (tx) => {
+      // D161, first in the transaction and under the row's own lock — see
+      // `ProblemAccessService.update`, which states the reasoning once. Read
+      // outside the lock this check would only narrow the race it exists to
+      // close; a throw here rolls back with nothing written, which is the
+      // promise the 409 makes.
+      //
+      // AFTER the `contest_started` guards above, deliberately: "this contest
+      // has started, its format can no longer change" is a fact about this
+      // request that a reload cannot repair, and telling an organiser to load
+      // a newer version first would send them round a loop that ends in the
+      // same refusal.
+      if (body.expectedVersion !== undefined) {
+        await tx.execute(sql`select id from contests where id = ${contest.id} for update`);
+        if ((await contestEditVersion(tx, contest.id)) !== body.expectedVersion) {
+          throw versionConflict('contest');
+        }
+      }
+
       await tx
         .update(contests)
         .set({

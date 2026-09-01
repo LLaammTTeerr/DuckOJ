@@ -165,6 +165,7 @@ export interface paths {
                                 partial: boolean;
                                 order: number;
                             }[];
+                            version: string | null;
                         };
                     };
                 };
@@ -337,6 +338,7 @@ export interface paths {
                                 partial: boolean;
                                 order: number;
                             }[];
+                            version: string | null;
                         };
                     };
                 };
@@ -408,6 +410,7 @@ export interface paths {
                             partial?: boolean;
                             label?: string;
                         }[];
+                        expectedVersion?: string;
                     };
                 };
             };
@@ -454,6 +457,7 @@ export interface paths {
                                 partial: boolean;
                                 order: number;
                             }[];
+                            version: string | null;
                         };
                     };
                 };
@@ -870,6 +874,7 @@ export interface paths {
                                 partial: boolean;
                                 order: number;
                             }[];
+                            version: string | null;
                         };
                     };
                 };
@@ -7725,6 +7730,7 @@ export interface paths {
                                 truncated: boolean;
                             }[];
                             publishedVersion: number | null;
+                            version: string | null;
                         };
                     };
                 };
@@ -7896,6 +7902,7 @@ export interface paths {
                                 truncated: boolean;
                             }[];
                             publishedVersion: number | null;
+                            version: string | null;
                         };
                     };
                 };
@@ -7955,6 +7962,7 @@ export interface paths {
                         difficulty?: number | null;
                         editorial?: string | null;
                         editorialPublished?: boolean;
+                        expectedVersion?: string;
                     };
                 };
             };
@@ -8020,6 +8028,7 @@ export interface paths {
                                 truncated: boolean;
                             }[];
                             publishedVersion: number | null;
+                            version: string | null;
                         };
                     };
                 };
@@ -8297,6 +8306,7 @@ export interface paths {
                                 truncated: boolean;
                             }[];
                             publishedVersion: number | null;
+                            version: string | null;
                         };
                     };
                 };

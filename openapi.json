@@ -511,6 +511,12 @@
                           "order"
                         ]
                       }
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -531,7 +537,8 @@
                     "createdAt",
                     "formatConfig",
                     "canEdit",
-                    "problems"
+                    "problems",
+                    "version"
                   ]
                 }
               }
@@ -907,6 +914,12 @@
                           "order"
                         ]
                       }
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -927,7 +940,8 @@
                     "createdAt",
                     "formatConfig",
                     "canEdit",
-                    "problems"
+                    "problems",
+                    "version"
                   ]
                 }
               }
@@ -1097,6 +1111,9 @@
                         "points"
                       ]
                     }
+                  },
+                  "expectedVersion": {
+                    "type": "string"
                   }
                 },
                 "additionalProperties": false
@@ -1230,6 +1247,12 @@
                           "order"
                         ]
                       }
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -1250,7 +1273,8 @@
                     "createdAt",
                     "formatConfig",
                     "canEdit",
-                    "problems"
+                    "problems",
+                    "version"
                   ]
                 }
               }
@@ -2154,6 +2178,12 @@
                           "order"
                         ]
                       }
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -2174,7 +2204,8 @@
                     "createdAt",
                     "formatConfig",
                     "canEdit",
-                    "problems"
+                    "problems",
+                    "version"
                   ]
                 }
               }
@@ -16158,6 +16189,12 @@
                         "null"
                       ],
                       "exclusiveMinimum": 0
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -16186,7 +16223,8 @@
                     "editorial",
                     "editorialAvailable",
                     "samples",
-                    "publishedVersion"
+                    "publishedVersion",
+                    "version"
                   ]
                 }
               }
@@ -16653,6 +16691,12 @@
                         "null"
                       ],
                       "exclusiveMinimum": 0
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -16681,7 +16725,8 @@
                     "editorial",
                     "editorialAvailable",
                     "samples",
-                    "publishedVersion"
+                    "publishedVersion",
+                    "version"
                   ]
                 }
               }
@@ -16833,6 +16878,9 @@
                   },
                   "editorialPublished": {
                     "type": "boolean"
+                  },
+                  "expectedVersion": {
+                    "type": "string"
                   }
                 },
                 "additionalProperties": false
@@ -17102,6 +17150,12 @@
                         "null"
                       ],
                       "exclusiveMinimum": 0
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -17130,7 +17184,8 @@
                     "editorial",
                     "editorialAvailable",
                     "samples",
-                    "publishedVersion"
+                    "publishedVersion",
+                    "version"
                   ]
                 }
               }
@@ -17787,6 +17842,12 @@
                         "null"
                       ],
                       "exclusiveMinimum": 0
+                    },
+                    "version": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -17815,7 +17876,8 @@
                     "editorial",
                     "editorialAvailable",
                     "samples",
-                    "publishedVersion"
+                    "publishedVersion",
+                    "version"
                   ]
                 }
               }

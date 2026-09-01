@@ -173,6 +173,24 @@ export const UpdateContestRequest = z
      */
     orgSlugs: z.array(z.string()).optional(),
     problems: z.array(ContestProblemInput).optional(),
+    /**
+     * The `version` this client read before it started editing — D161.
+     *
+     * Present, and no longer current, is a 409 `contest_version_conflict` and
+     * **nothing is written**: two organisers had one round open, and the
+     * second save would otherwise have replaced the first one's work with a
+     * copy taken before it existed. These forms send the whole object on every
+     * save, so the field at risk is every field, not the one that was typed
+     * in.
+     *
+     * **Absent means unchecked**, deliberately. This API is a documented
+     * surface with personal access tokens behind it, and refusing every PATCH
+     * that had not first read a detail would break automation that never had
+     * this problem. The rule is "a client that says what it believes it is
+     * overwriting will not be allowed to overwrite something else"; the edit
+     * form says it, on every save.
+     */
+    expectedVersion: z.string().optional(),
   })
   .strict();
 export type UpdateContestRequestDto = z.infer<typeof UpdateContestRequest>;
@@ -276,6 +294,21 @@ export const ContestDetail = ContestSummary.extend({
    * name through this route (its own route 404s the same caller).
    */
   problems: z.array(ContestProblemSummary),
+  /**
+   * What this caller must send back as `expectedVersion` to be sure their
+   * PATCH replaces the state they were shown, and not somebody else's — D161.
+   *
+   * An opaque hash of the contest's **stored editable columns**: exactly the
+   * fields `UpdateContestRequest` can write, and nothing else. So rating the
+   * contest, a disqualification or a graded verdict does not move it, and two
+   * saves that produce the same state do not conflict.
+   *
+   * **`null` for a caller who may not run this contest.** It sits beside `canEdit`, which is the
+   * same kind of fact and is answered the same way — by the server, rather
+   * than assembled by a client that would have to guess — and computing it
+   * costs a query no spectator watching a board should pay.
+   */
+  version: z.string().nullable(),
 });
 export type ContestDetailDto = z.infer<typeof ContestDetail>;
 

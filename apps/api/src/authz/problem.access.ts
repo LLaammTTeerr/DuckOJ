@@ -41,6 +41,7 @@ import {
   type UpdateProblemRequestDto,
 } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
+import { problemEditVersion, versionConflict } from './edit-version.js';
 import { AppError } from '../common/app.error.js';
 import { PACKAGE_STORE, type PackageStore } from '../packages/package.store.js';
 import { readPackageSamples, SAMPLES_CACHE_TTL_MS, samplesCacheKey } from '../packages/samples.js';
@@ -629,6 +630,16 @@ export class ProblemAccessService {
         ...toSummary(row, hint, counts),
         ...editorial,
         statement: row.statement,
+        // D161. Only for a caller who may edit — the token is what a PATCH
+        // sends back as `expectedVersion`, it is useless to anyone who cannot
+        // PATCH, and it costs a query no pupil reading a statement should pay.
+        // Computed from the STORED columns, deliberately not from this object:
+        // `hint` above has just been blanked by D35 for a viewer sitting a
+        // running contest, and a token over a masked field would differ
+        // between two people who may both edit the same problem.
+        version: canEditProblem(actor, ctx)
+          ? await problemEditVersion(this.db, row.id)
+          : null,
         // Not revision-derived, so unlike the three fields below it is never
         // nulled out on a problem whose only revision is a draft: the flag
         // lives on the problem itself and is meaningful before anything is
@@ -1471,6 +1482,26 @@ export class ProblemAccessService {
 
     // --- apply ---
     await this.db.transaction(async (tx) => {
+      // D161, and it is the FIRST thing in the transaction.
+      //
+      // `for update` on the problem's own row before the token is recomputed:
+      // read outside the lock this would be a check against a state that may
+      // not hold by the time the UPDATE lands, so two setters pressing Lưu in
+      // the same second would each see their own version confirmed and one
+      // would still be silently overwritten — the whole defect, with a
+      // narrower window. Both PATCHes take this lock, so the second waits,
+      // reads the state the first one left, and is refused. The same shape
+      // `ContestClarificationsService.answer` uses, for the same reason.
+      //
+      // A throw here rolls the transaction back with nothing written, which is
+      // the promise the 409 makes.
+      if (patch.expectedVersion !== undefined) {
+        await tx.execute(sql`select id from problems where id = ${row.id} for update`);
+        if ((await problemEditVersion(tx, row.id)) !== patch.expectedVersion) {
+          throw versionConflict('problem');
+        }
+      }
+
       const set: Partial<typeof problems.$inferInsert> = {};
       if (patch.name !== undefined) set.name = patch.name;
       if (patch.statement !== undefined) set.statement = patch.statement;
@@ -2041,6 +2072,12 @@ export class ProblemAccessService {
       ...toSummary(row, { tags, difficulty: row.difficulty }, counts),
       ...editorial,
       statement: row.statement,
+      // Never null here, unlike `loadVisible`: both callers act for an editor
+      // of this exact problem (see this method's doc comment). This is the
+      // token the form must hold after a save — without it the NEXT save from
+      // the same open form would send the pre-save value and 409 against the
+      // write it had just made itself.
+      version: await problemEditVersion(this.db, id),
       // Not revision-derived, so unlike the three fields below it is never
       // nulled out on a problem whose only revision is a draft: the flag
       // lives on the problem itself and is meaningful before anything is
