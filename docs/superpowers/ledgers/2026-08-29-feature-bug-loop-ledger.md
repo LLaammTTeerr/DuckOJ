@@ -174,3 +174,47 @@
 - CI RED RESOLVED — and the guard earned its keep. Located by running the small packages (all green) then the api suite in thirds: `team-participation-invariant` (B-22's D113 source-scan guard) failed on F-37's new `mine=true` filter, which read `contest_participations.user_id = me` — in a TEAM contest that names only the CAPTAIN, so a teammate's own running round would be missing from the home panel F-37 built to show it. The exact D99 class B-18/B-19/B-21 each found, caught BEFORE shipping this time. Fixed to route through actingParticipationWhere; guard + filter specs 11/11; deployed; pushed.
 - F-38 DONE (f45f347..ddd6db9, D153): scripts/cleanup-test-data.ts, DRY RUN BY DEFAULT. Live inventory: allow-list matched 417 users / 136 contests / 52 problems / 25 orgs / 45 teams / 20 sets; would delete 12,210 rows across 32 tables — and REFUSED 28 because real rows depend on them (24 accounts that entered thu-nghiem-1; 4 rounds hocsinh1 entered). Demo set explicitly denied. Nothing deleted: live DB verified unchanged (420 users / 137 contests). Also shipped docs/guide/truoc-khi-trien-khai.md (pre-production checklist) and found that docker-compose passes no SMTP_* into api, so mail silently no-ops (D1) until a province edits it.
 - Noted: F-38 ran an apply-with-ROLLBACK on the live DB beyond its brief to prove FK ordering. Non-destructive (transaction rolled back, counts verified identical) and it caught a real under-count, but it was its call to make, not mine — recorded plainly rather than glossed.
+
+---
+
+## 2026-09-01 — the atlas, and the loop resumes
+
+**Deliverable published.** The user asked for a summary of everything the OJ
+and the preparation pipeline do. It is an artifact rather than a doc in this
+repo because its audience is a province IT team, not a contributor:
+`https://claude.ai/code/artifact/e7cf7010-1b9a-4310-8e79-a44b36be38a3`.
+
+Two rules govern it from here, both the user's:
+
+1. **It is watched and kept in sync.** A live subscription is armed on it, and
+   every slot that lands and deploys updates the page — the counts strip, the
+   feature cards, and above all the open-gaps list. A stale gap list is worse
+   than none: it promises a province something this host does not do.
+2. It reuses the product's own material — the D67 Liquid Glass tokens and the
+   verdict colour scale — so the status legend (AC = live, CE = the province
+   supplies it, TLE = open gap) is the vocabulary its readers already read all
+   day.
+
+**What the exercise of writing it found.** Assembling the inventory surfaced a
+gap that thirteen bug-hunt passes had not, because it is an absence rather
+than a defect: the `languages` table has held **exactly one row** — `cpp17` —
+since 20 Aug. Every schema and code path for more (`language_driver_keys`,
+`bridge-server.ts`'s executor mapping in both directions) was built in Phase 1
+and has never carried a second language. The live judge image already has
+Python 3.11.16 and GCC 12.2, so python3/cpp20/cpp14/c17 need no image rebuild.
+
+A province teaches Python first. A student who only knows Python cannot submit
+here at all. That is the largest real gap in the system and it is now **F-39**,
+dispatched with D154 pre-assigned for the load-bearing part: per-language time
+and memory multipliers. Without them, offering Python means every Python
+submission TLEs, which is worse than not offering it.
+
+*Method note worth keeping: writing the summary was itself a hunt. Enumerating
+what a thing does for an outside reader asks a different question than
+reviewing what it does wrong, and it found something the reviews structurally
+could not.*
+
+**State at dispatch:** CI green on `1534ddf` (verified 1 Sep); stack up 43 h,
+six containers healthy; 420 users / 59 problems / 137 contests / 816
+submissions; host cold at 46.6 °C, load 0.24; one agent running, per the
+thermal cap.
