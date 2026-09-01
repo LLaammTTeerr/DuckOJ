@@ -112,14 +112,41 @@ const FORBIDDEN = new AppError(
  * a view and a freeze phase (D25), because this response has exactly one
  * audience and no freeze to be on either side of.
  *
- * No invalidation, deliberately. Every write that would change this snapshot
- * is a submission or a verdict, and the API does not handle the verdict at
- * all (D25 records the same asymmetry for the scoreboard: `judged` is a
- * separate process that never calls in). A monitor five seconds behind the
- * judge is what the TTL already promises, and the `contest-activity`
- * WebSocket frame is what makes the *page* faster than the cache — it
- * triggers a refetch that lands on the next tick rather than pretending the
- * cache is fresher than it is.
+ * **This comment used to say there was no invalidation, and to say why: "every
+ * write that would change this snapshot is a submission or a verdict, and the
+ * API does not handle the verdict at all". That was false when it was
+ * written.** The snapshot carries a clarifications panel, and every write to
+ * `contest_clarifications` is handled by this process. So a teacher answered a
+ * question during a live round and the monitor — the screen they were watching
+ * *because* the round was running — kept the answered question in its "nobody
+ * has answered these" list until a TTL nobody could see expired. B-31 found
+ * the sentence; F-43 is the slot that made it true. A wrong comment explaining
+ * why something is safe is worse than no comment: it is what stops the next
+ * reader from checking.
+ *
+ * **D162 is the rule this key now holds.** An API-handled write that moves a
+ * panel deletes this key; what rides the 5 s TTL is what this process does not
+ * handle, plus the two API-handled writes D162 names and excuses. Concretely:
+ *
+ * - **busts it** — `ask`, `announce` and `answer` in
+ *   `ContestClarificationsService`, the only three writers of
+ *   `contest_clarifications` in the deployment. Unconditional, including
+ *   `announce`, whose row this panel's `answer is null` predicate happens to
+ *   exclude: that predicate lives in `clarifications()` below, and a rule that
+ *   needs cross-file reasoning to stay correct is precisely the rule that just
+ *   failed here. One `DEL` per announcement is not a price worth reasoning
+ *   about;
+ * - **rides the TTL, and is not this process's to bust** — a graded verdict
+ *   (`judged` is a separate process that never calls in, D25's asymmetry for
+ *   the scoreboard, stated there in as many words), a judge node's heartbeat,
+ *   and the presence set (its own store, its own five-minute window);
+ * - **rides the TTL, and IS API-handled** — a rejudge and a mid-round contest
+ *   edit. D162 says why these two are allowed to, and `?recompute=1` is the
+ *   organiser's repair for the first.
+ *
+ * The `contest-activity` WebSocket frame is still what makes the *page* faster
+ * than the cache for the verdict half — it triggers a refetch that lands on
+ * the next tick rather than pretending the cache is fresher than it is.
  */
 export function monitorCacheKey(contestId: number): string {
   return `duckoj:monitor:v1:${String(contestId)}`;

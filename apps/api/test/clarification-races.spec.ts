@@ -48,6 +48,10 @@ describe('ContestClarificationsService.answer — concurrency', () => {
         new ContestAccessService(db, uncachedScoreboards()),
         new NotificationsService(db),
         new RateLimiter(db),
+        // The monitor's snapshot cache (D162). Uncached here: this file is
+        // about the row lock, and a cache that stores nothing is the same
+        // bypass every spec in the suite already runs on.
+        uncachedScoreboards(),
       );
 
       const organiser = await insertUser(db, 'clar-race-org');

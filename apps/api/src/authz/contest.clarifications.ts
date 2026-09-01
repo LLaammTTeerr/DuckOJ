@@ -37,6 +37,8 @@ import { RateLimiter } from '../common/rate-limiter.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import type { Actor } from './actor.js';
 import { ContestAccessService, canRunContest } from './contest.access.js';
+import { monitorCacheKey } from './contest.monitor.js';
+import { ScoreboardCache } from './scoreboard.cache.js';
 import { actingParticipations } from './participation.js';
 
 /**
@@ -190,7 +192,40 @@ export class ContestClarificationsService {
     @Inject(ContestAccessService) private readonly contests: ContestAccessService,
     @Inject(NotificationsService) private readonly notifications: NotificationsService,
     @Inject(RateLimiter) private readonly limiter: RateLimiter,
+    // The monitor's snapshot cache (D95), injected here for one reason: the
+    // snapshot carries a clarifications panel, so THIS service is the only
+    // place in the deployment that knows the panel has moved. See
+    // `dropMonitorSnapshot` and D162.
+    @Inject(ScoreboardCache) private readonly cache: ScoreboardCache,
   ) {}
+
+  /**
+   * Drop the organiser's monitor snapshot for this contest — D162.
+   *
+   * Called after every write to `contest_clarifications`, and **after the
+   * transaction has committed**, never inside it. `RejudgeService`'s
+   * scoreboard invalidation is the precedent and the reason is the same: a
+   * delete issued inside the transaction is a delete a concurrent reader can
+   * race, re-folding the pre-commit state into the key it just emptied and
+   * pinning the stale answer there for a whole TTL. After the commit the
+   * worst a racing fold can hold is a state that was true a moment ago, which
+   * is what a 5 s cache promises anyway.
+   *
+   * Unconditional across all three writers — `ask`, `announce`, `answer` —
+   * rather than "when I have reasoned that the panel moved". `announce`
+   * writes a row `ContestMonitorService.clarifications`' `answer is null`
+   * predicate excludes today, and that predicate is in another file: the
+   * whole defect this closes was a comment in THIS pair of files reasoning
+   * across the gap and getting it wrong. One `DEL` per announcement buys a
+   * rule that cannot rot.
+   *
+   * Best-effort, like every write `ScoreboardCache` makes: a Redis that
+   * cannot be reached leaves the 5 s TTL as the floor, which is the state
+   * this whole class was in before.
+   */
+  private async dropMonitorSnapshot(contestId: number): Promise<void> {
+    await this.cache.invalidate([monitorCacheKey(contestId)]);
+  }
 
   /**
    * A participant asks. **Joined, or nothing**: this is contest-day Q&A, not
@@ -241,6 +276,9 @@ export class ContestClarificationsService {
         visibility: 'private',
       })
       .returning({ id: contestClarifications.id });
+    // A new question is an UNANSWERED one, which is exactly what the
+    // monitor's panel counts and lists (D162).
+    await this.dropMonitorSnapshot(contest.id);
     return this.byId(this.db, row!.id);
   }
 
@@ -258,7 +296,7 @@ export class ContestClarificationsService {
     if (!canRunContest(actor, contest)) throw FORBIDDEN;
     const problemId = await this.resolveProblemId(contest.id, body.problemCode);
 
-    return this.db.transaction(async (tx) => {
+    const created = await this.db.transaction(async (tx) => {
       const now = new Date();
       const [row] = await tx
         .insert(contestClarifications)
@@ -276,6 +314,9 @@ export class ContestClarificationsService {
       await this.broadcast(tx, contest, row!.id, 'contest_announcement', [actor.userId]);
       return this.byId(tx, row!.id);
     });
+    // After the commit, and unconditional — see `dropMonitorSnapshot`.
+    await this.dropMonitorSnapshot(contest.id);
+    return created;
   }
 
   /**
@@ -309,7 +350,7 @@ export class ContestClarificationsService {
     // (`22003`, a 500) — the safe-integer bound is the range that column accepts.
     if (!Number.isSafeInteger(id) || id <= 0) throw NOT_FOUND;
 
-    return this.db.transaction(async (tx) => {
+    const answered = await this.db.transaction(async (tx) => {
       // Read INSIDE the transaction, and locked.
       //
       // Both transition flags are differences between the row's committed
@@ -388,6 +429,11 @@ export class ContestClarificationsService {
       }
       return this.byId(tx, row.id);
     });
+    // The write this whole fix is about: answering a question takes it OFF
+    // the panel, on the screen a teacher is watching precisely because the
+    // round is running (D162). After the commit — see `dropMonitorSnapshot`.
+    await this.dropMonitorSnapshot(contest.id);
+    return answered;
   }
 
   /**

@@ -14,6 +14,9 @@
  *  - an organiser presses `?recompute=1`, which must repair the counters AND
  *    not answer out of the five-second cache it was pressed because of.
  *
+ * And, since F-43, the fourth moment that moves a panel from inside this
+ * process and is not a submission at all: a CLARIFICATION. D162.
+ *
  * The read itself is asserted through `ContestMonitorService`, so what is
  * checked is the number an organiser sees rather than a row in a table.
  */
@@ -33,7 +36,10 @@ import {
 } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { ContestAccessService } from '../src/authz/contest.access.js';
+import { ContestClarificationsService } from '../src/authz/contest.clarifications.js';
 import { ContestMonitorService } from '../src/authz/contest.monitor.js';
+import { NotificationsService } from '../src/notifications/notifications.service.js';
+import { RateLimiter } from '../src/common/rate-limiter.js';
 import { RatingService } from '../src/authz/rating.service.js';
 import { RejudgeService } from '../src/authz/rejudge.access.js';
 import { SubmissionAccessService } from '../src/authz/submission.access.js';
@@ -152,6 +158,23 @@ const NOBODY_ONLINE: ContestPresence = {
   seen: () => Promise.resolve(),
   recent: () => Promise.resolve([]),
 };
+
+/**
+ * The clarifications service, sharing ONE `ScoreboardCache` with the monitor
+ * beside it — which is the whole point of the test below. Two caches would be
+ * two independent Maps, the invalidation would land in one and the snapshot
+ * would be read from the other, and the assertion would pass against the
+ * unfixed code as readily as against the fixed one.
+ */
+function clarificationsFor(db: Db, cache: ScoreboardCache): ContestClarificationsService {
+  return new ContestClarificationsService(
+    db,
+    new ContestAccessService(db, bypassCache()),
+    new NotificationsService(db),
+    new RateLimiter(db),
+    cache,
+  );
+}
 
 function monitorFor(db: Db, cache: ScoreboardCache = bypassCache()): ContestMonitorService {
   return new ContestMonitorService(
@@ -397,6 +420,87 @@ describe('?recompute=1 (D100)', () => {
       } finally {
         await app.close();
       }
+    });
+  }, 180_000);
+});
+
+/**
+ * D162 — the panel this cache's own comment used to claim could not move.
+ *
+ * The comment on `monitorCacheKey` justified having no invalidation at all
+ * with "every write that would change this snapshot is a submission or a
+ * verdict, and the API does not handle the verdict at all". The snapshot
+ * carries a clarifications panel and this process handles every write to it,
+ * so the sentence was false the day it was written (B-31 found it).
+ *
+ * Both cases go through a REAL read-through cache — `realCache()`, the same
+ * Map-backed store `?recompute=1` above is proved on — because a bypassed
+ * cache cannot be stale and would make either case pass against the unfixed
+ * code. The first snapshot is what fills the key; the second is the one an
+ * organiser's five-second poll takes, and it is the one that used to lie.
+ */
+describe('a clarification and the monitor snapshot (D162)', () => {
+  it('shows a question asked a moment ago, rather than the panel cached before it', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'd162a-owner');
+      const asker = await insertUser(db, 'd162a-an');
+      const seeded = await seedContest(db, owner.id, 'd162a');
+      await joinLive(db, seeded.contestId, asker.id);
+
+      const { cache } = realCache();
+      const monitor = monitorFor(db, cache);
+      const organiser = actorFor(owner.id);
+
+      const before = await monitor.snapshot(organiser, 'd162a');
+      expect(before.clarifications).toMatchObject({ unanswered: 0 });
+
+      await clarificationsFor(db, cache).ask(actorFor(asker.id), 'd162a', {
+        problemCode: 'd162a-a',
+        question: 'Đề bài có tính trường hợp n = 0 không ạ?',
+      });
+
+      const after = await monitor.snapshot(organiser, 'd162a');
+      expect(after.clarifications.unanswered).toBe(1);
+      expect(after.clarifications.latest[0]).toMatchObject({
+        askedBy: 'd162a-an',
+        problemCode: 'd162a-a',
+      });
+    });
+  }, 180_000);
+
+  it('takes an answered question off the panel, in the round it was answered in', async () => {
+    await withTestDb(async (db) => {
+      const owner = await insertUser(db, 'd162b-owner');
+      const asker = await insertUser(db, 'd162b-an');
+      const seeded = await seedContest(db, owner.id, 'd162b');
+      await joinLive(db, seeded.contestId, asker.id);
+
+      const { cache } = realCache();
+      const monitor = monitorFor(db, cache);
+      const clarifications = clarificationsFor(db, cache);
+      const organiser = actorFor(owner.id);
+
+      const asked = await clarifications.ask(actorFor(asker.id), 'd162b', {
+        problemCode: null,
+        question: 'Được dùng thư viện chuẩn không ạ?',
+      });
+
+      // The snapshot an organiser is looking at when they decide to answer.
+      const waiting = await monitor.snapshot(organiser, 'd162b');
+      expect(waiting.clarifications.unanswered).toBe(1);
+
+      await clarifications.answer(organiser, 'd162b', asked.id, {
+        answer: 'Có, thư viện chuẩn C++ được phép.',
+        visibility: 'public',
+      });
+
+      // THE case. Same key, same TTL, no clock moved: without the
+      // invalidation the organiser watches their own answer sit in the
+      // "nobody has answered these" list for another five seconds, on the
+      // screen they opened because the round is running.
+      const answered = await monitor.snapshot(organiser, 'd162b');
+      expect(answered.clarifications.unanswered).toBe(0);
+      expect(answered.clarifications.latest).toHaveLength(0);
     });
   }, 180_000);
 });
