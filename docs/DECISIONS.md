@@ -7087,3 +7087,56 @@ is probed every ten. Both now report mail, and neither opens a socket.
 *Ruled by the implementer during the F-40 slot. The live database is not
 touched by any of it; the route is additive and the panel is a new field on
 an existing response.*
+
+## D157 — The reset mail is dispatched, not awaited: a relay that fails must not answer the question the endpoint refuses to
+
+D155 made a production stack with **no** transport refuse `POST
+/auth/password/forgot` outright, and argued — correctly — that the refusal is
+structural: it depends on `mailer.kind` and `NODE_ENV`, never on the address,
+so it cannot become D26's membership oracle.
+
+F-40 also wired the six `SMTP_*` variables into the `api` container. That is
+the fix `docs/PROVINCE-READINESS.md` has wanted since 29 August, and it is
+also the first time `SmtpMailer` is reachable in production. It opens the case
+D155 does not cover: a transport that **exists and fails**.
+
+`requestPasswordReset` returns at `if (!user) return` for an address nobody
+here has, and reaches `mailer.send` only for one somebody does. So with a
+relay that is refusing — an expired certificate, a rejected credential,
+`ECONNREFUSED`, every string D156 quotes as the reason its test button exists
+— the endpoint answered **500 for an account that exists and 202 for one that
+does not**. No timing measurement needed: it is the status line. The
+uniformity D26 requires and D155 defends was reopened by the very commit that
+made mail work.
+
+- **The send is dispatched and not awaited, and its failure is logged rather
+  than raised.** Both halves, because there are two oracles and awaiting
+  leaves the second one open even when nothing fails: only the address that
+  exists pays an SMTP round trip, which is the *timing* oracle D155 was
+  careful about for its own refusal. Not awaiting closes both with one change.
+- **This is not a return to the 202-that-means-nothing D155 removed.** D155's
+  target is a deployment that structurally cannot deliver, which is knowable
+  before the request touches an address and is therefore sayable to everyone.
+  A single failed delivery is knowable only *after* the address has been
+  looked up, so saying it is the same act as answering "is this address
+  known here". D26 is the harder constraint: the response may not carry it.
+- **The failure goes where it can be carried honestly** — an `ERROR` line
+  naming the user id and the transport's own message, and D156's dashboard,
+  whose whole subject is whether this stack can send mail. Those reach an
+  operator. The response reaches a stranger.
+- **`POST /auth/email/verify/send` is deliberately left awaiting and
+  throwing.** Its caller is signed in and the address is their own account's,
+  so there is no third party to leak to, and a 500 that says the mail did not
+  go is more useful to them than a 202 that says nothing. Registration is
+  unaffected: `AuthController.register` has always caught it (D155).
+- **The token is still issued synchronously**, before the dispatch. A reset
+  link that exists in the database and failed to be mailed is recoverable —
+  the person asks again, or an admin looks. A link that was never minted
+  because the transport was slow is not.
+
+*Ruled by the implementer during the B-30 hunt, no human available to consult.
+Reversible in one commit (the `void Promise.resolve().then(...)` becomes an
+`await` again). The cost if this is wrong is that a delivery failure on the
+reset path is visible only in the log and on the dashboard rather than in the
+response — which is exactly where D26 says it has to be, and is what the
+endpoint already did for the rate limiter's own silent refusal (D13).*

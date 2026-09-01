@@ -6,7 +6,7 @@
  * rather than two tables, and what that shape makes possible if a redemption
  * ever forgets to filter on `purpose`.
  */
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { schema, type Db } from '@duckoj/db';
@@ -92,6 +92,8 @@ export class AccountRecoveryService {
     @Inject(RateLimiter) private readonly limiter: RateLimiter,
   ) {}
 
+  private readonly logger = new Logger(AccountRecoveryService.name);
+
   /**
    * D155 — refuses, before anything else happens, when this deployment cannot
    * actually deliver mail.
@@ -163,13 +165,41 @@ export class AccountRecoveryService {
     if (!user) return;
 
     const token = await this.issue(user.id, 'password_reset');
-    await this.mailer.send({
-      to: user.email,
-      ...passwordResetMail(resolveMailLocale(user.locale), {
-        url: `${this.config.publicOrigin}/reset-password?token=${token}`,
-        ttlMinutes: TTL_MINUTES.password_reset,
-      }),
-    });
+    // D157 — DISPATCHED, not awaited, and its failure logged rather than
+    // raised. Both halves are the same rule as the refusal above: this
+    // endpoint may not vary with the address, and everything below this line
+    // happens only for an address that HAS an account.
+    //
+    //  * Awaited, a relay that refuses (an expired certificate, a rejected
+    //    credential — every string D156 quotes) makes the endpoint answer 500
+    //    for an address somebody here has and 202 for one nobody has. That is
+    //    D26's membership oracle written on the status line.
+    //  * Awaited at all, the existing address pays an SMTP round trip that
+    //    the unknown one does not, which is the same oracle on the clock —
+    //    the half D155 was careful about for its own refusal.
+    //
+    // A failed delivery is still a fact an operator must have, so it goes to
+    // the log (and, through the transport, to D156's dashboard): the two
+    // places that can carry it without also answering a stranger's question.
+    // `Promise.resolve().then(...)` on `bridge-server.touchLastSeen`'s
+    // pattern, so a transport that throws SYNCHRONOUSLY lands in the same
+    // `catch` as one that rejects.
+    void Promise.resolve()
+      .then(() =>
+        this.mailer.send({
+          to: user.email,
+          ...passwordResetMail(resolveMailLocale(user.locale), {
+            url: `${this.config.publicOrigin}/reset-password?token=${token}`,
+            ttlMinutes: TTL_MINUTES.password_reset,
+          }),
+        }),
+      )
+      .catch((error: unknown) => {
+        this.logger.error(
+          `password reset mail failed for user ${String(user.id)}: ` +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      });
   }
 
   /**
