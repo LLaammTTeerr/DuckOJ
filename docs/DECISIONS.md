@@ -707,9 +707,12 @@ brief's "keep 2 and say why" branch has no honest why. One loop per judge, and
 it rises with the fleet (docs/runbook.md, "Judging throughput"), which is the
 sequencing the runbook already prescribed and the repo had not followed.
 
-Left open: `live` is still keyed by job id, not `(job, attempt)`. Terminating
-attempt N on its own connection and not reusing that connection until the judge
-answers narrows the window hard, but it is still an argument from timing.
+Left open, and **closed by D205**: `live` is still keyed by job id, not
+`(job, attempt)`. Terminating attempt N on its own connection and not reusing
+that connection until the judge answers narrows the window hard, but it is
+still an argument from timing. D205 keeps the map's key and moves the attempt
+onto the connection assignment instead, which is what the driver actually
+routes on.
 
 ## D30 — A failed restore leaves the writers stopped when the database is unverified, and restarts them when it is not
 
@@ -11012,3 +11015,89 @@ No migration. Cost if wrong: `judge:node`'s verb set, one `@duckoj/db` export,
 and a map on `BridgeServer`. The live `judge-1` was **not** rotated — this
 slot may not restart the container that would have to follow it, and a
 rotation without that half leaves the host unable to grade.*
+
+## D205 — The attempt lives on the connection assignment, and a packet from a superseded attempt is discarded rather than routed
+
+B-36, and the paragraph D29 left open. `DmojDriver.live` is a
+`Map<number, LiveJob>` keyed by the number DMOJ calls `submission-id`, which
+is our grading **job** id — and a retry reuses that id with a higher
+`attempt`. The map therefore holds at most one entry per job, attempt N+1's,
+while attempt N is still speaking from the connection it was terminated on.
+`handle()` routed every reply packet through `live.get(packet['submission-id'])`
+and so handed those late packets to the successor. The guard that looked like
+it covered this did not: `held.submissionId === submissionId` is true of the
+connection running attempt N *and* the connection running attempt N+1, because
+they are running the same job id. It reassigned `entry.connection` back to the
+old socket and queued the stale packet onto the new attempt's translation
+chain. A `grading-end` from attempt N finalises attempt N+1 while it is still
+compiling, with a verdict computed from the previous run's cases; a
+`test-case-status` builds a subtask summary out of two runs mixed together.
+Both write a permanent result, and both are D100's "the monitor's numbers and
+the queue's numbers disagree" seen from the inside.
+
+D29's mitigation — terminate attempt N on its own connection, and do not hand
+that connection out again until the judge answers — is a real narrowing and
+D29 said in as many words that it was an argument from timing rather than a
+proof. It cannot be made into one. The judge answers when it answers, and the
+retry is dispatched by a different worker on a different clock.
+
+**The ruling: attempt is part of the identity the driver routes on, and it is
+carried on `Assignment` rather than in the key of `live`.** The connection
+assignment is where the driver's knowledge of "who is running what" already
+lives, maintained from both ends — what we sent, and what every reply packet
+confirms. Adding `attempt: number` to it makes that knowledge complete, and
+`handle()` compares the attempt the connection is running against the attempt
+of the live entry the packet's id resolves to. A mismatch is discarded, logged
+once as `packet from a superseded attempt discarded` with both attempts and
+the connection, and — this is the part that is not obvious — **does not
+reassign `entry.connection`**, because the live attempt is somewhere else.
+
+Keying `live` by a composite `${jobId}:${attempt}` was the other shape. It was
+rejected: `cancel` and the `current-submission-id` orphan check both look a job
+up by bare id with no attempt in hand, so a composite key forces both of them
+to scan or to invent an attempt they do not have. The map keeps its key.
+
+**A discarded TERMINAL packet still frees the connection it arrived on.** This
+is the correction the brief's own recipe did not carry, and without it the fix
+trades a wrong verdict for a silent hang. The packet `cancel` is waiting for is
+the judge's `submission-terminated`, and its whole job is to hand the socket
+back; discarding it as "not attempt N+1's" would leave that judge marked busy
+with a grade nobody is listening for. On the fleet this repository actually
+ships — one judge — the next dispatch then parks in `acquireConnection`
+forever. So `grading-end`, `submission-terminated`, `compile-error` and
+`internal-error` — exactly the set for which `translate` calls `finish` — run
+an attempt-fenced `releaseConnection` on the way out. That fencing is the same
+reason `releaseConnection` was already submission-fenced: with a retry reusing
+the id, "still holds submission S" is true of both connections, and a blind
+release would hand away the socket running the live grade.
+
+`onJudgeGone` is fenced the same way. A judge that dies still holding a
+*superseded* attempt of job S must not retire and abandon the successor
+running on a different machine — that requeues a healthy grade on the strength
+of an unrelated host's death, which is B2's failure shape reached from a third
+direction.
+
+**`current-submission-id` keeps its behaviour and gains a comment saying why
+it cannot do better.** The packet is `{ name, submission-id }` and nothing
+else, because judge-server has no notion of our attempt counter: it echoes
+back the single number we put in `submission-request`. This branch therefore
+cannot tell "this judge is still chewing on attempt 1" from "this judge is
+running the attempt 2 we dispatched". It still terminates an announcement we
+hold no live entry for — an orphan from a previous `judged` process would
+otherwise grade forever against nobody — and it now adopts the connection only
+when the driver has no better-evidenced claim on it: not when the live entry is
+already placed on another connection, and not when this connection is already
+recorded against a grade. A claim built from a dispatch we made knows its
+attempt; an announcement does not, so it never overwrites one. Terminating on
+the ambiguity instead would be worse than doing nothing, because the
+announcement may well *be* the live attempt seen after a restart.
+
+*Ruled by the implementer during the B-36 slot, no human available to consult.
+No migration, no schema, no wire change: this is `apps/judged` bookkeeping and
+four extra bytes per connected judge. Cost if wrong: the discard is the only
+new way for a packet to be dropped, so the failure mode of a mistake here is a
+grade that never receives its terminal event and falls to the grading ceiling
+and a requeue — recoverable, and loud in the log, which the swallowed verdict
+it replaces was not. The three multi-judge specs pinning it were demonstrated
+red against the unmodified driver, and the connection-release half was
+demonstrated red separately against the fix without it.*
