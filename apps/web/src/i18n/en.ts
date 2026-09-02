@@ -688,6 +688,13 @@ export const en = {
   // ── profile ───────────────────────────────────────────────────────────
   'user.notFound': 'No such user.',
   'user.memberSince': 'member since {date}',
+  // D197/D187. The header above is showing this person's USERNAME where their
+  // display name would be, because this deployment does not disclose real
+  // names to this reader. Saying so is the whole point: a page that silently
+  // substitutes one for the other tells a reader that a pupil's chosen name
+  // IS their account name, which is a claim the server never made.
+  'user.identityHidden':
+    'This site does not show real names to signed-out readers or to readers outside its organisations. The account name is shown instead, and this profile’s About section is hidden.',
   'user.statistics': 'Statistics',
   'user.solved': 'Problems solved',
   'user.points': 'Points',

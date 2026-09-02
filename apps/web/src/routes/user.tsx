@@ -71,6 +71,13 @@ export function UserPage({ username }: { username: string }) {
         {user.country ? ` · ${user.country}` : ''} ·{' '}
         {t('user.memberSince', { date: formatDate(user.createdAt, locale, timeZone) })}
       </p>
+      {/* D197. The name above is this account's USERNAME standing in for a
+          display name this deployment does not disclose to this reader, and
+          the About section below it is withheld for the same reason. D187's
+          rule: a reader who is being shown less has to be able to see that
+          they are — otherwise the handle reads as the pupil's chosen name and
+          an empty About reads as a pupil who wrote nothing. */}
+      {user.identityRedacted ? <p className="muted">{t('user.identityHidden')}</p> : null}
       {user.about ? <p>{user.about}</p> : null}
 
       <h2>{t('user.statistics')}</h2>

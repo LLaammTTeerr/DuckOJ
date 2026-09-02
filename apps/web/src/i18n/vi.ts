@@ -641,6 +641,9 @@ export const vi = {
   // ── profile ───────────────────────────────────────────────────────────
   'user.notFound': 'Không có người dùng này.',
   'user.memberSince': 'tham gia từ {date}',
+  // D197/D187 — xem bản tiếng Anh cho lý do.
+  'user.identityHidden':
+    'Trang này không hiển thị tên thật cho khách chưa đăng nhập hoặc người không thuộc tổ chức nào. Tên tài khoản được hiển thị thay cho tên thật, và phần giới thiệu của hồ sơ này được ẩn đi.',
   'user.statistics': 'Thống kê',
   'user.solved': 'Số bài đã giải',
   'user.points': 'Điểm',

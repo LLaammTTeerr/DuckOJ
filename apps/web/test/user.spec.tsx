@@ -31,6 +31,7 @@ const PROFILE = {
   createdAt: '2026-01-01T00:00:00Z',
   about: null,
   stats: { solvedCount: 3, points: 250, submissionCount: 9 },
+  identityRedacted: false,
 };
 
 /** An account with nothing counted yet — the panel's own empty state. */
@@ -43,6 +44,44 @@ const NO_PROGRESS = {
 afterEach(() => get.mockReset());
 
 describe('UserPage', () => {
+  /**
+   * D197/D187 — the name in the heading is the account's USERNAME standing in
+   * for a display name this deployment does not disclose to this reader, and
+   * the About section is withheld with it. Without the sentence the page reads
+   * as a pupil whose chosen display name happens to be `hs000123` and who
+   * wrote nothing about themselves — a claim the server never made.
+   */
+  it('says so when the profile is showing a handle instead of a name', async () => {
+    const redacted = {
+      ...PROFILE,
+      username: 'hs000123',
+      displayName: 'hs000123',
+      about: null,
+      identityRedacted: true,
+    };
+    get.mockImplementation((path: string) =>
+      path === '/users/{username}'
+        ? Promise.resolve({ data: redacted })
+        : Promise.resolve({ data: { items: [], nextCursor: null } }),
+    );
+    wrap(<UserPage username="hs000123" />);
+
+    expect(await screen.findByRole('heading', { name: 'hs000123' })).toBeInTheDocument();
+    expect(screen.getByText(/không hiển thị tên thật/i)).toBeInTheDocument();
+  });
+
+  it('says nothing of the sort when the reader is being shown the real name', async () => {
+    get.mockImplementation((path: string) =>
+      path === '/users/{username}'
+        ? Promise.resolve({ data: PROFILE })
+        : Promise.resolve({ data: { items: [], nextCursor: null } }),
+    );
+    wrap(<UserPage username="kim" />);
+
+    expect(await screen.findByRole('heading', { name: 'Kim' })).toBeInTheDocument();
+    expect(screen.queryByText(/không hiển thị tên thật/i)).not.toBeInTheDocument();
+  });
+
   it('shows the statistics and the peak beside the current rating', async () => {
     get.mockImplementation((path: string) =>
       path === '/users/{username}' ? Promise.resolve({ data: PROFILE }) : Promise.resolve({ data: { items: [], nextCursor: null } }),
