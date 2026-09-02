@@ -96,8 +96,12 @@ export const OrgMember = z.object({
    * show the name it had matched. It is also what D122's deterministic
    * initials are computed from, so a person picker can show a face.
    *
-   * Discloses nothing new — `GET /users/{username}` already serves
-   * `displayName` publicly for every account, one request per row.
+   * **Since D197 this field is what the disclosure policy moves.** It carries
+   * the account's USERNAME instead of the real name for a reader this
+   * deployment does not disclose one to — substituted, never omitted, so this
+   * schema and every renderer of it are unchanged. `GET /users/{username}`
+   * answers the same way to the same reader, so a roster and a profile cannot
+   * disagree about who a person is.
    */
   displayName: z.string(),
   role: OrgRole,
@@ -145,12 +149,21 @@ export type OrgMemberListQueryDto = z.infer<typeof OrgMemberListQuery>;
  * concurrent joins and departures.
  *
  * **`nextCursor` is always `null` for an anonymous reader (D191)** — the one
- * field this ruling trims, and the only one that needed trimming. Every column
- * of `OrgMember` is already public one row at a time, so withholding
- * `displayName` or `joinedAt` would cost a teacher the readable roster D185
- * built and close nothing; what made the roster a disclosure was the BULK, and
- * the cursor is what made the bulk reachable. Handing a stranger a cursor and
- * then refusing it would be a contradiction, so they are never handed one.
+ * field that ruling trims, and the only one it needed to trim. Every column of
+ * `OrgMember` was already public one row at a time, so withholding
+ * `displayName` or `joinedAt` outright would have cost a teacher the readable
+ * roster D185 built and closed nothing; what made the roster a disclosure was
+ * the BULK, and the cursor is what made the bulk reachable. Handing a stranger
+ * a cursor and then refusing it would be a contradiction, so they are never
+ * handed one.
+ *
+ * **D197 then answered the other half, which D191 could not.** The bulk was
+ * the roster's problem; the NAME was the product's, and it is settled one
+ * level up by a deployment policy every surface consults — so `displayName`
+ * here carries the username for a reader this deployment does not disclose a
+ * real name to, at the same rung `GET /users/{username}` uses. D191's
+ * sentence above is left standing as what it was: an argument about bulk, and
+ * still correct about bulk.
  *
  * The four *write* endpoints that answer with the roster (add, remove, set
  * role, decide a join request) return the FIRST page of it, with its own

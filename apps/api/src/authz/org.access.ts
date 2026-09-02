@@ -227,12 +227,20 @@ export class OrgAccessService {
     // non-advancing page shows who is in the school without shipping a
     // machine-readable list of every pupil.
     //
-    // `nextCursor` is the field that is trimmed, and it is the only one that
-    // needed to be. Every column served here is already public one row at a
-    // time (`GET /users/{username}` serves `displayName` to anyone), so
-    // trimming `displayName` or `joinedAt` would cost a teacher the readable
-    // roster D185 built and close nothing — the disclosure was the BULK, and
-    // the cursor is what made the bulk reachable.
+    // `nextCursor` is the field D191 trims, and it was the only one D191
+    // needed to trim. Every column served here was already public one row at a
+    // time, so withholding `displayName` or `joinedAt` outright would have
+    // cost a teacher the readable roster D185 built and closed nothing — the
+    // disclosure D191 was about was the BULK, and the cursor is what made the
+    // bulk reachable.
+    //
+    // **D197 answers the other half, one level up.** Whether a real NAME may
+    // be rendered at all is now a deployment policy, and this roster consults
+    // the same predicate every other surface does (`rosterOf` takes the
+    // audience). So the parenthetical this comment used to carry — "`GET
+    // /users/{username}` serves `displayName` to anyone" — is no longer true
+    // at the default rung, and it is not true HERE either: the two routes give
+    // the same reader the same answer, which is the property that matters.
     //
     // **`q` goes with the cursor, and that is not belt-and-braces.** D185's
     // search matches a WORD prefix of the folded username or display name, so

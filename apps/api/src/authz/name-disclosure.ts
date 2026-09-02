@@ -115,15 +115,6 @@ export interface NameAudience {
 }
 
 /**
- * For a surface that has no reader at all: the seeded fixtures, and the two
- * import paths that echo back the file a staff member just uploaded.
- *
- * Not a way around the policy — nothing that reads `users.display_name` out of
- * the database may use it, and D198's scan is what says so.
- */
-export const OWN_WORDS: NameAudience = { full: true, selfId: null };
-
-/**
  * Resolve the reader.
  *
  * `authority` is passed by a surface that has **already** authorized this
