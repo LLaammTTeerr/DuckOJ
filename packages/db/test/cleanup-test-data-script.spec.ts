@@ -40,10 +40,12 @@ function deleteOrder(plan: string): string[] {
 
 let plan = '';
 let apply = '';
+let narrowed = '';
 
 beforeAll(async () => {
   plan = await printPlan();
   apply = await printPlan('--apply');
+  narrowed = await printPlan('--only', "f56probe1,b35-probe-1788313721");
 }, 120_000);
 
 describe('--print-plan', () => {
@@ -136,6 +138,24 @@ describe('the allow-list is the only way in', () => {
     expect(plan).toContain("delete from rate_events r");
     expect(plan).toContain("r.purpose <> 'login'");
     expect(plan).toContain("'user:' || u::text from unnest(arr_user) as u");
+  });
+
+  it('narrows to the rows an operator named, and never widens (D202)', () => {
+    // The case D153 had no shape for: an operator authorised to remove TWO
+    // named rows from a live judge whose patterns legitimately claim four
+    // hundred more. Without this flag, "run the cleaner for these two" and
+    // "run the cleaner" are the same command.
+    for (const column of ['username', 'key', 'code', 'slug']) {
+      expect(narrowed).toContain(`${column} in ('f56probe1', 'b35-probe-1788313721')`);
+    }
+    // Intersected with the allow-list and AFTER the deny-list, so a named row
+    // that matches no pattern is still invisible and a denied one is still
+    // denied: `--only duckadmin` deletes nothing.
+    expect(narrowed).toContain("username not in ('system', 'duckadmin', 'hocsinh1')");
+    expect(narrowed).toContain("username ~ '^b[0-9]+-'");
+    // And an unnarrowed run is unchanged — the clause is absent, not `in ()`.
+    expect(plan).not.toContain(' in (\'f56probe1');
+    expect(plan.match(/and true\)/g) ?? []).toHaveLength(4);
   });
 
   it('leaves the content-addressed package tables alone', () => {
