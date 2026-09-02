@@ -372,5 +372,5 @@ pre-existing test changed state.
 8cb85e4 fix(judged): route reply packets on (connection, attempt), not job id alone
 57aeaf2 docs(decisions): D205 closes D29's "Left open" — routing on (connection, attempt)
 abde8bc docs(b36): the report — red twice, green, and the suite this sandbox cannot run
-<final> test(judged): pin the one-judge park/wake, and correct D205's D100 reference
+5aba7e5 test(judged): pin the one-judge park/wake, and correct D205's D100 reference
 ```
