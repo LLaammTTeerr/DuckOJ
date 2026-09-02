@@ -11149,13 +11149,26 @@ attempt differs — the live entry's own attempt when nothing contradicts the
 announcement (the reconnect-recovery path), and `UNKNOWN_ATTEMPT`, a negative
 sentinel no real attempt can equal, when something does.
 
-*What `UNKNOWN_ATTEMPT` costs, stated rather than implied.* Such a connection
-is out of the free pool until a terminal packet arrives on it or it
-disconnects: a judge that announces and then falls silent holds its slot until
-the socket dies, where before it would have been handed work (and broken).
-That is the trade — a stalled slot instead of a corrupted grade — and on a
-one-judge fleet it is the difference between a queue that waits and a queue
-that lies. And one ordering is **not** closed here: `retire` frees the
+*Why `UNKNOWN_ATTEMPT` is safe.* Not "because it is a small number": because a
+connection carrying it has exactly two exits and no way to be misread. Every
+non-terminal packet on it is foreign by construction — the sentinel matches no
+attempt, so nothing it says can reach any submission's event stream. Every
+terminal packet on it releases it, in whichever branch of `handle` applies:
+the discard branch while a live entry for that job id still exists, and the
+`!entry` branch once the successor has retired it (fix round 2 added the
+second; without it the sentinel had no exit at all and this paragraph was
+false). Until one arrives, it holds the socket out of the free pool. **The
+failure mode of an `UNKNOWN_ATTEMPT` assignment is therefore latency, never
+misattribution** — which is the right way round, because a stalled slot is
+visible in the queue depth and a corrupted grade is not.
+
+*What it costs, stated rather than implied.* Such a connection is out of the
+free pool until a terminal packet arrives on it or it disconnects: a judge that
+announces and then falls silent holds its slot until the socket dies, where
+before it would have been handed work (and broken). That is the trade — a
+stalled slot instead of a corrupted grade — and on a one-judge fleet it is the
+difference between a queue that waits and a queue that lies. And one ordering
+is **not** closed here: `retire` frees the
 assignment at the redial, before the announcement can arrive, so a dispatch
 parked at that instant can take the connection in between. The judge then holds
 two requests and the announcement finds an assignment already there and keeps
@@ -11191,6 +11204,54 @@ the comment above `dispatch`: closed for every connection whose assignment the
 driver built from its own dispatch, which is every connection in the normal
 flow; inferred, and stated as an inference, for a judge that redials.
 
+### Fix round 2 — the assignment outlives the entry
+
+Re-review confirmed round 1 and found one more leak, in the branch nobody had
+looked at because it does nothing.
+
+**A terminal packet for an ALREADY-RETIRED job stranded its connection.**
+`handle` read `live.get(submissionId)` and returned on a miss *before* it ever
+looked at the assignment, so nothing handed the connection back. Two orderings
+reach it, and both need a fleet of two — which is why every spec written for
+this decision so far, all of them built around a superseded attempt still
+outstanding, walked straight past it. The successor has to **finish first**: its
+`grading-end` retires `live[jobId]`, and only then does the superseded
+attempt's judge answer. A single judge cannot produce that, because it is the
+one running both.
+
+The first ordering is pre-existing and predates attempts entirely: judge-1 is
+still owed a `submission-terminated`, judge-2 finishes the retry, judge-1
+answers, and judge-1's assignment stays for the life of the process. The
+second is this decision's own doing, and worse. An `UNKNOWN_ATTEMPT`
+assignment has **no other exit**: `finish` cannot release it, because the
+connection holding it is not any live entry's `connection`; the discard branch
+cannot, because it never runs once the entry is gone. Round 1's rule — never
+leave a busy judge idle — had bought itself a judge that was never idle again.
+
+The cost is the hang class this whole decision exists to prevent, reached from
+a third direction. A leaked assignment is invisible to `bridge.judgeCount()`,
+so `capabilities()` and `tryAcquireSlot` keep counting and handing out slots
+for a judge `acquireConnection` will never choose again; a worker takes one of
+those slots, claims a job, and parks holding the lease.
+
+**The ruling: the assignment lookup moves above the miss, and a terminal packet
+releases a connection whose job no longer exists.** Only the assignment is
+touched, and only when it names that very job. What makes that safe is the
+condition it lives under: with no live entry there is nothing to attribute the
+packet to, and therefore nothing to misattribute it to — the whole reason the
+routing guard has to be careful does not apply. It is logged under its own
+message rather than folded into the discard log, because a connection that
+outlived its job's live entry is an anomaly worth seeing even when it is
+handled.
+
+**And the safety property this decision asserted was, until now, false.** Three
+places — the `UNKNOWN_ATTEMPT` doc comment, the `current-submission-id` branch,
+and this entry — said the sentinel is released by its terminal packet. It was
+not; there was no path that could. The code now makes it true, and all three
+say which two branches make it true, so the next reader can check the claim
+instead of trusting it. A decision record that asserts a property the code does
+not have is worse than one that admits a gap.
+
 *Ruled by the implementer across the B-36 slot and one round of adversarial
 review, no human available to consult. No migration, no schema, no wire
 change: this is `apps/judged` bookkeeping and one extra number per connected
@@ -11201,7 +11262,8 @@ is not, and F1 is why — the same mistake leaks the connection's assignment
 along with the grade, and on the one-judge fleet this repository ships the
 requeue then has nowhere to run. **The honest failure mode of an error in this
 bookkeeping is a stalled queue that only a judge restart clears**: loud in the
-log, but not self-healing. That is the standard the seven multi-judge specs
+log, but not self-healing. That is the standard the nine multi-judge specs
 pinning this decision were written to, each demonstrated red before it was
 demonstrated green — three against the unmodified driver, one against the fix
-with its connection release removed, and three against the end of round 0.*
+with its connection release removed, three against the end of round 0, and
+two against the end of round 1.*
