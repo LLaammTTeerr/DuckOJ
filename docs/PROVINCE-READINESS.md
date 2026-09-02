@@ -47,6 +47,13 @@ throughput").
    host only (D17).
 4. **A second judge container** before a province-scale contest
    (runbook, "Judging throughput").
+5. **A decision about `REGISTRATION`** (D200) — but only if the answer is
+   `open`. Left empty, this judge takes no sign-ups and its accounts come
+   from `corepack pnpm org:import` (D61) and `bootstrap:admin` (D19), which
+   is what a school district wants. Set `REGISTRATION=open` for a public
+   practice site. Same for `NAME_DISCLOSURE` (D197): empty is the protective
+   rung. Both are reported on the admin operations dashboard, so you can see
+   which one the process is actually on.
 
 ## Deploy from a clean host
 
@@ -106,8 +113,18 @@ compose profile before a province-wide contest.
 
 1. The first real `restore.sh` against the live stack has not been
    exercised (unit-tested against a stub compose) — watch it (D30).
-2. Registration hides a taken email behind a fake 201 (D26); full closure
-   needs verify-before-create.
+2. ~~Registration hides a taken email behind a fake 201 (D26); full closure
+   needs verify-before-create.~~ — **closed on the default rung** (F-56,
+   D200). `REGISTRATION` now decides who may create an account and defaults
+   to `closed`: `POST /auth/register` answers 403 `registration_closed` to
+   everyone but a global admin, before the meter and before the address is
+   looked at, so the response is a function of the deployment and of nothing
+   about the request body. There is no oracle left to narrow. **What remains
+   open is scoped to one rung**: a deployment that sets `REGISTRATION=open`
+   is back on D26's fake 201 and its one-extra-request residual, and full
+   closure there still needs verify-before-create. The live `.env` sets
+   nothing, so this province is on `closed` — **from the next deploy**; the
+   edge at `2c8617e` still answers 201 to an anonymous registration.
 3. ~~`/users/me/progress` … unmeasured at province size~~ — **measured**
    (F-44, `docs/superpowers/briefs/f44-report.md`). Seven aggregates, ≈16 ms of
    database time per cold miss at province scale; 2 000 pupils opening the page

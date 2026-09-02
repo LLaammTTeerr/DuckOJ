@@ -19,6 +19,13 @@ phím `Esc`, bằng nút **Đóng**, hoặc bấm ra ngoài bảng.
 
 ## 1. Đăng ký
 
+> **Nhiều trường không mở đăng ký.** Từ D200, quản trị viên chọn ai được tạo
+> tài khoản, và **mặc định là không ai** — tài khoản do nhà trường lập. Nếu
+> vào `/register` mà trang báo *"Trang này không nhận đăng ký"* thì đó là
+> đúng thiết kế, không phải lỗi: hãy hỏi thầy cô để được cấp tài khoản, hoặc
+> dùng **Quên mật khẩu?** nếu bạn đã có tài khoản mà không vào được. Phần
+> dưới đây áp dụng cho những nơi có mở đăng ký.
+
 Vào **Đăng ký** (`/register`) và điền:
 
 - **Tên đăng nhập** — từ 3 đến 32 ký tự, chỉ gồm chữ cái, chữ số, dấu chấm,

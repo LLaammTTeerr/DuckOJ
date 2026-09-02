@@ -134,7 +134,11 @@ Chạy theo đúng thứ tự này, bằng **tên miền thật**, trên **một
 thoại**, không phải trên máy chủ:
 
 1. Mở trang chủ — có kỳ thi đang diễn ra thì nó hiện ở đầu (D151).
-2. Đăng ký một tài khoản mới → nhận thư xác nhận thật (bước 2).
+2. Đăng ký một tài khoản mới → nhận thư xác nhận thật (bước 2). Nếu bạn để
+   `REGISTRATION` trống (mặc định, D200) thì bước này **phải** trả về 403 và
+   trang `/register` phải nói ra lý do — đó là kết quả đúng. Khi ấy hãy tạo
+   tài khoản thử bằng `corepack pnpm org:import` hoặc bằng tài khoản quản
+   trị, rồi tiếp tục bước 3 với tài khoản đó.
 3. Nộp một bài → kết quả tự về, không cần tải lại (bước 3); nếu đường trực
    tiếp bị chặn, trang tự chuyển sang hỏi lại mỗi bốn giây và **nói ra điều
    đó** (D152).
