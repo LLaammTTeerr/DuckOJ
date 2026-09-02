@@ -321,3 +321,55 @@ is the product being right.
 That refusal exposed the open product question now in F-49: an org's teams are
 ordered `asc(teams.id)`, so past 25 teams a teacher cannot see the team they
 just made.
+
+---
+
+## 2026-09-02 — the privacy pair, and four walk failures with four different causes
+
+Deployed and pushed, CI green at `bf2023a`: F-49 lists at school scale · F-50
+every list reaches page two · B-33 the roster form that saved nothing ·
+F-51 search by name · F-52 the directory is not a public download ·
+F-53 a public school shows a page · B-34 the locator that could not see a
+field on screen.
+
+**The finding nobody was looking for.** F-51 was wiring a name search. It
+noticed the endpoint it was searching had a property nobody had decided on —
+`GET /users` was anonymously enumerable, cursored, and had never had a rate
+limiter — and said so in its report instead of shipping past it. Measured: 100
+accounts per anonymous request, five requests for the whole roster. On a
+province's host that is every child's real name.
+
+Two slots later: listing needs an actor, the **walk** is metered per user id
+and **never per address** (thirty pupils behind one school NAT must not lock
+each other out mid-contest), and a public school's roster answers one page
+with no cursor and no search — because D185's prefix search would walk it just
+as surely as a cursor would. Neither ruling is "lock it down": individual
+profiles stay public, and a school marked public stays readable, because both
+were deliberate choices (D56, D46).
+
+**Four walk failures, four causes, none guessed.** A real product defect (a
+form offering editable boxes before it held the record — latent until F-50's
+efficiency fix removed the accidental prefetch hiding it); fixture
+accumulation (27 teams against a page of 25, the walk pushing its own row off
+the page it navigates to); a selector collision (F-51's `Tìm thành viên`
+contains `Thành viên`); and a locator that could not see a field that was on
+screen — React mirrors a controlled textarea's value into the label's child
+text node, so `getByLabel(exact)` matched nothing. Fixed by role plus
+accessible name, which excludes an embedded control's own value.
+
+**A controller error worth recording.** I told the user twice that journey 2b
+passed while journey 2 failed, and built B-34's entire hypothesis on that
+contrast. **2b was red too.** I had carried forward a `3 passed` observed
+*before* my own selector change and reported it as still true afterwards — my
+very next run said `1 failed / 1 did not run / 1 passed`. Mixing observations
+across two code states and presenting the result as evidence sent an agent
+hunting a cache bug that did not exist. It checked the premise instead of
+inheriting it, and said so. **Re-measure after every change you make; a
+green run is evidence only about the tree it ran on.**
+
+**Also this session:** two orphaned process classes reaped (a Java benchmark
+loop holding the host at 94 °C for fifty minutes with the CPU 85 % idle, and
+two `vite preview` servers alive since 30 Aug); D171 fixed a `SKIP_MIGRATE`
+marker that made a skipped migration permanent; and `CLAUDE.md` now names the
+cross-cutting guards that fail in CI and not locally, after the same guard
+went red twice in one day.
