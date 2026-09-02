@@ -144,29 +144,55 @@ async function signIn(page: Page, username: string, password: string): Promise<v
   ).toBeVisible();
 }
 
-/** Log a fixed account in over the API; register it only if it does not exist. */
-async function ensureAccount(ctx: APIRequestContext, username: string): Promise<void> {
-  const login = async (): Promise<boolean> => {
-    const res = await ctx.post('/api/v1/auth/login', {
-      headers: SAME_ORIGIN,
-      data: { usernameOrEmail: username, password: PASSWORD },
-    });
-    return res.ok();
-  };
-  if (await login()) return;
-  const reg = await ctx.post('/api/v1/auth/register', {
-    headers: SAME_ORIGIN,
-    data: {
-      username,
-      email: `${username}@example.invalid`,
-      password: PASSWORD,
-      displayName: `FE42 ${username}`,
-    },
+/**
+ * Log a fixed account in; register it through the ADMIN context if it does
+ * not exist.
+ *
+ * **The admin context is not incidental (D200).** Since F-56 this deployment
+ * decides who may create an account, the default rung is `closed`, and the
+ * live `.env` sets nothing — so an anonymous `POST /auth/register` is a 403
+ * here and these walks would have no pupils at all. A global admin is the one
+ * caller a closed judge still admits, which is exactly what a rehearsal
+ * harness seating fixed accounts on somebody's judge IS. The alternative
+ * considered and rejected was weakening the default so the tests kept
+ * passing, which would have made the policy a decoration.
+ *
+ * **The login probe runs on a THROWAWAY context, and that is a bug fix.** The
+ * previous shape signed in on the very context it registered through, so the
+ * second call of a loop was made by pupil one rather than by the admin — a
+ * 403 under the closed rung, and invisible before it only because the
+ * anonymous path happened to work.
+ */
+async function ensureAccount(admin: APIRequestContext, username: string): Promise<void> {
+  const probe = await playwrightRequest.newContext({
+    baseURL: ORIGIN,
+    extraHTTPHeaders: { Origin: ORIGIN },
   });
-  expect(reg.ok() || reg.status() === 409, `register ${username}: ${String(reg.status())}`).toBe(
-    true,
-  );
-  expect(await login(), `login ${username} after register`).toBe(true);
+  try {
+    const login = async (): Promise<boolean> => {
+      const res = await probe.post('/api/v1/auth/login', {
+        headers: SAME_ORIGIN,
+        data: { usernameOrEmail: username, password: PASSWORD },
+      });
+      return res.ok();
+    };
+    if (await login()) return;
+    const reg = await admin.post('/api/v1/auth/register', {
+      headers: SAME_ORIGIN,
+      data: {
+        username,
+        email: `${username}@example.invalid`,
+        password: PASSWORD,
+        displayName: `FE42 ${username}`,
+      },
+    });
+    expect(reg.ok() || reg.status() === 409, `register ${username}: ${String(reg.status())}`).toBe(
+      true,
+    );
+    expect(await login(), `login ${username} after register`).toBe(true);
+  } finally {
+    await probe.dispose();
+  }
 }
 
 async function actorContext(username: string, password = PASSWORD): Promise<APIRequestContext> {
@@ -292,12 +318,9 @@ test('journey 1 — the monitor’s numbers are the API’s numbers, and the fee
   const admin = adminCredentials();
   const adminCtx = await actorContext(admin.username, admin.password);
 
-  const boot = await playwrightRequest.newContext({
-    baseURL: ORIGIN,
-    extraHTTPHeaders: { Origin: ORIGIN },
-  });
-  for (const pupil of PUPILS) await ensureAccount(boot, pupil);
-  await boot.dispose();
+  // Seated by the ADMIN context: a closed judge admits no other registrar
+  // (D200), and `ensureAccount` keeps this context as the admin.
+  for (const pupil of PUPILS) await ensureAccount(adminCtx, pupil);
 
   // A round that is ALREADY running: started two minutes ago so entrants can
   // join and submit with no wait, and long enough that nothing expires
@@ -460,12 +483,9 @@ test('journey 2 — a teacher assembles a team in the form, and the one-seat rul
   // The pupils, login-first so a re-run costs the registration meter nothing.
   // Repeated here rather than shared with journey 1 so either walk can be run
   // on its own while this file is being developed.
-  const boot = await playwrightRequest.newContext({
-    baseURL: ORIGIN,
-    extraHTTPHeaders: { Origin: ORIGIN },
-  });
-  for (const pupil of PUPILS) await ensureAccount(boot, pupil);
-  await boot.dispose();
+  // Seated by the ADMIN context: a closed judge admits no other registrar
+  // (D200), and `ensureAccount` keeps this context as the admin.
+  for (const pupil of PUPILS) await ensureAccount(adminCtx, pupil);
 
   // The school and its roster — idempotent, because both may already exist
   // from an earlier run of this file.

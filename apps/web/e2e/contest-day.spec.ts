@@ -95,22 +95,55 @@ async function submitAndExpectAC(page: Page): Promise<void> {
   await expect(badge).toHaveText('AC', { timeout: 120_000 });
 }
 
-/** Log a fixed account in over the API; register it only if it does not exist. */
-async function ensureAccount(ctx: APIRequestContext, username: string): Promise<void> {
-  const login = async (): Promise<boolean> => {
-    const res = await ctx.post('/api/v1/auth/login', {
-      headers: SAME_ORIGIN,
-      data: { usernameOrEmail: username, password: PASSWORD },
-    });
-    return res.ok();
-  };
-  if (await login()) return;
-  const reg = await ctx.post('/api/v1/auth/register', {
-    headers: SAME_ORIGIN,
-    data: { username, email: `${username}@rehearsal.invalid`, password: PASSWORD, displayName: username },
+/**
+ * Log a fixed account in; register it through the ADMIN context if it does
+ * not exist.
+ *
+ * **The admin context is not incidental (D200).** Since F-56 this deployment
+ * decides who may create an account, the default rung is `closed`, and the
+ * live `.env` sets nothing — so an anonymous `POST /auth/register` is a 403
+ * here and these walks would have no pupils at all. A global admin is the one
+ * caller a closed judge still admits, which is exactly what a rehearsal
+ * harness seating fixed accounts on somebody's judge IS. The alternative
+ * considered and rejected was weakening the default so the tests kept
+ * passing, which would have made the policy a decoration.
+ *
+ * **The login probe runs on a THROWAWAY context, and that is a bug fix.** The
+ * previous shape signed in on the very context it registered through, so the
+ * second call of a loop was made by pupil one rather than by the admin — a
+ * 403 under the closed rung, and invisible before it only because the
+ * anonymous path happened to work.
+ */
+async function ensureAccount(admin: APIRequestContext, username: string): Promise<void> {
+  const probe = await playwrightRequest.newContext({
+    baseURL: ORIGIN,
+    extraHTTPHeaders: { Origin: ORIGIN },
   });
-  expect(reg.ok() || reg.status() === 409, `register ${username}: ${String(reg.status())}`).toBe(true);
-  expect(await login(), `login ${username} after register`).toBe(true);
+  try {
+    const login = async (): Promise<boolean> => {
+      const res = await probe.post('/api/v1/auth/login', {
+        headers: SAME_ORIGIN,
+        data: { usernameOrEmail: username, password: PASSWORD },
+      });
+      return res.ok();
+    };
+    if (await login()) return;
+    const reg = await admin.post('/api/v1/auth/register', {
+      headers: SAME_ORIGIN,
+      data: {
+        username,
+        email: `${username}@rehearsal.invalid`,
+        password: PASSWORD,
+        displayName: username,
+      },
+    });
+    expect(reg.ok() || reg.status() === 409, `register ${username}: ${String(reg.status())}`).toBe(
+      true,
+    );
+    expect(await login(), `login ${username} after register`).toBe(true);
+  } finally {
+    await probe.dispose();
+  }
 }
 
 /** A logged-in API context for one actor, cookies and Origin carried. */
@@ -178,7 +211,8 @@ test('journey 1 — an admin authors a problem in the browser authoring tab, and
   await expect(page.getByText('Đã tạo và công bố phiên bản 1.')).toBeVisible({ timeout: 90_000 });
 
   // A pupil who never saw the authoring solves it to AC, through the submit UI.
-  const boot = await playwrightRequest.newContext({ baseURL: ORIGIN, extraHTTPHeaders: { Origin: ORIGIN } });
+  // Seated by the ADMIN, because a closed judge admits nobody else (D200).
+  const boot = await actorContext(admin.username, admin.password);
   await ensureAccount(boot, 'rehearse-solo');
   await boot.dispose();
   await page.goto('/');
@@ -203,12 +237,9 @@ test('journey 2 — a frozen ICPC team round renders team names, the monitor, an
   for (const u of ['rehearse-a1', 'rehearse-a2', 'rehearse-b1', 'rehearse-b2']) {
     await ensureAccount(adminCtx, u);
   }
-  // Re-authenticate the shared context as the admin: the ensure calls above
-  // left it logged in as the last pupil.
-  await adminCtx.post('/api/v1/auth/login', {
-    headers: SAME_ORIGIN,
-    data: { usernameOrEmail: admin.username, password: admin.password },
-  });
+  // No re-authentication here any more: `ensureAccount` signs the pupil in on
+  // a throwaway context of its own, so this one is still the admin — which it
+  // has to be, since it is the caller a closed judge admits (D200).
 
   // The org and its roster (idempotent — the org and members may already exist).
   const orgRes = await adminCtx.post('/api/v1/orgs', {

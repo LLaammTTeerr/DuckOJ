@@ -101,28 +101,55 @@ async function signOut(page: Page): Promise<void> {
   await expect(page.locator('#identifier')).toBeVisible();
 }
 
-async function ensureAccount(ctx: APIRequestContext, username: string): Promise<void> {
-  const login = async (): Promise<boolean> => {
-    const res = await ctx.post('/api/v1/auth/login', {
-      headers: SAME_ORIGIN,
-      data: { usernameOrEmail: username, password: PASSWORD },
-    });
-    return res.ok();
-  };
-  if (await login()) return;
-  const reg = await ctx.post('/api/v1/auth/register', {
-    headers: SAME_ORIGIN,
-    data: {
-      username,
-      email: `${username}@example.invalid`,
-      password: PASSWORD,
-      displayName: `FE42 ${username}`,
-    },
+/**
+ * Log a fixed account in; register it through the ADMIN context if it does
+ * not exist.
+ *
+ * **The admin context is not incidental (D200).** Since F-56 this deployment
+ * decides who may create an account, the default rung is `closed`, and the
+ * live `.env` sets nothing — so an anonymous `POST /auth/register` is a 403
+ * here and these walks would have no pupils at all. A global admin is the one
+ * caller a closed judge still admits, which is exactly what a rehearsal
+ * harness seating fixed accounts on somebody's judge IS. The alternative
+ * considered and rejected was weakening the default so the tests kept
+ * passing, which would have made the policy a decoration.
+ *
+ * **The login probe runs on a THROWAWAY context, and that is a bug fix.** The
+ * previous shape signed in on the very context it registered through, so the
+ * second call of a loop was made by pupil one rather than by the admin — a
+ * 403 under the closed rung, and invisible before it only because the
+ * anonymous path happened to work.
+ */
+async function ensureAccount(admin: APIRequestContext, username: string): Promise<void> {
+  const probe = await playwrightRequest.newContext({
+    baseURL: ORIGIN,
+    extraHTTPHeaders: { Origin: ORIGIN },
   });
-  expect(reg.ok() || reg.status() === 409, `register ${username}: ${String(reg.status())}`).toBe(
-    true,
-  );
-  expect(await login(), `login ${username} after register`).toBe(true);
+  try {
+    const login = async (): Promise<boolean> => {
+      const res = await probe.post('/api/v1/auth/login', {
+        headers: SAME_ORIGIN,
+        data: { usernameOrEmail: username, password: PASSWORD },
+      });
+      return res.ok();
+    };
+    if (await login()) return;
+    const reg = await admin.post('/api/v1/auth/register', {
+      headers: SAME_ORIGIN,
+      data: {
+        username,
+        email: `${username}@example.invalid`,
+        password: PASSWORD,
+        displayName: `FE42 ${username}`,
+      },
+    });
+    expect(reg.ok() || reg.status() === 409, `register ${username}: ${String(reg.status())}`).toBe(
+      true,
+    );
+    expect(await login(), `login ${username} after register`).toBe(true);
+  } finally {
+    await probe.dispose();
+  }
 }
 
 async function actorContext(username: string, password = PASSWORD): Promise<APIRequestContext> {
@@ -198,12 +225,9 @@ test('journey 1 — the picker offers seven languages and preselects C++17, by l
   admin = adminCredentials();
   const adminCtx = await actorContext(admin.username, admin.password);
 
-  const boot = await playwrightRequest.newContext({
-    baseURL: ORIGIN,
-    extraHTTPHeaders: { Origin: ORIGIN },
-  });
-  await ensureAccount(boot, PUPIL);
-  await boot.dispose();
+  // Seated by the ADMIN context: a closed judge admits no other registrar
+  // (D200), and `ensureAccount` keeps this context as the admin.
+  await ensureAccount(adminCtx, PUPIL);
 
   // A judgeable problem of this run's own: clone, publish the revision the
   // clone brought with it, open it up.
