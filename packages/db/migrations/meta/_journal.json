@@ -295,6 +295,13 @@
       "when": 1788293150651,
       "tag": "0047_f51_search_fold",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1788309304457,
+      "tag": "0048_f54_participation_ends_at",
+      "breakpoints": true
     }
   ]
 }

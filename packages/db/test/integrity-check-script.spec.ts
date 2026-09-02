@@ -165,6 +165,19 @@ async function plantOneOfEach(db: Db): Promise<void> {
     update submissions set subtask_summary =
       '[{"batch":0,"minPoints":0,"maxTotal":20,"sumPoints":40,"sumTotal":40}]'::jsonb where id = 4;
 
+    -- D194's derived column. Migration 0048's BEFORE trigger recomputes
+    -- ends_at on every insert and every update, so the only way a row can
+    -- carry a wrong one is for the trigger not to have run — which is exactly
+    -- the state being planted, and the only honest way to plant it is to turn
+    -- the trigger off for the two writes. Row 6 has drifted from the CASE; row
+    -- 7 still carries the 'epoch' default, and trips both checks, because a
+    -- sentinel is also not the right instant.
+    alter table contest_participations disable trigger contest_participations_ends_at;
+    insert into contest_participations (id, contest_id, user_id, start_time, virtual, ends_at) values
+      (6,2,1,now(),0, now() + interval '400 days'),
+      (7,2,2,now(),0, 'epoch'::timestamptz);
+    alter table contest_participations enable trigger contest_participations_ends_at;
+
     insert into notifications (user_id, kind, payload) values (1,'submission_judged','{"submissionId": 999999}'::jsonb);
     insert into similarity_runs (contest_id, status, threshold, pairs) values
       (1,'finished',0.8,'{"pairs":[{"submissionId":999999,"otherSubmissionId":999998}]}'::jsonb);
@@ -195,6 +208,8 @@ describe('scripts/integrity-check.ts', () => {
           'grading-job-revision-not-of-submission',
           'live-participation-without-seat',
           'notification-payload-dangling-id',
+          'participation-ends-at-drifted',
+          'participation-ends-at-unwritten',
           'participation-virtual-out-of-range',
           'pending-org-join-request-for-member',
           'published-revision-without-package',

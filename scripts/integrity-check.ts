@@ -372,6 +372,39 @@ export const CHECKS: readonly Check[] = [
            where s.state in ('done', 'errored')
              and (s.subtask_summary is null or jsonb_typeof(s.subtask_summary) <> 'array')`,
   },
+  // D194's derived column, audited for the reason D165's is: `ends_at` is a
+  // materialisation of `participationEndsAtSql()` maintained by migration
+  // 0048's triggers, and a window that has drifted from the `CASE` is a
+  // scoreboard that unfreezes at the wrong instant, a source released early
+  // and a statistic counting a live room — silently, and for exactly as long
+  // as nobody asks. Asking is this check.
+  {
+    id: 'participation-ends-at-drifted',
+    severity: 'high',
+    what: 'contest_participations whose stored ends_at is not what the participation window CASE says (D194): a window that unfreezes, releases sources and counts statistics at the wrong instant',
+    sql: `select 'participation=' || p.id || ' contest=' || p.contest_id || ' stored=' || p.ends_at || ' expected=' || w.expected as detail
+            from contest_participations p
+            join contests c on c.id = p.contest_id
+     cross join lateral (select (case
+                    when p.virtual = -1 then c.end_time
+                    when p.virtual = 0 then
+                      case when c.time_limit_seconds is null then c.end_time
+                           else least(p.start_time + c.time_limit_seconds * interval '1 second', c.end_time) end
+                    else
+                      case when c.time_limit_seconds is null
+                             then p.start_time + (c.end_time - c.start_time)
+                           else p.start_time + c.time_limit_seconds * interval '1 second' end
+                  end) as expected) w
+           where p.ends_at is distinct from w.expected`,
+  },
+  {
+    id: 'participation-ends-at-unwritten',
+    severity: 'high',
+    what: "contest_participations still carrying the 'epoch' sentinel ends_at (D194): the column's default reached the table, so migration 0048's BEFORE trigger did not fire for this row",
+    sql: `select 'participation=' || id || ' contest=' || contest_id as detail
+            from contest_participations
+           where ends_at = 'epoch'::timestamptz`,
+  },
   {
     id: 'submission-job-kind-without-submission',
     severity: 'low',

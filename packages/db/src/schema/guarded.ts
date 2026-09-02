@@ -787,9 +787,48 @@ export const contestParticipations = pgTable(
     teamId: bigint('team_id', { mode: 'number' }).references(() => teams.id, {
       onDelete: 'restrict',
     }),
+    /**
+     * When THIS participation's own window closes (D194) — the instant D22
+     * unfreezes its board, D27 releases its source and D49 lets its
+     * submissions into the statistics.
+     *
+     * **It is a materialisation of `participationEndsAtSql()`, never a second
+     * rule.** That `CASE` reaches across two tables (a spectator takes the
+     * contest's end, a live entrant is capped by it, a virtual entrant
+     * measures the contest's *duration* from their own start), so it can be
+     * neither a generated column — those may not reference another table —
+     * nor an expression index. Materialising it is what gives the planner a
+     * histogram for "whose window is still open", and that estimate is the
+     * whole of the fix: with it the D49 anti-join is driven from the handful
+     * of open participations; without it the planner reads every contest
+     * submission the deployment has ever taken.
+     *
+     * **Maintained by database triggers, not by the application** (migration
+     * 0048), which is a deviation from D100/D104's "three writers, one
+     * module" and is deliberate: those tables have a closed writer set, and
+     * this column's is open — every fixture in the suite raw-inserts a
+     * participation. A trigger cannot be routed around.
+     *
+     * The `'epoch'` default exists only so that `InferInsertModel` does not
+     * demand the column at every one of those call sites. It can never
+     * survive a write: the `BEFORE INSERT OR UPDATE` trigger always
+     * recomputes. `scripts/integrity-check.ts` audits that no stored row
+     * carries it, and that every row still equals the `CASE`.
+     */
+    endsAt: timestamp('ends_at', { withTimezone: true })
+      .notNull()
+      .default(sql`'epoch'::timestamptz`),
   },
   (t) => [
     uniqueIndex('contest_participations_identity_idx').on(t.contestId, t.userId, t.virtual),
+    /**
+     * D194. "Which participations are still open at `now`" is the inner side
+     * of the D49 window exclusion on five hot statements, and without this
+     * index it is a sequential scan of every participation the deployment has
+     * ever held — plus, because the `CASE` gave the planner no selectivity to
+     * work with, a sequential scan of every contest submission behind it.
+     */
+    index('contest_participations_ends_at_idx').on(t.endsAt),
     /**
      * One participation per team per contest (D99) — the whole of "they all
      * submit as the team", enforced by the database rather than by a check
@@ -906,8 +945,18 @@ export const contestSubmissions = pgTable(
      * D47's amendment found on `grading_jobs (submission_id)`. Until 0035
      * every cascaded delete of a participation (a contest removed, a user
      * removed) sequentially scanned this table.
+     *
+     * `submission_id` rides along since 0048 (D194), and it is not decoration:
+     * D49's window exclusion asks "which submissions belong to a participation
+     * whose window is open", and with `ends_at` beside it that is a walk of the
+     * open participations into THIS index. With `participation_id` alone the
+     * walk has to visit the heap for `submission_id`, the planner prices it
+     * above a sequential scan of the whole table, and takes the scan — measured:
+     * the anti-join keeps its `Parallel Seq Scan on contest_submissions` at
+     * 496 240 rows. Widened rather than added, because the leading column is
+     * unchanged and the foreign key is served exactly as before.
      */
-    index('contest_submissions_participation_idx').on(t.participationId),
+    index('contest_submissions_participation_idx').on(t.participationId, t.submissionId),
   ],
 );
 
