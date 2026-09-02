@@ -158,6 +158,53 @@ const PASSES: Pass[] = [
     raw: { type: 'application/x-duckoj-nonsense', body: '\u0000\u0001binary' },
   },
   {
+    // B-35 / D196. The pass before this one already sent `cursor: '\u0000'`
+    // and this spec was green, which is the interesting part: the NUL never
+    // reached a statement, because every route it could have reached refused
+    // first for another reason. `BAD_PARAMS.slug` is `'../..'`, so
+    // `findVisibleOrgRow` 404s before the roster cursor is parsed; the
+    // `/users` cursor is parsed as a number and 422s; and `q` — the parameter
+    // that goes straight into `nameSearchWhere` on four routes — was never
+    // fuzzed at all. Measured against the live edge at `eef05c1`, seven
+    // routes answered **500 `internal_error`** to an ANONYMOUS caller, path
+    // parameters included. So the vector is the NUL in the PLACE it survives
+    // to a bind: a path segment, `q`, and a filter that is looked up by name.
+    name: 'NUL bytes in path parameters, search and filters',
+    params: {
+      id: '%00',
+      hash: '%00',
+      username: '%00',
+      slug: '%00',
+      key: '%00',
+      code: '%00',
+      version: '%00',
+      setSlug: '%00',
+      teamSlug: '%00',
+      name: '%00',
+      draftId: '%00',
+      a: '%00',
+      b: '%00',
+    },
+    query: {
+      q: '\u0000',
+      user: '\u0000',
+      problem: '\u0000',
+      contest: '\u0000',
+      org: '\u0000',
+      cursor: '\u0000',
+    },
+    body: {
+      displayName: 'a\u0000b',
+      name: '\u0000',
+      source: 'x\u0000',
+      nested: { deep: ['\u0000'] },
+      // A NUL in a KEY, not a value: several columns here are `jsonb`, and
+      // Postgres refuses it with `22P05` exactly as `text` refuses it with
+      // `22021`.
+      ['k\u0000ey']: 'x',
+    },
+  },
+  {
     name: 'oversized and non-ascii values',
     query: { limit: 'x'.repeat(4096), cursor: '\u0000\u{1F600}', q: '%' },
     body: { name: 'x'.repeat(50_000), emoji: '\u{1F4A5}'.repeat(100) },

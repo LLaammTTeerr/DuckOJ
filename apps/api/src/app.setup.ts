@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import type { DestinationStream } from 'pino';
 import type { AppConfig } from './config/config.schema.js';
 import { requestLogger } from './common/logger.js';
+import { NulByteInterceptor } from './common/nul-byte.interceptor.js';
 import { ProblemFilter } from './common/problem.filter.js';
 
 /**
@@ -43,6 +44,11 @@ export function configureApp(
   configureBodyParsers(app);
   app.use(cookieParser());
   app.useGlobalFilters(new ProblemFilter());
+  // D196. Runs after the guards and before every handler, so a NUL byte can
+  // never reach a statement and no ruled refusal that comes from a guard is
+  // displaced. See `nul-byte.interceptor.ts` for why it is one rule here
+  // rather than a `.refine` on each of a hundred string fields.
+  app.useGlobalInterceptors(new NulByteInterceptor());
   // The probes stay off the versioned prefix: they are infrastructure contracts
   // (the Compose healthcheck, the Caddyfile) rather than API surface, so they
   // must not move when the API version does.
