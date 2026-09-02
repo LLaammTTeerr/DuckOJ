@@ -11098,16 +11098,6 @@ attempt; an announcement does not, so it never overwrites one. Terminating on
 the ambiguity instead would be worse than doing nothing, because the
 announcement may well *be* the live attempt seen after a restart.
 
-*Ruled by the implementer during the B-36 slot, no human available to consult.
-No migration, no schema, no wire change: this is `apps/judged` bookkeeping and
-four extra bytes per connected judge. Cost if wrong: the discard is the only
-new way for a packet to be dropped, so the failure mode of a mistake here is a
-grade that never receives its terminal event and falls to the grading ceiling
-and a requeue — recoverable, and loud in the log, which the swallowed verdict
-it replaces was not. The three multi-judge specs pinning it were demonstrated
-red against the unmodified driver, and the connection-release half was
-demonstrated red separately against the fix without it.*
-
 ### Fix round 1 — what adversarial review found, and what it changed
 
 Five findings. Three were behaviour, and each has a spec that was red against
@@ -11200,3 +11190,18 @@ documents as unrecoverable. The claim is now bounded, here and in D29 and in
 the comment above `dispatch`: closed for every connection whose assignment the
 driver built from its own dispatch, which is every connection in the normal
 flow; inferred, and stated as an inference, for a judge that redials.
+
+*Ruled by the implementer across the B-36 slot and one round of adversarial
+review, no human available to consult. No migration, no schema, no wire
+change: this is `apps/judged` bookkeeping and one extra number per connected
+judge. Cost if wrong, revised after round 1 taught it: the first draft of this
+paragraph said a mistake here would leave a grade without its terminal event,
+falling to the grading ceiling and a requeue, and called that recoverable. It
+is not, and F1 is why — the same mistake leaks the connection's assignment
+along with the grade, and on the one-judge fleet this repository ships the
+requeue then has nowhere to run. **The honest failure mode of an error in this
+bookkeeping is a stalled queue that only a judge restart clears**: loud in the
+log, but not self-healing. That is the standard the seven multi-judge specs
+pinning this decision were written to, each demonstrated red before it was
+demonstrated green — three against the unmodified driver, one against the fix
+with its connection release removed, and three against the end of round 0.*

@@ -631,10 +631,11 @@ describe('a fleet of two judges', () => {
       ]);
       const { second } = await supersede(driver);
 
-      // judge-1 drops and redials under the same name. BridgeServer closes
-      // the old socket and `retire`s the id, so the driver hears
-      // `onJudgeGone` — which releases judge-1's assignment and, being
-      // attempt-fenced, leaves attempt 2 on judge-2 alone.
+      // judge-1 drops and redials under the same name. The old socket's own
+      // `close` handler `retire`s the id here — it goes first, so
+      // BridgeServer's displacement path is not the one that fires — and the
+      // driver hears `onJudgeGone`, which releases judge-1's assignment and,
+      // being attempt-fenced, leaves attempt 2 on judge-2 alone.
       judges[0]!.close();
       const redialled = fakeJudge(port, 'judge-1', ['CPP17']);
       judges.push(redialled);
