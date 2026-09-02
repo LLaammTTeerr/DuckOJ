@@ -1,16 +1,20 @@
 # B-36 report — `live` keyed by job id, and the packets that landed in the wrong attempt
 
-**Status: DONE**, after one round of adversarial-review fixes. The defect is
-fixed and pinned by seven specs, every one of them watched red before it was
-watched green. `@duckoj/judged` is 19/19 files and **157/157** tests green; the
+**Status: DONE**, after two rounds of adversarial-review fixes. The defect is
+fixed and pinned by nine specs, every one of them watched red before it was
+watched green. `@duckoj/judged` is 19/19 files and **159/159** tests green; the
 measured baseline on unmodified code is 150/150, so the delta is exactly the
-seven specs added here.
+nine specs added here.
 
-Round 0 is the body of this report. **Round 1 found that the routing guard was
-not the whole defect** — `finish` still deleted from `live` by job id, so a
-superseded attempt's queued terminal packet evicted its successor's live entry
-and stopped the judge for good. That section is "Fix round 1" below; read it
-before the "Found and did not fix" list.
+Round 0 is the body of this report, and both later rounds found that the
+previous one had stopped short of the real defect. **Round 1**: the routing
+guard was not enough, because `finish` still deleted from `live` by job id, so
+a superseded attempt's queued terminal packet evicted its successor's live
+entry. **Round 2**: the assignment outlives the entry, so a terminal packet
+arriving after the successor had already finished stranded its connection
+forever — and round 1's own `UNKNOWN_ATTEMPT` had no other exit at all. Read
+"Fix round 1" and "Fix round 2" below before the "Found and did not fix" list;
+each supersedes what the section above it claimed.
 
 Branch: `b36-dmoj-driver`, off `a7ac08e` (the brief commit).
 
@@ -553,6 +557,172 @@ Only `apps/judged/src` and `apps/judged/test` were touched — no `scripts/`, no
 `Dockerfile`, no workspace `package.json`, and no new workspace dependency — so
 the repo-wide guards in `apps/api/test` are outside this diff's blast radius.
 
+## Fix round 2 — the assignment outlives the entry
+
+Re-review confirmed F1, F3, F4 and F5 as addressed and found one more leak.
+Both items are fixed. `@duckoj/judged` is now 19/19 files and **159/159** green.
+
+### R2-1 — a terminal packet for an already-retired job stranded its connection
+
+**Real, both orderings.** `handle` read `live.get(submissionId)` and returned
+on a miss *before* it ever looked at the assignment, so nothing handed the
+connection back.
+
+What hid it is that both orderings need a fleet of **two**, and need the
+successor to finish **first**: its `grading-end` retires `live[jobId]`, and only
+then does the superseded attempt's judge answer. A single judge cannot produce
+that, because it is the one running both — so every spec written for this
+decision so far, all of them built around a superseded attempt still
+outstanding, walked straight past it.
+
+- **(a), pre-existing.** judge-1 is still owed a `submission-terminated`,
+  judge-2 finishes the retry, judge-1 answers. judge-1's assignment stays for
+  the life of the process. This predates attempts entirely.
+- **(b), introduced by round 1.** An `UNKNOWN_ATTEMPT` assignment has **no
+  other exit at all**: `finish` cannot release it, because the connection
+  holding it is not any live entry's `connection`, and the discard branch never
+  runs once the entry is gone. Round 1's "never leave a busy judge idle" had
+  bought itself a judge that was never idle again.
+
+The cost is this decision's own hang class from a third direction: a leaked
+assignment is invisible to `bridge.judgeCount()`, so `capabilities()` and
+`tryAcquireSlot` keep counting and handing out slots for a judge
+`acquireConnection` will never choose, and a worker takes one, claims a job and
+parks holding the lease.
+
+**Took the reviewer's fix shape** rather than beating it — hoist the assignment
+lookup above the miss, and release when the packet is terminal and the held
+assignment names that job:
+
+```ts
+const held = this.assignments.get(connection.id);
+const entry = this.live.get(submissionId);
+
+if (!entry) {
+  if (held?.submissionId === submissionId && TERMINAL_PACKETS.has(packet.name)) {
+    /* log */
+    this.releaseConnection(connection.id, submissionId, held.attempt);
+  }
+  return;
+}
+```
+
+`held.attempt` is passed through, so `releaseConnection`'s `(submissionId,
+attempt)` match is exact by construction. It is logged under its own message
+rather than folded into the discard log, because a connection that outlived its
+job's live entry is an anomaly worth seeing even when it is handled. And the
+release is safe for exactly the reason the reviewer gave: with no live entry
+there is nothing to attribute the packet to, so there is nothing to
+misattribute it to.
+
+**Two specs, not the suggested extension of the F2 spec — and here is why.** In
+the F2 spec the un-awaited `dispatch(99)` is still parked when judge-2's
+`grading-end` runs `finish → releaseConnection → wake()`, so it takes judge-2
+the instant it frees. Asserting "99 lands on judge-1" would then fail *green*.
+Separate specs sidestep the parked promise entirely, and (a) and (b) exercise
+different assignment shapes — a real attempt and the sentinel — which is worth
+two tests anyway.
+
+Both assert on a count that does not depend on `connectionIds()` iteration
+order: with the fix, two free judges take two dispatched jobs one each, in
+whichever order they are handed out; with the leak, only one judge is free and
+the second dispatch parks.
+
+### R2-2 — D205 asserted a safety property the code did not have
+
+Correct, and the honest reading is that it was false in all three places until
+R2-1 landed. Fixed **after** the code, so each now describes what is there: the
+`UNKNOWN_ATTEMPT` doc comment, the `current-submission-id` branch comment, and
+D205 itself all name the two branches of `handle` that release the sentinel —
+the discard branch while a live entry for the job id survives, and the `!entry`
+branch once the successor has retired it — and the doc comment says plainly
+that neither may be removed without stranding it.
+
+D205 also gained the safety argument it had been missing beside its cost
+paragraph: a connection carrying the sentinel has exactly two exits and no way
+to be misread — every non-terminal packet on it is foreign by construction,
+every terminal packet releases it — so **its failure mode is latency, never
+misattribution**, which is the right way round because a stalled slot shows up
+in the queue depth and a corrupted grade does not.
+
+### Red, then green
+
+Two new specs, red against `c1f3c8d`:
+
+```
+   × ... > frees a connection whose terminal packet arrives after the job is already retired 877ms
+   × ... > releases the redialling judge's unattributable assignment when its run finally ends 1219ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/multi-judge.spec.ts > ... > frees a connection whose terminal packet arrives after the job is already retired
+AssertionError: expected [ Array(1) ] to have a length of 2 but got 1
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ test/multi-judge.spec.ts:700:32
+    698|       await settle();
+    699| 
+    700|       expect(first.requests()).toHaveLength(2);
+       |                                ^
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/multi-judge.spec.ts > ... > releases the redialling judge's unattributable assignment when its run finally ends
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ test/multi-judge.spec.ts:747:36
+    745|       await settle();
+    746| 
+    747|       expect(redialled.requests()).toHaveLength(1);
+       |                                    ^
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 15 passed (17)
+```
+
+Each is the leak: the second dispatch never reached the judge whose assignment
+was stranded. Green after the fix — typecheck exit 0, lint exit 0, and:
+
+```
+ ✓ test/multi-judge.spec.ts (17 tests) 8626ms
+ ✓ test/dmoj-driver.spec.ts (21 tests) 3003ms
+ ✓ test/event-writer.spec.ts (17 tests) 4737ms
+ ✓ test/worker.spec.ts (9 tests) 9858ms
+ ✓ test/bridge-auth.spec.ts (15 tests) 2487ms
+ ✓ test/job-language-routing.spec.ts (16 tests) 4027ms
+ ✓ test/contest-problem-stats.spec.ts (5 tests) 3968ms
+ ✓ test/contest-stats-races.spec.ts (2 tests) 4582ms
+ ✓ test/language-mapping.spec.ts (6 tests) 342ms
+ ✓ test/judge-disconnect.spec.ts (2 tests) 5019ms
+ ✓ test/judge-affinity.spec.ts (7 tests) 2644ms
+ ✓ test/worker-language.spec.ts (8 tests) 9565ms
+ ✓ test/batch-points.spec.ts (5 tests) 802ms
+ ✓ test/job-store.spec.ts (11 tests) 4263ms
+ ✓ test/worker-pool.spec.ts (3 tests) 1043ms
+ ✓ test/pipeline-robustness.spec.ts (4 tests) 3920ms
+ ✓ test/job-store.concurrency.spec.ts (2 tests) 3373ms
+ ✓ test/agent-client.spec.ts (3 tests) 28ms
+ ✓ test/config.spec.ts (6 tests) 8ms
+
+ Test Files  19 passed (19)
+      Tests  159 passed (159)
+   Start at  18:15:01
+   Duration  85.41s (transform 347ms, setup 0ms, collect 8.06s, tests 72.29s, environment 4ms, prepare 1.03s)
+```
+
 ## Found and did not fix
 
 - **The discard guard is `held.attempt !== entry.job.attempt`, without also
@@ -611,10 +781,15 @@ abde8bc docs(b36): the report — red twice, green, and the suite this sandbox c
 81b1245 docs(b36): the report reads as written once, not revised in place
 0a13325 fix(judged): retire the live entry by identity, and never leave a busy judge idle
 9fef2a7 docs(decisions): D205 gains a fix-round-1 amendment, and stops overclaiming
+9f0f665 docs(b36): the report carries fix round 1 — five findings, three specs
+c1f3c8d docs(decisions): D205's closer moves last, and states the cost round 1 taught
+7959e7d fix(judged): a terminal packet frees its connection even after the job retired
+4bd90a1 docs(decisions): D205 gains fix round 2, and the sentinel's safety argument
 ```
 
-`0a13325` onward are fix round 1. `81b1245` is the end of round 0 and is the
-baseline the round-1 specs were shown red against.
+`0a13325` onward are fix round 1, `7959e7d` onward fix round 2. `81b1245` is
+the end of round 0 and the baseline the round-1 specs were shown red against;
+`c1f3c8d` is the end of round 1 and the baseline for round 2's.
 
 `abde8bc` is the draft written while the host had no container runtime, and
 its title describes a report that no longer exists: it claimed
