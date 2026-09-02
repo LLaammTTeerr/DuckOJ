@@ -4,22 +4,37 @@
  * This is the only test in the phase that exercises the real sandbox, and it
  * is the reason the phase exists. It cannot run in ordinary CI (it needs a
  * judge container), so its output is pasted into the acceptance report.
+ *
+ * Run it against this deployment with nothing set:
+ *
+ *   corepack pnpm exec tsx scripts/e2e-submit.ts
+ *
+ * The URL comes from `.env` and the admin from `.secrets/duckadmin.txt` — see
+ * `scripts/lib/operator.ts` for what overrides each of them.
  */
+import {
+  liveBaseUrl,
+  operatorAdmin,
+  registrationHint,
+  relaxTlsForSelfSignedLocalhost,
+  requestOrigin,
+  submissionRetryAfterMs,
+} from './lib/operator.js';
 
 // Rootless Podman cannot bind privileged ports without extra host
 // configuration (see docs/runbook.md), so docker-compose.yml maps Caddy to
-// 8080:80 and 8443:443, not 80/443. `https://localhost` would connect to 443
-// and fail outright.
-const BASE = process.env.E2E_BASE_URL ?? 'https://localhost:8443';
+// 8080:80 and 8443:443, not 80/443. WHICH of those two is alive is decided by
+// `.env`'s SITE_ADDRESS, so `liveBaseUrl` reads it rather than hardcoding the
+// 8443 half — the hardcoded default was dead on every default deployment
+// (F-58; see `scripts/lib/operator.ts`).
+const BASE = liveBaseUrl();
+const ORIGIN = requestOrigin(BASE);
 
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? 'duckoj_session';
 
-// The stack terminates TLS with a self-signed certificate under Caddy. This
-// disables certificate verification for the WHOLE process, not just this
-// request — acceptable only because this throwaway script talks exclusively
-// to a local self-signed stack. Never copy this line into anything that also
-// talks to the internet.
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// Only for an https localhost, which is the self-signed half of the mapping
+// above — see `relaxTlsForSelfSignedLocalhost`.
+relaxTlsForSelfSignedLocalhost(BASE);
 
 const CORRECT = `#include <iostream>
 int main(){long long a,b;std::cin>>a>>b;std::cout<<a+b<<"\\n";}`;
@@ -40,39 +55,61 @@ const HELLO_CORRECT = `#include <iostream>
 #include <string>
 int main(){std::string name;std::cin>>name;std::cout<<"Hello, "<<name<<"!\\n";}`;
 
-let cookie = '';
+/**
+ * One cookie jar. The pupil's jar is the module-level `call` below; the
+ * ADMIN's is a second, separate one — a shared jar would leave this script
+ * submitting as the admin, which proves nothing about a pupil's path.
+ */
+class Jar {
+  private cookie = '';
 
-async function call(path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(`${BASE}/api/v1${path}`, {
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      // D82: a cookie-authenticated write must say where it came from, and
-      // Node's `fetch` sends no `Origin` of its own. This script drives the
-      // stack the way a browser at `BASE` would, so it says so — `BASE` must
-      // therefore be `PUBLIC_ORIGIN` or one of `WS_EXTRA_ORIGINS`, which is
-      // what the runbook's E2E_BASE_URL values already are.
-      origin: new URL(BASE).origin,
-      ...(cookie ? { cookie } : {}),
-      ...init.headers,
-    },
-    redirect: 'follow',
-  });
-  // `res.headers.get('set-cookie')` joins multiple Set-Cookie values into one
-  // comma-separated string, which a naive `split(';')[0]` can mangle the
-  // moment a response sets more than one cookie. `getSetCookie()` returns
-  // them as a proper array; pick the session cookie by name, not position.
-  const setCookies = res.headers.getSetCookie();
-  const sessionSetCookie = setCookies.find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`));
-  if (sessionSetCookie) cookie = sessionSetCookie.split(';')[0]!;
-  return res;
+  async call(path: string, init: RequestInit = {}): Promise<Response> {
+    const res = await fetch(`${BASE}/api/v1${path}`, {
+      ...init,
+      headers: {
+        'content-type': 'application/json',
+        // D82: a cookie-authenticated write must say where it came from, and
+        // Node's `fetch` sends no `Origin` of its own. This script drives the
+        // stack the way a browser at `BASE` would, so it says so — that
+        // origin must be `PUBLIC_ORIGIN` or one of `WS_EXTRA_ORIGINS`, and
+        // `E2E_ORIGIN` is the way to name one without editing a live `.env`.
+        origin: ORIGIN,
+        ...(this.cookie ? { cookie: this.cookie } : {}),
+        ...init.headers,
+      },
+      redirect: 'follow',
+    });
+    // `res.headers.get('set-cookie')` joins multiple Set-Cookie values into one
+    // comma-separated string, which a naive `split(';')[0]` can mangle the
+    // moment a response sets more than one cookie. `getSetCookie()` returns
+    // them as a proper array; pick the session cookie by name, not position.
+    const setCookies = res.headers.getSetCookie();
+    const sessionSetCookie = setCookies.find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`));
+    if (sessionSetCookie) this.cookie = sessionSetCookie.split(';')[0]!;
+    return res;
+  }
 }
 
+const pupil = new Jar();
+const call = (path: string, init: RequestInit = {}): Promise<Response> => pupil.call(path, init);
+
 async function submitAndWait(source: string, problemCode = 'aplusb'): Promise<Record<string, unknown>> {
-  const created = await call('/submissions', {
-    method: 'POST',
-    body: JSON.stringify({ problemCode, languageKey: 'cpp17', source }),
-  });
+  // The submission meter allows one per ten seconds per account and this
+  // script sends four back to back, so waiting out its own `Retry-After` is
+  // part of driving the stack correctly rather than a workaround — see
+  // `submissionRetryAfterMs`.
+  let created: Response;
+  for (let attempt = 0; ; attempt += 1) {
+    created = await call('/submissions', {
+      method: 'POST',
+      body: JSON.stringify({ problemCode, languageKey: 'cpp17', source }),
+    });
+    const waitMs = submissionRetryAfterMs(created);
+    if (waitMs === null) break;
+    if (attempt >= 3) throw new Error(`submit refused by the meter four times running`);
+    console.log(`         (metered — waiting ${String(Math.round(waitMs / 1000))}s)`);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
   if (created.status !== 201) throw new Error(`submit failed: ${created.status} ${await created.text()}`);
   const { id } = (await created.json()) as { id: number };
 
@@ -86,18 +123,45 @@ async function submitAndWait(source: string, problemCode = 'aplusb'): Promise<Re
 }
 
 const username = `e2e${Date.now()}`;
-await call('/auth/register', {
+const PASSWORD = 'a-long-enough-password';
+
+// The pupil is minted BY THE ADMIN, on the admin's own jar (D200). This judge
+// takes no sign-ups — an anonymous `POST /auth/register` is a 403 — and a
+// global admin is the one caller a closed judge still admits, which is
+// exactly what a smoke script seating one throwaway account on somebody's
+// judge IS. The alternative was telling operators to open registration to run
+// their first verification, which would make the default a decoration.
+// `apps/web/e2e/organiser.spec.ts` at `91a8402` is the shape this follows.
+const admin = operatorAdmin();
+const adminJar = new Jar();
+const signedIn = await adminJar.call('/auth/login', {
+  method: 'POST',
+  body: JSON.stringify({ usernameOrEmail: admin.username, password: admin.password }),
+});
+if (signedIn.status !== 200 && signedIn.status !== 201) {
+  throw new Error(
+    `admin login (${admin.username}) failed: ${String(signedIn.status)}${registrationHint(401, admin.username)}`,
+  );
+}
+console.log(`base=${BASE} admin=${admin.username} pupil=${username}\n`);
+
+const registered = await adminJar.call('/auth/register', {
   method: 'POST',
   body: JSON.stringify({
     username,
     email: `${username}@example.com`,
-    password: 'a-long-enough-password',
+    password: PASSWORD,
     displayName: 'E2E',
   }),
 });
+if (registered.status !== 201 && registered.status !== 200) {
+  throw new Error(
+    `register ${username}: ${String(registered.status)} ${await registered.text()}${registrationHint(registered.status, admin.username)}`,
+  );
+}
 await call('/auth/login', {
   method: 'POST',
-  body: JSON.stringify({ usernameOrEmail: username, password: 'a-long-enough-password' }),
+  body: JSON.stringify({ usernameOrEmail: username, password: PASSWORD }),
 });
 
 const failures: string[] = [];

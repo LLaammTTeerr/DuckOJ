@@ -27,48 +27,33 @@
  * here and is worth collapsing into `scripts/lib/` at some point.
  */
 
-import { execFile } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { buildPackage } from './lib/build-package.js';
-
-const execFileAsync = promisify(execFile);
+import {
+  liveBaseUrl,
+  operatorAdmin,
+  registrationHint,
+  relaxTlsForSelfSignedLocalhost,
+  requestOrigin,
+  submissionRetryAfterMs,
+} from './lib/operator.js';
 
 // Rootless Podman cannot bind privileged ports without extra host
 // configuration (see docs/runbook.md), so docker-compose.yml maps Caddy to
-// 8080:80 and 8443:443, not 80/443.
-const BASE = process.env.E2E_BASE_URL ?? 'https://localhost:8443';
+// 8080:80 and 8443:443, not 80/443. WHICH of the two is alive is decided by
+// `.env`'s SITE_ADDRESS, which `liveBaseUrl` reads — the hardcoded
+// `https://localhost:8443` this used to carry was dead on every default
+// deployment (F-58; see `scripts/lib/operator.ts`).
+const BASE = liveBaseUrl();
+const ORIGIN = requestOrigin(BASE);
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? 'duckoj_session';
 const PASSWORD = 'a-long-enough-password';
 
-/**
- * The compose project name podman-compose derives from the repo directory's
- * basename — the same derivation `scripts/compose-up.sh` does
- * (`PROJECT=$(basename "$PWD")`), computed from this file's own location so
- * it does not depend on the working directory the script is invoked from.
- *
- * `COMPOSE_PROJECT_NAME` first, `COMPOSE_PROJECT` only as a deprecated alias
- * — review finding M4, already applied to `backup.sh`/`restore.sh` and missed
- * here. podman-compose knows nothing about `COMPOSE_PROJECT`; it reads
- * `COMPOSE_PROJECT_NAME` or falls back to the working directory. Reading only
- * the alias meant that following the runbook's own worktree instructions
- * (`export COMPOSE_PROJECT_NAME=duckoj`) left this script looking for
- * containers labelled with the worktree's basename — `agent-<hash>` — and
- * dying on "no postgres container found ... is the stack up?" against a stack
- * that was up the whole time.
- */
-const REPO_ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const PROJECT =
-  process.env.COMPOSE_PROJECT_NAME ?? process.env.COMPOSE_PROJECT ?? basename(resolve(REPO_ROOT));
-
-// The stack terminates TLS with a self-signed certificate under Caddy. This
-// disables certificate verification for the WHOLE process — acceptable only
-// because this throwaway script talks exclusively to a local self-signed
-// stack. Never copy this line into anything that also talks to the internet.
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// Only for an https localhost, which is the self-signed half of the mapping
+// above — see `relaxTlsForSelfSignedLocalhost`.
+relaxTlsForSelfSignedLocalhost(BASE);
 
 const CORRECT = `#include <iostream>
 int main(){long long a,b;std::cin>>a>>b;std::cout<<a+b<<"\\n";}`;
@@ -88,8 +73,9 @@ class Session {
     const headers: Record<string, string> = {
       // D82: a cookie-authenticated write must say where it came from, and
       // Node's `fetch` sends no `Origin`. This script drives the stack the
-      // way a browser at `BASE` would, so it says so.
-      origin: new URL(BASE).origin,
+      // way a browser at `BASE` would, so it says so — `E2E_ORIGIN` names a
+      // different allowed origin without editing a live `.env`.
+      origin: ORIGIN,
       ...(this.cookie ? { cookie: this.cookie } : {}),
     };
     for (const [k, v] of Object.entries((init.headers ?? {}) as Record<string, string>))
@@ -138,46 +124,6 @@ function expectEqual(actual: unknown, want: unknown, what: string): void {
 }
 
 /**
- * The bootstrap hop documented in docs/runbook.md, "Bootstrapping the first
- * admin". `postgres` deliberately publishes no host port, so this reaches it
- * the only way anything outside the Compose network can: a `podman exec` into
- * the container, found by the compose labels rather than by guessing its name
- * (the same lookup `scripts/compose-up.sh`'s `container_for_service` does).
- */
-async function promoteToAdminBySql(username: string): Promise<void> {
-  const { stdout: names } = await execFileAsync('podman', [
-    'ps',
-    '-a',
-    '--filter',
-    `label=com.docker.compose.project=${PROJECT}`,
-    '--filter',
-    'label=com.docker.compose.service=postgres',
-    '--format',
-    '{{.Names}}',
-  ]);
-  const container = names.split('\n')[0]?.trim();
-  if (!container)
-    fail(`no postgres container found for compose project '${PROJECT}' — is the stack up?`);
-
-  const { stdout } = await execFileAsync('podman', [
-    'exec',
-    container,
-    'psql',
-    '-U',
-    'duckoj',
-    '-d',
-    'duckoj',
-    '-v',
-    'ON_ERROR_STOP=1',
-    '-c',
-    `UPDATE users SET global_role = 'admin' WHERE lower(username) = lower('${username}')`,
-  ]);
-  if (!stdout.includes('UPDATE 1')) {
-    fail(`bootstrap SQL did not update exactly one row (got: ${stdout.trim()})`);
-  }
-}
-
-/**
  * A per-run problem package, written to a temp directory rather than checked
  * in. Its test data carries a nonce so every run produces a package hash the
  * stack has never seen — which is the point: a fixture with a fixed hash
@@ -222,6 +168,26 @@ async function writeFixture(nonce: number): Promise<string> {
   return dir;
 }
 
+/**
+ * `POST /submissions`, waiting out the meter.
+ *
+ * One submission per ten seconds per account (D26/D80), and this script sends
+ * three in a row as fast as the judge answers, so a bare POST is a 429 on the
+ * operator's first verification. The wait is the server's own `Retry-After`
+ * — see `submissionRetryAfterMs`. The response is returned unexamined,
+ * because one of the three callers is asserting a 404.
+ */
+async function postSubmission(session: Session, body: unknown): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    const res = await session.json('/submissions', 'POST', body);
+    const waitMs = submissionRetryAfterMs(res);
+    if (waitMs === null) return res;
+    if (attempt >= 3) fail('POST /submissions was metered four times running');
+    console.log(`      … metered, waiting ${String(Math.round(waitMs / 1000))}s`);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+}
+
 /** Polls a submission to a terminal state. */
 async function waitForGrading(
   session: Session,
@@ -254,34 +220,48 @@ async function scoreOf(session: Session, key: string, participant: string): Prom
 // --------------------------------------------------------------------------
 
 const nonce = Date.now();
-const adminName = `e2eadm${String(nonce)}`;
 const setterName = `e2eset${String(nonce)}`;
 const competitorName = `e2ecmp${String(nonce)}`;
 const problemCode = `e2e-cst-${String(nonce)}`;
 const contestKey = `e2e-contest-${String(nonce)}`;
 
-console.log(`base=${BASE} project=${PROJECT} problem=${problemCode} contest=${contestKey}\n`);
-
+/**
+ * The admin is the operator's OWN, from `.secrets/duckadmin.txt`. It used to
+ * register `e2eadm<epoch>` anonymously and promote it with a `podman exec`
+ * into the postgres container; under D200's closed rung that first step is a
+ * 403, and the bootstrap it was re-proving is `scripts/bootstrap-admin.ts`
+ * (D19) with its own spec. See `scripts/e2e-problem.ts` for the longer note.
+ */
 const admin = new Session();
 const setter = new Session();
 const competitor = new Session();
 
-async function register(session: Session, username: string): Promise<void> {
-  const res = await session.json('/auth/register', 'POST', {
+/**
+ * Mints an account THROUGH THE ADMIN's session (D200): a judge that takes no
+ * sign-ups admits no other registrar.
+ */
+async function register(username: string): Promise<void> {
+  const res = await admin.json('/auth/register', 'POST', {
     username,
     email: `${username}@example.com`,
     password: PASSWORD,
     displayName: username,
   });
   if (res.status !== 201 && res.status !== 200) {
-    fail(`register ${username}: HTTP ${String(res.status)} — ${await res.text()}`);
+    fail(
+      `register ${username}: HTTP ${String(res.status)} — ${await res.text()}${registrationHint(res.status, operator.username)}`,
+    );
   }
 }
 
-async function login(session: Session, username: string): Promise<Record<string, unknown>> {
+async function login(
+  session: Session,
+  username: string,
+  password = PASSWORD,
+): Promise<Record<string, unknown>> {
   const res = await session.json('/auth/login', 'POST', {
     usernameOrEmail: username,
-    password: PASSWORD,
+    password,
   });
   if (res.status !== 200 && res.status !== 201) {
     fail(`login ${username}: HTTP ${String(res.status)} — ${await res.text()}`);
@@ -293,12 +273,14 @@ async function login(session: Session, username: string): Promise<Record<string,
   )) as Record<string, unknown>;
 }
 
-// 1 — three users, and the two promotions the runbook documents.
-await register(admin, adminName);
-await register(setter, setterName);
-await register(competitor, competitorName);
-await promoteToAdminBySql(adminName);
-await login(admin, adminName);
+// 1 — the operator's admin signs in, mints the two accounts this run needs,
+// and makes one of them a setter through the route an admin unlocks.
+const operator = operatorAdmin();
+console.log(`base=${BASE} admin=${operator.username} problem=${problemCode} contest=${contestKey}\n`);
+const adminMe = await login(admin, operator.username, operator.password);
+expectEqual(adminMe.globalRole, 'admin', `${operator.username} must be a global admin`);
+await register(setterName);
+await register(competitorName);
 await expectStatus(
   await admin.json(`/admin/users/${setterName}`, 'PATCH', { globalRole: 'setter' }),
   200,
@@ -306,7 +288,7 @@ await expectStatus(
 );
 await login(setter, setterName);
 await login(competitor, competitorName);
-ok(`registered ${adminName} (admin), ${setterName} (setter), ${competitorName}`);
+ok(`${operator.username} registered ${setterName} (setter) and ${competitorName}`);
 
 // 2 — a PRIVATE problem, published. It stays private for the whole run: the
 // contest is the only thing that will ever make it visible.
@@ -371,7 +353,7 @@ await expectStatus(beforeJoin, 404, 'GET a contest problem before joining');
 ok('the contest problem is invisible (404) to a competitor who has not joined');
 
 // 5 — submitting before joining is refused, and leaves nothing behind.
-const unjoined = await competitor.json('/submissions', 'POST', {
+const unjoined = await postSubmission(competitor, {
   problemCode,
   languageKey: 'cpp17',
   source: CORRECT,
@@ -404,10 +386,16 @@ await expectStatus(
   200,
   'GET the contest problem after joining',
 );
+// `?q=`, not a bare `/problems`: the list is cursor-paged, and on an
+// instance that has accumulated problems (this one carries dozens) a
+// problem created seconds ago is not on the first page. The bare form
+// passed only on a nearly-empty database, which is the same assumption
+// F-58 found in this script's base URL. `e2e-problem.ts` step 12 already
+// filters; this is the sibling that did not.
 const listed = (await expectStatus(
-  await competitor.call('/problems'),
+  await competitor.call(`/problems?q=${problemCode}`),
   200,
-  'GET /problems after joining',
+  'GET /problems?q= after joining',
 )) as { items: { code: string }[] };
 expectEqual(
   listed.items.some((p) => p.code === problemCode),
@@ -418,7 +406,7 @@ ok(`joined ${contestKey} (idempotently), and the private problem is now visible 
 
 // 7 — submit into the contest, and let a real judge grade it.
 const created = (await expectStatus(
-  await competitor.json('/submissions', 'POST', {
+  await postSubmission(competitor, {
     problemCode,
     languageKey: 'cpp17',
     source: CORRECT,
@@ -441,7 +429,7 @@ ok(`the scoreboard scores ${competitorName} ${String(scored)} — derived from s
 // same competitor, the same problem, no `contestKey`, and the scoreboard
 // does not move.
 const practice = (await expectStatus(
-  await competitor.json('/submissions', 'POST', {
+  await postSubmission(competitor, {
     problemCode,
     languageKey: 'cpp17',
     source: CORRECT,

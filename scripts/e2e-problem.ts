@@ -20,48 +20,33 @@
  * only way to prove the documented bootstrap actually bootstraps.
  */
 
-import { execFile } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { buildPackage } from './lib/build-package.js';
-
-const execFileAsync = promisify(execFile);
+import {
+  liveBaseUrl,
+  operatorAdmin,
+  registrationHint,
+  relaxTlsForSelfSignedLocalhost,
+  requestOrigin,
+  submissionRetryAfterMs,
+} from './lib/operator.js';
 
 // Rootless Podman cannot bind privileged ports without extra host
 // configuration (see docs/runbook.md), so docker-compose.yml maps Caddy to
-// 8080:80 and 8443:443, not 80/443.
-const BASE = process.env.E2E_BASE_URL ?? 'https://localhost:8443';
+// 8080:80 and 8443:443, not 80/443. WHICH of the two is alive is decided by
+// `.env`'s SITE_ADDRESS, which `liveBaseUrl` reads — the hardcoded
+// `https://localhost:8443` this used to carry was dead on every default
+// deployment (F-58; see `scripts/lib/operator.ts`).
+const BASE = liveBaseUrl();
+const ORIGIN = requestOrigin(BASE);
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? 'duckoj_session';
 const PASSWORD = 'a-long-enough-password';
 
-/**
- * The compose project name podman-compose derives from the repo directory's
- * basename — the same derivation `scripts/compose-up.sh` does
- * (`PROJECT=$(basename "$PWD")`), computed from this file's own location so
- * it does not depend on the working directory the script is invoked from.
- *
- * `COMPOSE_PROJECT_NAME` first, `COMPOSE_PROJECT` only as a deprecated alias
- * — review finding M4, already applied to `backup.sh`/`restore.sh` and missed
- * here. podman-compose knows nothing about `COMPOSE_PROJECT`; it reads
- * `COMPOSE_PROJECT_NAME` or falls back to the working directory. Reading only
- * the alias meant that following the runbook's own worktree instructions
- * (`export COMPOSE_PROJECT_NAME=duckoj`) left this script looking for
- * containers labelled with the worktree's basename — `agent-<hash>` — and
- * dying on "no postgres container found ... is the stack up?" against a stack
- * that was up the whole time.
- */
-const REPO_ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const PROJECT =
-  process.env.COMPOSE_PROJECT_NAME ?? process.env.COMPOSE_PROJECT ?? basename(resolve(REPO_ROOT));
-
-// The stack terminates TLS with a self-signed certificate under Caddy. This
-// disables certificate verification for the WHOLE process — acceptable only
-// because this throwaway script talks exclusively to a local self-signed
-// stack. Never copy this line into anything that also talks to the internet.
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// Only for an https localhost, which is the self-signed half of the mapping
+// above — see `relaxTlsForSelfSignedLocalhost`.
+relaxTlsForSelfSignedLocalhost(BASE);
 
 const CORRECT = `#include <iostream>
 int main(){long long a,b;std::cin>>a>>b;std::cout<<a+b<<"\\n";}`;
@@ -82,8 +67,9 @@ class Session {
     const headers: Record<string, string> = {
       // D82: a cookie-authenticated write must say where it came from, and
       // Node's `fetch` sends no `Origin`. This script drives the stack the
-      // way a browser at `BASE` would, so it says so.
-      origin: new URL(BASE).origin,
+      // way a browser at `BASE` would, so it says so — `E2E_ORIGIN` names a
+      // different allowed origin without editing a live `.env`.
+      origin: ORIGIN,
       ...(this.cookie ? { cookie: this.cookie } : {}),
     };
     for (const [k, v] of Object.entries((init.headers ?? {}) as Record<string, string>))
@@ -138,46 +124,6 @@ function expectEqual(actual: unknown, want: unknown, what: string): void {
 }
 
 /**
- * The bootstrap hop documented in docs/runbook.md, "Bootstrapping the first
- * admin". `postgres` deliberately publishes no host port, so this reaches it
- * the only way anything outside the Compose network can: a `podman exec` into
- * the container, found by the compose labels rather than by guessing its name
- * (the same lookup `scripts/compose-up.sh`'s `container_for_service` does).
- */
-async function promoteToAdminBySql(username: string): Promise<void> {
-  const { stdout: names } = await execFileAsync('podman', [
-    'ps',
-    '-a',
-    '--filter',
-    `label=com.docker.compose.project=${PROJECT}`,
-    '--filter',
-    'label=com.docker.compose.service=postgres',
-    '--format',
-    '{{.Names}}',
-  ]);
-  const container = names.split('\n')[0]?.trim();
-  if (!container)
-    fail(`no postgres container found for compose project '${PROJECT}' — is the stack up?`);
-
-  const { stdout } = await execFileAsync('podman', [
-    'exec',
-    container,
-    'psql',
-    '-U',
-    'duckoj',
-    '-d',
-    'duckoj',
-    '-v',
-    'ON_ERROR_STOP=1',
-    '-c',
-    `UPDATE users SET global_role = 'admin' WHERE lower(username) = lower('${username}')`,
-  ]);
-  if (!stdout.includes('UPDATE 1')) {
-    fail(`bootstrap SQL did not update exactly one row (got: ${stdout.trim()})`);
-  }
-}
-
-/**
  * A per-run problem package, written to a temp directory rather than checked
  * in. Its test data carries a nonce so every run produces a package hash the
  * stack has never seen — which is the point: a fixture with a fixed hash
@@ -227,11 +173,23 @@ async function submitAndWait(
   problemCode: string,
   source: string,
 ): Promise<Record<string, unknown>> {
-  const created = await session.json('/submissions', 'POST', {
-    problemCode,
-    languageKey: 'cpp17',
-    source,
-  });
+  // The submission meter allows one per ten seconds per account (D26/D80),
+  // and this script submits several in a row as fast as the judge answers, so
+  // waiting out the server's own `Retry-After` is part of driving the stack
+  // correctly — see `submissionRetryAfterMs`.
+  let created: Response;
+  for (let attempt = 0; ; attempt += 1) {
+    created = await session.json('/submissions', 'POST', {
+      problemCode,
+      languageKey: 'cpp17',
+      source,
+    });
+    const waitMs = submissionRetryAfterMs(created);
+    if (waitMs === null) break;
+    if (attempt >= 3) fail('POST /submissions was metered four times running');
+    console.log(`      … metered, waiting ${String(Math.round(waitMs / 1000))}s`);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
   const body = (await expectStatus(created, 201, `POST /submissions (${problemCode})`)) as {
     id: number;
   };
@@ -253,33 +211,58 @@ async function submitAndWait(
 // --------------------------------------------------------------------------
 
 const nonce = Date.now();
-const adminName = `e2eadm${String(nonce)}`;
 const setterName = `e2eset${String(nonce)}`;
 const viewerName = `e2evie${String(nonce)}`;
 const problemCode = `e2e-sum-${String(nonce)}`;
 
-console.log(`base=${BASE} project=${PROJECT} problem=${problemCode}\n`);
-
+/**
+ * The admin is the operator's OWN, from `.secrets/duckadmin.txt` — not an
+ * account this script mints.
+ *
+ * It used to register `e2eadm<epoch>` and then promote it with a `podman exec`
+ * into the postgres container, to prove the runbook's bootstrap SQL
+ * bootstraps. Two things retired that. `scripts/bootstrap-admin.ts` (D19) is
+ * the bootstrap now, with `bootstrap-admin.spec.ts` proving it against a real
+ * database, so this script was re-proving a step that no longer exists. And
+ * under D200's closed rung the SQL hop could not run anyway: it registered
+ * anonymously first, which is a 403.
+ *
+ * What is left is truer to what this script is for. An operator's first
+ * verification should use what an operator HAS — the admin they bootstrapped
+ * and the URL their `.env` serves — and it now writes nothing to the database
+ * except through the API, with no podman dependency at all.
+ */
 const admin = new Session();
 const setter = new Session();
 const viewer = new Session();
 
-async function register(session: Session, username: string): Promise<void> {
-  const res = await session.json('/auth/register', 'POST', {
+/**
+ * Mints an account THROUGH THE ADMIN's session (D200). This judge takes no
+ * sign-ups, so a global admin is the one caller `POST /auth/register` still
+ * admits — the same shape `apps/web/e2e/organiser.spec.ts` took at `91a8402`.
+ */
+async function register(username: string): Promise<void> {
+  const res = await admin.json('/auth/register', 'POST', {
     username,
     email: `${username}@example.com`,
     password: PASSWORD,
     displayName: username,
   });
   if (res.status !== 201 && res.status !== 200) {
-    fail(`register ${username}: HTTP ${String(res.status)} — ${await res.text()}`);
+    fail(
+      `register ${username}: HTTP ${String(res.status)} — ${await res.text()}${registrationHint(res.status, operator.username)}`,
+    );
   }
 }
 
-async function login(session: Session, username: string): Promise<Record<string, unknown>> {
+async function login(
+  session: Session,
+  username: string,
+  password = PASSWORD,
+): Promise<Record<string, unknown>> {
   const res = await session.json('/auth/login', 'POST', {
     usernameOrEmail: username,
-    password: PASSWORD,
+    password,
   });
   if (res.status !== 200 && res.status !== 201) {
     fail(`login ${username}: HTTP ${String(res.status)} — ${await res.text()}`);
@@ -288,19 +271,20 @@ async function login(session: Session, username: string): Promise<Record<string,
   return (await expectStatus(me, 200, `GET /auth/me (${username})`)) as Record<string, unknown>;
 }
 
-// 1 — three users register through the public route.
-await register(admin, adminName);
-await register(setter, setterName);
-await register(viewer, viewerName);
-ok(`registered ${adminName}, ${setterName}, ${viewerName}`);
+// 1 — the operator's admin signs in. Everything below is minted by them.
+const operator = operatorAdmin();
+console.log(`base=${BASE} admin=${operator.username} problem=${problemCode}\n`);
+const adminMe = await login(admin, operator.username, operator.password);
+expectEqual(adminMe.globalRole, 'admin', `${operator.username} must be a global admin`);
+ok(`signed in as ${operator.username} (globalRole=${String(adminMe.globalRole)})`);
 
-// 2 — the runbook's bootstrap SQL, the only path to the first admin.
-await promoteToAdminBySql(adminName);
-const adminMe = await login(admin, adminName);
-expectEqual(adminMe.globalRole, 'admin', 'bootstrap SQL should have made this user an admin');
-ok(`bootstrap SQL promoted ${adminName} to admin (globalRole=${String(adminMe.globalRole)})`);
+// 2 — the admin mints the two accounts this run needs. A closed judge admits
+// no other registrar (D200).
+await register(setterName);
+await register(viewerName);
+ok(`${operator.username} registered ${setterName} and ${viewerName}`);
 
-// 3 — the HTTP path the bootstrap unlocks. Second promotion, different route.
+// 3 — the HTTP promotion path an admin unlocks.
 const granted = (await expectStatus(
   await admin.json(`/admin/users/${setterName}`, 'PATCH', { globalRole: 'setter' }),
   200,

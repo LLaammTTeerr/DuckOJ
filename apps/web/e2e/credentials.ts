@@ -24,6 +24,17 @@ export interface AdminCredentials {
 }
 
 /**
+ * Where to look when neither `E2E_SECRETS_FILE` nor the `E2E_ADMIN_*`
+ * variables say. Playwright runs from `apps/web`, so the default below is
+ * relative to that; a caller with a different working directory (the
+ * `scripts/e2e-*.ts` operator tools run from the repo root) passes its own
+ * path rather than getting a second copy of this parser.
+ */
+export interface CredentialSource {
+  secretsFile?: string | undefined;
+}
+
+/**
  * The file holds one `key: value` block per account, blocks separated by a
  * `---` rule — the live stack's copy carries the admin AND a demo pupil. So
  * this parses blocks and CHOOSES one, rather than folding every line into a
@@ -65,10 +76,12 @@ function parseBlocks(text: string): Block[] {
  * with `E2E_STUDENT_USER` on a stack whose demo pupil is called something
  * else.
  */
-export function studentCredentials(): AdminCredentials {
+export function studentCredentials(source: CredentialSource = {}): AdminCredentials {
   const wanted = process.env.E2E_STUDENT_USER;
   const file =
-    process.env.E2E_SECRETS_FILE ?? resolve(process.cwd(), '../../.secrets/duckadmin.txt');
+    process.env.E2E_SECRETS_FILE ??
+    source.secretsFile ??
+    resolve(process.cwd(), '../../.secrets/duckadmin.txt');
   let text: string;
   try {
     text = readFileSync(file, 'utf8');
@@ -88,7 +101,7 @@ export function studentCredentials(): AdminCredentials {
   return { username: block.username ?? 'hocsinh1', password: block.password! };
 }
 
-export function adminCredentials(): AdminCredentials {
+export function adminCredentials(source: CredentialSource = {}): AdminCredentials {
   const wanted = process.env.E2E_ADMIN_USER;
   const fromEnv = process.env.E2E_ADMIN_PASSWORD;
   if (fromEnv !== undefined && fromEnv !== '') {
@@ -98,7 +111,9 @@ export function adminCredentials(): AdminCredentials {
   // directory", but Playwright runs from the package root and that (apps/web)
   // is the stable anchor its own config already relies on.
   const file =
-    process.env.E2E_SECRETS_FILE ?? resolve(process.cwd(), '../../.secrets/duckadmin.txt');
+    process.env.E2E_SECRETS_FILE ??
+    source.secretsFile ??
+    resolve(process.cwd(), '../../.secrets/duckadmin.txt');
   let text: string;
   try {
     text = readFileSync(file, 'utf8');
