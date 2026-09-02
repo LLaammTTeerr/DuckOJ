@@ -69,7 +69,10 @@ Quy tắc phải nhớ:
   chặn mọi trang khác cho tới khi họ đổi.
 - Học sinh **không có email** vẫn dùng được mọi thứ, nhưng địa chỉ của họ là
   địa chỉ giả nội bộ, nên **không dùng được "Quên mật khẩu?"**. Mất mật khẩu
-  thì phải nhờ quản trị viên.
+  thì phải nhờ quản trị viên. Và nếu máy chủ **chưa khai `SMTP_HOST`** thì
+  **không ai** đặt lại mật khẩu được, kể cả người có email thật: yêu cầu bị từ
+  chối `503 mail_unavailable` (D155). Hỏi quản trị viên xem bảng **Thư điện
+  tử** trên `/admin` ghi *SMTP* hay *chưa cấu hình* trước khi hứa với học sinh.
 - **Một tên đăng nhập trùng nhau giữa hai khúc** bị chặn ngay trên trình
   duyệt, trước khi gửi đi — không lượt gửi nào một mình nhìn thấy được điều đó.
 - Tối đa **mười lượt nhập mỗi tổ chức mỗi phút** (bấm *Kiểm tra danh sách* bao
@@ -185,7 +188,9 @@ tính lại và quản trị viên phải làm bước đó bằng tay.
 
 ## 8. Xuất kết quả và in giấy chứng nhận
 
-**Kỳ thi kết thúc**, trang kỳ thi hiện thêm hai liên kết cho người tổ chức:
+**Kỳ thi kết thúc**, trang kỳ thi hiện thêm **ba** liên kết cho người tổ chức.
+(Liên kết **Phiếu dự thi (PDF)** thì khác: nó hiện cho người tổ chức **mọi lúc**,
+kể cả trước giờ thi — D129.)
 
 - **Kết quả (CSV)** — bảng kết quả mở thẳng bằng Excel/LibreOffice: hạng, tên
   đăng nhập, họ tên, **tổ chức của chính thí sinh**, điểm/số lần nộp/thời gian
@@ -195,9 +200,11 @@ tính lại và quản trị viên phải làm bước đó bằng tay.
   đánh dấu — tệp phải tả đúng kỳ thi đã diễn ra.
 - **Kết quả (PDF)** — vẫn bảng đó, dựng ngang khổ A4, đánh số trang, dòng bị
   hủy tư cách ghi `[DQ]`, dòng thi ảo ghi `(ảo)`.
+- **Giấy chứng nhận (PDF)** — kèm ô số **Cấp tới hạng** (mặc định 3, nhận từ 1
+  tới 1000); nút này dựng đúng đường dẫn `?top=N` bên dưới.
 
-**Giấy chứng nhận** chưa có nút riêng; gọi thẳng đường dẫn trong khi đang đăng
-nhập bằng tài khoản chạy kỳ thi:
+Hai đường dẫn dưới đây vẫn dùng được, và là cách duy nhất để cấp cho **một
+người**; mở khi đang đăng nhập bằng tài khoản chạy kỳ thi:
 
 ```
 /api/v1/contests/{key}/certificates.pdf?top=10
@@ -241,8 +248,11 @@ Giới hạn thời gian và bộ nhớ, cùng bộ test, đến từ **gói bà
 được chấm theo **phiên bản đang công bố lúc học sinh gửi**, nên công bố phiên
 bản mới không làm hỏng kết quả cũ.
 
-**Giao bài về nhà.** Trang tổ chức của trường có mục **Bài tập về nhà**; chủ
-sở hữu tổ chức thấy thêm nút **Giao bài tập**. Màn soạn có **Định danh**,
+**Giao bài về nhà.** Trang tổ chức của trường có mục **Bài tập về nhà**; **chủ
+sở hữu *hoặc quản trị viên* của tổ chức** (và quản trị viên toàn hệ thống) thấy
+thêm nút **Giao bài tập**. Chú ý là quy tắc này **khác** với mục 2: nhập danh
+sách học sinh thì quản trị viên của tổ chức không đủ quyền, còn giao bài tập
+thì đủ. Màn soạn có **Định danh**,
 **Tên**, **Mô tả**, **Hạn nộp** (để trống là không có hạn) và **Danh sách
 bài** — gõ mã hoặc tên vào ô tìm, bấm **Thêm**, sắp thứ tự bằng **Lên** /
 **Xuống**, và đặt **Điểm cho** từng bài. Sửa lại bằng **Sửa bài tập**, gỡ bằng
@@ -287,13 +297,19 @@ ngăn hai phần — đó là quy ước mà bộ dựng PDF dùng để tách n
 ## 11. Thống kê
 
 Cuối trang mỗi bài có mục **Thống kê**: tổng lượt nộp, số người thử, số người
-giải được, tỉ lệ được chấp nhận, và bảng **Người giải đầu tiên** kèm thời gian
-và bộ nhớ. Danh sách **Bài tập** có thêm cột **Đã giải**.
+giải được, tỉ lệ được chấp nhận, phân bố theo kết quả và theo ngôn ngữ, dòng
+**Người giải đầu tiên** — chỉ **tên đăng nhập và thời điểm nộp**, không có thời
+gian chạy hay bộ nhớ — và, tách riêng ngay bên dưới, một bảng **những lời giải
+nhanh nhất** với các cột *Thí sinh / Thời gian / Bộ nhớ / Bài nộp*. Hai thứ đó
+là hai thứ khác nhau. Danh sách **Bài tập** có thêm cột **Đã giải**.
 
 Một điều phải biết khi đọc con số giữa kỳ thi: **một bài nộp chỉ được tính khi
 lượt thi của người nộp đã kết thúc.** Vì vậy giữa giờ thi, thống kê và "người
 giải đầu tiên" chưa phản ánh phòng thi đang chạy, và sẽ tự đúng lại khi hết
-giờ. Số liệu này giống nhau với mọi người xem, kể cả quản trị viên.
+giờ. Quản trị viên thấy đúng những con số bạn thấy — nhưng **người đang dự một
+kỳ thi có dùng bài này** (mà không phải người tạo kỳ thi ấy) thì được trả về
+**thống kê trắng**, giống hệt một bài chưa ai đụng tới, không có dấu hiệu gì
+báo là đã bị che (D35).
 
 Muốn theo dõi phòng thi ngay lúc đang thi thì dùng màn **Theo dõi trực tiếp**
 (mục 12), hoặc **Bảng điểm** (không đóng băng với bạn) và **Tất cả bài nộp** của
@@ -359,8 +375,12 @@ Vài điều khi trực:
 - **Danh sách thành viên bị khoá trong lúc đội đang thi**: sửa đội giữa kỳ thi
   bị từ chối, kèm dòng *Đội này đang thi, nên danh sách thành viên được giữ
   nguyên cho tới khi kỳ thi kết thúc.* Đổi tên đội thì vẫn được.
-- Bảng điểm in **tên đội**; huỷ tư cách và giấy chứng nhận đi theo đội, còn tệp
-  **Kết quả (CSV/PDF)** có thêm cột thành viên.
+- Bảng điểm in **tên đội**; huỷ tư cách và giấy chứng nhận đi theo đội. **Chỉ
+  `Kết quả (CSV)` có cột `members`** — bản PDF giữ nguyên bộ cột của nó (hạng,
+  tên đăng nhập, họ tên, đơn vị, từng bài, tổng, điểm phạt) và **không in danh
+  sách thành viên ở đâu cả**. Muốn có tờ giấy ghi tên từng em thì in **giấy
+  chứng nhận** — mỗi tờ liệt kê thành viên của đội — chứ đừng trông vào bảng
+  kết quả PDF.
 - Báo cáo **Kiểm tra trùng lặp** gắn nhãn theo đội, nên hai người cùng một đội
   không bao giờ bị đem ra so với nhau.
 - Xếp sẵn một đội vào kỳ thi bằng đường dẫn `POST
@@ -408,9 +428,9 @@ header row is optional. Paste into the box or pick a CSV file — the list may
 be any length: **one request carries at most 500 rows**, and the panel
 **splits a longer list into 500-row chunks itself**, sends them in order with
 a progress bar, and merges every chunk's credentials into one table. Press
-**Check list** first — a dry run that creates nothing and reports every bad
+**Check the list** first — a dry run that creates nothing and reports every bad
 row by **Row**, **Field** and **Problem**, or shows a preview and *Will create
-n accounts*. Then **Create accounts**.
+n accounts*. Then **Create the accounts**.
 
 Rules worth memorising: **one bad row means nothing is created**; a username
 the FILE repeats across two chunks is refused in the browser before anything
@@ -418,7 +438,10 @@ is sent; the generated **passwords are shown exactly once** (there is a
 **Print** button, a **Download CSV** link and a copyable box — none of it is
 recoverable later); every student **must set their own password at first
 sign-in**; a student with **no email** gets an internal placeholder address
-and therefore **cannot use "Forgot your password?"**; and imports are limited
+and therefore **cannot use "Forgot your password?"** (and if the server has no
+`SMTP_HOST`, *nobody* can — the request is refused `503 mail_unavailable`,
+D155; check the **Mail** panel on `/admin` before promising a pupil a reset);
+and imports are limited
 to **ten per organisation per minute** (checking is unlimited), which is the
 same 5,000 pupils a minute. A large class takes a while — one password hash
 per account — so do not close the tab; if a chunk fails part-way the screen
@@ -483,7 +506,7 @@ submitter's window closes.
 
 ### 7. Disqualification and rejudging
 
-On the **Scoreboard**, each row carries **Disqualify …** (and **Reinstate …**)
+On the **Scoreboard**, each row carries **DQ {name}** (and **un-DQ {name}**)
 for the creator and administrators. A disqualified row stays on the board,
 marked. Disqualification binds the **person**, so a later re-join inherits it.
 
@@ -495,7 +518,9 @@ the contests that need re-rating, and that step is manual.
 
 ### 8. Exporting the results, and printing certificates
 
-**Once the contest has finished**, its page offers the organisers two links:
+**Once the contest has finished**, its page offers the organisers **three**
+links. (**Seat slips (PDF)** is different — organisers get that one at any
+hour, including before the start, per D129.)
 **Results (CSV)** — rank, username, display name, **the competitor's own
 organisations**, points/attempts/time per problem, total, penalty, a
 `disqualified` column and a `virtual` one (`0` live, `n` the n-th replay),
@@ -504,8 +529,10 @@ written with a UTF-8 BOM so Excel does not mangle Vietnamese — and **Results
 `(ảo)` on the rows that keep their place. **A disqualified row is exported and
 flagged, never dropped**: the file has to describe the contest that happened.
 
-**Certificates** have no button yet; call the route directly while signed in
-as the person who runs the contest:
+**Certificates (PDF)** is the third button, with a **Down to rank** number box
+(default 3, 1–1000) that builds the `?top=N` route below. The two routes still
+work, and naming one person is only possible through them — call them while
+signed in as the person who runs the contest:
 
 ```
 /api/v1/contests/{key}/certificates.pdf?top=10
@@ -542,7 +569,9 @@ published when they were sent, so publishing a new one never disturbs old
 results.
 
 **Setting homework.** Your school's organisation page carries **Problem
-sets**, and an org owner gets **Assign a problem set**: a slug, a name, a
+sets**, and an org **owner *or admin*** (and a global admin) gets **Assign a
+problem set** — a different rule from §2, where an org admin is *not* enough to
+import a roster: a slug, a name, a
 description, a **Deadline** (empty for none) and the **Problems** list —
 search by code or name, **Add**, order with **Move up** / **Move down**, and
 give each its **Points**. **Edit this set** changes it; **Withdraw this set**
@@ -566,7 +595,7 @@ when you only want practice.
 
 ### 10. Problem PDFs
 
-**Download problems (PDF)** on a contest page renders the whole contest as one
+**Problems (PDF)** on a contest page renders the whole contest as one
 document: a cover with the window and per-problem limits, then each problem on
 its own page, numbered and labelled `Bài A.`, `Bài B.`… **The language follows
 the language you are viewing in**, so press **EN** first if you want English.
@@ -580,14 +609,19 @@ heading — that is the marker the renderer splits on.
 ### 11. Statistics
 
 Each problem page ends with **Statistics** — submissions, people who tried,
-people who solved, acceptance rate, and a **first solver** row with time and
-memory — and the problem list gains a **Solved** column.
+people who solved, acceptance rate, a verdict and a language breakdown, and a
+**first solver** line carrying only a **username and the time they submitted**.
+The table of run times and memory beside it is a separate, unlabelled one: the
+**fastest accepted solutions**, columns *Competitor / Time / Memory /
+Submission*. The problem list gains a **Solved** column.
 
 One thing to know before quoting these mid-round: **a submission is only
 counted once its submitter's contest window has closed.** During a live
 contest the figures, and the "first solver", do not describe the room in front
-of you; they correct themselves at the bell. The numbers are identical for
-every viewer, administrators included. To watch a live round, use the
+of you; they correct themselves at the bell. Administrators see exactly what
+you see — but a viewer who is **competing in a running contest that uses this
+problem** (and did not create it) is handed **blank statistics**, identical in
+shape to a problem nobody has attempted and flagged in no way at all (D35). To watch a live round, use the
 **Live monitor** (§12), or the **Scoreboard** (unfrozen for you) and the
 contest's **All submissions** list, instead.
 
@@ -599,13 +633,14 @@ only) to `/contests/{key}/monitor` — a dashboard of the running room that
 lands.
 
 - The tiles: **Competitors connected**, the queue depth and its oldest wait,
-  **judges online** (system-wide, not this contest), **Questions unanswered**
+  **Judges up** (system-wide, not this contest), **Questions unanswered**
   and refusals in the last 10 minutes.
 - A per-problem table with **Attempts**, **Accepted**, **Solvers**, **Judging**
   and a **Pass rate** bar.
 - **Latest submissions** — the newest fifty, **with their true verdicts**: the
   scoreboard freeze hides nothing from the organisers here.
-- **Questions unanswered**, each a link to answer on the contest page.
+- **Questions waiting** — the panel, not to be confused with the tile of the
+  same subject above — each a link to answer on the contest page.
 
 This is the screen to invigilate from. Unlike **Statistics** (§11), which counts
 a submission only after its submitter's window closes, the monitor shows exactly
@@ -652,7 +687,11 @@ While invigilating:
   refused with *This team is competing right now, so its roster is fixed until
   the round ends.* Renaming still works.
 - The scoreboard prints the **team name**; disqualification and certificates
-  follow the team, and the **Results (CSV/PDF)** gain a members column.
+  follow the team. **Only `Results (CSV)` gains a `members` column** — the PDF
+  keeps its fixed set (rank, username, name, org, per problem, total, penalty)
+  and prints no roster anywhere. For a sheet naming each pupil, print the
+  **certificates**, which do list a team's members; do not expect it of the
+  results PDF.
 - The **duplicate-source check** labels by team, so two teammates are never
   compared with each other.
 - Seed a team into a contest with `POST /api/v1/contests/{key}/participants` and
