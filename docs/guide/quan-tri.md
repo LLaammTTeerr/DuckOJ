@@ -262,8 +262,17 @@ corepack pnpm judge:node list
 corepack pnpm judge:node revoke <tên>   # đốt băm token, giữ lại lịch sử chấm
 ```
 
+Cả ba lệnh là **CLI chạy trên `DATABASE_URL`**, không phải route HTTP, nên
+chạy trần như trên chỉ được khi biến đó đã có trong môi trường — nếu không,
+lệnh dừng ngay với `DATABASE_URL is required`. Dưới compose thì Postgres không
+mở cổng ra ngoài, nên phải chạy trong một container dùng một lần, giống hệt
+mục 1: xem `docs/runbook.md`, mục *Bootstrapping the first admin*, có sẵn dòng
+`podman run --rm --network <project>_default --env-file .env` đầy đủ.
+
 `add` **tự sinh token** và in ra đúng một lần — nó không nhận `--token`, để
-token máy chấm không bao giờ lọt vào lịch sử dòng lệnh. Dán token đó vào
+token máy chấm không bao giờ lọt vào lịch sử dòng lệnh. `add` cũng **từ chối
+một tên đã có**, kể cả tên vừa `revoke` (hàng vẫn ở lại để giữ lịch sử chấm),
+nên xoay token là `revoke <tên cũ>` rồi `add <tên mới>`. Dán token đó vào
 `judge/judge.yml` của máy chấm mới rồi bật container thứ hai qua profile `scale`
 của compose (`SCALE=1 scripts/compose-up.sh`). Từng bước đầy đủ ở
 `docs/runbook.md`, mục *Adding a second judge container* (D68).
@@ -534,8 +543,18 @@ corepack pnpm judge:node list
 corepack pnpm judge:node revoke <name>   # burns the token hash, keeps the history
 ```
 
+All three are a **CLI against `DATABASE_URL`**, not an HTTP route, so run bare
+they need that variable in the environment or they stop at
+`DATABASE_URL is required`. Under compose `postgres` publishes no host port,
+so run them in a one-off container exactly as §1 does — the runbook's
+*Bootstrapping the first admin* carries the
+`podman run --rm --network <project>_default --env-file .env` line.
+
 `add` **generates the token itself** and prints it once — it takes no `--token`,
-so a judge token never lands in a shell history. Paste it into the new judge's
+so a judge token never lands in a shell history. It also **refuses a name that
+already exists**, including one just revoked (the row stays, to keep the
+grading history addressable), so rotating a token is `revoke <old name>` then
+`add <new name>`. Paste it into the new judge's
 `judge/judge.yml`, then bring the second container up through compose's `scale`
 profile (`SCALE=1 scripts/compose-up.sh`). The runbook's *Adding a second judge
 container* has the full steps (D68).
