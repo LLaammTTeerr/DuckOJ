@@ -657,5 +657,94 @@ describe('a fleet of two judges', () => {
       expect(redialled.requests()).toHaveLength(0);
       expect(second.requests()).toHaveLength(1);
     }, 30_000);
+
+    /**
+     * Fix round 2, R2-1(a). The successor can finish FIRST, and then there is
+     * no live entry left for the job id at all — so a late terminal packet
+     * from the superseded attempt lands on `if (!entry) return` before
+     * anything has looked at the assignment, and the connection it names is
+     * never handed back.
+     *
+     * Only a fleet of two can produce this: a single judge cannot run the
+     * successor to completion while still owing us the predecessor's reply.
+     * That is why round 1's specs could not see it, and it predates this
+     * decision — the early return has been there since the driver had no
+     * notion of attempts.
+     */
+    it('frees a connection whose terminal packet arrives after the job is already retired', async () => {
+      const { driver } = await bridge([
+        ['judge-1', ['CPP17']],
+        ['judge-2', ['CPP17']],
+      ]);
+      const { first, second, attemptTwo } = await supersede(driver);
+
+      // Attempt 2 finishes before judge-1 has answered the terminate, so
+      // `live[7]` is gone by the time that answer arrives.
+      second.send({ name: 'grading-end', 'submission-id': 7 });
+      await vi.waitFor(
+        () => expect(attemptTwo.some((e) => e.type === 'finished')).toBe(true),
+        10_000,
+      );
+
+      first.send({ name: 'submission-terminated', 'submission-id': 7 });
+      await settle();
+
+      // Two free judges take two jobs — one each, whichever order
+      // `connectionIds()` hands them out in. A leaked judge-1 leaves the
+      // second dispatch parked and judge-1 on the one request it got in
+      // `supersede`.
+      await driver.dispatch(makeJob('98'), async () => {});
+      void driver.dispatch(makeJob('99'), async () => {}).catch(() => {});
+      await settle();
+
+      expect(first.requests()).toHaveLength(2);
+    }, 30_000);
+
+    /**
+     * Fix round 2, R2-1(b). The same ordering, but the stranded assignment is
+     * the `UNKNOWN_ATTEMPT` one that fix round 1 introduced — and that one had
+     * no other way out at all. `finish` cannot release it, because the
+     * connection holding it is not the live entry's `connection`; the discard
+     * branch cannot, because it never runs once the entry is gone. Without
+     * this, round 1 bought the "never leave a busy judge idle" rule at the
+     * price of a judge that is never anything else.
+     */
+    it("releases the redialling judge's unattributable assignment when its run finally ends", async () => {
+      const { driver, port } = await bridge([
+        ['judge-1', ['CPP17']],
+        ['judge-2', ['CPP17']],
+      ]);
+      const { second, attemptTwo } = await supersede(driver);
+
+      judges[0]!.close();
+      const redialled = fakeJudge(port, 'judge-1', ['CPP17']);
+      judges.push(redialled);
+      await redialled.ready;
+      await vi.waitFor(
+        () => expect(redialled.received.some((p) => p.name === 'handshake-success')).toBe(true),
+        10_000,
+      );
+      // Recorded busy, attempt unknowable — the round 1 rule.
+      redialled.send({ name: 'current-submission-id', 'submission-id': 7 });
+      await settle();
+
+      // Attempt 2 finishes on judge-2, retiring the only live entry for job 7.
+      second.send({ name: 'grading-end', 'submission-id': 7 });
+      await vi.waitFor(
+        () => expect(attemptTwo.some((e) => e.type === 'finished')).toBe(true),
+        10_000,
+      );
+
+      // Whatever judge-1 was really running ends too. Nothing can attribute
+      // this packet — that is the point — but it still says the judge is done.
+      redialled.send({ name: 'grading-end', 'submission-id': 7 });
+      await settle();
+
+      await driver.dispatch(makeJob('98'), async () => {});
+      void driver.dispatch(makeJob('99'), async () => {}).catch(() => {});
+      await settle();
+
+      expect(redialled.requests()).toHaveLength(1);
+    }, 30_000);
   });
 });

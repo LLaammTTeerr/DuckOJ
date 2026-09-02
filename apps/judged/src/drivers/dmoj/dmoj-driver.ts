@@ -104,8 +104,15 @@ const TERMINAL_PACKETS: ReadonlySet<string> = new Set([
  * collide with a real one. That is the whole of its behaviour — the
  * connection is out of the free pool because it holds an assignment, every
  * packet on it is discarded as unattributable because the attempt matches
- * nothing, and a terminal packet releases it because the value still equals
- * itself.
+ * nothing, and a terminal packet on it releases it because the value still
+ * equals itself.
+ *
+ * "A terminal packet releases it" is a claim about BOTH branches of `handle`,
+ * and it was false until fix round 2 made it true. `finish` cannot release
+ * this assignment — the connection holding it is not any live entry's
+ * `connection` — so the only exits are the discard branch (while a live entry
+ * for the job id still exists) and the `!entry` branch (once it does not).
+ * Both are there now; neither may be removed without stranding this.
  */
 const UNKNOWN_ATTEMPT = -1;
 
@@ -661,7 +668,10 @@ export class DmojDriver implements JudgeDriver {
       //    announcement contradicts a placement we built ourselves, so it is
       //    almost certainly a superseded attempt still running — and its
       //    attempt is exactly what cannot be recovered. `UNKNOWN_ATTEMPT`
-      //    says so: busy, unattributable, released by its terminal packet.
+      //    says so: busy, unattributable, and released by the terminal packet
+      //    that ends the run it is really holding — by the discard branch
+      //    below while a live entry for this job id survives, and by the
+      //    `!entry` branch above once the successor has retired it.
       //  - Otherwise the live entry is unplaced (a redial cleared it, or the
       //    job is a restart's re-claim). This is the reconnect-recovery path
       //    D29 relies on, and adopting the live entry's own attempt is the
@@ -680,10 +690,45 @@ export class DmojDriver implements JudgeDriver {
 
     const submissionId = (packet as { 'submission-id'?: number })['submission-id'];
     if (submissionId === undefined) return;
-    const entry = this.live.get(submissionId);
-    if (!entry) return;
-
+    // Read BEFORE the `!entry` return below, not after it (D205, fix round
+    // 2): the assignment outlives the live entry, and something has to hand
+    // the connection back when it does.
     const held = this.assignments.get(connection.id);
+    const entry = this.live.get(submissionId);
+
+    if (!entry) {
+      // No live entry for this job id, and a connection still recorded
+      // against it. That happens whenever the SUCCESSOR finishes first: the
+      // retry's `grading-end` retires `live[jobId]`, and only then does the
+      // superseded attempt's judge answer. Two judges are needed to produce
+      // it, which is why it hid for so long.
+      //
+      // Releasing here is safe precisely because there is no live entry:
+      // with nothing to attribute the packet to, there is nothing to
+      // misattribute it to either. Only the assignment is touched, and only
+      // when it names this very job.
+      //
+      // This is also the ONLY exit for an `UNKNOWN_ATTEMPT` assignment. That
+      // connection is not any live entry's `connection`, so `finish` never
+      // reaches it, and the discard branch below never runs once the entry is
+      // gone — without this the round 1 rule "never leave a busy judge idle"
+      // would have bought itself a judge that is never idle again. A leaked
+      // assignment is invisible to `judgeCount()`, so `tryAcquireSlot` keeps
+      // handing out slots for a judge `acquireConnection` will never choose,
+      // and a worker parks holding a claimed lease.
+      if (held?.submissionId === submissionId && TERMINAL_PACKETS.has(packet.name)) {
+        console.warn(
+          JSON.stringify({
+            msg: 'terminal packet for a retired job released its connection',
+            jobId: String(submissionId),
+            packetAttempt: held.attempt === UNKNOWN_ATTEMPT ? null : held.attempt,
+            connection: connection.id,
+          }),
+        );
+        this.releaseConnection(connection.id, submissionId, held.attempt);
+      }
+      return;
+    }
 
     // D205. The live entry is keyed by job id, and a retry reuses that id, so
     // `entry` may well be a LATER attempt than the one this connection is
