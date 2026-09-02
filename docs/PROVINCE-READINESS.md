@@ -120,7 +120,16 @@ compose profile before a province-wide contest.
    exclusion (`contestWindowOpenWhere`) sequentially scans `contest_submissions`
    and `contest_participations` in full on the problem list, the problem read
    and the progress bars — a cost that grows with lifetime contest activity
-   rather than with the page. Both are behind short caches; neither is fixed.
+   rather than with the page. **Both are now closed**: the fold's case read is
+   gone rather than faster (F-45, migration 0045, D165/D166), and the window
+   exclusion reads a materialised `contest_participations.ends_at` through its
+   own index (F-54, migration 0048, D194), so its cost tracks the contests that
+   are open rather than the ones there have ever been — 19 201 buffers to 480
+   for one problem's statistics on a scratch copy holding 496 240 contest
+   submissions. **Neither migration is applied to production**: 0045's backfill
+   is a full pass over `submission_cases` and 0048's is a full pass over
+   `contest_participations` plus two index builds (measured together at 0.5 s
+   on that scratch copy), and both should run outside a contest window.
 4. Two web fixes from F-42 are committed and **not deployed** — the teams
    panel goes on showing the roster it just replaced (and prefills the next
    edit from it, which drops a pupil), and the submit editor loses a draft

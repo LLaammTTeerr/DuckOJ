@@ -9799,4 +9799,181 @@ by the walk itself, red at `e11188d` on both journey 2 and journey 2b and green
 after — the deployed bundle is unchanged, so the browser is an honest
 instrument for both halves here.*
 
-**D194 is not used.**
+## D194 — When a participation's window closes is a COLUMN, and D49's exclusion reads the contests that are open rather than the ones that ever were
+
+D163 and D164 named one thing they could not close, and F-45 left it alone on
+purpose: `contestWindowOpenWhere` — the predicate that decides which
+submissions are still inside a contest window and therefore out of the public
+statistics (D49) — cost a scan of every contest submission the deployment had
+ever taken, on five hot statements, growing with lifetime contest activity
+rather than with the page being rendered.
+
+**The rule it decides, unchanged, and written down first because D36 is what
+happens when it is not:** a submission is excluded from D49's statistics
+exactly while the ONE participation it is attached to (at most one —
+`contest_submissions.submission_id` is UNIQUE) still has its own window open at
+`now`, per participation as D22 requires, uniformly for every viewer including
+admins and the contest's creator, open at the start and closed at the end. That
+is the same instant D27 releases the source and D22 unfreezes the board, and
+nothing below moves it.
+
+### What was measured, and the correction it forces
+
+A scratch copy of the live database grown to a province a school year deep —
+616 790 submissions, 62 030 participations, **496 240 contest submissions**
+across thirty finished rounds and one in flight — measured in four stages, with
+every statement captured from drizzle's own logger driving the real services and
+`EXPLAIN`ed verbatim with its binds. Full table in
+`docs/superpowers/briefs/f54-report.md`.
+
+| lifetime contest submissions | 32 240 | 64 240 | 160 240 | 496 240 |
+| --- | --- | --- | --- | --- |
+| `GET /problems` counters, page of 20 | 26.5 ms | 38.7 ms | **51.9 ms** | 66.3 ms |
+| `/problems/{code}/stats` totals | 750 buf | 1 019 | 2 049 | **19 201** |
+
+- **The line is ≈160 000 lifetime contest submissions** — ten rounds of 2 000
+  pupils × 8 problems, one term of weekly rounds — where the catalogue page's
+  counters pass 50 ms of database time for one cold page. The criterion was
+  written down before the ladder was run: a statement on the most public route
+  in the app, growing with something the deployment cannot control, with only a
+  30 s cache holding it up.
+- **F-44's diagnosis needed correcting, and that is half of the finding.** It
+  names the `Hash Anti Join` as the defect. Past about a hundred thousand
+  contest submissions the planner **escapes** it on most of the five statements
+  — and the escape is worse: a `Nested Loop Anti Join` doing three index
+  descents (`contest_submissions_submission_idx`, `contest_participations_pkey`,
+  `contests_pkey`) for **every row of the outer scan**, 19 201 buffers where the
+  hash read 2 049. It is faster on a scratch database that fits entirely in
+  `shared_buffers` and it is 19 000 random reads on one that does not.
+- **So the defect is not a join type.** It is that the predicate gave the
+  planner no way to know the set of open participations is tiny. The end
+  instant is a `CASE` over `contest_participations` and `contests` together, so
+  Postgres falls back to `DEFAULT_INEQ_SEL` — a third of the table — and no plan
+  available to it is bounded by current activity. Confirmed rather than
+  assumed: rewriting the predicate to drive from an open-participation
+  subquery, with **no schema change**, changed nothing at all (66.3 → 66.3 ms
+  on the catalogue counters; the planner keeps the sequential scan). That is
+  the measured death of the cheap option.
+
+### The ruling
+
+**`contest_participations.ends_at`** — `participationEndsAtSql()`
+materialised per row, `NOT NULL`, with `contest_participations_ends_at_idx` over
+it. The predicate becomes `participation_id IN (select id from
+contest_participations where ends_at > now)`, and
+`contest_submissions_participation_idx` is widened from `(participation_id)` to
+`(participation_id, submission_id)` so the walk of the open participations stays
+in the index. Migration **0048**.
+
+Measured on the same 496 240-row copy, from statements captured off the
+rewritten services:
+
+| | before | after, round in flight | after, nothing open |
+| --- | --- | --- | --- |
+| `GET /problems` counters | 6 499 buf / 66.3 ms | 7 362 / 27.6 | 1 189 / **26.3** |
+| `/problems/{code}/stats` totals | 19 201 / 5.6 | 6 653 / 6.1 | **480** / 1.3 |
+| progress `difficultyBars` | 3 734 / 7.0 | 3 362 / 3.4 | 268 / 1.3 |
+| progress `tagBars` | 703 / 0.41 | 141 / 0.17 | 141 / 0.16 |
+| homework grid (`bestOneSide`) | 2 671 / 2.0 | 2 251 / 1.8 | 282 / 1.3 |
+
+The number that is the ruling is the last column. **With no contest window open
+— the ordinary state of a deployment for most of a school year — the inner side
+of the anti-join is an index range scan returning nothing**, and the statements
+stop referring to lifetime activity at all. With a 2 000-pupil round in flight
+it is that round and only that round. The predicate's cost is now a function of
+what is happening, which is what it was always a question about.
+
+- **`IN (subquery)` rather than a join, and it is load-bearing.** Written as a
+  join the planner may scan `contest_submissions` and hash the small side onto
+  it — measured, it does, because it prices a sequential read of a narrow table
+  below two thousand index descents, and the fix then buys nothing on the one
+  statement that needed it most. `contest_submissions.participation_id` is `NOT
+  NULL` with a foreign key, so the two forms select the same rows.
+- **`participationEndsAtSql()` is untouched, and `frozenSubmissionsWhere` emits
+  the bytes it emitted before.** The freeze's agreement test
+  (`submission-freeze.spec.ts`) therefore passes for exactly the reason it
+  passed before — it is not a green test that has quietly stopped testing what
+  it names. Routing that function through a shared SQL function was considered
+  and declined: it would have changed the emitted text of the one predicate the
+  slot was told not to disturb, to protect against formula drift that a test
+  can pin directly, while doing nothing about the failure mode that actually
+  threatens a materialised column, which is a write path where it is not
+  maintained.
+- **Maintained by TRIGGERS, not by an application module** — the repo's first,
+  and a deliberate deviation from D100 and D104's "three writers, one module".
+  Those tables have a closed writer set. This column's is open: every fixture in
+  the suite raw-inserts a participation, and a generated column may not
+  reference another table, so `contests` is out of reach of every mechanism that
+  would have been checkable by inspection. `BEFORE INSERT OR UPDATE ON
+  contest_participations` recomputes from the contest row; `AFTER UPDATE OF
+  start_time, end_time, time_limit_seconds ON contests` writes `'epoch'` over
+  that contest's participations so the row trigger recomputes each of them —
+  `'epoch'` rather than `ends_at = ends_at` because if the row trigger were ever
+  dropped the second form leaves every window silently stale and the first fails
+  visibly. D38 leaves all three of those contest columns editable after a
+  contest has started, and that half is the one that is easy to forget.
+- **The `'epoch'` default exists for the TYPE, not for the data.** A `.notNull()`
+  column with no default is required in drizzle's `InferInsertModel`, which
+  would have made every one of those insert sites a type error. The trigger
+  makes the default unobservable; `scripts/integrity-check.ts` asserts that no
+  stored row carries it, and separately that no stored row disagrees with the
+  `CASE` — D168's audit class, for D168's reason.
+- **Two forms became three, and the third is pinned.** The trigger carries a
+  transcription of the `CASE`, which is the split-predicate bug this project has
+  found once per phase. `apps/api/test/participation-ends-at.spec.ts` compares
+  the stored column against `participationEndsAtSql()`'s **own emitted SQL** (in
+  Postgres, so the comparison is exact) and against `participationWindow`'s
+  TypeScript `endMs`, over every participation shape, and again after a contest
+  edit has moved each of `end_time`, `time_limit_seconds` and `start_time`.
+- **Graceful degradation, by construction.** If a deployment ever has a huge
+  open set, the histogram says so and the planner falls back to the plan it
+  chose before. The change can make this predicate cheaper; it has no shape in
+  which it makes it worse than the shape it replaces.
+
+### What it costs
+
+- **Writes**: one `SELECT` on `contests_pkey` per participation insert, and one
+  `UPDATE` per participation of a contest whose times are edited. Joining a
+  contest is one row; a contest edit is rare and already writes.
+- **Bytes**: 8 per participation, plus one btree over them; plus 8 per contest
+  submission for the widened index, which **replaces** its predecessor rather
+  than joining it.
+- **Deploy**, timed statement by statement on the 496 240-row copy, the way
+  F-51 timed 0047: `DROP INDEX` 1.7 ms, `ADD COLUMN` (fast default, no rewrite)
+  1.3 ms, the backfill over 62 030 rows **341.6 ms**, the two functions and two
+  triggers 2.3 ms, `CREATE INDEX` on `ends_at` 33.2 ms, `CREATE INDEX` on
+  `contest_submissions (participation_id, submission_id)` **151.1 ms**, commit
+  3.0 ms — **≈535 ms in one transaction**. Drizzle runs migrations in a
+  transaction, so nothing is `CONCURRENTLY`: `ACCESS EXCLUSIVE` on
+  `contest_participations` for the column and on `contest_submissions` for the
+  index drop, `SHARE` for the two builds, and the whole transaction holds them
+  together. On the live 333 participations it is milliseconds; on a province it
+  is under a second and should still be run **outside a contest window**,
+  because for that second no submission can be attached to a participation.
+
+### What stayed refused
+
+F-44's three refusals stand, unchanged and for their own reasons:
+`contest_participations (user_id)` (a disjunction with a hashed subplan is not
+indexable — D113's predicate), `contests (end_time)` (the visibility `OR`
+cannot be pushed), and a covering index for the streak (index bytes on every row
+of `submissions` to save one aggregate on one page). Also refused here: the
+no-schema-change rewrite, measured at no change; and pushing `end_time > now`
+into the join, which F-44 refused correctly and which `ends_at` is **not** —
+`ends_at` is the participation's own instant, so a virtual attempt that outlives
+its contest's `end_time` is represented rather than clamped, and thirty such
+attempts sit in the scratch fixture to prove it.
+
+`upcomingContests` still evaluates the `CASE` (30 buffers, healthy at province
+size); `ends_at` would make it sargable and that is not done here, because
+nothing measured says it needs to be.
+
+*Ruled by the implementer during the F-54 slot, no human available to consult.
+Migration 0048. Tests: `apps/api/test/contest-window-plan.spec.ts` and
+`apps/api/test/participation-ends-at.spec.ts` (both container-backed, run
+alone), plus `packages/db/test/integrity-check-script.spec.ts`. Reds
+demonstrated: reverting the predicate; narrowing the widened index back to
+`(participation_id)`; giving the trigger's `CASE` a wrong branch; dropping the
+row trigger; dropping the contest-side trigger.*
+
+**D195 and D196 are not used.**
