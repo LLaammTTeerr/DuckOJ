@@ -13,13 +13,17 @@ authenticate, and every line they print names the username only. Nothing
 pushed.
 
 The live database was written only through the API, by the three smoke
-scripts, and only rows they create by design: six accounts (`e2e…`,
-`e2eset…`, `e2evie…`, `e2ecmp…`), three problems (`e2e-sum-…`, `e2e-cst-…`),
-one contest (`e2e-contest-…`) and their submissions. Every one of those names
-is claimed by an existing `scripts/cleanup-test-data.ts` pattern — `^e2e` for
-user, contest and problem alike (D153) — so no pattern needed widening.
+scripts, and only rows they create by design. Counted from the database
+rather than from memory — every run of this slot, the failed development ones
+included, not only the three final runs quoted in §4: **13 accounts**
+(`e2e<epoch>` ×3, `e2eset…` ×5, `e2evie…` ×2, `e2ecmp…` ×3), **5 problems**
+(`e2e-sum-…` ×2, `e2e-cst-…` ×3), **3 contests** (`e2e-contest-…`) and **17
+submissions** by those accounts. Every one of those names is claimed by an
+existing `scripts/cleanup-test-data.ts` pattern — `^e2e` for user, contest and
+problem alike (D153) — so no pattern needed widening.
 `promoteToAdminBySql`'s raw `UPDATE users …` is gone from both scripts, so
-this slot performed **no** direct write to the live database at all.
+this slot performed **no** direct write to the live database at all; the
+counts above were taken with `SELECT`.
 
 ---
 
@@ -32,6 +36,7 @@ this slot performed **no** direct write to the live database at all.
 | `cf01626` | `feat(judge)` — `judge:node rotate`, and a poll that asks by credential not by name |
 | `23dcb08` | `fix(scripts)` — the three smoke scripts run on a default deployment again |
 | `fdd3552` | `docs(ops,guide)` — D204, and the rotation sequence a province can actually run |
+| `a1e4dc9` | `fix(scripts)` — the admin-login hint reports the status it was handed |
 
 ---
 
@@ -216,7 +221,11 @@ hocsinh1 | password resolved: true`.
 
 ## 4. The three smoke scripts, against this live stack
 
-Real output, final code, run back to back. All three exited `0`.
+Real output, run back to back. All three exited `0`. (One line changed in
+`e2e-submit.ts` after these runs, at `a1e4dc9`: an error-path hint now reports
+the status it was handed instead of a hardcoded `401`. It is inside a `throw`
+that did not execute here, so the output below is unaffected — said out loud
+rather than left for an auditor to notice the timestamps.)
 
 ```
 $ corepack pnpm exec tsx scripts/e2e-submit.ts
