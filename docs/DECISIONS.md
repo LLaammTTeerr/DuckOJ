@@ -11223,10 +11223,11 @@ one running both.
 The first ordering is pre-existing and predates attempts entirely: judge-1 is
 still owed a `submission-terminated`, judge-2 finishes the retry, judge-1
 answers, and judge-1's assignment stays for the life of the process. The
-second is this decision's own doing, and worse. An `UNKNOWN_ATTEMPT`
-assignment has **no other exit**: `finish` cannot release it, because the
-connection holding it is not any live entry's `connection`; the discard branch
-cannot, because it never runs once the entry is gone. Round 1's rule — never
+second is this decision's own doing, and worse. Once its job's live entry is
+gone, an `UNKNOWN_ATTEMPT` assignment has **no exit at all**: `finish` cannot
+release it, because the connection holding it is not any live entry's
+`connection`; and the discard branch, which does release it while the entry
+still exists, never runs after the entry is gone. Round 1's rule — never
 leave a busy judge idle — had bought itself a judge that was never idle again.
 
 The cost is the hang class this whole decision exists to prevent, reached from
@@ -11247,8 +11248,10 @@ handled.
 
 **And the safety property this decision asserted was, until now, false.** Three
 places — the `UNKNOWN_ATTEMPT` doc comment, the `current-submission-id` branch,
-and this entry — said the sentinel is released by its terminal packet. It was
-not; there was no path that could. The code now makes it true, and all three
+and this entry — said the sentinel is released by its terminal packet. That was
+true only while its job's live entry survived, which the discard branch
+handles; once the entry was retired no path released it at all, and the three
+statements did not say so. The code now makes it true, and all three
 say which two branches make it true, so the next reader can check the claim
 instead of trusting it. A decision record that asserts a property the code does
 not have is worse than one that admits a gap.
