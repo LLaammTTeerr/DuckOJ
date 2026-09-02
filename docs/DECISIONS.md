@@ -707,12 +707,15 @@ brief's "keep 2 and say why" branch has no honest why. One loop per judge, and
 it rises with the fleet (docs/runbook.md, "Judging throughput"), which is the
 sequencing the runbook already prescribed and the repo had not followed.
 
-Left open, and **closed by D205**: `live` is still keyed by job id, not
-`(job, attempt)`. Terminating attempt N on its own connection and not reusing
-that connection until the judge answers narrows the window hard, but it is
-still an argument from timing. D205 keeps the map's key and moves the attempt
-onto the connection assignment instead, which is what the driver actually
-routes on.
+Left open, and **closed by D205 for every connection the driver assigned
+itself**: `live` is still keyed by job id, not `(job, attempt)`. Terminating
+attempt N on its own connection and not reusing that connection until the
+judge answers narrows the window hard, but it is still an argument from
+timing. D205 keeps the map's key and moves the attempt onto the connection
+assignment instead, which is what the driver actually routes on. The residual
+D205 does *not* close is the reconnect announcement: `current-submission-id`
+names a job id and no attempt, so the attempt recorded for a redialling judge
+is an inference. D205 states what that inference costs.
 
 ## D30 — A failed restore leaves the writers stopped when the database is unverified, and restarts them when it is not
 
@@ -11104,3 +11107,96 @@ and a requeue — recoverable, and loud in the log, which the swallowed verdict
 it replaces was not. The three multi-judge specs pinning it were demonstrated
 red against the unmodified driver, and the connection-release half was
 demonstrated red separately against the fix without it.*
+
+### Fix round 1 — what adversarial review found, and what it changed
+
+Five findings. Three were behaviour, and each has a spec that was red against
+the commit before it.
+
+**The routing guard was not the whole defect: `finish` deleted from `live` by
+job id.** This is the one that mattered most, and every spec in the first round
+missed it because they all deliver the stale packet *after* the successor has
+replaced the live entry, where the guard sees it. The real order is the other
+one. `Worker.heartbeatOnce` cancels only once it has learned its lease was
+already claimed away, so the successor is dispatched **before** the predecessor
+is cancelled — and until that moment the predecessor's packets are the live
+entry's own, pass every guard, and are queued onto its `queue` behind an
+`emit` per test case. When that queue finally drains, `live[jobId]` belongs to
+the successor, and `finish` evicted it. Every packet after that hit
+`if (!entry) return`: the successor never received a terminal event, its
+connection was never handed back, and on a one-judge fleet the whole queue
+stopped. The eviction is now `retire(entry, id)` — delete only if `live` still
+holds *that entry* — and both of `dispatch`'s catch paths go through it too,
+since a dispatch parked long enough to be superseded would otherwise do the
+same thing on its way out. Identity, not id, is the rule for removal;
+`releaseConnection`'s lookup is by id and stays that way, because it matches on
+attempt *and* connection together, and two entry objects for one
+`(job, attempt)` cannot coexist — `JobStore.claim` bumps the attempt on every
+claim, and the one path that builds an entry it then discards retires its own
+before rethrowing.
+
+**An unassigned connection could still take over an entry placed elsewhere.**
+The guard asked "does this connection's assignment name a different attempt",
+which says nothing at all when the connection has no assignment — and the
+release-on-terminal branch creates exactly that state, so the *second* stale
+packet on a connection walked straight into the wire-authority branch and
+repointed the live entry at the wrong socket. The rule is now stated once and
+holds unconditionally: a packet belongs to an entry only if it arrives on the
+connection that entry is placed on, or on a connection that is both unassigned
+and uncontradicted. Written as a plain disjunction rather than a branch on
+"assigned?", because the branching form lets a connection whose attempt happens
+to match steal an entry already placed elsewhere — the precise theft the guard
+exists to prevent.
+
+**A judge that announces `current-submission-id` is never left in the free
+pool.** The first round returned early when the announcement contradicted a
+placement the driver had built itself, which is right about the attempt and
+wrong about everything else: the judge had *just said it was grading*, and an
+unassigned connection is a connection the next dispatch writes a second
+`submission-request` to. That is the hazard D29 exists to prevent, reintroduced
+by a fix for D29's residual. It is now recorded busy either way, and only the
+attempt differs — the live entry's own attempt when nothing contradicts the
+announcement (the reconnect-recovery path), and `UNKNOWN_ATTEMPT`, a negative
+sentinel no real attempt can equal, when something does.
+
+*What `UNKNOWN_ATTEMPT` costs, stated rather than implied.* Such a connection
+is out of the free pool until a terminal packet arrives on it or it
+disconnects: a judge that announces and then falls silent holds its slot until
+the socket dies, where before it would have been handed work (and broken).
+That is the trade — a stalled slot instead of a corrupted grade — and on a
+one-judge fleet it is the difference between a queue that waits and a queue
+that lies. And one ordering is **not** closed here: `retire` frees the
+assignment at the redial, before the announcement can arrive, so a dispatch
+parked at that instant can take the connection in between. The judge then holds
+two requests and the announcement finds an assignment already there and keeps
+it. That window is D29's, not this decision's, and it is not closed.
+
+**Releasing on all four terminal names, not only `submission-terminated`.**
+The objection is real: a `grading-end` that crossed our terminate frees the
+connection, the successor is dispatched onto it, and an id-less
+`terminate-submission` may still be in flight. Three things decide it. First,
+this is not new — before the discard guard existed, all four of these names
+reached `translate` and called `finish`, which released the connection, so the
+hazard is D29's residual and has been there since B2, reachable with **no retry
+involved at all**: a cancel's terminate crossing a `grading-end` on a job that
+is simply finishing. Narrowing the set now would not remove that; it would only
+add a second failure — a connection marked busy with a grade nobody is
+listening for, which on the shipped topology is the entire queue stopped.
+Second, the ordering does not actually admit the race: the terminate and the
+successor's `submission-request` are written to the **same socket**, and
+judge-server reads one stream in order, so the terminate is always processed
+first. Third, what remains genuinely unverified, said plainly: judge-server's
+behaviour when a terminate arrives while it is idle. If it no-ops — which is
+what a single `current_submission` implies — there is nothing here. If it
+latches for the next submission, the successor dies; but that would already
+bite the no-retry path above, so it is a pre-existing question about the
+protocol, not a cost of this decision. Nothing is vendored to check it against,
+and it is recorded as open rather than guessed at.
+
+**And the first round overclaimed.** "D205 closed it" was not true of the
+`current-submission-id` path, whose adopted attempt is read off whatever live
+entry the announced job id happens to resolve to — a value the branch itself
+documents as unrecoverable. The claim is now bounded, here and in D29 and in
+the comment above `dispatch`: closed for every connection whose assignment the
+driver built from its own dispatch, which is every connection in the normal
+flow; inferred, and stated as an inference, for a judge that redials.
