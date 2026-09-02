@@ -205,6 +205,78 @@ const PASSES: Pass[] = [
     },
   },
   {
+    // F-55, and the sibling of the pass above. D196 records that `q` — the
+    // parameter that goes straight into `nameSearchWhere` on four routes —
+    // "was never fuzzed at all"; that pass fixed it for the NUL byte and this
+    // one fixes it for SHAPE. The repeated-keys pass three above sends arrays
+    // only for `limit`, `cursor` and `id`, so every *filter* parameter — the
+    // ones a service looks a row up by name with — had never been handed
+    // anything but a scalar. Measured: express 5's query parser is `simple`
+    // (nothing sets `query parser`, and `simple` is the Express 5 default), so
+    // `?q=a&q=b` is an ARRAY here exactly as it was under `extended`, and
+    // `z.string()` on an array is a different code path from `z.string()` on a
+    // bad string.
+    name: 'repeated filter keys, not just paging',
+    query: {
+      q: ['a', 'b'],
+      user: ['a', 'b'],
+      problem: ['a', 'b'],
+      contest: ['a', 'b'],
+      org: ['a', 'b'],
+      verdict: ['AC', 'WA'],
+      tag: ['x', 'y'],
+      status: ['a', 'b'],
+      phase: ['a', 'b'],
+      format: ['a', 'b'],
+      mine: ['true', 'false'],
+    },
+    body: { name: ['a', 'b'], scopes: 'not-an-array' },
+  },
+  {
+    // F-55. Two byte-level shapes that reach Postgres the way D196's NUL did,
+    // asked as one question: is U+0000 the only byte no DuckOJ string accepts?
+    //
+    //  * **Escapes the URL decoder must refuse.** `%zz` is not hex; `%C0%80`
+    //    is the OVERLONG encoding of NUL and `%ED%A0%80` is CESU-8 for the
+    //    lone surrogate U+D800 — both are well-formed percent-escapes of
+    //    byte sequences that are not UTF-8. `NulByteInterceptor` looks for the
+    //    literal `%00` in the raw URL and matches none of these, so if any of
+    //    them decoded to a NUL it would be the D196 defect again by another
+    //    spelling. Measured: express refuses all three in a PATH segment with
+    //    `400 bad_request`, in problem+json, before any handler; in a query
+    //    value the utf8 decoder yields U+FFFD, which binds fine.
+    //  * **Lone surrogates.** Postgres refuses one as surely as it refuses a
+    //    NUL, but it never sees one: `JSON.parse` keeps `\ud800` as an
+    //    unpaired code unit and node replaces it with U+FFFD when it encodes
+    //    the string to utf8 for the wire, so the bind is valid. Measured on
+    //    the harness: `POST /auth/register` with `displayName: 'a\uD800b'`
+    //    answers **201** — the row is written. This pass is the standing proof
+    //    of that, so nobody has to re-derive it from node's encoder.
+    name: 'undecodable percent-escapes and lone surrogates',
+    params: {
+      id: '%zz',
+      hash: '%C0%80',
+      username: '%ED%A0%80',
+      slug: '%C0%80',
+      key: '%zz',
+      code: '%ED%A0%80',
+      version: '%zz',
+      setSlug: '%C0%80',
+      teamSlug: '%zz',
+      name: '%ED%A0%80',
+      draftId: '%zz',
+      a: '%C0%80',
+      b: '%zz',
+    },
+    query: { q: '\uD800', user: '\uDFFF', cursor: '\uD800\uD800', org: '\uDBFF' },
+    body: {
+      displayName: 'a\uD800b',
+      name: '\uDFFF',
+      source: 'x\uD800',
+      nested: { deep: ['\uDBFF'] },
+    },
+  },
+  {
     name: 'oversized and non-ascii values',
     query: { limit: 'x'.repeat(4096), cursor: '\u0000\u{1F600}', q: '%' },
     body: { name: 'x'.repeat(50_000), emoji: '\u{1F4A5}'.repeat(100) },

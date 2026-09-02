@@ -91,6 +91,61 @@ export interface Pattern {
  * all slugged `tuan-1` — so they are classified by their OWNING ORGANIZATION
  * instead. That is derived, but it is not a heuristic: the org matched a
  * pattern explicitly, and a team whose org is later refused is refused too.
+ *
+ * ## What the slot patterns claim, and what they deliberately do not (D153)
+ *
+ * The loop renamed its bug-hunt slots from `bh<n>` to `b<n>` partway through,
+ * and nothing here noticed: B-35 minted `b35-probe-1788313721` on the live
+ * judge and it matched NO pattern in this file, because `^bh[0-9]+` wants the
+ * `h`. So there is now a `^b[0-9]+-` pattern for each of the four kinds,
+ * beside the `^bh[0-9]+` ones rather than replacing them — `bh…` rows are
+ * still on the instance.
+ *
+ * **`^b[0-9]+-` claims exactly this**: a name that begins with `b`, then one
+ * or more digits, then a HYPHEN — `b35-probe-…`, `b36-anything`. The hyphen
+ * is load-bearing and is the difference between this pattern and its `bh`
+ * neighbour: `^b[0-9]+` with no separator would also claim `b1nh`, an
+ * ordinary Vietnamese-looking username a province could plausibly hold, and
+ * D153's whole posture is that a rule which can eat a real school is worse
+ * than litter left behind. `^bh[0-9]+` is dashless only because the live rows
+ * `bh10probe1`, `bh30probe` and `bh34admin` prove that loop wrote names that
+ * way; no such evidence exists for the `b<n>` slots, so this one is tighter.
+ *
+ * **It does NOT claim**, and these are recorded so nobody hunts them again:
+ *
+ * - `b<digits>` with no hyphen (`b1nh`, `b12x`) — see above.
+ * - `b-` or `bXX-` with no digits: the slot number is what makes the name a
+ *   slot's, and a bare `b-` prefix is a word.
+ * - `f<n>-` (`f50-`, `f55-`). An F slot of this same campaign could name rows
+ *   that way, but none has: the ones that wrote to live wrote under the
+ *   FE-loop convention instead — F-42's `fe42-truong`, `fe42-a1`,
+ *   `fe42-monitor-*`, all already claimed by `^fe[0-9]+-` — and the survey
+ *   below finds no `f<digits>-` name of any kind on the instance. D153 already
+ *   ruled on this shape when `j*-` matched nothing: record it, do not pattern
+ *   it. A pattern that guards rows nobody has ever minted is a deletion rule
+ *   with no audit trail behind it, which is the one thing the `why` field on
+ *   every entry above exists to prevent. If an F slot ever does write to live
+ *   under its own name, add `^f[0-9]+-` here with the row it minted in `why`.
+ * - Team and problem-set slugs of the form `fe42-b33a-…` (B-33's). They are
+ *   NOT reached by any `^b` pattern and do not need to be: teams and sets are
+ *   classified by their owning organization, and that org (`fe42-truong`)
+ *   matches `^fe[0-9]+-` already.
+ *
+ * Live survey behind this, read-only on the production database on
+ * 2026-09-02: every `users.username`, `organizations.slug`, `contests.key`
+ * and `problems.code` that matches none of the patterns below is now exactly
+ * the DENY set — `system`, `duckadmin`, `hocsinh1`, `thu-nghiem-1`, the five
+ * Vietnamese problems, `aplusb`, `hello` — and nothing else. Before
+ * `^b[0-9]+-`, `b35-probe-1788313721` was the one row in that gap.
+ *
+ * That account also left 22 `rate_events` rows keyed `user:487`, and this
+ * script still does not name that table — deliberately. `rate_events` has no
+ * foreign key to `users` at all; `key` is free text, so a leftover row blocks
+ * nothing, joins to nothing and discloses nothing, and
+ * `authn/expired-rows.sweeper.ts` already deletes the table by `created_at`
+ * alone. Modelling it here would add a delete step that the sweeper performs
+ * anyway, on rows the classification cannot actually prove belong to the
+ * account it is deleting.
  */
 export const PATTERNS: readonly Pattern[] = [
   {
@@ -105,6 +160,11 @@ export const PATTERNS: readonly Pattern[] = [
     why: 'the single account the router smoke test registered',
   },
   { kind: 'user', regex: '^bh[0-9]+', why: 'B-loop rehearsals: bh1-…, bh14-s1-…, bh28-k…' },
+  {
+    kind: 'user',
+    regex: '^b[0-9]+-',
+    why: 'B-loop slots after the bh→b rename: b35-probe-<epoch> (B-35)',
+  },
   { kind: 'user', regex: '^fe[0-9]+', why: 'FE-loop front-end rehearsals' },
   { kind: 'user', regex: '^c1-', why: 'C1 soak accounts (c1-soak-<key>-<n>)' },
   { kind: 'user', regex: '^rehearse-', why: 'scripts/rehearsal.ts contest-day rehearsals' },
@@ -119,6 +179,7 @@ export const PATTERNS: readonly Pattern[] = [
     regex: '^bh[0-9]+-',
     why: 'B-loop rounds: bh2-dq-…, bh14-qa-…, bh14-ket-qua-…',
   },
+  { kind: 'contest', regex: '^b[0-9]+-', why: 'B-loop rounds after the bh→b rename' },
   { kind: 'contest', regex: '^fe[0-9]+-', why: 'FE-loop rounds: fe1-freeze-…, fe6-phone-…' },
   { kind: 'contest', regex: '^cd-', why: 'contest-day drill rounds (cd-icpc-…, cd-open-…)' },
   { kind: 'contest', regex: '^rehearse-', why: 'scripts/rehearsal.ts rounds' },
@@ -129,6 +190,7 @@ export const PATTERNS: readonly Pattern[] = [
   { kind: 'problem', regex: '^e2e', why: 'e2e-sum-…, e2e-cst-…, e2erevtest… fixtures' },
   { kind: 'problem', regex: '^probe-', why: 'probe-math' },
   { kind: 'problem', regex: '^bh[0-9]+-', why: 'B-loop fixtures (bh16-ab-…)' },
+  { kind: 'problem', regex: '^b[0-9]+-', why: 'B-loop fixtures after the bh→b rename' },
   { kind: 'problem', regex: '^fe[0-9]+-', why: 'FE-loop fixtures' },
   {
     kind: 'problem',
@@ -143,6 +205,7 @@ export const PATTERNS: readonly Pattern[] = [
 
   { kind: 'org', regex: '^probe-', why: 'probe-org' },
   { kind: 'org', regex: '^bh[0-9]+-', why: 'B-loop schools (bh14-truong-…, bh19-school-1)' },
+  { kind: 'org', regex: '^b[0-9]+-', why: 'B-loop schools after the bh→b rename' },
   { kind: 'org', regex: '^fe[0-9]+-', why: 'FE-loop schools' },
   { kind: 'org', regex: '^rehearse-', why: 'rehearse-school' },
   { kind: 'org', regex: '^cd-', why: 'contest-day drill schools' },
