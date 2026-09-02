@@ -93,9 +93,9 @@ Trình tự: chạy cổng kiểm tra → dựng gói → tạo hoặc cập nh�
 chạm tới máy chủ.
 
 - **Token** cần ba phạm vi: `problems:write`, `problems:publish`,
-  `packages:write`. Mint ở `/settings` hoặc `POST /auth/tokens` (chỉ phiên
-  đăng nhập thật mới mint được token). Có thể đặt qua biến môi trường
-  `DUCKOJ_TOKEN` và `DUCKOJ_API`.
+  `packages:write`. Mint ở **Mã truy cập** (`/account/tokens`) hoặc bằng
+  `POST /auth/tokens` (chỉ phiên đăng nhập thật mới mint được token). Có thể
+  đặt qua biến môi trường `DUCKOJ_TOKEN` và `DUCKOJ_API`.
 - **Chạy lại là an toàn.** Nội dung không đổi thì mã băm không đổi, và
   `prepare` **không** gắn bản mới — nó nhận ra bản cũ đã mang đúng gói ấy.
   Đề bài, nhãn và độ khó vẫn được cập nhật mỗi lần.

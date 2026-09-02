@@ -21,7 +21,7 @@ Sau bước này tệp cần chạy nằm ở `apps/mcp/dist/main.js`.
 
 ## 2. Tạo mã truy cập và chọn phạm vi
 
-Vào **Mã truy cập** (`/tokens`) trên web, bấm tạo mã mới, rồi tick đúng những
+Vào **Mã truy cập** (`/account/tokens`) trên web, bấm tạo mã mới, rồi tick đúng những
 phạm vi bạn cần. Mã chỉ hiện **một lần** — chép ngay.
 
 | Bạn muốn làm gì | Phạm vi cần tick |
@@ -189,7 +189,7 @@ The entry point is then `apps/mcp/dist/main.js`.
 
 ### 2. Mint a token, and pick its scopes
 
-Go to **API tokens** (`/tokens`), mint a new one and tick only the scopes you
+Go to **API tokens** (`/account/tokens`), mint a new one and tick only the scopes you
 need. The token is shown **once**.
 
 | What you want to do | Scope to tick |
