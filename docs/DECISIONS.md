@@ -11156,8 +11156,9 @@ attempt, so nothing it says can reach any submission's event stream. Every
 terminal packet on it releases it, in whichever branch of `handle` applies:
 the discard branch while a live entry for that job id still exists, and the
 `!entry` branch once the successor has retired it (fix round 2 added the
-second; without it the sentinel had no exit at all and this paragraph was
-false). Until one arrives, it holds the socket out of the free pool. **The
+second; without it the sentinel had no exit **once the successor had retired
+the entry**, and the cost paragraph below claimed otherwise). Until one
+arrives, it holds the socket out of the free pool. **The
 failure mode of an `UNKNOWN_ATTEMPT` assignment is therefore latency, never
 misattribution** — which is the right way round, because a stalled slot is
 visible in the queue depth and a corrupted grade is not.

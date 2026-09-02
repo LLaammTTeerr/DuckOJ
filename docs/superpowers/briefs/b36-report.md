@@ -12,7 +12,8 @@ guard was not enough, because `finish` still deleted from `live` by job id, so
 a superseded attempt's queued terminal packet evicted its successor's live
 entry. **Round 2**: the assignment outlives the entry, so a terminal packet
 arriving after the successor had already finished stranded its connection
-forever — and round 1's own `UNKNOWN_ATTEMPT` had no other exit at all. Read
+forever — and round 1's own `UNKNOWN_ATTEMPT` had no exit at all once that
+happened. Read
 "Fix round 1" and "Fix round 2" below before the "Found and did not fix" list;
 each supersedes what the section above it claimed.
 
@@ -578,11 +579,13 @@ outstanding, walked straight past it.
 - **(a), pre-existing.** judge-1 is still owed a `submission-terminated`,
   judge-2 finishes the retry, judge-1 answers. judge-1's assignment stays for
   the life of the process. This predates attempts entirely.
-- **(b), introduced by round 1.** An `UNKNOWN_ATTEMPT` assignment has **no
-  other exit at all**: `finish` cannot release it, because the connection
-  holding it is not any live entry's `connection`, and the discard branch never
-  runs once the entry is gone. Round 1's "never leave a busy judge idle" had
-  bought itself a judge that was never idle again.
+- **(b), introduced by round 1.** Once the entry is gone an
+  `UNKNOWN_ATTEMPT` assignment has **no exit left at all**: `finish` cannot
+  release it, because the connection holding it is not any live entry's
+  `connection`, and the discard branch — its only other exit, and the one that
+  covers the case where the entry still exists — never runs. Round 1's "never
+  leave a busy judge idle" had bought itself a judge that was never idle
+  again.
 
 The cost is this decision's own hang class from a third direction: a leaked
 assignment is invisible to `bridge.judgeCount()`, so `capabilities()` and

@@ -708,14 +708,16 @@ export class DmojDriver implements JudgeDriver {
       // misattribute it to either. Only the assignment is touched, and only
       // when it names this very job.
       //
-      // This is also the ONLY exit for an `UNKNOWN_ATTEMPT` assignment. That
-      // connection is not any live entry's `connection`, so `finish` never
-      // reaches it, and the discard branch below never runs once the entry is
-      // gone — without this the round 1 rule "never leave a busy judge idle"
-      // would have bought itself a judge that is never idle again. A leaked
-      // assignment is invisible to `judgeCount()`, so `tryAcquireSlot` keeps
-      // handing out slots for a judge `acquireConnection` will never choose,
-      // and a worker parks holding a claimed lease.
+      // This is also the only exit an `UNKNOWN_ATTEMPT` assignment has ONCE
+      // its job's live entry is gone. The discard branch below is its other
+      // one, and that covers only the case where the entry still exists;
+      // `finish` covers neither, because the connection holding the sentinel
+      // is not any live entry's `connection`. Without this branch the round 1
+      // rule "never leave a busy judge idle" would have bought itself a judge
+      // that is never idle again — and a leaked assignment is invisible to
+      // `judgeCount()`, so `tryAcquireSlot` keeps handing out slots for a
+      // judge `acquireConnection` will never choose while a worker parks
+      // holding a claimed lease.
       if (held?.submissionId === submissionId && TERMINAL_PACKETS.has(packet.name)) {
         console.warn(
           JSON.stringify({
