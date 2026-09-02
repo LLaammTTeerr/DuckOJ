@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect, request as playwrightRequest, test } from '@playwright/test';
+import { adminCredentials } from './credentials.js';
 // The watchdog moved to its own module when `journey.spec.ts` needed it too
 // — see `watch.ts`.
 import { watchForBrokenRequests } from './watch.js';
@@ -19,6 +20,64 @@ import { watchForBrokenRequests } from './watch.js';
  */
 
 const SEED_PROBLEM = 'aplusb';
+
+/**
+ * The origin this run drives, for the one API context in this file.
+ *
+ * A context made with `request.newContext` does NOT inherit
+ * `playwright.config.ts`'s `extraHTTPHeaders`, and a cookie-authenticated
+ * write that names no `Origin` is refused 403 by D82's `CsrfOriginGuard`. It
+ * must be `PUBLIC_ORIGIN` or one of `WS_EXTRA_ORIGINS` on the stack under
+ * test.
+ */
+const ORIGIN = new URL(process.env.E2E_BASE_URL ?? 'http://localhost:8080').origin;
+
+/**
+ * A fresh account, minted by the ADMIN (D200).
+ *
+ * The submissions test below needs an account with a *known, empty* history,
+ * and it used to get one by signing itself up. Since F-56 this deployment
+ * decides who may sign up, its default rung is `closed`, and the live `.env`
+ * sets nothing — so that anonymous POST is a 403 and this was one of the four
+ * walks it broke. A global admin is the one caller a closed judge still
+ * admits, and minting is what a province actually does: on a school judge no
+ * pupil ever signs themselves up.
+ *
+ * **The cost, stated rather than hidden**: this one smoke test now needs the
+ * operator's credentials (`.secrets/duckadmin.txt`, or `E2E_ADMIN_PASSWORD`)
+ * where before it needed none. There is no way around it — a closed judge
+ * mints accounts for nobody else — and the alternative, reusing a pre-seeded
+ * pupil, would give up the "reproducible against any freshly-migrated stack"
+ * property this test was written for. Every other test in this file is still
+ * credential-free and anonymous.
+ *
+ * Its own context, never `page.request`: that shares the page's cookie jar,
+ * so minting through it would leave the page signed in as the admin, and the
+ * page is about to sign in as the pupil through the real form.
+ */
+async function mintAccount(username: string, password: string): Promise<void> {
+  const admin = adminCredentials();
+  const ctx = await playwrightRequest.newContext({
+    baseURL: ORIGIN,
+    extraHTTPHeaders: { Origin: ORIGIN },
+  });
+  try {
+    const signedIn = await ctx.post('/api/v1/auth/login', {
+      data: { usernameOrEmail: admin.username, password: admin.password },
+    });
+    expect(
+      signedIn.ok(),
+      `admin sign-in to mint ${username}: ${signedIn.status()}`,
+    ).toBe(true);
+    const created = await ctx.post('/api/v1/auth/register', {
+      data: { username, email: `${username}@example.com`, password, displayName: username },
+    });
+    expect(created.ok(), `minting ${username} failed: ${created.status()} ${await created.text()}`)
+      .toBe(true);
+  } finally {
+    await ctx.dispose();
+  }
+}
 
 test('the problem list renders real rows, with styles applied', async ({ page }) => {
   const watch = watchForBrokenRequests(page);
@@ -245,18 +304,17 @@ test('the submissions list is gated behind sign-in, like submit', async ({ page 
  * first, with a verdict rendered through the shared `.badge` glyph+colour
  * system — never a second, bespoke verdict renderer.
  *
- * Registers a fresh user rather than relying on any pre-seeded account, so
- * this is reproducible against any freshly-migrated stack, not just the one
- * a human happened to be screenshotting by hand.
+ * Uses a fresh user rather than any pre-seeded account, so this is
+ * reproducible against any freshly-migrated stack, not just the one a human
+ * happened to be screenshotting by hand — and so the row it looks for is the
+ * only row there is. Since D200 that user is minted by the admin rather than
+ * self-registered; see `mintAccount`.
  */
 test('signed in, the submissions list shows my own submissions with a verdict badge', async ({ page }) => {
   const username = `e2esub${Date.now()}`;
   const password = 'a-long-enough-password';
 
-  const reg = await page.request.post('/api/v1/auth/register', {
-    data: { username, email: `${username}@example.com`, password, displayName: username },
-  });
-  expect(reg.ok(), `registration failed: ${reg.status()} ${await reg.text()}`).toBe(true);
+  await mintAccount(username, password);
 
   await page.goto('/');
   await page.locator('#identifier').fill(username);

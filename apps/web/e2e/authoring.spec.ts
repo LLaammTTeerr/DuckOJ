@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, request as playwrightRequest, test, type Page } from '@playwright/test';
 import { adminCredentials } from './credentials.js';
 import { watchForBrokenRequests } from './watch.js';
 
@@ -21,9 +21,14 @@ import { watchForBrokenRequests } from './watch.js';
  * Vietnamese locators, `RUN`-stamped names, zero console errors and zero
  * broken subresources per page.
  *
- * ONE registration (`bh16-*`): the meter is 30/IP/hour and shared with every
- * other journey file on this address (D26). The admin needs none — its
- * credentials come from the operator's secrets file, never from this source.
+ * ONE pupil (`bh16-*`), and since D200 it is **minted by the admin** rather
+ * than self-registered: this deployment's rung is `closed` and an anonymous
+ * `POST /auth/register` is a 403 here. That also retires this file's old
+ * meter arithmetic — D26's 30/IP/hour window bounds the cost of an ANONYMOUS
+ * argon2id hash, and a trusted registrar skips it entirely (D200), so the
+ * count of pupils a run mints is no longer a shared budget. It is still one,
+ * because one is all this walk needs. The admin's own credentials come from
+ * the operator's secrets file, never from this source.
  */
 test.describe.configure({ mode: 'serial' });
 
@@ -66,6 +71,51 @@ async function signIn(page: Page, username: string, password: string): Promise<v
   await expect(
     page.locator('nav.shell-nav').getByRole('button', { name: 'Đăng xuất' }),
   ).toBeVisible();
+}
+
+/**
+ * A pupil, minted by the ADMIN (D200).
+ *
+ * This deployment decides who may sign up and its rung is `closed`, so the
+ * anonymous `POST /auth/register` this walk used to make is a 403. A global
+ * admin is the one caller a closed judge still admits — and it is the more
+ * faithful rehearsal anyway: on a school judge no pupil ever signs themselves
+ * up. `organiser.spec.ts` at `91a8402` is the shape this follows.
+ *
+ * Its own context, never `page.request`: that shares the page's cookie jar,
+ * so minting through it would sign the page in as the admin behind the back
+ * of the walk that is about to sign in as the pupil. A fresh `newContext`
+ * does not inherit `playwright.config.ts`'s `extraHTTPHeaders` either, so
+ * `Origin` is named here or D82 refuses the write.
+ *
+ * Expects 201 and nothing else: the username carries `RUN`, so a 409 would be
+ * a real collision rather than a re-run. And the account carries no
+ * `mustChangePassword` (D61 sets that only for the bulk import, where the
+ * server chose the password), so the sign-in below is an ordinary one.
+ */
+async function mintAccount(username: string, displayName: string): Promise<void> {
+  const admin = adminCredentials();
+  const ctx = await playwrightRequest.newContext({
+    baseURL: ORIGIN,
+    extraHTTPHeaders: { Origin: ORIGIN },
+  });
+  try {
+    const signedIn = await ctx.post('/api/v1/auth/login', {
+      headers: SAME_ORIGIN,
+      data: { usernameOrEmail: admin.username, password: admin.password },
+    });
+    expect(
+      signedIn.ok(),
+      `admin sign-in to mint ${username}: ${String(signedIn.status())}`,
+    ).toBe(true);
+    const created = await ctx.post('/api/v1/auth/register', {
+      headers: SAME_ORIGIN,
+      data: { username, email: `${username}@example.invalid`, password: PASSWORD, displayName },
+    });
+    expect(created.ok(), `mint ${username}: ${String(created.status())}`).toBe(true);
+  } finally {
+    await ctx.dispose();
+  }
 }
 
 async function shot(page: Page, name: string): Promise<void> {
@@ -152,16 +202,7 @@ test('journey 3 — a pupil solves it to AC against the tests typed in the brows
 }) => {
   const watch = watchForBrokenRequests(page);
   pupil = `bh16-pupil-${RUN}`;
-  const registered = await page.request.post('/api/v1/auth/register', {
-    headers: SAME_ORIGIN,
-    data: {
-      username: pupil,
-      email: `${pupil}@example.invalid`,
-      password: PASSWORD,
-      displayName: `BH16 pupil ${RUN}`,
-    },
-  });
-  expect(registered.ok(), `register ${pupil}: ${String(registered.status())}`).toBe(true);
+  await mintAccount(pupil, `BH16 pupil ${RUN}`);
 
   await signIn(page, pupil, PASSWORD);
   await page.goto(`/submit?problem=${CODE}`);

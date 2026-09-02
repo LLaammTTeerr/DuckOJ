@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import {
+  expect,
+  request as playwrightRequest,
+  test,
+  type Browser,
+  type Page,
+} from '@playwright/test';
 import { adminCredentials } from './credentials.js';
 import { watchForBrokenRequests, type Allowance } from './watch.js';
 
@@ -29,12 +35,15 @@ import { watchForBrokenRequests, type Allowance } from './watch.js';
  *   - **Unique names per run**, stamped with `RUN`, so a second run collides
  *     with nothing.
  *
- * Throwaway accounts are `bh14-*` and there are TWO of them: registration is
- * metered 30/IP/hour (D26) and this file has to live beside `journey.spec.ts`
- * on the same address, which in practice means a run that asks for four is a
- * run that 429s halfway. So journey 9 re-uses the two journeys 4 and 5 mint,
- * and everything that needs a third pupil uses the three the roster import
- * mints — those come through D61's own path and never touch the meter.
+ * Throwaway accounts are `bh14-*` and there are TWO of them, **minted by the
+ * admin** since D200: this deployment's rung is `closed` and an anonymous
+ * `POST /auth/register` is a 403 here. That also retires the meter arithmetic
+ * this paragraph used to carry — D26's 30/IP/hour window bounds the cost of
+ * an ANONYMOUS argon2id hash and a trusted registrar skips it entirely
+ * (D200), so two is no longer a budget, merely what these walks need. Journey
+ * 9 still re-uses the two journeys 4 and 5 mint, and everything that needs a
+ * third pupil still uses the three the roster import mints — those come
+ * through D61's own path, which never touched this endpoint at all.
  *
  * Two things on the stack are mutated and both are put back in `afterAll`:
  * the editorial journey publishes `tong-hai-so`'s editorial (there is none on
@@ -108,16 +117,49 @@ interface Account {
  * A throwaway account through the API, as `journey.spec.ts` does it: the
  * registration FORM is that file's journey 1 and walking it again here would
  * spend a form fill on a user whose only job is to exist.
+ *
+ * **Minted by the ADMIN (D200).** This deployment decides who may sign up and
+ * its rung is `closed`, so the anonymous POST this used to make is a 403. A
+ * global admin is the one caller a closed judge still admits, and it is the
+ * more faithful rehearsal besides: on a school judge no pupil ever signs
+ * themselves up. `organiser.spec.ts` at `91a8402` is the shape this follows.
+ *
+ * Its own context, never `page.request`: that one shares the page's cookie
+ * jar, so a mint through it would be made by whoever the page is signed in as
+ * — or would leave the page signed in as the admin behind its own back, which
+ * is the bug F-56 found in the fixed-account walks. A fresh `newContext` does
+ * not inherit `playwright.config.ts`'s `extraHTTPHeaders`, so `Origin` is
+ * named here or D82's `CsrfOriginGuard` refuses the write.
+ *
+ * Expects 201 and nothing else: `RUN` is in the username, so a 409 would be a
+ * real collision rather than a re-run. The account carries no
+ * `mustChangePassword` — D61 sets that only for the bulk import, where the
+ * SERVER chose the password — so the sign-in each caller chains is ordinary
+ * and D102 never bites.
  */
-async function register(page: Page, suffix: string): Promise<Account> {
+async function register(suffix: string): Promise<Account> {
   const username = `bh14-${suffix}-${RUN}`;
   const displayName = `BH14 ${suffix} ${RUN}`;
-  const response = await page.request.post('/api/v1/auth/register', {
-    headers: SAME_ORIGIN,
-    data: { username, email: `${username}@example.invalid`, password: PASSWORD, displayName },
+  const admin = adminCredentials();
+  const ctx = await playwrightRequest.newContext({
+    baseURL: ORIGIN,
+    extraHTTPHeaders: { Origin: ORIGIN },
   });
-  expect(response.ok(), `register ${username}: ${response.status()}`).toBe(true);
-  return { username, displayName };
+  try {
+    const signedIn = await ctx.post('/api/v1/auth/login', {
+      headers: SAME_ORIGIN,
+      data: { usernameOrEmail: admin.username, password: admin.password },
+    });
+    expect(signedIn.ok(), `admin sign-in to mint ${username}: ${signedIn.status()}`).toBe(true);
+    const response = await ctx.post('/api/v1/auth/register', {
+      headers: SAME_ORIGIN,
+      data: { username, email: `${username}@example.invalid`, password: PASSWORD, displayName },
+    });
+    expect(response.ok(), `register ${username}: ${response.status()}`).toBe(true);
+    return { username, displayName };
+  } finally {
+    await ctx.dispose();
+  }
 }
 
 /** Signs in through the real form at `/`, the only sign-in surface there is. */
@@ -477,7 +519,7 @@ test('feature 4 — a pupil asks, the organiser answers and publishes, and the b
   const pupilContext = await browser.newContext();
   const student = await pupilContext.newPage();
   const studentWatch = watchForBrokenRequests(student, [NOT_JOINED]);
-  const account = await register(student, 's1');
+  const account = await register('s1');
   competitors.push(account);
   await signIn(student, account.username, PASSWORD);
 
@@ -562,7 +604,7 @@ test('feature 5 — an editorial is public, vanishes for the room still solving 
   const readerContext = await browser.newContext();
   const reader = await readerContext.newPage();
   const readerWatch = watchForBrokenRequests(reader, [NOT_JOINED]);
-  const account = await register(reader, 's2');
+  const account = await register('s2');
   competitors.push(account);
   await signIn(reader, account.username, PASSWORD);
 
