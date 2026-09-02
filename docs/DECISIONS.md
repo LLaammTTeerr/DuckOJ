@@ -10816,3 +10816,84 @@ run is recorded in `docs/superpowers/briefs/f56-report.md` with its dry-run
 inventory beside it: 25 rows in 3 tables (2 users, 1 session, 22
 `rate_events`), zero refusals, zero disclosures, and
 `scripts/integrity-check.ts --live` clean afterwards.*
+
+## D203 — Walking a two-rung policy from a deployment that holds one rung: the held rung for real, the other rung's client surface behind a stub of its own probe, and the server surface named as unwalked
+
+D200 gave this deployment a switch with two rungs and made the protective one
+the default. That was the right product decision and it broke a browser walk
+that was not about registration policy at all: `journey.spec.ts`'s journey 1
+exists to test **the sign-up form** — the mismatched confirmation, the error
+summary, the Vietnamese and English copy — and on the rung this province runs
+there is no form on the screen to test.
+
+The general shape of the problem is not registration. It is: **a browser suite
+runs against one live deployment, a policy has N rungs, and the deployment
+holds exactly one of them.** `NAME_DISCLOSURE` (D197) has three rungs and the
+same question waiting. So the answer is written down once here rather than
+argued again per switch.
+
+### The ruling
+
+**Three tiers, and a walk must say out loud which one it is in.**
+
+| tier | what is faked | what it proves |
+| --- | --- | --- |
+| **1 — the held rung** | nothing at all | the deployment's real behaviour, end to end |
+| **2 — another rung's CLIENT surface** | the one response the client reads the rung from, and nothing else | that the bundle renders and behaves correctly on that rung |
+| **3 — another rung's SERVER surface** | — | **not walkable.** Name it as a gap; do not simulate it |
+
+Journey 1 became two walks on that grid.
+
+- **Journey 1a — tier 1.** An anonymous visitor follows the nav to `/register`
+  and meets the refusal: the `role="status"` notice, the "ask your school"
+  sentence, no form at all, and the two next moves D145 requires (sign in;
+  reset your password). Then the EN toggle, and the same notice in the other
+  catalogue (D18). Nothing is stubbed. **This is what a real visitor to a
+  province's judge now meets and it had no walk of any kind before F-57** —
+  the shipped behaviour was less covered than the behaviour that was removed.
+- **Journey 1b — tier 2.** `page.route` answers
+  `GET /api/v1/auth/registration` with `{"registration":"open"}`, and that is
+  the whole fiction: one field of one response. Everything downstream is the
+  real thing. The real bundle draws the real form; the mismatched confirmation
+  is refused by the real client-side rule with no request leaving the browser;
+  and the submit that follows is posted to the **real API**, which refuses it
+  403 — which is itself a shipped path worth walking, the one where the rung
+  changed under a tab that already had the form open, and `register.tsx`
+  writes the rung into its cache and flips to the notice rather than raising
+  an error.
+- **Tier 3, named**: an anonymous 201 and the sign-in the page chains onto it.
+  Not walked, because reaching it needs the deployment on `REGISTRATION=open`
+  and the F-57 brief forbids editing the live `.env` or restarting a
+  container.
+
+### Why not the alternatives
+
+| Alternative | Why not |
+| --- | --- |
+| **Stub the `POST` as well**, so the form "succeeds" | This is tier 3 pretending to be tier 2. The walk would assert the page against a fiction of the test file's own writing — the response shape, the cookie, the chained login — and would keep passing after the server stopped producing any of it. A test whose oracle is itself tests nothing. |
+| **Sign the browser in as an admin and let the form 201** | Two fictions stacked, not one. The probe answers the rung regardless of who asks, so on this deployment an admin visiting `/register` *also* sees the notice — the walk would have to stub the probe anyway AND would then drive a page state the product never renders, with an actor no visitor is, under a test name claiming a visitor registers. |
+| **Set `REGISTRATION=open` for the run** | Editing the live `.env` and restarting the API, on production, so that a test passes. This is the move D200 exists to refuse in its own §"the alternative was weakening the default". |
+| **Delete the form walk** | The form is shipped code on a rung real deployments will choose. Deleting its walk makes the `open` rung the untested one, which is the rung a public practice judge runs. |
+| **A second, hermetic stack on the other rung** | The right answer eventually, and out of reach here: the browser suite's whole premise (`playwright.config.ts`) is that it runs against a *composed* stack, because the failures worth catching — a Caddy route, a bundle asset, a proxied API call — only exist there. Bringing up a second one is a deployment, which this slot may not perform. |
+
+### The rule that keeps tier 2 honest
+
+**A tier-2 walk stubs the rung probe and nothing else, and every assertion
+after it is against the real server.** The test that proves this is not
+decorative: removing journey 1b's `403` allowance from
+`watchForBrokenRequests` fails the walk with
+`page reported: 403 http://localhost:8080/api/v1/auth/register` — evidence
+that a real request reached the real API and was really refused. And changing
+the stub to answer `closed` fails it at the form's own submit button, which is
+evidence the stub is what puts the form on screen rather than something that
+happened to be there.
+
+Both reds were measured, along with journey 1a's: stubbing the probe as `open`
+in 1a fails it at the notice, so the tier-1 walk is reading the deployment's
+actual rung and not passing vacuously.
+
+*Ruled by the implementer during the F-57 slot, no human available to consult.
+Cost if wrong: two tests in one file, and a paragraph the next slot to walk a
+`NAME_DISCLOSURE` rung will either follow or argue with. The alternative that
+was actually tempting — stub the POST too — is the one that would have been
+expensive, because it fails silently rather than loudly.*

@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import {
+  expect,
+  request as playwrightRequest,
+  test,
+  type APIRequestContext,
+  type Browser,
+  type Page,
+} from '@playwright/test';
 import { TOTP, Secret } from 'otpauth';
 import { adminCredentials } from './credentials.js';
 import { watchForBrokenRequests } from './watch.js';
@@ -11,14 +18,19 @@ import { watchForBrokenRequests } from './watch.js';
  * administrator actually do, against the live composed stack — Caddy, the
  * API, the judge, Redis, Postgres — rather than against jsdom.
  *
- * These are deliberately NOT hermetic. They register real users, submit real
- * C++ to a real judge and create real contests on whatever stack
- * `E2E_BASE_URL` points at. Every name is stamped with `Date.now()` so a
- * second run collides with nothing, and no journey ever mutates a
- * pre-existing account: the admin (`duckadmin`) is only ever *used*, and the
- * two-factor journey enrols a throwaway user of its own, because a run that
- * died between "enable TOTP" and "disable TOTP" on a shared account would
- * lock every later run out of it.
+ * These are deliberately NOT hermetic. They mint real users, submit real C++
+ * to a real judge and create real contests on whatever stack `E2E_BASE_URL`
+ * points at. Every name is stamped with `Date.now()` so a second run collides
+ * with nothing, and no journey ever mutates a pre-existing account: the admin
+ * (`duckadmin`) is only ever *used*, and the two-factor journey enrols a
+ * throwaway user of its own, because a run that died between "enable TOTP" and
+ * "disable TOTP" on a shared account would lock every later run out of it.
+ *
+ * Since D200 the accounts arrive the way a province's actually do — an
+ * operator creating them — rather than by self-registration, which this
+ * deployment refuses. See `register` below. On a school judge no pupil ever
+ * signs themselves up, so a suite that minted pupils that way was rehearsing
+ * a path its users do not take.
  *
  * The single exception is journey 8's `source_access` flip, which is
  * restored in an `afterAll` — read its comment for why no browser can reach
@@ -77,20 +89,87 @@ interface Account {
 }
 
 /**
+ * The origin this run is driving, as a header.
+ *
+ * Everything else in this file goes through a real page, and a real browser
+ * sends `Origin` on every unsafe method. An API context does not — it is an
+ * HTTP client that happens to share a cookie jar — so the admin context below
+ * and the cookie-authenticated writes further down have to say so themselves,
+ * or D82's `CsrfOriginGuard` refuses them 403. The value must be
+ * `PUBLIC_ORIGIN` or one of `WS_EXTRA_ORIGINS` on the stack under test;
+ * `playwright.config.ts` defaults `E2E_BASE_URL` to the same
+ * `http://localhost:8080` that `.env` lists.
+ */
+const REQUEST_ORIGIN = new URL(process.env.E2E_BASE_URL ?? 'http://localhost:8080').origin;
+
+/**
+ * A global admin's API context, made once and reused by every journey that
+ * needs an account minted.
+ *
+ * **D200.** This deployment decides who may sign up, and the default rung —
+ * the one the live `.env` reaches by setting nothing — is `closed`. An
+ * anonymous `POST /auth/register` is a 403 here. A global admin is the one
+ * caller a closed judge still admits, which is exactly what a rehearsal
+ * harness seating scenery accounts on somebody's judge IS; `organiser.spec.ts`
+ * made the same move at `91a8402` and this is that shape.
+ *
+ * It is its OWN context and never `page.request`. That one shares the page's
+ * cookie jar, so a mint through it would be made by whoever the page is
+ * currently signed in as — or would leave the page signed in as the admin
+ * behind its own back. Both are the bug F-56 found in the fixed-account walks.
+ *
+ * A fresh `newContext` does NOT inherit `playwright.config.ts`'s
+ * `extraHTTPHeaders`, so `Origin` is named here explicitly or D82's
+ * `CsrfOriginGuard` refuses every cookie-authenticated write it makes.
+ */
+let adminApi: APIRequestContext | null = null;
+
+async function adminContext(): Promise<APIRequestContext> {
+  if (adminApi) return adminApi;
+  const admin = adminCredentials();
+  const ctx = await playwrightRequest.newContext({
+    baseURL: REQUEST_ORIGIN,
+    extraHTTPHeaders: { Origin: REQUEST_ORIGIN },
+  });
+  const signedIn = await ctx.post('/api/v1/auth/login', {
+    data: { usernameOrEmail: admin.username, password: admin.password },
+  });
+  expect(signedIn.ok(), `admin sign-in for account minting: ${signedIn.status()}`).toBe(true);
+  adminApi = ctx;
+  return ctx;
+}
+
+test.afterAll(async () => {
+  await adminApi?.dispose();
+  adminApi = null;
+});
+
+/**
  * The API path to an account, for the THROWAWAY users the later journeys need
  * as scenery — a rival to be masked, a pupil to disqualify.
  *
- * Registration does have a UI now (`/register`, task P6), and journey 1 walks
- * it in a browser, which is what proves the screen works. Repeating that walk
- * six more times would prove nothing further and would spend six form fills
- * per run on users whose only job is to exist, so every other journey mints
- * its account here and signs in through the form — the half of the front door
+ * Registration does have a UI (`/register`, task P6) and journey 1 walks it in
+ * a browser, which is what proves the screen works. Repeating that walk six
+ * more times would prove nothing further and would spend six form fills per
+ * run on users whose only job is to exist, so every other journey mints its
+ * account here and signs in through the form — the half of the front door
  * those journeys are actually about.
+ *
+ * The name carries `RUN`, so it is fresh on every run: this expects **201**
+ * and nothing else, and a 409 would be a real collision rather than a re-run.
+ * (`organiser.spec.ts`'s `ensureAccount` tolerates 409 because its usernames
+ * are FIXED and it is asking for the account to exist, not to be created.)
+ *
+ * An admin-minted account carries no `mustChangePassword` — D61 sets that for
+ * the bulk import, where the SERVER chose the password and printed it on one
+ * sheet of paper — so the sign-in each journey chains here is an ordinary one
+ * and D102's "no token while the flag is set" never bites.
  */
-async function register(page: Page, suffix: string): Promise<Account> {
+async function register(suffix: string): Promise<Account> {
   const username = `e2e${suffix}${RUN}`;
   const displayName = `E2E ${suffix} ${RUN}`;
-  const response = await page.request.post('/api/v1/auth/register', {
+  const admin = await adminContext();
+  const response = await admin.post('/api/v1/auth/register', {
     data: {
       username,
       email: `${username}@example.invalid`,
@@ -142,19 +221,153 @@ async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: `e2e/screenshots/${name}.png`, fullPage: true });
 }
 
-test('journey 1 — register on the form, refuse a mismatched confirmation, then read the site in Vietnamese and English', async ({
+/**
+ * D203 — how a two-rung policy is walked when the deployment holds one rung.
+ *
+ * Journey 1 was ONE walk: fill the sign-up form, be refused for a mismatched
+ * confirmation, register for real, end up signed in, and read the site in
+ * both languages. D200 made the form conditional on a deployment switch whose
+ * default rung — the one this province runs — draws no form at all. There is
+ * no honest single walk left, so there are two, and each says which rung it
+ * is on.
+ *
+ * **1a is the rung this judge actually holds**, walked with nothing faked: an
+ * anonymous visitor follows the nav to `/register` and meets the refusal. That
+ * is what a real visitor to a province's judge now meets, and it had no walk
+ * at all before this slot.
+ *
+ * **1b is the other rung's CLIENT surface**, and the only thing it fakes is
+ * the one-field answer the page asks for before it draws itself. Everything
+ * downstream is real: the real bundle draws the real form, the mismatch is
+ * refused by the real client-side rule before any request leaves the browser,
+ * and the submit that follows is posted to the REAL server — which refuses it,
+ * which is itself a shipped path worth walking (the rung changed under an open
+ * tab).
+ *
+ * **What neither walk covers, named rather than implied**: the `open` rung's
+ * SERVER surface — a 201 to an anonymous form post, and the sign-in the page
+ * chains onto it. Reaching it needs a deployment on `REGISTRATION=open`, and
+ * this slot may not edit the live `.env` or restart a container. Stubbing the
+ * POST as well would have made the walk assert the page against a fiction of
+ * this file's own writing, which is not a test of anything.
+ */
+test('journey 1a — a judge that takes no sign-ups says so at the door, in Vietnamese and in English', async ({
   page,
 }) => {
   const watch = watchForBrokenRequests(page);
-  const username = `e2ej1${RUN}`;
-  const displayName = `E2E j1 ${RUN}`;
 
-  // The nav is where a visitor finds the door, so the journey opens it the
-  // way they would rather than by typing the URL.
+  // The nav is where a visitor finds the door, so the journey opens it the way
+  // they would rather than by typing the URL. The link is deliberately STILL
+  // THERE under `closed` (D200): a link to a page that explains itself is
+  // honest, and hiding it would send a visitor holding an out-of-date printout
+  // to a 404 instead of to an explanation.
   await page.goto('/');
   const nav = page.locator('nav.shell-nav');
   await nav.getByRole('link', { name: 'Đăng ký', exact: true }).click();
   await expect(page).toHaveURL(/\/register$/);
+
+  const panel = page.locator('section.panel');
+  // The notice REPLACES the form. Asked before the form is drawn, not
+  // discovered after five fields have been typed (D145) — and `role="status"`
+  // rather than `role="alert"`, because nothing failed and the visitor did
+  // nothing wrong. Located by the role so the semantics are part of the
+  // assertion; the text is asserted verbatim because the sentence IS the
+  // feature.
+  await expect(panel.locator('[role="status"]')).toHaveText(
+    'Trang này không nhận đăng ký. Tài khoản ở đây do nhà trường tạo.',
+  );
+  await expect(
+    panel.getByText(
+      'Hãy hỏi thầy cô hoặc người quản trị hệ thống để được cấp tài khoản. Nếu bạn đã có tài khoản nhưng không đăng nhập được, hãy đặt lại mật khẩu.',
+    ),
+  ).toBeVisible();
+  // There is no form at all, which is the whole point: nothing to fill in and
+  // no 403 waiting at the end of it. Asserted on two different fields and on
+  // the submit button, so a form that merely lost one input is not mistaken
+  // for a form that was never drawn.
+  await expect(page.locator('#username')).toHaveCount(0);
+  await expect(page.locator('#confirm')).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Đăng ký', exact: true })).toHaveCount(0);
+  // The next moves, in the order a real visitor needs them (D145): sign in if
+  // you already have an account, and reset the password if you have one but
+  // cannot get into it — the case most often mistaken for "I must need to sign
+  // up again".
+  await expect(panel.getByRole('link', { name: 'Đã có tài khoản? Đăng nhập' })).toBeVisible();
+  await expect(panel.getByRole('link', { name: 'Quên mật khẩu?' })).toBeVisible();
+  await shot(page, 'j1a-registration-closed-vi');
+
+  // Vietnamese by default (D18) — no toggle, no stored preference, first
+  // visit. Read off the nav, which is on every page of the app.
+  await expect(nav.getByRole('link', { name: 'Bài tập' })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Kỳ thi' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Tạo tài khoản' })).toBeVisible();
+
+  // By its accessible name, which is the language's own name — "EN" is only
+  // the glyph on the face of the button. The two were the same string until
+  // the toggle grew `aria-label`s (a bare <span>'s `role="generic"` cannot
+  // carry the group label, so a screen reader announced two unnamed buttons);
+  // this locator is the one that survives that. The page runs in `vi-VN`
+  // (playwright.config.ts), so the name is the Vietnamese spelling.
+  await nav.getByRole('button', { name: 'Tiếng Anh' }).click();
+
+  // The refusal is in BOTH catalogues, which is the half of D18 that matters
+  // most here: a visitor who cannot read the notice is a visitor who keeps
+  // trying other spellings of their address.
+  await expect(panel.locator('[role="status"]')).toHaveText(
+    'This site does not take sign-ups. Accounts here are created by the school.',
+  );
+  await expect(panel.getByRole('link', { name: 'Already have an account? Sign in' })).toBeVisible();
+  await expect(panel.getByRole('link', { name: 'Forgotten your password?' })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Problems' })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Contests' })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Sign in', exact: true })).toBeVisible();
+  await shot(page, 'j1a-registration-closed-en');
+
+  // The choice persists across a navigation, which is the whole point of
+  // storing it.
+  await page.goto('/problems');
+  await expect(page.getByRole('heading', { name: 'Problems' })).toBeVisible();
+
+  expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
+});
+
+/**
+ * The refusal this walk deliberately provokes. Scoped to the route AND the
+ * status, so a 500 on the same endpoint still fails the test.
+ *
+ * It costs the registration meter NOTHING on a re-run: D200 puts the refusal
+ * before D26's meter and before the address is looked at, and F-56 pinned that
+ * with a test — thirty-five refusals from one address leave zero rows in
+ * `rate_events`. So unlike every other account-minting walk in this suite,
+ * this one has no meter budget to keep.
+ */
+const REGISTRATION_REFUSED = { status: 403, url: /\/auth\/register$/ };
+
+test('journey 1b — the sign-up form itself, on the `open` rung, and the refusal that arrives mid-form', async ({
+  page,
+}) => {
+  const watch = watchForBrokenRequests(page, [REGISTRATION_REFUSED]);
+  const username = `e2ej1b${RUN}`;
+  const displayName = `E2E j1b ${RUN}`;
+
+  // The ONLY fiction in this walk, and it is one field wide: `/register` asks
+  // the deployment which rung it is on before drawing anything, and this
+  // deployment answers `closed`. Answering `open` in the browser is what puts
+  // the real form on screen; the POST it submits is NOT intercepted and goes
+  // to the real API. Installed before the first navigation, because the query
+  // fires on mount and holds its answer for the life of the page
+  // (`staleTime: Infinity`).
+  await page.route('**/api/v1/auth/registration', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ registration: 'open' }),
+    });
+  });
+
+  await page.goto('/register');
+  const panel = page.locator('section.panel');
+  await expect(panel.getByRole('button', { name: 'Đăng ký', exact: true })).toBeVisible();
 
   await page.locator('#username').fill(username);
   await page.locator('#email').fill(`${username}@example.invalid`);
@@ -165,52 +378,36 @@ test('journey 1 — register on the form, refuse a mismatched confirmation, then
   // would prove the length rule instead of this one.
   await page.locator('#confirm').fill(`${PASSWORD}-khac`);
   // The page's own submit button, not the nav's link of the same name.
-  await page.getByRole('button', { name: 'Đăng ký', exact: true }).click();
+  await panel.getByRole('button', { name: 'Đăng ký', exact: true }).click();
 
   // D110 shows this string in BOTH the error summary and the field error;
   // assert the summary (`role="alert"`) so the assertion names one element.
-  await expect(
-    page.getByRole('alert').getByText('Hai mật khẩu không khớp nhau.'),
-  ).toBeVisible();
-  // Refused in the browser, before any request: still on `/register`, and the
-  // watchdog below would have caught a 4xx if the form had posted anyway.
+  await expect(page.getByRole('alert').getByText('Hai mật khẩu không khớp nhau.')).toBeVisible();
+  // Refused in the BROWSER, before any request: the watchdog above allows one
+  // 403 on `/auth/register` and nothing else, so a form that posted anyway
+  // would fail here rather than pass quietly. Still on `/register`, and the
+  // form is still on screen with the typed values in it.
   await expect(page).toHaveURL(/\/register$/);
-  await expect(nav.getByRole('link', { name: 'Đăng nhập', exact: true })).toBeVisible();
-  await shot(page, 'j1a-register-mismatch');
+  await expect(page.locator('#username')).toHaveValue(username);
+  await shot(page, 'j1b-register-mismatch');
 
   await page.locator('#confirm').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Đăng ký', exact: true }).click();
+  await panel.getByRole('button', { name: 'Đăng ký', exact: true }).click();
 
-  // `POST /auth/register` mints no cookie, so the page chains a login: a
-  // successful signup ends with the visitor SIGNED IN on `/`, not back at the
-  // sign-in form.
-  await expect(page).toHaveURL(/\/$/);
-  await expect(nav.getByRole('button', { name: 'Đăng xuất' })).toBeVisible();
-  // The display name, not the username: the nav shows what the person chose
-  // to be called.
-  await expect(nav.getByText(displayName)).toBeVisible();
-  // Vietnamese by default (D18) — no toggle, no stored preference, first
-  // visit.
-  await expect(nav.getByRole('link', { name: 'Bài tập' })).toBeVisible();
-  await expect(nav.getByRole('link', { name: 'Kỳ thi' })).toBeVisible();
+  // Now the real server answers, and on this deployment it answers 403
+  // `registration_closed`. That is not an error state — it is the page this
+  // visitor should have seen, and it is exactly what a redeploy to `closed`
+  // looks like to somebody who already had the form open. `register.tsx`
+  // writes the rung into the query cache and flips the render to the notice.
+  await expect(panel.locator('[role="status"]')).toHaveText(
+    'Trang này không nhận đăng ký. Tài khoản ở đây do nhà trường tạo.',
+  );
+  // The form is gone with it, so there is nothing left to submit again — and
+  // no bare error banner was raised instead of the explanation.
+  await expect(page.locator('#username')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/register$/);
+  await shot(page, 'j1b-refused-mid-form');
 
-  // By its accessible name, which is the language's own name — "EN" is only
-  // the glyph on the face of the button. The two were the same string until
-  // the toggle grew `aria-label`s (a bare <span>'s `role="generic"` cannot
-  // carry the group label, so a screen reader announced two unnamed
-  // buttons); this locator is the one that survives that. The page runs in
-  // `vi-VN` (playwright.config.ts), so the name is the Vietnamese spelling.
-  await nav.getByRole('button', { name: 'Tiếng Anh' }).click();
-
-  await expect(nav.getByRole('link', { name: 'Problems' })).toBeVisible();
-  await expect(nav.getByRole('link', { name: 'Contests' })).toBeVisible();
-  await expect(nav.getByRole('button', { name: 'Sign out' })).toBeVisible();
-  // The choice persists across a navigation, which is the whole point of
-  // storing it.
-  await page.goto('/problems');
-  await expect(page.getByRole('heading', { name: 'Problems' })).toBeVisible();
-
-  await shot(page, 'j1-signed-in-en');
   expect(watch.errors, `page reported: ${watch.errors.join(' | ')}`).toEqual([]);
 });
 
@@ -218,7 +415,7 @@ test('journey 2 — a correct C++ solution reaches AC live, and "my submissions"
   page,
 }) => {
   const watch = watchForBrokenRequests(page);
-  const account = await register(page, 'j2');
+  const account = await register('j2');
   await signIn(page, account.username, PASSWORD);
 
   await page.goto(`/problems/${PROBLEM}`);
@@ -250,7 +447,7 @@ test('journey 2 — a correct C++ solution reaches AC live, and "my submissions"
 
 test('journey 3 — a wrong answer is judged WA, with the failing case shown', async ({ page }) => {
   const watch = watchForBrokenRequests(page);
-  const account = await register(page, 'j3');
+  const account = await register('j3');
   await signIn(page, account.username, PASSWORD);
 
   await page.goto(`/submit?problem=${PROBLEM}`);
@@ -303,7 +500,7 @@ test('journey 4 — an admin runs a frozen contest: join, submit, scoreboard, di
   const studentContext = await browser.newContext();
   const student = await studentContext.newPage();
   const studentWatch = watchForBrokenRequests(student, [NOT_JOINED]);
-  const account = await register(student, 'j4');
+  const account = await register('j4');
   await signIn(student, account.username, PASSWORD);
 
   await student.goto(`/contests/${contestKey}`);
@@ -375,7 +572,7 @@ test('journey 4 — an admin runs a frozen contest: join, submit, scoreboard, di
 
 test('journey 5 — two-factor: enrol, sign out, sign in with a code, disable', async ({ page }) => {
   const watch = watchForBrokenRequests(page, [TOTP_CHALLENGE]);
-  const account = await register(page, 'j5');
+  const account = await register('j5');
   await signIn(page, account.username, PASSWORD);
 
   // ── enrol ────────────────────────────────────────────────────────────
@@ -467,7 +664,7 @@ test('journey 7 — a contest submission names its contest, in the list and on i
   page,
 }) => {
   const watch = watchForBrokenRequests(page, [NOT_JOINED]);
-  const account = await register(page, 'j7');
+  const account = await register('j7');
   await signIn(page, account.username, PASSWORD);
 
   await page.goto(`/contests/${SEEDED_CONTEST}`);
@@ -529,20 +726,6 @@ test('journey 7 — a contest submission names its contest, in the list and on i
  */
 let sourceAccessFlipped = false;
 
-/**
- * The origin this run is driving, as a header.
- *
- * Everything else in this file goes through a real page, and a real browser
- * sends `Origin` on every unsafe method. `context.request` does not — it is
- * an HTTP client that happens to share the cookie jar — so the one
- * cookie-authenticated write below has to say so itself, or D82's
- * `CsrfOriginGuard` refuses it 403. The value must be `PUBLIC_ORIGIN` or one
- * of `WS_EXTRA_ORIGINS` on the stack under test; `playwright.config.ts`
- * defaults `E2E_BASE_URL` to the same `http://localhost:8080` that `.env`
- * lists.
- */
-const REQUEST_ORIGIN = new URL(process.env.E2E_BASE_URL ?? 'http://localhost:8080').origin;
-
 test.afterAll(async ({ browser }) => {
   if (!sourceAccessFlipped) return;
   const context = await browser.newContext();
@@ -584,7 +767,7 @@ test('journey 8 — a live freeze masks a rival’s verdict, and never the organ
   const rivalContext = await browser.newContext();
   const rival = await rivalContext.newPage();
   const rivalWatch = watchForBrokenRequests(rival, [NOT_JOINED]);
-  const rivalAccount = await register(rival, 'j8r');
+  const rivalAccount = await register('j8r');
   await signIn(rival, rivalAccount.username, PASSWORD);
   await rival.goto(`/submit?problem=${PROBLEM}`);
   await submitAndAwait(rival, AC_SOURCE, 'AC');
@@ -622,7 +805,7 @@ test('journey 8 — a live freeze masks a rival’s verdict, and never the organ
   const studentContext = await browser.newContext();
   const student = await studentContext.newPage();
   const studentWatch = watchForBrokenRequests(student, [NOT_JOINED]);
-  const account = await register(student, 'j8s');
+  const account = await register('j8s');
   await signIn(student, account.username, PASSWORD);
 
   await student.goto(`/contests/${key}`);
