@@ -82,9 +82,32 @@ interface LiveJob {
   queue: Promise<void>;
 }
 
+/**
+ * The packets after which a judge is free again — exactly the set for which
+ * `translate` calls `finish`. Kept beside it because it must stay that set: a
+ * name added to one and not the other either leaks a connection or hands one
+ * away while it is still grading.
+ */
+const TERMINAL_PACKETS: ReadonlySet<string> = new Set([
+  'grading-end',
+  'submission-terminated',
+  'compile-error',
+  'internal-error',
+]);
+
 /** What a judge connection is doing, as far as this process can tell. */
 interface Assignment {
   submissionId: number;
+  /**
+   * Which ATTEMPT of that job id this connection is running (D205).
+   *
+   * The submission id alone is not an identity: DMOJ's `submission-id` is our
+   * grading JOB id and a retry reuses it with a higher attempt, so with only
+   * the id recorded here, a connection still running attempt N is
+   * indistinguishable from the one running attempt N+1 — and every packet
+   * from the former is routed into the latter's event stream.
+   */
+  attempt: number;
   /**
    * True once the `submission-request` has actually been written to that
    * socket (or the judge has told us it is grading it). Only a `sent`
@@ -152,9 +175,13 @@ export class DmojDriver implements JudgeDriver {
     }
     const submissionId = assignment.submissionId;
     // Frees the connection AND wakes parked dispatches.
-    this.releaseConnection(connectionId, submissionId);
+    this.releaseConnection(connectionId, submissionId, assignment.attempt);
     const entry = this.live.get(submissionId);
-    if (!entry) return;
+    // Attempt-fenced (D205): a judge that dies still holding a SUPERSEDED
+    // attempt of job S must not retire and abandon the successor now running
+    // on a different judge — that would requeue a healthy grade on the
+    // strength of an unrelated machine's death.
+    if (!entry || entry.job.attempt !== assignment.attempt) return;
     this.live.delete(submissionId);
     console.warn(
       JSON.stringify({
@@ -295,7 +322,7 @@ export class DmojDriver implements JudgeDriver {
       }
       const free = capable.find((id) => !this.assignments.has(id));
       if (free !== undefined) {
-        this.assignments.set(free, { submissionId, sent: false });
+        this.assignments.set(free, { submissionId, attempt: entry.job.attempt, sent: false });
         entry.connection = free;
         return free;
       }
@@ -304,15 +331,28 @@ export class DmojDriver implements JudgeDriver {
   }
 
   /**
-   * Frees `connectionId`, but only if it still holds `submissionId` — a
-   * blind delete would hand away a connection that has since been given to
-   * somebody else's grade.
+   * Frees `connectionId`, but only if it still holds this exact
+   * `(submissionId, attempt)` — a blind delete would hand away a connection
+   * that has since been given to somebody else's grade.
+   *
+   * The attempt is part of that check for the same reason it is part of
+   * `Assignment` at all (D205): with a retry reusing the job id, "still holds
+   * submission S" is true of BOTH the connection running the superseded
+   * attempt and the one running its successor, so a release meant for the
+   * former would free the latter and let a third job be dispatched on top of
+   * a live grade.
    */
-  private releaseConnection(connectionId: string, submissionId: number): void {
-    if (this.assignments.get(connectionId)?.submissionId !== submissionId) return;
+  private releaseConnection(connectionId: string, submissionId: number, attempt: number): void {
+    const held = this.assignments.get(connectionId);
+    if (held?.submissionId !== submissionId || held.attempt !== attempt) return;
     this.assignments.delete(connectionId);
     const entry = this.live.get(submissionId);
-    if (entry && entry.connection === connectionId) entry.connection = undefined;
+    // Same fencing on the live entry: unpinning `connection` here when the
+    // live entry is a LATER attempt would tell `cancel` there is nothing to
+    // terminate for a job that is very much still running.
+    if (entry && entry.job.attempt === attempt && entry.connection === connectionId) {
+      entry.connection = undefined;
+    }
     this.wake();
   }
 
@@ -320,7 +360,9 @@ export class DmojDriver implements JudgeDriver {
   private finish(entry: LiveJob): void {
     const submissionId = Number(entry.job.id);
     this.live.delete(submissionId);
-    if (entry.connection !== undefined) this.releaseConnection(entry.connection, submissionId);
+    if (entry.connection !== undefined) {
+      this.releaseConnection(entry.connection, submissionId, entry.job.attempt);
+    }
   }
 
   /**
@@ -329,12 +371,15 @@ export class DmojDriver implements JudgeDriver {
    * reply packet echoes this value back so we can find the live entry.
    *
    * A retry reuses the same job id with a higher attempt, so `live` keyed by
-   * job id alone still cannot tell attempt N's late packets from attempt
-   * N+1's. `cancel` now terminates attempt N on its own connection before the
-   * retry can dispatch, and that connection is not handed out again until the
-   * judge answers — which narrows the window hard, but is still an argument
-   * from timing, not a proof. Keying `live` by (job, attempt) remains the
-   * structural fix and is still outstanding.
+   * job id alone cannot tell attempt N's late packets from attempt N+1's.
+   * D29 narrowed that window by terminating attempt N on its own connection
+   * and not handing that connection out again until the judge answers, and
+   * said in as many words that it was an argument from timing rather than a
+   * proof. **D205 closed it.** `live` is still keyed by job id — `cancel` and
+   * the `current-submission-id` orphan check both look one up with no attempt
+   * in hand — but the attempt now lives on `Assignment`, so the driver routes
+   * on (connection, attempt) and drops any packet whose connection is running
+   * a different attempt than the live entry.
    *
    * A dispatch does NOT go on the wire until some judge connection is idle: a
    * DMOJ judge grades one submission per connection, and a second
@@ -428,11 +473,13 @@ export class DmojDriver implements JudgeDriver {
       }
       // Only now may this submission be terminated on this connection.
       const assignment = this.assignments.get(connectionId);
-      if (assignment?.submissionId === submissionId) assignment.sent = true;
+      if (assignment?.submissionId === submissionId && assignment.attempt === job.attempt) {
+        assignment.sent = true;
+      }
     } catch (error) {
       // Nothing (or nothing complete) reached the judge, so hand the
       // connection straight back rather than leaving it marked busy forever.
-      this.releaseConnection(connectionId, submissionId);
+      this.releaseConnection(connectionId, submissionId, job.attempt);
       this.live.delete(submissionId);
       throw error;
     }
@@ -462,6 +509,10 @@ export class DmojDriver implements JudgeDriver {
     if (
       connectionId !== undefined &&
       assignment?.submissionId === submissionId &&
+      // The connection must be running THIS attempt, not merely this job id
+      // (D205): an id-less terminate aimed at the attempt-N connection while
+      // this entry is attempt N+1 would kill the wrong run.
+      assignment.attempt === attempt &&
       assignment.sent &&
       this.bridge.sendTo(connectionId, { name: 'terminate-submission' })
     ) {
@@ -500,7 +551,7 @@ export class DmojDriver implements JudgeDriver {
       // stale assignment marks the fresh connection busy forever and, with
       // one judge, every later dispatch parks for good.
       const stale = this.assignments.get(connection.id);
-      if (stale) this.releaseConnection(connection.id, stale.submissionId);
+      if (stale) this.releaseConnection(connection.id, stale.submissionId, stale.attempt);
       // Also the point at which capacity appears for a first-time connection.
       this.wake();
       return;
@@ -521,11 +572,34 @@ export class DmojDriver implements JudgeDriver {
       // Targeted, never broadcast: an id-less terminate sent to the OTHER
       // judges would kill their real, live grades to clean up this one's
       // orphan.
-      if (!this.live.has(packet['submission-id'])) {
+      const announced = packet['submission-id'];
+      const claimed = this.live.get(announced);
+      if (!claimed) {
         this.bridge.sendTo(connection.id, { name: 'terminate-submission' });
         return;
       }
-      this.assignments.set(connection.id, { submissionId: packet['submission-id'], sent: true });
+      // No attempt can be recovered here, and none ever will be: the packet
+      // is `{ name, submission-id }` and nothing else
+      // (`packages/judge-protocol/src/dmoj-packets.ts`), because judge-server
+      // has no notion of our attempt counter — it echoes back the single
+      // number we put in `submission-request`, which is the job id. So this
+      // branch cannot tell "judge-1 is still chewing on attempt 1" from
+      // "judge-1 is running the attempt 2 we dispatched".
+      //
+      // It therefore adopts a connection only when the driver has no
+      // better-evidenced claim on it. A claim built from a dispatch we made
+      // knows its attempt; this announcement does not, so it never overwrites
+      // one. Terminating instead would be worse than doing nothing: the
+      // announcement may well BE the live attempt, seen after a `judged`
+      // restart, and an id-less terminate would kill it.
+      if (claimed.connection !== undefined && claimed.connection !== connection.id) return;
+      if (this.assignments.has(connection.id)) return;
+      this.assignments.set(connection.id, {
+        submissionId: announced,
+        attempt: claimed.job.attempt,
+        sent: true,
+      });
+      claimed.connection = connection.id;
       return;
     }
 
@@ -534,13 +608,49 @@ export class DmojDriver implements JudgeDriver {
     const entry = this.live.get(submissionId);
     if (!entry) return;
 
+    const held = this.assignments.get(connection.id);
+
+    // D205. The live entry is keyed by job id, and a retry reuses that id, so
+    // `entry` may well be a LATER attempt than the one this connection is
+    // running. Routing on the id alone hands attempt N's packets to attempt
+    // N+1: a `grading-end` finalises a submission that is still compiling,
+    // with a verdict computed from the previous run's cases, and a
+    // `test-case-status` builds the subtask summary out of two runs mixed
+    // together. Attempt is therefore part of the identity we route on.
+    if (held && held.attempt !== entry.job.attempt) {
+      console.warn(
+        JSON.stringify({
+          msg: 'packet from a superseded attempt discarded',
+          jobId: entry.job.id,
+          packetAttempt: held.attempt,
+          liveAttempt: entry.job.attempt,
+          connection: connection.id,
+        }),
+      );
+      // A terminal packet still frees the connection it arrived on, even
+      // though its content is thrown away. Otherwise the reply that `cancel`
+      // is waiting for — the judge's `submission-terminated`, whose whole job
+      // is to hand the socket back — would be swallowed here, and that judge
+      // would stay marked busy with a grade nobody is listening for. On a
+      // one-judge fleet that turns a wrong verdict into a silent hang, which
+      // is not a trade worth making. `entry.connection` is deliberately NOT
+      // touched: the live attempt is somewhere else.
+      if (TERMINAL_PACKETS.has(packet.name)) {
+        this.releaseConnection(connection.id, submissionId, held.attempt);
+      }
+      return;
+    }
+
     // The wire is the authority on which connection is grading what: this
     // corrects our bookkeeping after a reconnect, and confirms it otherwise.
     // Guarded so a late packet for an already-retired submission cannot steal
     // a connection that has since been given to somebody else's grade.
-    const held = this.assignments.get(connection.id);
     if (!held || held.submissionId === submissionId) {
-      this.assignments.set(connection.id, { submissionId, sent: true });
+      this.assignments.set(connection.id, {
+        submissionId,
+        attempt: entry.job.attempt,
+        sent: true,
+      });
       entry.connection = connection.id;
     }
 

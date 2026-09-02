@@ -21,10 +21,10 @@ import {
 import { BridgeServer, type JudgeCapabilities } from '../src/drivers/dmoj/bridge-server.js';
 import { DmojDriver } from '../src/drivers/dmoj/dmoj-driver.js';
 
-function makeJob(id: string, language = 'cpp17'): GradingJob {
+function makeJob(id: string, language = 'cpp17', attempt = 1): GradingJob {
   return {
     id,
-    attempt: 1,
+    attempt,
     kind: 'submission',
     packageHash: 'hash-of-aplusb',
     revisionId: '1',
@@ -293,4 +293,154 @@ describe('a fleet of two judges', () => {
       },
     });
   }, 30_000);
+
+  /**
+   * B-36. DMOJ's `submission-id` carries our grading JOB id, and a retry
+   * reuses that id with a higher `attempt` — so `live`, a Map keyed by job id
+   * alone, holds attempt N+1's entry while attempt N's packets are still in
+   * flight from the judge it was terminated on. Two connections are what makes
+   * the race expressible at all: attempt N on judge-1, attempt N+1 on judge-2,
+   * and a packet arriving on the wrong one.
+   *
+   * D29 narrowed this window by terminating on the owning connection and not
+   * handing it out again until the judge answers, and said in as many words
+   * that timing is not a proof. These are the proof.
+   */
+  describe('a retry that reuses the job id', () => {
+    /**
+     * Leaves attempt 1 terminated-but-unanswered on judge-1 and attempt 2
+     * live on judge-2 — the exact state in which a stale packet is routable
+     * to the wrong attempt.
+     */
+    async function supersede(driver: DmojDriver) {
+      const [first, second] = judges as [
+        ReturnType<typeof fakeJudge>,
+        ReturnType<typeof fakeJudge>,
+      ];
+      const attemptOne: GradingEvent[] = [];
+      const attemptTwo: GradingEvent[] = [];
+
+      await driver.dispatch(makeJob('7', 'cpp17', 1), async (e) => void attemptOne.push(e));
+      await vi.waitFor(() => expect(first.requests()).toHaveLength(1), 10_000);
+
+      await driver.cancel('7', 1);
+      // The terminate is on the wire; judge-1 has NOT yet answered, which is
+      // precisely the window D29 left open.
+      await vi.waitFor(() => expect(first.terminates()).toHaveLength(1), 10_000);
+
+      await driver.dispatch(makeJob('7', 'cpp17', 2), async (e) => void attemptTwo.push(e));
+      await vi.waitFor(() => expect(second.requests()).toHaveLength(1), 10_000);
+      expect(second.requests()[0]!['submission-id']).toBe(7);
+
+      return { first, second, attemptOne, attemptTwo };
+    }
+
+    it("drops attempt 1's grading-end instead of finalising attempt 2 with it", async () => {
+      const { driver } = await bridge([
+        ['judge-1', ['CPP17']],
+        ['judge-2', ['CPP17']],
+      ]);
+      const { first, attemptTwo } = await supersede(driver);
+
+      // Attempt 1's run reached its end on judge-1 anyway — the terminate and
+      // the last packets crossed on the wire.
+      first.send({ name: 'grading-end', 'submission-id': 7 });
+      await settle();
+
+      // Attempt 2 is still compiling. A verdict here would be computed from
+      // the PREVIOUS run's cases and written to the submission as final.
+      expect(attemptTwo.map((e) => e.type)).toEqual(['dispatched']);
+    }, 30_000);
+
+    it("drops attempt 1's test-case-status instead of moving attempt 2's counters", async () => {
+      const { driver } = await bridge([
+        ['judge-1', ['CPP17']],
+        ['judge-2', ['CPP17']],
+      ]);
+      const { first, second, attemptTwo } = await supersede(driver);
+
+      // A fat case from the old run: 50 points, worth 50.
+      first.send({
+        name: 'test-case-status',
+        'submission-id': 7,
+        cases: [
+          {
+            position: 1,
+            status: 0,
+            time: 0.5,
+            points: 50,
+            'total-points': 50,
+            memory: 4096,
+            output: '',
+            feedback: '',
+            'extended-feedback': '',
+          },
+        ],
+      });
+      await settle();
+      expect(attemptTwo.filter((e) => e.type === 'caseResult')).toHaveLength(0);
+
+      // Attempt 2's own, only, case: one point out of one.
+      second.send({
+        name: 'test-case-status',
+        'submission-id': 7,
+        cases: [
+          {
+            position: 1,
+            status: 0,
+            time: 0.004,
+            points: 1,
+            'total-points': 1,
+            memory: 900,
+            output: '',
+            feedback: '',
+            'extended-feedback': '',
+          },
+        ],
+      });
+      second.send({ name: 'grading-end', 'submission-id': 7 });
+
+      await vi.waitFor(
+        () => expect(attemptTwo.some((e) => e.type === 'finished')).toBe(true),
+        10_000,
+      );
+      expect(attemptTwo.filter((e) => e.type === 'caseResult')).toHaveLength(1);
+      // 51/51 would be a score summed across two different runs of the same
+      // submission — D100's "the numbers disagree" seen from the inside.
+      expect(attemptTwo.find((e) => e.type === 'finished')).toMatchObject({
+        points: 1,
+        maxPoints: 1,
+      });
+    }, 30_000);
+
+    it('frees the connection a dropped TERMINAL packet arrived on', async () => {
+      const { driver } = await bridge([
+        ['judge-1', ['CPP17']],
+        ['judge-2', ['CPP17']],
+      ]);
+      const { first, second, attemptTwo } = await supersede(driver);
+
+      // judge-1 finally answers the terminate. Discarding this packet is
+      // right — it is not attempt 2's — but discarding it and nothing else
+      // would leave judge-1 marked busy with a grade that no longer exists,
+      // and a fleet of one would then park every later dispatch forever.
+      first.send({ name: 'submission-terminated', 'submission-id': 7 });
+      await settle();
+      expect(attemptTwo.map((e) => e.type)).toEqual(['dispatched']);
+
+      // Attempt 2 runs to its own end, freeing judge-2 as well.
+      second.send({ name: 'grading-end', 'submission-id': 7 });
+      await vi.waitFor(
+        () => expect(attemptTwo.some((e) => e.type === 'finished')).toBe(true),
+        10_000,
+      );
+
+      // With both free, the next dispatch takes judge-1 — the first
+      // connection in handshake order. It can only do that if the stale
+      // assignment was actually released.
+      await driver.dispatch(makeJob('99'), async () => {});
+      await vi.waitFor(() => expect(first.requests()).toHaveLength(2), 10_000);
+      expect(first.requests().map((r) => r['submission-id'])).toContain(99);
+    }, 30_000);
+  });
 });
