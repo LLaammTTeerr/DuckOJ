@@ -6,6 +6,8 @@
  *   corepack pnpm tsx scripts/cleanup-test-data.ts --url postgres://...
  *   corepack pnpm tsx scripts/cleanup-test-data.ts --print-plan  # the SQL, no connection
  *   CONFIRM=yes corepack pnpm tsx scripts/cleanup-test-data.ts --apply
+ *   corepack pnpm tsx scripts/cleanup-test-data.ts --only f56probe1,b35-probe-…
+ *                                                   # narrow to named rows
  *
  * ## Why this script is shaped the way it is
  *
@@ -116,16 +118,19 @@ export interface Pattern {
  * - `b<digits>` with no hyphen (`b1nh`, `b12x`) — see above.
  * - `b-` or `bXX-` with no digits: the slot number is what makes the name a
  *   slot's, and a bare `b-` prefix is a word.
- * - `f<n>-` (`f50-`, `f55-`). An F slot of this same campaign could name rows
- *   that way, but none has: the ones that wrote to live wrote under the
- *   FE-loop convention instead — F-42's `fe42-truong`, `fe42-a1`,
- *   `fe42-monitor-*`, all already claimed by `^fe[0-9]+-` — and the survey
- *   below finds no `f<digits>-` name of any kind on the instance. D153 already
- *   ruled on this shape when `j*-` matched nothing: record it, do not pattern
- *   it. A pattern that guards rows nobody has ever minted is a deletion rule
- *   with no audit trail behind it, which is the one thing the `why` field on
- *   every entry above exists to prevent. If an F slot ever does write to live
- *   under its own name, add `^f[0-9]+-` here with the row it minted in `why`.
+ * - `f<n>-` with a hyphen (`f50-`, `f55-`). F-55 recorded that no F slot had
+ *   ever minted a live row under its own name and that the moment one did,
+ *   the pattern should be added with the row in its `why`. **F-56 is that
+ *   moment, and the shape is not the one F-55 guessed**: the row is
+ *   `f56probe1`, with no separator, because the controller wrote it the way
+ *   `probe1` was written rather than the way `b35-probe-…` was. So the new
+ *   entry is `^f[0-9]+probe` — `f`, digits, then the literal word `probe` —
+ *   and NOT `^f[0-9]+-`, which would still match nothing, and not
+ *   `^f[0-9]+`, which claims every future name beginning with a letter and a
+ *   number. Nothing a province could plausibly hold begins `f<digits>probe`.
+ *   Pattern what was minted, not what a slot might mint: a rule guarding rows
+ *   nobody has ever written is a deletion rule with no audit trail behind it,
+ *   which is what the `why` field on every entry above exists to prevent.
  * - Team and problem-set slugs of the form `fe42-b33a-…` (B-33's). They are
  *   NOT reached by any `^b` pattern and do not need to be: teams and sets are
  *   classified by their owning organization, and that org (`fe42-truong`)
@@ -138,14 +143,16 @@ export interface Pattern {
  * Vietnamese problems, `aplusb`, `hello` — and nothing else. Before
  * `^b[0-9]+-`, `b35-probe-1788313721` was the one row in that gap.
  *
- * That account also left 22 `rate_events` rows keyed `user:487`, and this
- * script still does not name that table — deliberately. `rate_events` has no
- * foreign key to `users` at all; `key` is free text, so a leftover row blocks
- * nothing, joins to nothing and discloses nothing, and
- * `authn/expired-rows.sweeper.ts` already deletes the table by `created_at`
- * alone. Modelling it here would add a delete step that the sweeper performs
- * anyway, on rows the classification cannot actually prove belong to the
- * account it is deleting.
+ * That account also left 22 `rate_events` rows keyed `user:487`. F-55 left
+ * that table unmodelled on the reasoning that the classification "cannot
+ * actually prove" such rows belong to the account being deleted. **F-56
+ * measured them, and that turned out to be true of exactly one purpose**, so
+ * the table is now modelled with that purpose excluded — see the
+ * `rate_events` step in `DELETE_STEPS` for the argument. The rest of F-55's
+ * sentence stands and is why this is a tidy-up rather than a fix:
+ * `rate_events` has no foreign key to `users`, a leftover row blocks nothing
+ * and discloses nothing, and `expired-rows.sweeper.ts` removes the table by
+ * `created_at` at a 24-hour retention regardless.
  */
 export const PATTERNS: readonly Pattern[] = [
   {
@@ -164,6 +171,11 @@ export const PATTERNS: readonly Pattern[] = [
     kind: 'user',
     regex: '^b[0-9]+-',
     why: 'B-loop slots after the bh→b rename: b35-probe-<epoch> (B-35)',
+  },
+  {
+    kind: 'user',
+    regex: '^f[0-9]+probe',
+    why: 'F-slot reachability probes: f56probe1 (F-56, the controller\u2019s proof that registration was open)',
   },
   { kind: 'user', regex: '^fe[0-9]+', why: 'FE-loop front-end rehearsals' },
   { kind: 'user', regex: '^c1-', why: 'C1 soak accounts (c1-soak-<key>-<n>)' },
@@ -245,6 +257,21 @@ function patternPredicate(kind: Kind, column: string): string {
   const matching = PATTERNS.filter((pattern) => pattern.kind === kind);
   if (matching.length === 0) return 'false';
   return `(${matching.map((pattern) => `${column} ~ ${quote(pattern.regex)}`).join(' or ')})`;
+}
+
+/**
+ * `--only`'s clause: `true` when the operator named nothing, otherwise
+ * membership of the list they named.
+ *
+ * Emitted for every kind, so the same list restricts users, contests,
+ * problems and organizations at once — naming two accounts therefore empties
+ * the contest, problem and org sets, which is exactly what "only these two
+ * accounts" means.
+ */
+function onlyPredicate(column: string, only: readonly string[] | undefined): string {
+  if (only === undefined) return 'true';
+  if (only.length === 0) return 'false';
+  return `${column} in (${only.map(quote).join(', ')})`;
 }
 
 function denyPredicate(kind: 'user' | 'contest' | 'problem' | 'org', column: string): string {
@@ -857,6 +884,31 @@ export const DELETE_STEPS: readonly DeleteStep[] = [
     sql: `delete from org_join_requests jr where jr.org_id = any(arr_org) or jr.user_id = any(arr_user)`,
   },
   { table: 'organizations', sql: `delete from organizations o where o.id = any(arr_org)` },
+  {
+    table: 'rate_events',
+    note: 'meter rows keyed on a deleted account’s id; the sweeper would remove them at 24h anyway (D78), so this is tidiness rather than a fix',
+    /**
+     * **`purpose <> 'login'` is the whole of the correctness argument, and it
+     * is a closed one over today's source.**
+     *
+     * `RateLimiter` keys are namespaced by purpose, and every purpose in this
+     * codebase that writes a `user:` key builds it from `users.id` —
+     * `walk.meter.ts`'s `walkKey`, `problem.comments.ts`'s and
+     * `submission.access.ts`'s `meterKey`. **`login` is the one exception**:
+     * `auth.controller.ts` keys it on the SUBMITTED identifier, lowercased,
+     * precisely so that an unknown username still has a window (D16). A
+     * username may be three digits, so `user:487` could in principle be a
+     * failed sign-in by somebody who typed `487` — which is the row this step
+     * must not touch, and the only one.
+     *
+     * Measured on the live instance for the account this pattern was widened
+     * for: `b35-probe-1788313721` (id 487) holds 20 `user_walk` and 2
+     * `refused:user_walk` rows and no `login` row at all.
+     */
+    sql: `delete from rate_events r
+           where r.purpose <> 'login'
+             and r.key = any (select 'user:' || u::text from unnest(arr_user) as u)`,
+  },
   { table: 'sessions', sql: `delete from sessions se where se.user_id = any(arr_user)` },
   {
     table: 'access_tokens',
@@ -899,6 +951,24 @@ function notice(section: string, args: readonly string[]): string {
 export interface ScriptOptions {
   /** false: plan only, under SET TRANSACTION READ ONLY, ending in ROLLBACK. */
   readonly apply: boolean;
+  /**
+   * `--only` — an explicit list of natural keys the run may touch, or
+   * `undefined` for "everything the patterns claim".
+   *
+   * **It NARROWS, it never widens**, and the direction is the whole point. It
+   * is intersected with the allow-list, after the deny-list, so a name that
+   * matches no pattern is still invisible and a denied name is still denied:
+   * `--only duckadmin` deletes nothing. What it buys is the case D153 did not
+   * have a shape for — an operator authorised to remove **two named rows**
+   * from a live judge, on an instance whose patterns legitimately claim four
+   * hundred more. Before it, "run the cleaner for these two accounts" and
+   * "run the cleaner" were the same command, and the honest way to obey the
+   * first was to not run it at all.
+   *
+   * The blockers still run, unchanged, over the narrowed set: a named row
+   * something real depends on is still refused with the reason printed.
+   */
+  readonly only?: readonly string[] | undefined;
 }
 
 /**
@@ -962,16 +1032,20 @@ begin
   --    matches nothing here is invisible to every statement below.
   arr_user := array(select id from users
                      where ${denyPredicate('user', 'username')}
-                       and ${patternPredicate('user', 'username')});
+                       and ${patternPredicate('user', 'username')}
+                       and ${onlyPredicate('username', options.only)});
   arr_contest := array(select id from contests
                         where ${denyPredicate('contest', 'key')}
-                          and ${patternPredicate('contest', 'key')});
+                          and ${patternPredicate('contest', 'key')}
+                          and ${onlyPredicate('key', options.only)});
   arr_problem := array(select id from problems
                         where ${denyPredicate('problem', 'code')}
-                          and ${patternPredicate('problem', 'code')});
+                          and ${patternPredicate('problem', 'code')}
+                          and ${onlyPredicate('code', options.only)});
   arr_org := array(select id from organizations
                     where ${denyPredicate('org', 'slug')}
-                      and ${patternPredicate('org', 'slug')});
+                      and ${patternPredicate('org', 'slug')}
+                      and ${onlyPredicate('slug', options.only)});
   -- Teams and problem sets have no name of their own to match; their org is
   -- what classifies them, and a team whose org is refused is refused with it.
   arr_team := array(select id from teams where org_id = any(arr_org));
@@ -1092,6 +1166,8 @@ interface Options {
   readonly container: string;
   readonly database: string;
   readonly user: string;
+  /** `--only` — the natural keys this run may touch. See `ScriptOptions`. */
+  readonly only: readonly string[] | undefined;
 }
 
 function parseArgs(argv: readonly string[]): Options {
@@ -1099,6 +1175,7 @@ function parseArgs(argv: readonly string[]): Options {
   let printPlan = false;
   let live = false;
   let url: string | undefined;
+  let only: string[] | undefined;
   let container = 'duckoj_postgres_1';
   let database = 'duckoj';
   let dbUser = 'duckoj';
@@ -1107,6 +1184,7 @@ function parseArgs(argv: readonly string[]): Options {
     if (arg === '--apply') apply = true;
     else if (arg === '--print-plan') printPlan = true;
     else if (arg === '--live') live = true;
+    else if (arg === '--only') only = (argv[++index] ?? '').split(',').map((n) => n.trim()).filter((n) => n !== '');
     else if (arg === '--url') url = argv[++index];
     else if (arg === '--container') container = argv[++index] ?? container;
     else if (arg === '--database') database = argv[++index] ?? database;
@@ -1123,7 +1201,7 @@ function parseArgs(argv: readonly string[]): Options {
   // the `postgres` service no `ports:`), so the container is the default and
   // `--url` is for a database something on this host can actually dial.
   if (!live && url === undefined) live = true;
-  return { apply, printPlan, live, url, container, database, user: dbUser };
+  return { apply, printPlan, live, url, container, database, user: dbUser, only };
 }
 
 async function execute(options: Options, script: string): Promise<string> {
@@ -1161,7 +1239,7 @@ async function main(): Promise<number> {
   // `--print-plan` is the operator's read-before-you-run, and the only mode
   // that opens no connection — so it is answered before CONFIRM is consulted.
   if (options.printPlan) {
-    process.stdout.write(buildScript({ apply: options.apply }));
+    process.stdout.write(buildScript({ apply: options.apply, only: options.only }));
     return 0;
   }
   if (options.apply && process.env.CONFIRM !== 'yes') {
@@ -1169,7 +1247,7 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const script = buildScript({ apply: options.apply });
+  const script = buildScript({ apply: options.apply, only: options.only });
   if (
     !options.apply &&
     /\n\s*(delete|update|insert)\s/i.test(script.replace(/\$cleanup\$[\s\S]*\$cleanup\$/, ''))
@@ -1237,8 +1315,13 @@ async function main(): Promise<number> {
   );
 
   if (!options.apply) {
+    // The hint repeats `--only`, because an operator who narrowed the plan and
+    // then pasted an unnarrowed apply would delete four hundred rows they had
+    // just been shown a plan for twenty-five of. A suggested command that is
+    // not the command whose plan is on screen is a trap, not a convenience.
+    const narrowed = options.only === undefined ? '' : ` --only ${options.only.join(',')}`;
     console.log(
-      '\nTo carry it out:  CONFIRM=yes corepack pnpm tsx scripts/cleanup-test-data.ts --apply',
+      `\nTo carry it out:  CONFIRM=yes corepack pnpm tsx scripts/cleanup-test-data.ts${narrowed} --apply`,
     );
     console.log(
       'Afterwards:       corepack pnpm tsx scripts/integrity-check.ts --live   (expect it clean)',

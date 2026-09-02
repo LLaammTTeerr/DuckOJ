@@ -115,6 +115,29 @@ describe('the allow-list is the only way in', () => {
     for (const statement of statements) expect(statement).toMatch(arrays);
   });
 
+  it('claims the one F-slot name that was actually minted, and nothing wider', () => {
+    // F-55 said to add a pattern the day an F slot wrote to the live judge
+    // under its own name. F-56 is that day, and the row is `f56probe1` — no
+    // hyphen, so `^f[0-9]+-` would still match nothing. `^f[0-9]+probe`
+    // claims the shape that exists and refuses the shape that would claim
+    // every future name beginning with a letter and a digit.
+    expect(plan).toContain("username ~ '^f[0-9]+probe'");
+    expect(plan).not.toContain("username ~ '^f[0-9]+'");
+    expect(plan).not.toContain("username ~ '^f[0-9]+-'");
+  });
+
+  it('removes a deleted account’s meter rows, and never a login window', () => {
+    // `rate_events` has no foreign key to `users`; `key` is free text. Every
+    // purpose that writes a `user:` key builds it from `users.id` EXCEPT
+    // `login`, which keys on the submitted identifier so that an unknown
+    // username still has a window (D16) — and a username may be three digits.
+    // Excluding `login` is therefore the whole correctness argument, and this
+    // is the assertion that keeps it in the file.
+    expect(plan).toContain("delete from rate_events r");
+    expect(plan).toContain("r.purpose <> 'login'");
+    expect(plan).toContain("'user:' || u::text from unnest(arr_user) as u");
+  });
+
   it('leaves the content-addressed package tables alone', () => {
     expect(plan).not.toContain('delete from packages');
     expect(plan).not.toContain('delete from package_files');
