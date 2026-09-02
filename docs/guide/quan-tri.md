@@ -259,6 +259,7 @@ dụng thay cho việc gõ tay `insert ... sha256(...)` vào `psql` như trướ
 ```
 corepack pnpm judge:node add <tên>     # sinh token và IN RA MỘT LẦN
 corepack pnpm judge:node list
+corepack pnpm judge:node rotate <tên>   # cấp token mới cho máy chấm đã có (in một lần)
 corepack pnpm judge:node revoke <tên>   # đốt băm token, giữ lại lịch sử chấm
 ```
 
@@ -272,7 +273,10 @@ mục 1: xem `docs/runbook.md`, mục *Bootstrapping the first admin*, có sẵn
 `add` **tự sinh token** và in ra đúng một lần — nó không nhận `--token`, để
 token máy chấm không bao giờ lọt vào lịch sử dòng lệnh. `add` cũng **từ chối
 một tên đã có**, kể cả tên vừa `revoke` (hàng vẫn ở lại để giữ lịch sử chấm),
-nên xoay token là `revoke <tên cũ>` rồi `add <tên mới>`. Dán token đó vào
+nên **xoay token của một máy chấm đang chạy là `rotate <tên>`**, không phải
+`revoke` rồi `add` — xem `docs/runbook.md`, mục *Rotating a judge's token*
+(D204): máy chấm mất kết nối sau khoảng 5 giây và phải được **tạo lại**
+container thì mới đọc được token mới. Dán token đó vào
 `judge/judge.yml` của máy chấm mới rồi bật container thứ hai qua profile `scale`
 của compose (`SCALE=1 scripts/compose-up.sh`). Từng bước đầy đủ ở
 `docs/runbook.md`, mục *Adding a second judge container* (D68).
@@ -540,6 +544,7 @@ register it with the dedicated CLI rather than the hand-typed
 ```
 corepack pnpm judge:node add <name>     # generates the token, PRINTS IT ONCE
 corepack pnpm judge:node list
+corepack pnpm judge:node rotate <name>   # a new token for a node that exists (printed once)
 corepack pnpm judge:node revoke <name>   # burns the token hash, keeps the history
 ```
 
@@ -553,8 +558,11 @@ so run them in a one-off container exactly as §1 does — the runbook's
 `add` **generates the token itself** and prints it once — it takes no `--token`,
 so a judge token never lands in a shell history. It also **refuses a name that
 already exists**, including one just revoked (the row stays, to keep the
-grading history addressable), so rotating a token is `revoke <old name>` then
-`add <new name>`. Paste it into the new judge's
+grading history addressable) — so **rotating a running judge's token is
+`rotate <name>`**, not `revoke` then `add`. See `docs/runbook.md`, *Rotating a
+judge's token* (D204): the judge loses its connection about five seconds
+later and has to be **recreated** before it can read the new token. Paste it
+into the new judge's
 `judge/judge.yml`, then bring the second container up through compose's `scale`
 profile (`SCALE=1 scripts/compose-up.sh`). The runbook's *Adding a second judge
 container* has the full steps (D68).

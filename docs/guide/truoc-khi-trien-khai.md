@@ -24,7 +24,7 @@ lộ**. Chúng đã đi qua nhật ký, ảnh chụp màn hình và báo cáo.
 | -------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POSTGRES_PASSWORD`  | `.env`, và trong `DATABASE_URL` của `api`, `judged`, `migrate` | Đổi mật khẩu trong Postgres (`ALTER ROLE duckoj PASSWORD …`), sửa `.env`, rồi `scripts/compose-up.sh`                                                           |
 | `TOTP_ENC_KEY`       | `.env`                                                         | **Không xoay được sau khi đã có người bật 2FA** — khoá này giải mã bí mật TOTP đang lưu. Sinh khoá mới **trước** khi có người dùng thật: `openssl rand -hex 32` |
-| `JUDGE_TOKEN`        | `.env`, và bản băm trong bảng `judge_nodes`                    | `corepack pnpm judge:node revoke judge-1` rồi `add` dưới một **tên mới** (`judge-1a`): `add` **từ chối một tên đã có**, kể cả tên vừa thu hồi. `add` in token **một lần duy nhất** — dán vào `.env`, dựng lại `judge`                     |
+| `JUDGE_TOKEN`        | `.env`, và bản băm trong bảng `judge_nodes`                    | `corepack pnpm judge:node rotate judge-1` — in token mới **một lần duy nhất**, giữ nguyên hàng và lịch sử chấm. Dán vào `.env` rồi **tạo lại** container `judge` (`podman-compose up -d judge`; `restart` **không** đọc lại `.env`). Máy chấm mất kết nối khoảng 5 giây sau khi xoay và bài đang chấm được **xếp lại hàng đợi**, không hỏng. Trình tự đầy đủ: `docs/runbook.md`, mục *Rotating a judge's token* (D204) |
 | Mật khẩu `duckadmin` | `.secrets/duckadmin.txt`                                       | Xoá tài khoản diễn tập ở bước 4, hoặc đổi mật khẩu rồi **xoá tệp**                                                                                              |
 
 `TOTP_ENC_KEY` là bước duy nhất **không quay lui được**: hãy làm nó trước
@@ -216,13 +216,23 @@ through logs, screenshots and reports.
 - **`TOTP_ENC_KEY`** — `openssl rand -hex 32`. This one **cannot be rotated
   once anybody has enrolled in two-factor**: the key decrypts the stored TOTP
   secrets. Do it first, while no real enrolment exists.
-- **`JUDGE_TOKEN`** — `corepack pnpm judge:node revoke judge-1`, then `add`
-  under a **new name** (`judge-1a`). `add` **refuses a name that already
-  exists**, revoked or not: `revoke` burns the token hash and keeps the row, so
-  the old name's grading history stays addressable and cannot be reused. `add`
-  prints the new token **once**. Paste it into `.env` and rebuild the `judge`
-  service. The token reaches three consumers that must all agree — the comment
-  above it in `.env` names them.
+- **`JUDGE_TOKEN`** — `corepack pnpm judge:node rotate judge-1` (D204). It
+  mints a new token for the node that exists, prints it **once**, and keeps
+  the row, so the old name's grading history stays addressable. Do **not**
+  reach for `revoke` then `add`: `add` refuses a name it already holds,
+  revoked or not, so that sequence burns the credential and then fails — it
+  is what this page told you to do until F-58, and it never worked. (If you
+  already ran it, `rotate` works on the revoked node and says so; that is the
+  way out.)
+
+  Then paste the token into `.env` and **recreate** the judge container —
+  `podman-compose up -d judge`, not `podman restart`, which re-uses the
+  environment the container was created with. Between the rotation and the
+  recreate the judge is disconnected (about five seconds after the command)
+  and submissions **queue**; anything mid-grade is requeued, not failed. The
+  ordered sequence, with what to check afterwards, is `docs/runbook.md`,
+  *Rotating a judge's token*. The token reaches three consumers that must all
+  agree — the comment above it in `.env` names them.
 - **`.secrets/duckadmin.txt`** — the rehearsal admin's password. Step 4
   deletes that account, or change the password; either way **delete the file**.
 

@@ -1555,6 +1555,98 @@ concurrently over the real wire protocol (D68).
 on demand, so judge-2 needs no shared volume and no seeding; it re-fetches what
 it needs from the API.
 
+### Rotating a judge's token
+
+    corepack pnpm judge:node rotate judge-1
+
+**This is the command, and `revoke` then `add` is not.** `add` refuses a name
+it already holds — revoked or not — so the sequence
+`revoke judge-1 && add judge-1` burns the credential and then fails, leaving a
+dead judge and no way forward except SQL. `docs/guide/truoc-khi-trien-khai.md`
+carried that sequence in its step 1 for months and it never worked (F-58).
+`rotate` mints a new token for a node that exists, keeps the row — so
+`grading_jobs.judge_node_id` goes on naming the machine that graded each
+submission — and prints the token exactly once (D204).
+
+It works on a node you have already revoked, and says so. That is the way out
+if you followed the old instruction and are standing in the dead end now.
+
+**The judge is disconnected within five seconds and cannot come back on its
+own.** `judged` re-checks every connected judge against `judge_nodes` on a
+five-second timer, matching the credential the connection authenticated with
+(D81 as widened by D204), so the judge holding the old token is closed and
+retired. It then redials with the token still in its container environment,
+which is refused: expect a `judge handshake rejected` line per attempt in
+`judged`'s log until you finish the sequence below. **That loop is the proof
+the old token is dead**, not a fault.
+
+**Nothing is failed. Work queues.** A submission mid-grade on that connection
+is abandoned and requeued — no `GradingEvent` is written, so no student gets a
+permanent IE (D29) — and with no judge connected the dispatcher parks rather
+than rejecting (D68). The cost of a rotation is latency, for as long as the
+fleet is empty.
+
+**A `podman restart` is not enough.** A container's environment is fixed when
+it is created, so the judge would come back with the same old token. The token
+has to reach it through `.env` and a **recreate**.
+
+The order, and it is the order:
+
+1. **Have the rotation-aware images.** `rotate` lives in the `migrate` image
+   and the credential-matching poll lives in `judged`; a stack deployed before
+   D204 has neither, and rotating against it would leave the old judge
+   connected on a credential that no longer exists — dispatched to, and 401'd
+   by the API on every package fetch. `scripts/deploy.sh` first if `judge:node
+   rotate` prints the usage line instead of running.
+
+2. **Rotate, and keep the token.** `postgres` publishes no host port, so this
+   runs as a one-off container the same way the bootstrap does:
+
+       podman run --rm --network <project>_default --env-file .env \
+         localhost/<project>_migrate:latest \
+         sh -c 'DATABASE_URL="postgres://duckoj:$POSTGRES_PASSWORD@postgres:5432/duckoj" \
+                packages/db/node_modules/.bin/tsx scripts/judge-node.ts rotate judge-1'
+
+   The token is printed once. Nothing can recover it. From this second the old
+   one is refused everywhere — the bridge handshake and the API's package
+   guard both go through `verifyJudgeCredential`.
+
+3. **Put it in `.env`.** Replace `JUDGE_TOKEN=`'s value. Nothing else reads it:
+   `judge/judge.yml` is a template rendered at container start from
+   `JUDGE_NAME`/`JUDGE_TOKEN` (`judge/entrypoint.sh`), and
+   `scripts/seed-problem.ts` only ever seeds a row this rotation has now
+   replaced.
+
+4. **Recreate the judge**, do not restart it:
+
+       podman-compose up -d judge
+
+   Or `scripts/compose-up.sh`, which recreates everything and waits for
+   health. Either way the container comes up, renders `judge.yml` from the new
+   `JUDGE_TOKEN`, and handshakes — re-announcing its executors, which is how
+   `judge_nodes.capabilities` is rewritten (D68; nothing manual).
+
+5. **Confirm it took, in three places.**
+
+       corepack pnpm judge:node list        # judge-1, revoked:false, a FRESH lastSeen
+       podman logs <project>_judged_1 --since 2m 2>&1 | grep -i judge
+
+   `lastSeen` moving is the one that matters: it is written on the handshake
+   and on any packet after it, so a stale value means the new token has not
+   been accepted. The log should show the rejection loop ENDING — no
+   `judge handshake rejected` after the recreate. Then grade something:
+
+       corepack pnpm exec tsx scripts/e2e-submit.ts
+
+   An `AC` there is the whole verification: it goes through dispatch, the
+   bridge, a package fetch authenticated with the new token, and the sandbox.
+
+**How long the judge is down** is entirely steps 3 and 4 — the rotation itself
+is instant and the recreate is a container start. Everything submitted in that
+window is queued, not lost, and drains when the judge returns. Rotate outside
+a contest anyway: a queue that drains is still a room full of pupils watching
+a spinner.
+
 ### Retiring a judge
 
     corepack pnpm judge:node revoke judge-2
@@ -1567,7 +1659,9 @@ Revoking is idempotent.
 **It takes effect within about five seconds, even on a judge that is already
 connected** (D81). `judged` re-checks every connected judge against
 `judge_nodes` on a five-second timer and closes the socket of anything that is
-no longer admitted, logging one `dropping revoked judge` line with the id.
+no longer admitted, logging one `dropping judge no longer admitted` line with
+the id. (That line said `dropping revoked judge` before D204; it now fires for
+a rotated judge too, whose row is neither gone nor burned.)
 Before that timer existed, the credential was verified once, at the handshake,
 so a revoked judge held its connection for as long as it stayed up and went on
 being dispatched to. Stopping the container is still the tidy end of it, but it
