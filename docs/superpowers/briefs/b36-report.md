@@ -1,9 +1,16 @@
 # B-36 report — `live` keyed by job id, and the packets that landed in the wrong attempt
 
-**Status: DONE.** The defect is fixed and pinned by four specs, every one of
-them watched red before it was watched green. `@duckoj/judged` is 19/19 files
-and 154/154 tests green; the measured baseline on unmodified code is 150/150,
-so the delta is exactly the four specs added here.
+**Status: DONE**, after one round of adversarial-review fixes. The defect is
+fixed and pinned by seven specs, every one of them watched red before it was
+watched green. `@duckoj/judged` is 19/19 files and **157/157** tests green; the
+measured baseline on unmodified code is 150/150, so the delta is exactly the
+seven specs added here.
+
+Round 0 is the body of this report. **Round 1 found that the routing guard was
+not the whole defect** — `finish` still deleted from `live` by job id, so a
+superseded attempt's queued terminal packet evicted its successor's live entry
+and stopped the judge for good. That section is "Fix round 1" below; read it
+before the "Found and did not fix" list.
 
 Branch: `b36-dmoj-driver`, off `a7ac08e` (the brief commit).
 
@@ -333,6 +340,219 @@ the same command and environment:
 150 → 154, the delta being exactly the four specs added here, and no
 pre-existing test changed state.
 
+## Fix round 1 — five findings from adversarial review
+
+All five are addressed. Three were behaviour changes and each got a spec,
+red against `81b1245` (the end of round 0) before the fix. `@duckoj/judged` is
+now 19/19 files and **157/157** tests green.
+
+### F1 (blocking) — `finish` deleted from `live` by job id, evicting the successor
+
+**Real, and worse than the routing defect round 0 fixed.** Confirmed against
+`apps/judged/src/worker.ts`: `heartbeatOnce` cancels only *after* an awaited
+`jobs.heartbeat` tells it the lease was already claimed away, so the successor
+is dispatched **before** the predecessor is cancelled. In that window attempt
+1's packets are the live entry's own — they pass every guard legitimately —
+and are queued onto its `queue` behind an `emit` per test case. When the queue
+drained, `live[7]` was attempt 2's entry and `finish(E1)` deleted it by id.
+Everything after that hit `if (!entry) return`: attempt 2 never received a
+terminal event and its judge was never handed back.
+
+Fixed with `retire(entry, submissionId)` — `if (this.live.get(id) === entry)
+this.live.delete(id)`. Applied to `finish` and, on the advisor's prompt, to
+**both `dispatch` catch paths**, which had the same bug for a different
+reason: a dispatch parked long enough to be superseded (woken into
+`NoCapableJudgeError`, or failing its `sendTo`) deleted by id on the way out.
+`onJudgeGone` goes through `retire` too — identity is trivially true there,
+but every removal from `live` in the file now reads the same way and none can
+drift back.
+
+`releaseConnection`'s `live.get` was checked and deliberately **not** changed:
+it matches on attempt *and* connection together, and two entry objects for one
+`(job, attempt)` cannot coexist — `JobStore.claim` bumps the attempt on every
+claim, and the one path that builds an entry it then discards retires its own
+before rethrowing. That argument is now in the code comment.
+
+### F5 — an unassigned connection could take over an entry placed elsewhere
+
+**Reachable, and the reviewer was right to flag it.** The round-0 guard asked
+"does this connection's assignment name a different attempt", which says
+nothing when the connection has no assignment — and the release-on-terminal
+branch *creates* that state. So the second stale packet on a just-released
+connection fell through to the wire-authority branch and repointed the live
+entry at the wrong socket. A judge that answers our terminate after it had
+already finished sends exactly that pair (`grading-end`, then
+`submission-terminated`).
+
+The rule is now one sentence, written as an unconditional disjunction rather
+than a branch on "assigned?" — the branching form would let a connection whose
+attempt happens to match steal an entry already placed elsewhere:
+
+```ts
+const foreign =
+  (held !== undefined && held.attempt !== entry.job.attempt) ||
+  (entry.connection !== undefined && entry.connection !== connection.id);
+```
+
+The reconnect path still adopts, because a redial's `retire`/handshake clears
+both the assignment and `entry.connection`.
+
+### F2 — the early return left a genuinely busy judge in the free pool
+
+Accepted in full: round 0 was right about the attempt and wrong about
+everything else. The judge had just said it was grading, and an unassigned
+connection is one the next dispatch writes a second `submission-request` to —
+the hazard D29 exists to prevent, reintroduced by a fix for D29's residual.
+
+It is now recorded busy either way, and only the attempt differs:
+`claimed.job.attempt` when nothing contradicts the announcement (the
+reconnect-recovery path), and `UNKNOWN_ATTEMPT = -1` when the live entry is
+placed on another connection. Negative on purpose — attempts start at 1 and
+only rise — so the connection is out of the free pool, every packet on it is
+discarded as unattributable, and a terminal packet still releases it because
+the sentinel equals itself. The log reports `packetAttempt: null` for it
+rather than `-1`: "genuinely unknown" is not the claim "attempt minus one".
+
+D205 names both costs: a judge that announces and then falls silent holds its
+slot until the socket dies, and the redial ordering (`retire` frees the
+assignment *before* the announcement arrives, so a dispatch parked at that
+instant can take the connection in between) is D29's window and is **not**
+closed here.
+
+### F3 — releasing on all four terminal names
+
+**Kept all four, with the argument written into the code and D205.** Three
+parts. First, it is not new behaviour: before the discard guard existed all
+four of these names reached `translate` and called `finish`, which released the
+connection — so the hazard is D29's residual and has been reachable since B2
+with *no retry involved at all*, a cancel's terminate crossing the `grading-end`
+of a job that is simply finishing. Narrowing the set would not remove that; it
+would add a second failure whose shape is a connection marked busy with a grade
+nobody is listening for, which on the shipped one-judge fleet stops the queue.
+Second, the ordering does not admit the race: the terminate and the successor's
+`submission-request` go to the **same socket**, and judge-server reads one
+stream in order, so the terminate is processed first. Third, what is genuinely
+unverifiable is named rather than guessed at — judge-server's behaviour when a
+terminate arrives while it is idle. Nothing is vendored to check it against; a
+latching implementation would already bite the no-retry path, so it is recorded
+as an open protocol question, not a cost of this decision.
+
+### F4 — "D205 closed it" overclaimed
+
+Corrected in the comment above `dispatch` and in D29's paragraph. The bounded
+claim: closed for every connection whose assignment the driver built from its
+own dispatch, which is every connection in the normal flow; **inferred, and
+stated as an inference**, for a judge that redials, because
+`current-submission-id` names a job id and no attempt.
+
+### Red, then green
+
+Three new specs, red against `81b1245`:
+
+```
+   × ... > does not let attempt 1's queued finish evict attempt 2's live entry 10271ms
+   × ... > does not let an unassigned connection take over an entry placed elsewhere 815ms
+   × ... > keeps a redialling judge busy when its announcement cannot be attributed 870ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/multi-judge.spec.ts > ... > does not let attempt 1's queued finish evict attempt 2's live entry
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ test/multi-judge.spec.ts:575:69
+    573|       second.send({ name: 'grading-end', 'submission-id': 7 });
+    574|       await vi.waitFor(
+    575|         () => expect(attemptTwo.some((e) => e.type === 'finished')).to…
+       |                                                                     ^
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  test/multi-judge.spec.ts > ... > does not let an unassigned connection take over an entry placed elsewhere
+AssertionError: expected [ 'dispatched', 'terminated' ] to deeply equal [ 'dispatched' ]
+
+- Expected
++ Received
+
+  Array [
+    "dispatched",
++   "terminated",
+  ]
+
+ ❯ test/multi-judge.spec.ts:609:45
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  test/multi-judge.spec.ts > ... > keeps a redialling judge busy when its announcement cannot be attributed
+AssertionError: expected [ Array(1) ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ test/multi-judge.spec.ts:656:36
+    654|       await settle();
+    655| 
+    656|       expect(redialled.requests()).toHaveLength(0);
+       |                                    ^
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 12 passed (15)
+```
+
+Each failure is the predicted one: attempt 2 never finished (its entry was
+evicted), attempt 2 was handed a spurious `terminated` (the unassigned
+connection stole it), and the redialled judge was written a second
+`submission-request` while grading.
+
+The F1 spec needed a new `sendBatch` on the two-judge `fakeJudge` — the
+`test-case-status` and `grading-end` must be decoded in **one** synchronous
+`handle` pass, or the second arrives after the entry under that job id has
+already been replaced and the discard guard sees it, which is the *other*
+ordering the round-0 specs already cover.
+
+Green, after the fix — typecheck exit 0, lint exit 0, and:
+
+```
+ ✓ test/dmoj-driver.spec.ts (21 tests) 3002ms
+ ✓ test/multi-judge.spec.ts (15 tests) 6540ms
+ ✓ test/event-writer.spec.ts (17 tests) 3996ms
+ ✓ test/worker.spec.ts (9 tests) 9752ms
+ ✓ test/bridge-auth.spec.ts (15 tests) 2535ms
+ ✓ test/job-language-routing.spec.ts (16 tests) 4346ms
+ ✓ test/contest-problem-stats.spec.ts (5 tests) 3713ms
+ ✓ test/contest-stats-races.spec.ts (2 tests) 4588ms
+ ✓ test/language-mapping.spec.ts (6 tests) 343ms
+ ✓ test/judge-disconnect.spec.ts (2 tests) 5181ms
+ ✓ test/judge-affinity.spec.ts (7 tests) 2642ms
+ ✓ test/worker-language.spec.ts (8 tests) 9564ms
+ ✓ test/batch-points.spec.ts (5 tests) 807ms
+ ✓ test/job-store.spec.ts (11 tests) 4214ms
+ ✓ test/worker-pool.spec.ts (3 tests) 1045ms
+ ✓ test/pipeline-robustness.spec.ts (4 tests) 4023ms
+ ✓ test/job-store.concurrency.spec.ts (2 tests) 3639ms
+ ✓ test/agent-client.spec.ts (3 tests) 29ms
+ ✓ test/config.spec.ts (6 tests) 9ms
+
+ Test Files  19 passed (19)
+      Tests  157 passed (157)
+   Start at  17:57:31
+   Duration  83.27s (transform 347ms, setup 0ms, collect 8.20s, tests 69.97s, environment 4ms, prepare 1.03s)
+```
+
+Only `apps/judged/src` and `apps/judged/test` were touched — no `scripts/`, no
+`Dockerfile`, no workspace `package.json`, and no new workspace dependency — so
+the repo-wide guards in `apps/api/test` are outside this diff's blast radius.
+
 ## Found and did not fix
 
 - **The discard guard is `held.attempt !== entry.job.attempt`, without also
@@ -363,6 +583,20 @@ pre-existing test changed state.
   previous attempt has been cancelled; if that ever changes, this is where it
   breaks.
 
+- **A `dispatch` that supersedes a PARKED earlier attempt never tells it to
+  give up.** Found while tracing F1, adjacent to it, and deliberately not
+  fixed here. `dispatch` overwrites `live[jobId]` with the new attempt's
+  entry; the earlier attempt's entry is still parked in `acquireConnection`
+  holding `cancelled === false`. When `cancel(jobId, N)` arrives it looks up
+  `live[jobId]`, finds attempt N+1, fences on the attempt and returns — so
+  nothing ever sets `E(N).cancelled`, and when a connection frees up, attempt
+  N wakes and puts its `submission-request` on the wire for a job that has
+  already moved on. `prior.cancelled = true` in `dispatch` before `live.set`
+  would close it, but that is a behaviour change needing its own spec and its
+  own red run, and back-pressure (`tryAcquireSlot`) means dispatch does not
+  actually park on the shipped topology, so the likelihood is low. Worth a
+  follow-up brief rather than a silent edit here.
+
 - **No `graphify update .` was run.** `graphify-out/` does not exist in this
   worktree, so there was no graph to keep current.
 
@@ -374,7 +608,13 @@ pre-existing test changed state.
 abde8bc docs(b36): the report — red twice, green, and the suite this sandbox cannot run
 5aba7e5 test(judged): pin the one-judge park/wake, and correct D205's D100 reference
 22ea951 docs(b36): the report's commit list names the sha it was missing
+81b1245 docs(b36): the report reads as written once, not revised in place
+0a13325 fix(judged): retire the live entry by identity, and never leave a busy judge idle
+9fef2a7 docs(decisions): D205 gains a fix-round-1 amendment, and stops overclaiming
 ```
+
+`0a13325` onward are fix round 1. `81b1245` is the end of round 0 and is the
+baseline the round-1 specs were shown red against.
 
 `abde8bc` is the draft written while the host had no container runtime, and
 its title describes a report that no longer exists: it claimed
