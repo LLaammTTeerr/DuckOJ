@@ -53,7 +53,27 @@ export const orgMembers = pgTable(
     role: orgRole('role').notNull().default('member'),
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.orgId, t.userId] })],
+  (t) => [
+    primaryKey({ columns: [t.orgId, t.userId] }),
+    /**
+     * "Does this person belong to any school?" — the question D197's
+     * `affiliated` rung asks, and the one the primary key cannot answer.
+     *
+     * The PK leads on `org_id`, so a filter on `user_id` alone is a seq scan
+     * over the whole table: 122 rows on the rehearsal host (0.034 ms,
+     * measured) and one row per pupil per school on a province's, growing
+     * with every import. `nameAudience` asks it once per read for a
+     * signed-in caller who is not already authority — which on a contest day
+     * is every profile a pupil opens.
+     *
+     * `roleIn` in `org.access.ts` has always had the same shape (it selects a
+     * user's memberships and filters), so this index pays for a path that
+     * predates D197 as well as the one that created it. It is a plain b-tree
+     * on one column: the answer is `LIMIT 1`, and an index-only scan on a
+     * user with no membership touches no heap page at all.
+     */
+    index('org_members_user_id_idx').on(t.userId),
+  ],
 );
 
 export const orgJoinRequests = pgTable(
