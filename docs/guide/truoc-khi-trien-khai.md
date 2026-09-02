@@ -24,7 +24,7 @@ lộ**. Chúng đã đi qua nhật ký, ảnh chụp màn hình và báo cáo.
 | -------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POSTGRES_PASSWORD`  | `.env`, và trong `DATABASE_URL` của `api`, `judged`, `migrate` | Đổi mật khẩu trong Postgres (`ALTER ROLE duckoj PASSWORD …`), sửa `.env`, rồi `scripts/compose-up.sh`                                                           |
 | `TOTP_ENC_KEY`       | `.env`                                                         | **Không xoay được sau khi đã có người bật 2FA** — khoá này giải mã bí mật TOTP đang lưu. Sinh khoá mới **trước** khi có người dùng thật: `openssl rand -hex 32` |
-| `JUDGE_TOKEN`        | `.env`, và bản băm trong bảng `judge_nodes`                    | `corepack pnpm judge:node revoke judge-1` rồi `add judge-1`; lệnh `add` in token **một lần duy nhất**, dán vào `.env`, dựng lại `judge`                         |
+| `JUDGE_TOKEN`        | `.env`, và bản băm trong bảng `judge_nodes`                    | `corepack pnpm judge:node revoke judge-1` rồi `add` dưới một **tên mới** (`judge-1a`): `add` **từ chối một tên đã có**, kể cả tên vừa thu hồi. `add` in token **một lần duy nhất** — dán vào `.env`, dựng lại `judge`                     |
 | Mật khẩu `duckadmin` | `.secrets/duckadmin.txt`                                       | Xoá tài khoản diễn tập ở bước 4, hoặc đổi mật khẩu rồi **xoá tệp**                                                                                              |
 
 `TOTP_ENC_KEY` là bước duy nhất **không quay lui được**: hãy làm nó trước
@@ -35,18 +35,27 @@ trị cũ, và cả stack vẫn `healthy` sau `scripts/compose-up.sh`.
 
 ## 2. Trỏ thư điện tử vào máy chủ thư thật
 
-Không có `SMTP_HOST`, hệ thống **ghi thư ra nhật ký thay vì gửi** (D1). Nó
-không báo lỗi. Người quên mật khẩu sẽ không bao giờ nhận được gì.
+Không có `SMTP_HOST`, hệ thống **ghi thư ra nhật ký thay vì gửi** (D1) —
+nhưng nó **không im lặng** về việc đó (D155, F-40): API cảnh báo lúc khởi
+động, `GET /readyz` trả `"mail": "log"`, bảng **Thư điện tử** trên trang
+`/admin` ghi *chưa cấu hình*, và trên `NODE_ENV=production` một yêu cầu đặt
+lại mật khẩu bị **từ chối 503 `mail_unavailable`** thay vì báo với giáo viên
+rằng thư đã được gửi. Người quên mật khẩu vẫn không nhận được gì — chỉ là hệ
+thống nói ra điều đó.
 
-`docker-compose.yml` hiện **không truyền `SMTP_*` vào dịch vụ `api`** — phải
-thêm vào khối `environment:` của `api`: `SMTP_HOST`, `SMTP_PORT` (mặc định
-587), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SECURE`, và `MAIL_FROM` bằng một địa
-chỉ tên miền của tỉnh (mặc định `no-reply@duckoj.local` sẽ bị chặn).
+Từ F-40, `docker-compose.yml` **đã truyền cả sáu biến** `SMTP_HOST`,
+`SMTP_PORT` (mặc định 587), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SECURE` và
+`MAIL_FROM` vào dịch vụ `api`, mỗi biến mặc định **rỗng**. Không phải sửa
+`docker-compose.yml` nữa: chỉ điền giá trị vào `.env`, và đặt `MAIL_FROM`
+bằng một địa chỉ tên miền của tỉnh (mặc định `no-reply@duckoj.local` sẽ bị
+chặn).
 
-**Xong khi:** một tài khoản thử đặt lại mật khẩu và thư về tới hộp thư thật,
-**không** nằm trong thư mục rác.
+**Xong khi:** bảng **Thư điện tử** trên `/admin` ghi *SMTP* chứ không phải
+*chưa cấu hình*, nút **Gửi thư kiểm tra** ở ngay dưới đó gửi được, và một tài
+khoản thử đặt lại mật khẩu thấy thư về tới hộp thư thật, **không** nằm trong
+thư mục rác.
 
-## 3. Đặt tên miền, và bỏ `localhost` khỏi danh sách nguồn
+## 3. Đặt tên miền, các nguồn, và hai công tắc chính sách
 
 - `SITE_ADDRESS` — tên miền Caddy dùng để xin chứng chỉ TLS.
 - `PUBLIC_ORIGIN` — nguồn hệ thống tự nhận, dùng trong liên kết thư và kiểm
@@ -55,9 +64,40 @@ chỉ tên miền của tỉnh (mặc định `no-reply@duckoj.local` sẽ bị 
   `localhost` để Playwright mở `/ws` được (D70); để nguyên là mở một lỗ hổng
   nguồn cho trình duyệt bất kỳ trên máy chủ.
 
+**Hai công tắc quyết định tỉnh công bố gì và ai được vào.** Cả hai được
+`docker-compose.yml` truyền vào `api` **không điều kiện** và mặc định **rỗng**;
+rỗng nghĩa là nấc bảo vệ, và nấc đó nằm trong mã nguồn chứ không nằm trong
+`.env`. **Không đặt gì cũng là một quyết định** — hãy quyết định có ý thức.
+
+- `NAME_DISCLOSURE` (D197) — ai được xem **tên hiển thị thật**. Trên máy chủ
+  của một tỉnh, tên hiển thị rất thường là họ tên đầy đủ của một đứa trẻ mười
+  hai tuổi, vì danh sách lấy từ bảng tính của trường (D61).
+  - `affiliated` — **mặc định**, nấc bảo vệ. Tên thật chỉ đến người có tư
+    cách: quản trị viên, người ra đề, người đang giữ một vai trò trong một tổ
+    chức bất kỳ, và chính chủ tài khoản. Người lạ và tài khoản vừa lập thấy
+    **tên đăng nhập** ở chỗ tên hiển thị. Không có gì bị xoá trắng.
+  - `authenticated` — tên thật cho **mọi người đã đăng nhập**. Giá phải trả:
+    ai lập được tài khoản là lấy được cả danh sách tên.
+  - `public` — tên thật cho **cả người lạ chưa đăng nhập**. Đây là hành vi
+    trước D197 và chỉ đúng cho một judge công cộng của người lớn.
+- `REGISTRATION` (D200) — ai được **tạo tài khoản**.
+  - `closed` — **mặc định**. `POST /auth/register` trả 403 với mọi người trừ
+    quản trị viên toàn hệ thống; trang `/register` nói thẳng lý do thay vì để
+    người ta điền năm ô rồi gặp 403. Giá phải trả, nói thẳng: trường muốn học
+    sinh tự ghi danh thì phải **nhập danh sách** thay vào đó (`corepack pnpm
+    org:import`, D61) — chưa có nấc "mã mời".
+  - `open` — ai cũng đăng ký được, có đo tần suất (D26). Đây là hành vi trước
+    D200 và là nấc bạn **chủ động chọn**.
+
+Đổi `NAME_DISCLOSURE` chỉ đổi thứ **được công bố**: không tên nào bị sửa,
+không có migration, đặt lại là hành vi cũ trở về ngay.
+
 **Xong khi:** mở trang bằng tên miền thật thấy khoá TLS, gửi được một bài và
-thấy kết quả chạy về **không cần tải lại trang** (đường `/ws` sống), và
-`grep WS_EXTRA_ORIGINS .env` cho một dòng rỗng.
+thấy kết quả chạy về **không cần tải lại trang** (đường `/ws` sống),
+`grep WS_EXTRA_ORIGINS .env` cho một dòng rỗng, và bảng **Vận hành** trên
+`/admin` — mục *Cấu hình đang chạy* — hiện đúng hai nấc bạn định đặt. Bảng đó
+đọc giá trị **tiến trình đang chạy** thật sự nhận được, nên nó là bằng chứng
+duy nhất rằng giá trị trong `.env` đã tới nơi (bài học của F-40).
 
 ## 4. Dọn dữ liệu diễn tập
 
@@ -176,10 +216,13 @@ through logs, screenshots and reports.
 - **`TOTP_ENC_KEY`** — `openssl rand -hex 32`. This one **cannot be rotated
   once anybody has enrolled in two-factor**: the key decrypts the stored TOTP
   secrets. Do it first, while no real enrolment exists.
-- **`JUDGE_TOKEN`** — `corepack pnpm judge:node revoke judge-1` then
-  `add judge-1`; `add` prints the new token **once**. Paste it into `.env` and
-  rebuild the `judge` service. The token reaches three consumers that must all
-  agree — the comment above it in `.env` names them.
+- **`JUDGE_TOKEN`** — `corepack pnpm judge:node revoke judge-1`, then `add`
+  under a **new name** (`judge-1a`). `add` **refuses a name that already
+  exists**, revoked or not: `revoke` burns the token hash and keeps the row, so
+  the old name's grading history stays addressable and cannot be reused. `add`
+  prints the new token **once**. Paste it into `.env` and rebuild the `judge`
+  service. The token reaches three consumers that must all agree — the comment
+  above it in `.env` names them.
 - **`.secrets/duckadmin.txt`** — the rehearsal admin's password. Step 4
   deletes that account, or change the password; either way **delete the file**.
 
@@ -188,18 +231,25 @@ and the stack is `healthy` again.
 
 ### 2. Point SMTP at a real relay
 
-Without `SMTP_HOST` the API **logs mail instead of sending it** (D1), silently.
-A pupil who forgets their password never hears anything.
+Without `SMTP_HOST` the API **logs mail instead of sending it** (D1) — but it
+is not silent about it (D155, F-40): it warns at boot, `GET /readyz` answers
+`"mail": "log"`, the **Mail** panel on `/admin` reads *not configured*, and
+under `NODE_ENV=production` a password-reset request is **refused 503
+`mail_unavailable`** rather than telling a teacher a message was sent. A pupil
+who forgets their password still hears nothing back — the server just says so.
 
-`docker-compose.yml` does **not** currently pass `SMTP_*` into the `api`
-service — add `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_USER`,
-`SMTP_PASSWORD`, `SMTP_SECURE` and `MAIL_FROM` to its `environment:` block.
-The default `MAIL_FROM` is `no-reply@duckoj.local`, which real relays reject.
+Since F-40 `docker-compose.yml` **does** pass all six — `SMTP_HOST`,
+`SMTP_PORT` (default 587), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SECURE` and
+`MAIL_FROM` — into the `api` service, each defaulting to empty. There is
+nothing to edit in `docker-compose.yml`: fill the values in `.env`, and set
+`MAIL_FROM` to an address at the province's own domain (the default
+`no-reply@duckoj.local` is what real relays reject).
 
-**Done when:** a test account's password reset arrives in a real inbox, not in
-the spam folder.
+**Done when:** the **Mail** panel on `/admin` reads *SMTP* rather than *not
+configured*, the **Send a test message** button beneath it succeeds, and a test
+account's password reset arrives in a real inbox, not in the spam folder.
 
-### 3. Set the origins, and clear localhost out of them
+### 3. Set the origins and the two policy switches
 
 `SITE_ADDRESS` is what Caddy gets a certificate for; `PUBLIC_ORIGIN` is the
 origin the API claims, used in mail links and the CSRF check (D82);
@@ -207,8 +257,38 @@ origin the API claims, used in mail links and the CSRF check (D82);
 `localhost` so Playwright can open `/ws` (D70) — leaving it set keeps an origin
 hole open for any browser on the server.
 
+**Two switches decide what this province publishes and who may come in.** Both
+are passed into `api` unconditionally and default to **empty**, and empty means
+the protective rung, whose value lives in the schema rather than in `.env`.
+**Setting nothing is itself a decision** — make it deliberately.
+
+- **`NAME_DISCLOSURE`** (D197) — who may read a **real display name**. On a
+  provincial host that is very often a twelve-year-old's full name, because the
+  roster came out of a school's spreadsheet (D61).
+  `affiliated` is the **default**: real names go to a reader with standing (an
+  admin, a setter, anyone holding a role in any organization, and always the
+  account itself), while a stranger and a minutes-old account see the
+  **username** in the display-name field — nothing is blanked.
+  `authenticated` gives real names to any signed-in caller, which costs exactly
+  what making an account costs. `public` gives them to anonymous strangers:
+  DuckOJ's pre-D197 behaviour, right only for an adult public judge.
+- **`REGISTRATION`** (D200) — who may **create an account**. `closed` is the
+  **default**: `POST /auth/register` answers 403 to everyone but a global
+  admin, and `/register` says so instead of letting someone fill five fields
+  first. Stated plainly, `closed` costs a school that wants pupils to enrol
+  themselves — it has to import them instead (`corepack pnpm org:import`, D61);
+  there is no invitation-code rung. `open` is the pre-D200 behaviour, metered
+  by D26, and it is the rung you opt into.
+
+Changing `NAME_DISCLOSURE` changes only what is **disclosed**: no name is
+edited, nothing is migrated, and setting it back restores the old behaviour at
+once.
+
 **Done when:** the real hostname serves TLS, a submitted solution shows its
-verdict **without a page reload**, and `WS_EXTRA_ORIGINS` is blank.
+verdict **without a page reload**, `WS_EXTRA_ORIGINS` is blank, and the
+**Operations** panel on `/admin` — *Runtime configuration* — shows the two rungs
+you meant to set. That panel reads what the running process actually got, which
+is the only proof a value in `.env` reached it (F-40's lesson).
 
 ### 4. Run the cleanup
 
@@ -276,7 +356,11 @@ judge, not from a cache.
 In this order, over the **real hostname**, on a **phone**, not on the server:
 
 1. Front page — a round happening now appears at the top (D151).
-2. Register a new account → the confirmation mail actually arrives (§2).
+2. Register a new account → the confirmation mail actually arrives (§2). If
+   you left `REGISTRATION` empty (the default, D200) this step **must** answer
+   403 and `/register` must say why — that is the correct result. Make the test
+   account with `corepack pnpm org:import` or as the administrator instead, and
+   carry on to step 3 with it.
 3. Submit → the verdict arrives on its own (§3); if the live channel is
    blocked, the page falls back to polling every four seconds and **says so**
    (D152).
