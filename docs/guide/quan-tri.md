@@ -44,7 +44,8 @@ bước**, **Kỳ thi tính rating**.
 ## 3. Bảng vận hành
 
 Phần **Vận hành** là **ảnh chụp trực tiếp, làm mới mỗi 15 giây, không lưu
-đệm**, kèm giờ cập nhật. Sáu mảng:
+đệm**, kèm giờ cập nhật. Tám mảng — *Việc kẹt trong hàng đợi* chỉ hiện khi có
+việc kẹt:
 
 **Hàng đợi chấm** — *Đang chờ*, *Đang chấm*, *Lượt thuê hết hạn*, *Thất bại*,
 *Chờ lâu nhất*. Nút **Đưa lại vào hàng đợi** chuyển mọi công việc có lượt thuê
@@ -67,9 +68,38 @@ bao nhiêu trong một giờ, bao nhiêu lỗi hệ thống trong một giờ. H
 ký, hỏi đáp… bị chặn, theo từng mục đích. Một cột tăng vọt là dấu hiệu đáng
 xem: có thể là dò mật khẩu, cũng có thể là cả phòng thi cùng bấm.
 
+**Việc kẹt trong hàng đợi** — việc vẫn đang chờ mà **không máy chấm nào đang
+kết nối chạy được** (thường là thiếu ngôn ngữ), kèm lý do nguyên văn của trình
+điều khiển. Vẫn nằm trong số *Đang chờ* ở trên, và tự chạy lại ngay khi có máy
+chấm phù hợp nối vào. Bảng chỉ xuất hiện khi có việc như vậy.
+
 **Cấu hình đang chạy** — Cơ sở dữ liệu và Redis (*hoạt động* / *không kết nối
-được*), số **Tiến trình API** và **Số luồng chấm**. *Không được báo* nghĩa là
-tiến trình API không được truyền biến đó, không phải bằng 1.
+được*), số **Tiến trình API**, **Số luồng chấm**, và **hai công tắc chính
+sách**. *Không được báo* nghĩa là tiến trình API không được truyền biến đó,
+không phải bằng 1.
+
+- **Công bố tên thật** (`NAME_DISCLOSURE`, D197) — ai được xem tên hiển thị
+  thật. `affiliated` là **mặc định** và là nấc bảo vệ: người lạ và tài khoản
+  vừa lập thấy **tên đăng nhập** ở chỗ tên hiển thị, còn tên thật chỉ đến
+  quản trị viên, người ra đề, người đang giữ vai trò trong một tổ chức, và
+  chính chủ tài khoản. `authenticated` mở tên thật cho mọi người đã đăng
+  nhập; `public` mở cho cả người lạ — đó là hành vi trước D197.
+- **Đăng ký tài khoản** (`REGISTRATION`, D200) — ai được tạo tài khoản.
+  `closed` là **mặc định**: `POST /auth/register` trả 403 với mọi người trừ
+  quản trị viên toàn hệ thống, và tài khoản đến bằng `corepack pnpm
+  org:import` (D61) hoặc `bootstrap:admin`. Giá phải trả: trường muốn học
+  sinh tự ghi danh thì phải nhập danh sách thay vào đó. `open` cho ai cũng
+  đăng ký được, có đo tần suất (D26).
+
+Cả hai đọc từ `.env`, để trống nghĩa là nấc mặc định ở trên, và **bảng này là
+chỗ duy nhất chứng minh giá trị bạn đặt đã tới được tiến trình**. Bậc thang
+đầy đủ và cái giá của từng nấc nằm trong `.env.example` và
+`docs/guide/truoc-khi-trien-khai.md` mục 3.
+
+**Thư điện tử** — kênh gửi (*SMTP* / *chưa cấu hình*), máy chủ, cổng, TLS,
+đăng nhập và người gửi. Đây chỉ là **hiển thị cấu hình**, trang không tự kết
+nối; ngay dưới có ô **Gửi thư kiểm tra** để thử thật một địa chỉ. Chưa khai
+`SMTP_HOST` thì bảng nói thẳng rằng máy chủ này không gửi được thư nào.
 
 ## 4. Phân quyền
 
@@ -209,8 +239,11 @@ Hai trần khác nhau, rất hay bị nhầm:
 
 Hệ quả: **nâng `JUDGED_CONCURRENCY` quá số máy chấm không đem lại gì** — các
 vòng thừa không bao giờ giành được chỗ. Nâng cùng lúc với việc thêm máy chấm.
-Và **không có máy chấm nào kết nối thì không việc nào được nhận**: bài nộp nằm
-ở *Đang chờ*, hết 300 giây thì hoá `IE`.
+Và **không có máy chấm nào kết nối thì không việc nào được nhận**: bài nộp
+nằm ở *Đang chờ* và **nằm mãi ở đó**. Không có bộ quét nào cho một việc chưa
+ai nhận hết hạn — 300 giây là trần **của một lần chấm đã bắt đầu**
+(`MAX_GRADING_MS`, và cao hơn với bộ test lớn), nên đừng chờ hàng đợi tự hoá
+`IE` để biết là có sự cố: nó sẽ không hoá.
 
 Hàng đợi không nhúc nhích, theo thứ tự này:
 
@@ -283,8 +316,12 @@ dịch vụ đó.)
 
 ## 10. Những gì đơn vị vận hành phải tự lo
 
-1. **SMTP** (`SMTP_*` trong `.env`) — thiếu nó thì thư xác nhận địa chỉ và thư
-   đặt lại mật khẩu **âm thầm không được gửi**, không báo lỗi ở đâu cả.
+1. **SMTP** (`SMTP_*` trong `.env`) — thiếu nó thì thư xác nhận địa chỉ và
+   thư đặt lại mật khẩu **không được gửi**, chỉ ghi ra nhật ký (D1). Hệ thống
+   **không im lặng** về việc đó: API cảnh báo lúc khởi động, `GET /readyz` trả
+   `"mail": "log"`, bảng **Thư điện tử** ở mục 3 ghi *chưa cấu hình*, và trên
+   `NODE_ENV=production` một yêu cầu đặt lại mật khẩu bị **từ chối 503
+   `mail_unavailable`** thay vì báo rằng thư đã gửi (D155).
 2. **Tên miền công khai và TLS** (`SITE_ADDRESS`, `PUBLIC_ORIGIN`).
 3. **Bản sao lưu để ở nơi khác** — xem mục 6.
 4. **Máy chấm thứ hai** trước kỳ thi lớn — xem mục 8.
@@ -336,7 +373,8 @@ two-factor**, **Rated contests**.
 ### 3. The operations dashboard
 
 One **live snapshot, refreshed every 15 seconds, nothing cached**, with the
-time of the last update. Six panels:
+time of the last update. Eight panels — *Blocked jobs* appears only when there
+are any:
 
 **Grading queue** — queued, running, expired leases, failed, oldest wait. The
 **Requeue** button moves every job whose lease has expired back to queued **and
@@ -357,9 +395,39 @@ listed here.
 **Rate-limit refusals (1 hour)**, by purpose. A spike is worth a look: it is
 either someone probing passwords or a whole exam room pressing at once.
 
+**Blocked jobs** — work still queued that **no connected judge can run**
+(usually a missing language), with the driver's own reason printed verbatim.
+It is still inside *Queued* above and runs itself the moment a suitable judge
+connects. The table is absent when nothing is blocked.
+
 **Runtime configuration** — database and Redis reachability, the API worker
-count and the judging concurrency. *Not reported* means the API process was
-never told, which is not the same as 1.
+count, the judging concurrency and **the two policy switches**. *Not reported*
+means the API process was never told, which is not the same as 1.
+
+- **`NAME_DISCLOSURE`** (D197) — who may read a real display name.
+  `affiliated` is the **default** and the protective rung: a stranger and a
+  minutes-old account see the **username** in the display-name field, while
+  real names go to an admin, a setter, anyone holding a role in any
+  organization, and always the account itself. `authenticated` opens them to
+  every signed-in caller; `public` opens them to anonymous strangers, which is
+  the pre-D197 behaviour.
+- **`REGISTRATION`** (D200) — who may create an account. `closed` is the
+  **default**: `POST /auth/register` answers 403 to everyone but a global
+  admin, and accounts arrive through `corepack pnpm org:import` (D61) or
+  `bootstrap:admin`. What it costs: a school that wants pupils to enrol
+  themselves has to import them instead. `open` lets anyone sign up, metered
+  by D26.
+
+Both are read from `.env`, empty means the default rung above, and **this
+panel is the only proof that the value you set reached the process**. The full
+ladder and what each rung costs are in `.env.example` and
+`docs/guide/truoc-khi-trien-khai.md` §3.
+
+**Mail** — transport (*SMTP* / *not configured*), host, port, TLS,
+authentication and the From address. It reports configuration only and never
+dials out; a **Send a test message** box beneath it does the real thing
+against one address. With no `SMTP_HOST` the panel says outright that this
+server cannot send any mail at all.
 
 ### 4. Granting roles
 
@@ -448,7 +516,10 @@ containers** is the real ceiling: a DMOJ judge grades **one submission per
 connection**, and there is one container. So **raising `JUDGED_CONCURRENCY`
 past the number of judges does nothing** — the extra loops never win a slot —
 and **with no judge connected nothing is claimed at all**: submissions sit
-queued and time out as `IE` after 300 s.
+queued and **stay** queued. Nothing sweeps an unclaimed job — the 300 s is the
+ceiling on a grade that has already **started** (`MAX_GRADING_MS`, and higher
+for a large dataset) — so do not wait for the queue to turn `IE` as your signal
+that something is wrong. It will not.
 
 When the queue stalls, in order: the **Judges** panel (anything *online*?);
 `podman logs duckoj_judged_1` (any handshake?); expired leases > 0 → press
@@ -517,7 +588,11 @@ purpose; use `SCALE=1 scripts/compose-up.sh` for it.)
 ### 10. What the operator must supply
 
 1. **SMTP** (`SMTP_*` in `.env`) — without it, verification and password-reset
-   mail is **silently not sent**, with no error anywhere.
+   mail is **not sent**, only logged (D1). It is not silent about it: the API
+   warns at boot, `GET /readyz` answers `"mail": "log"`, the **Mail** panel in
+   §3 reads *not configured*, and under `NODE_ENV=production` a password-reset
+   request is **refused 503 `mail_unavailable`** rather than reporting a
+   message that was never sent (D155).
 2. **A public hostname and TLS** (`SITE_ADDRESS`, `PUBLIC_ORIGIN`).
 3. **Off-host copies of the backups** — see §6.
 4. **A second judge container** before a large contest — see §8.
