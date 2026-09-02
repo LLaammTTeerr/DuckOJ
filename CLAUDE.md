@@ -31,3 +31,14 @@ open — route markers, migration journals, image manifests, CSP hashes.
 
 Bare `pnpm` is not on PATH; always `corepack pnpm`. `gh` is not installed —
 poll CI with `curl https://api.github.com/repos/LLaammTTeerr/DuckOJ/actions/runs?head_sha=<sha>`.
+
+## A deploy that dies with exit 137 and no output
+
+Check `uptime -s` and `journalctl -b -1 -n 25 --no-pager` **before** blaming OOM
+or thermals. On 2026-09-02 a `scripts/deploy.sh api judged` returned 137 silently;
+the real cause was a clean `systemd-poweroff` at 16:31 (boot 16:44) — the host was
+shut down mid-build. Memory was never tight (14 GB free) and the die was at 51 °C.
+Re-running the same deploy afterwards succeeded unchanged.
+
+Symptoms that point at a reboot rather than a kill: every container reports the
+same short uptime including postgres, and `tailscaled`/`redis-server` etimes match it.
