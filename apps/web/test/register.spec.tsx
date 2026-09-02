@@ -18,7 +18,21 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const post = vi.fn();
-vi.mock('../src/api.js', () => ({ api: { POST: (...a: unknown[]) => post(...a) } }));
+/**
+ * D200 — the page asks whether this deployment takes sign-ups before it draws
+ * the form, so every test in this file needs an answer to that. `open` is the
+ * default here because that is what the rest of this file is ABOUT; the
+ * `closed` rung has its own describe at the bottom.
+ */
+type GetResult = { data?: { registration: string }; error?: { code: string; detail: string } };
+const get = vi.fn((..._args: unknown[]): Promise<GetResult> =>
+  Promise.resolve({ data: { registration: 'open' } }),
+);
+vi.mock('../src/api.js', () => ({
+  api: { POST: (...a: unknown[]) => post(...a), GET: (...a: unknown[]) => get(...a) },
+  apiError: (result: { error?: { detail?: string } }, fallback: string) =>
+    new Error(result.error?.detail ?? fallback),
+}));
 
 const navigate = vi.fn();
 vi.mock('@tanstack/react-router', () => ({
@@ -63,6 +77,8 @@ function submit(): Promise<void> {
 afterEach(() => {
   post.mockReset();
   navigate.mockReset();
+  get.mockReset();
+  get.mockImplementation(() => Promise.resolve({ data: { registration: 'open' } }));
 });
 
 describe('RegisterPage validation', () => {
@@ -347,5 +363,50 @@ describe('RegisterPage on a server refusal', () => {
     // success-time "you are signed in already" note would have said right
     // beside this alert.
     expect(screen.queryByRole('status')).toBeNull();
+  });
+});
+
+/**
+ * D200 — a province's judge does not take sign-ups, and the visitor is told
+ * so BEFORE they type five fields, in the language the app is in (D18), with
+ * the next move on the page (D145).
+ */
+describe('RegisterPage on a judge that does not take sign-ups (D200)', () => {
+  it('replaces the form with the reason and two ways forward', async () => {
+    get.mockResolvedValue({ data: { registration: 'closed' } });
+    wrap();
+
+    // `role="status"`, not `role="alert"`: nothing failed and the visitor did
+    // nothing wrong. It is the state of the site.
+    expect(await screen.findByRole('status')).toHaveTextContent(/không nhận đăng ký/);
+    // The next move — ask the school — and the one a locked-out pupil most
+    // often mistakes for "I need to sign up again".
+    expect(screen.getByText(/hỏi thầy cô/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Quên mật khẩu/i })).toBeInTheDocument();
+    // And no form at all: a sign-up form that 403s after five fields is worse
+    // than no form.
+    expect(screen.queryByRole('button', { name: /^Đăng ký$/ })).toBeNull();
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('flips to the notice when the rung changed under an open tab', async () => {
+    // The race: the page was drawn while the query was still in flight, or the
+    // deployment was switched to `closed` while somebody had the form open.
+    // The right answer is not an error message — it is the page they should
+    // have seen.
+    get.mockResolvedValue({ data: { registration: 'open' } });
+    post.mockResolvedValue({ error: { code: 'registration_closed', detail: 'No sign-ups.' } });
+    wrap();
+    await fillValid();
+    await submit();
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/không nhận đăng ký/);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('says so, rather than swallowing it, when the question cannot be asked', async () => {
+    get.mockResolvedValue({ error: { code: 'boom', detail: 'Server exploded.' } });
+    wrap();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Không kiểm tra được/);
   });
 });

@@ -147,6 +147,9 @@ export const vi = {
   'auth.haveAccount': 'Đã có tài khoản? Đăng nhập',
   'auth.displayName': 'Tên hiển thị',
   'auth.confirmPassword': 'Nhập lại mật khẩu',
+  'auth.registrationClosed': 'Trang này không nhận đăng ký. Tài khoản ở đây do nhà trường tạo.',
+  'auth.registrationClosedNext': 'Hãy hỏi thầy cô hoặc người quản trị hệ thống để được cấp tài khoản. Nếu bạn đã có tài khoản nhưng không đăng nhập được, hãy đặt lại mật khẩu.',
+  'auth.registrationStateFailed': 'Không kiểm tra được trang có nhận đăng ký hay không.',
   'auth.registerFailed': 'Không tạo được tài khoản.',
   'auth.verificationSent':
     'Một liên kết xác nhận sẽ được gửi tới địa chỉ này. Không có gì ở đây phải chờ nó — đăng ký xong là bạn đã đăng nhập. Nếu địa chỉ này đã có tài khoản thì sẽ không có tài khoản mới nào được tạo và bước đăng nhập ngay sau đó sẽ không thành công: hãy dùng “Quên mật khẩu?”.',

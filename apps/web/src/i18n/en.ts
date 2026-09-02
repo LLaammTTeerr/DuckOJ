@@ -161,6 +161,9 @@ export const en = {
   'auth.haveAccount': 'Already have an account? Sign in',
   'auth.displayName': 'Display name',
   'auth.confirmPassword': 'Confirm password',
+  'auth.registrationClosed': 'This site does not take sign-ups. Accounts here are created by the school.',
+  'auth.registrationClosedNext': 'Ask your teacher or the person who runs this judge for an account. If you already have one but cannot get in, reset your password.',
+  'auth.registrationStateFailed': 'Could not check whether sign-ups are open.',
   'auth.registerFailed': 'Could not create the account.',
   // D26. The second sentence is the honest cost of answering a taken address
   // as a success: this page can no longer tell the person their address is

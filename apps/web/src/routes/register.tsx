@@ -23,12 +23,39 @@
  * a property of the account being created.
  */
 import { useRef, useState, type FormEvent } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { api } from '../api.js';
+import { api, apiError } from '../api.js';
 import { dropDepartingViewerCache } from '../me.js';
 import { useT, type TFunction } from '../i18n/index.js';
 import { ErrorSummary, mapFieldErrors } from '../forms.js';
+import { LoadError } from '../states.js';
+
+/**
+ * D200 — whether this deployment takes sign-ups at all.
+ *
+ * Asked BEFORE the form is drawn, not inferred from a refusal afterwards. A
+ * sign-up form that 403s once five fields have been typed is worse than no
+ * form: the visitor has no idea whether they did something wrong, and the
+ * next thing they try is another spelling of their email. D145's rule is the
+ * one that applies — a failure is named by its status and offers the next
+ * move — and the next move here is "ask your school", which only this screen
+ * can say.
+ *
+ * `staleTime: Infinity` because the answer is an environment variable read at
+ * boot: it cannot change while this tab is open without the container being
+ * replaced, and re-asking on every focus would be a request per visit to a
+ * page that is already the quietest in the app.
+ */
+export const registrationQueryOptions = {
+  queryKey: ['registration'],
+  staleTime: Number.POSITIVE_INFINITY,
+  queryFn: async (): Promise<'open' | 'closed'> => {
+    const result = await api.GET('/auth/registration', {});
+    if (result.error) throw apiError(result, 'registration');
+    return result.data.registration;
+  },
+};
 
 /** The five inputs, keyed the way `fieldErrors` and the DOM ids are. */
 type Field = 'username' | 'email' | 'displayName' | 'password' | 'confirm';
@@ -202,6 +229,21 @@ export function RegisterPage() {
    */
   const [submitCount, setSubmitCount] = useState(0);
 
+  /**
+   * D200 — the rung, asked once, before the form is drawn.
+   *
+   * Not gated behind `isLoading` for the whole page: the answer is one field
+   * off a boot-time environment variable and comes back in a millisecond on
+   * the same origin, and a spinner over a sign-up form is a worse first
+   * impression than a form that appears a frame later. So the form renders on
+   * `open` and on "not answered yet" alike, and the notice replaces it the
+   * moment the server says `closed`. The endpoint being unreachable is
+   * `LoadError`'s case, and it is shown rather than swallowed — a visitor who
+   * fills in five fields against a dead API deserves better than a silent
+   * failure at the end of it (B-8's swallow, D145's rule).
+   */
+  const registration = useQuery(registrationQueryOptions);
+
   function set(field: Field): (value: string) => void {
     return (value: string) => {
       setValues((current) => ({ ...current, [field]: value }));
@@ -233,6 +275,17 @@ export function RegisterPage() {
           },
         });
         if (created.error) {
+          // D200 — the rung changed under this tab, or the query had not
+          // answered when the form was drawn. The right response is not an
+          // error message: it is the page this visitor should have seen.
+          // Writing the answer into the cache flips the render to the notice
+          // with the next move on it, which is the whole point of D145's rule
+          // — and it is also what a redeploy to `closed` looks like to
+          // somebody who had the form open.
+          if (created.error.code === 'registration_closed') {
+            client.setQueryData(registrationQueryOptions.queryKey, 'closed');
+            return;
+          }
           // D146 first: a 422 names the fields itself, and the server's own
           // attribution beats anything this page could infer from a code.
           const attributed = mapFieldErrors(created.error.fields, SERVER_FIELDS);
@@ -274,6 +327,51 @@ export function RegisterPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (registration.isError) {
+    return (
+      <section className="panel">
+        <h1>{t('auth.registerTitle')}</h1>
+        <LoadError
+          error={registration.error}
+          what={t('auth.registrationStateFailed')}
+          onRetry={() => void registration.refetch()}
+        />
+        <p className="muted">
+          <Link to="/">{t('auth.haveAccount')}</Link>
+        </p>
+      </section>
+    );
+  }
+
+  if (registration.data === 'closed') {
+    /**
+     * D200 + D145 — the refusal, said before it happens, with the next move.
+     *
+     * Three moves, in the order a real visitor needs them: this is a school
+     * judge and an account comes from the school; if you already have one,
+     * sign in; and if you have one but cannot get into it, reset the
+     * password — which is the case most likely to have been mistaken for
+     * "I must need to sign up again". D18: both catalogues, Vietnamese by
+     * default.
+     *
+     * `role="status"` rather than `role="alert"`: nothing has failed and the
+     * visitor did nothing wrong. It is the state of the site.
+     */
+    return (
+      <section className="panel">
+        <h1>{t('auth.registerTitle')}</h1>
+        <p role="status">{t('auth.registrationClosed')}</p>
+        <p className="muted">{t('auth.registrationClosedNext')}</p>
+        <p className="muted">
+          <Link to="/">{t('auth.haveAccount')}</Link>
+        </p>
+        <p className="muted">
+          <Link to="/forgot-password">{t('auth.forgotPassword')}</Link>
+        </p>
+      </section>
+    );
   }
 
   return (
