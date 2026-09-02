@@ -10467,3 +10467,352 @@ Cost if wrong: one spec file. Red before the change: adding a
 surface — reds it 1 of 5, naming the file, the function and the line.*
 
 **D199 is not used.**
+
+## D200 — A school judge decides who may sign up, and the default is that nobody may
+
+D197 chose `affiliated` over `authenticated` for a reason it stated plainly:
+
+> Registration is open — D26 **meters** it, it does not **gate** it — and B-35
+> took 482 of 482 accounts in 576 requests and 1.5 seconds from one ordinary
+> session. A default whose protection ends at "make an account" is
+> attribution, not protection.
+
+That reasoning is right, and it points at the thing underneath it. Checked
+against the live edge at `2c8617e` while F-56 ran:
+
+```
+POST /api/v1/auth/register     (no cookie, no token, no invitation)
+→ 201
+```
+
+**There was no registration policy in this system at all** — no setting in
+`apps/api/src/config`, nothing in `.env.example`, nothing in
+`docker-compose.yml`. Anyone on the internet could hold an account on a
+province's school judge: submit, consume judge time on a fleet sized for a
+province, and appear wherever accounts appear. They could not read children's
+names, which D197 saw to; that is a different property from not being there.
+
+A public judge wants open registration. **A school district almost certainly
+does not** — its pupils arrive by D61's bulk import and `org:import`, not by
+signing up.
+
+### The ruling
+
+**`REGISTRATION` — one switch, two rungs, read in exactly one place
+(`apps/api/src/authz/registration.policy.ts`), with the PROTECTIVE rung as the
+default.**
+
+| rung | anonymous | signed-in, `user` | `setter` | global `admin` |
+| --- | --- | --- | --- | --- |
+| **`closed` (default)** | **403** | **403** | **403** | 201 |
+| `open` | 201 | 201 | 201 | 201 |
+
+- **The default is reachable by doing nothing**, exactly as `NAME_DISCLOSURE`'s
+  is, and by the same machinery: `unsetWhenBlank`, a compose pass-through of
+  `${REGISTRATION:-}`, and a `.env.example` line that is present and empty.
+  Asserted three ways (absent, `''`, `'   '`), and a rung the enum does not
+  have is a refusal rather than a silent fallback. **The live `.env` sets
+  nothing**, so `closed` is what this province runs — from the next deploy,
+  which this slot did not perform. Until then the edge still answers 201.
+- **`registrationOf(undefined)` is `closed`**, on D80's and D197's precedent: a
+  service assembled by hand in a spec or a script must not get the permissive
+  rung by accident.
+- **The refusal is `403 registration_closed`, not `404`.** The project answers
+  404 for a *read you may not see*, because there the existence of the row is
+  the secret. Nothing is hidden here — whether a judge takes sign-ups is a
+  property of the deployment its own front page must state — and a 404 on
+  `POST /auth/register` would tell a visitor there is no registration endpoint,
+  which is false and sends them looking for another one.
+
+### Why two rungs and not three
+
+The brief offered a middle rung: invitation or org-code only. It was
+considered and **deliberately not built**, and the argument is about what a
+rung *is*.
+
+Every rung of `NAME_DISCLOSURE` is configuration: three values, one predicate,
+no new tables and no new screens. An `invite` rung is not that. It is a
+feature — a code to store on `organizations` (migration), a route to mint and
+rotate it, an owner-only authorization for that route, a redemption path that
+joins the new account to the right school in the same transaction, a
+revocation story, a contract field, a form field, and a screen that explains a
+wrong code. **A half-built invitation mechanism is worse for a province than
+none**, because it is the one an operator will trust.
+
+It also stays cheap to add: the switch is a closed enum rather than a boolean,
+so `invite` later is one enum member and one migration, with no contract break
+and no deployment re-reading its `.env`. A client that wants "is there a form"
+asks `=== 'open'` and is unaffected.
+
+**What `closed` costs, stated plainly rather than argued away.** A school that
+wants pupils to enrol themselves has to import them instead — a spreadsheet
+and one all-or-nothing call (D61) rather than a code on a whiteboard. That is
+a real loss for a small school with no roster to hand, and the honest answer
+today is `REGISTRATION=open` plus D26's meter, which is why that rung exists.
+
+| Alternative | Why not |
+| --- | --- |
+| **`open` as the default** (today) | It is the measured gap: an anonymous 201 on a province's judge, and B-35's 482 accounts in 1.5 seconds as the demonstration of what "metered" is worth as a gate. Kept as a rung, because a public practice judge is a real deployment. |
+| **An `invite` rung in this slot** | Above. Additive later at one enum member. |
+| **A deployment-wide `REGISTRATION_CODE`** — the cheap version of `invite` | Rejected outright. One secret shared by a whole province, revocable only by rotating it for everybody, unattributable to any teacher or school, and leaked by a single screenshot of a whiteboard. It would also be a *second* switch, which is the shape D198 exists to prevent. |
+| **Delete the endpoint** | It is the right endpoint for the deployment that wants it, and a route that exists on some hosts and not others is a fork of the contract rather than a policy. |
+| **Gate it behind a role only** (no rung at all) | That is `closed` with no way back for a public judge, and it would have made the e2e walks the argument for weakening it. |
+
+### The one caller who is not refused, and why it is not two
+
+**A global admin.** Minting an account is *speaking for the school*, which is
+D61's own test for who may run a roster import (owner or global admin, and
+deliberately not an organization `admin`); with no organization in the request
+there is no owner to be, so `admin` is the whole of it.
+
+**A `setter` is deliberately excluded.** D197 admits setters to `authority`
+because a fresh province has no organizations yet and a judge whose own staff
+cannot read a name until somebody creates a school cannot be set up. Who may
+create *people* is a different question, and a setter authors problems.
+
+Two consequences hang off `isTrustedRegistrar`, separately from "may they
+register at all":
+
+- **D26's meter is skipped.** What it bounds is the cost of an *anonymous*
+  argon2id hash, 30 per client IP per hour. An admin seating a late arrival is
+  not that caller — they already hold `org:import` and its two thousand rows —
+  and keying the meter on the admin's address would make a classroom's own NAT
+  refuse the operator.
+- **A taken address is answered honestly**, `409 email_taken` instead of D26's
+  fake 201, on the pre-check *and* on the racing INSERT so the two cannot
+  disagree. This narrows D26 in exactly one place and for exactly D61's reason
+  — the roster import names a taken address in its 422 on the same argument:
+  the caller is session-authenticated and authorized, so this is not the
+  anonymous oracle D26 closed, and an operator handed a phantom account with
+  no way to find out is the worse outcome.
+
+**What the bypass does NOT do, named so it does not read as an oversight**: an
+account created this way does not carry `mustChangePassword`. D61 sets it
+because a class's passwords were generated by the server and printed on one
+sheet of paper; here an admin chose the password and hands it over
+themselves, and a whole class goes through the import, which still sets it.
+
+### What this does to D26's oracle, which is the prize
+
+D26 has answered a fake `201` for a taken address since 29 August so that
+`POST /auth/register` cannot be used to test whether an account exists, and
+recorded honestly that the compromise is *narrowed, not closed*: after the
+fake 201 the account still does not exist, so a chained login or
+`GET /users/{username}` tells the two outcomes apart at one extra request
+each, and only the meter makes that expensive rather than free.
+
+Per rung:
+
+- **`closed`** — **the residual is gone, not narrowed.** The refusal is a
+  function of the rung and of who is asking, and of *nothing whatsoever about
+  the request body*. Every anonymous caller gets the identical 403 for every
+  address, including addresses that have never existed, and gets it **before
+  the meter and before the address is looked at**, so there is no timing
+  shadow either. That is D155's structural argument for its own 503, said
+  again on the other endpoint: what D26 forbids is a response that DIFFERS by
+  account, and this one differs by deployment. Since the live `.env` sets
+  nothing, this is the rung production reaches at the next deploy.
+- **`open`** — D26 stands exactly as written, fake 201 and all, and is
+  asserted to.
+- **a trusted registrar, on either rung** — told the truth, above.
+
+The ordering is not a comment. `registration-policy.spec.ts` pins it with a
+database handle and a rate limiter that throw on *any* property access
+(`mail-unavailable.spec.ts`'s shape), so the test cannot pass unless nothing
+else ran; and thirty-five refusals from one address leave **zero** rows in
+`rate_events`, so a stranger knocking cannot lock a school's NAT address out
+of a window it never consumed.
+
+### What a visitor is told
+
+A sign-up form that 403s once five fields have been typed is worse than no
+form: the visitor cannot tell whether they did something wrong, and the next
+thing they try is another spelling of their address. So:
+
+- **`GET /auth/registration` is `@Public()`** and carries the rung and nothing
+  else — no count, no roster, no address. Disclosing "this site does not take
+  sign-ups" *is* the message; it is not a leak.
+- **`/register` asks before it draws the form** and, on `closed`, renders the
+  reason and the next moves instead: ask the school for an account; sign in if
+  you already have one; reset your password — the case most often mistaken for
+  "I must need to sign up again". Both catalogues, Vietnamese by default
+  (D18), `role="status"` rather than `role="alert"` because nothing failed.
+- **The form still renders while the query is in flight.** The answer is one
+  field off a boot-time variable on the same origin; a spinner over a sign-up
+  form is a worse first impression than a form that appears a frame later. A
+  `registration_closed` at submit — the rung changed under an open tab —
+  writes `closed` into the cache and flips the page to the notice, which is
+  the page that visitor should have seen rather than an error message about
+  it. An unreachable endpoint is `LoadError`'s case and is shown (D145).
+- **The nav and sign-in links to `/register` are deliberately left alone.** A
+  link to a page that explains itself is honest; hiding it would need this
+  query in the shell nav on every page of the app, and a visitor who was given
+  the URL by an out-of-date printout would then land on a 404 instead of an
+  explanation.
+
+### The paths that must keep working, and how
+
+| Path | How it survives `closed` |
+| --- | --- |
+| **D61 bulk import / `org:import`** | Never touches this endpoint. It mints rows directly, authorized by the caller's standing in a *named school* — a thing `REGISTRATION` does not speak about. This is the path a province is told to use *instead* of signing up. |
+| **D19 `bootstrap:admin`** | A CLI against `DATABASE_URL`, not a route — which is why an HTTP endpoint that mints admins does not exist. It also has to work on a stack with no admin yet, the one situation in which the bypass has nobody to be. |
+| **D155/D157 password reset** | About an account that already exists. Untouched, and its own uniformity argument is unaffected. |
+| **The e2e walks** | They now register through the **admin** context — the one caller a closed judge admits, which is exactly what a rehearsal harness seating fixed accounts on somebody's judge is. The alternative was weakening the default so the tests kept passing, which would have made the policy a decoration. The change also fixed a real bug: the login probe ran on the context it registered through, so the second call of a loop was made by pupil one rather than by the admin; it now runs on a throwaway context. |
+| **The API suite** | `TEST_ENV` sets `REGISTRATION=open` explicitly, with the reason in the file. Forty specs register to get an account, and making each acquire an admin cookie would test the harness and delete the coverage of the register endpoint those specs are actually about. The other rung is exercised through `configOverrides`. |
+| **`apps/oj`, `apps/mcp`** | Checked: neither calls `POST /auth/register`. Both authenticate with tokens, which the route refuses anyway (`ScopeGuard`'s deny-by-default, unchanged). |
+
+### Configuration
+
+`REGISTRATION` is wrapped in `unsetWhenBlank`, documented in `.env.example`
+with the default named and its cost stated, and passed to the `api` service as
+`${REGISTRATION:-}`. The rung is reported on the admin operations dashboard
+beside `nameDisclosure` and the mail block, through the same fail-closed
+`registrationOf` the endpoint itself calls — so the dashboard cannot report a
+rung the endpoint is not on. **No migration and no column**: the switch
+changes only who is refused, and setting it back restores the previous
+behaviour on the next boot.
+
+*Ruled by the implementer during the F-56 slot, no human available to consult.
+Cost if wrong: one environment variable. `REGISTRATION=open` restores the
+pre-D200 behaviour byte for byte and is asserted to. Tests:
+`apps/api/test/registration-policy.spec.ts` (18) and
+`apps/api/test/registration-guard.spec.ts` (5, D201). Red before the change:
+**2 of 18** with the default at `open` (the true pre-D200 shape); **2 of 18**
+with a setter counted as a trusted registrar; **1 of 18** with the refusal
+moved after the meter — the 429 a stranger could inflict on a school's
+address; **1 of 18** with the honest 409 removed. On the web,
+**2 of 22** with the closed notice removed.*
+
+## D201 — A source-scan guard over who may mint an account, because a policy four paths could ignore is not a policy
+
+D198 guards a rule honoured by six surfaces and forgotten by a seventh. The
+equivalent failure for D200 is not a *surface* forgetting to redact — it is a
+**mint**: a path that writes a `users` row and never asked the policy at all.
+That is not hypothetical. Until F-56 there were four such paths and a policy
+for none of them.
+
+So D200 ships with a guard in the shape of D113's
+`team-participation-invariant.spec.ts` and D198's own:
+`apps/api/test/registration-guard.spec.ts` scans every non-spec source file in
+`apps/api/src`, `packages/` **and `scripts/`** for two things.
+
+1. **The mint.** An `INSERT` into `users` outside the sanctioned module must
+   call `assertRegistrationOpen` / `mayRegister` in the same function, or hold
+   an audited allow-list entry **naming the operator whose authority stands in
+   for the policy**. Four paths mint today: `auth.service.ts::register`
+   routes; the other three are the census —
+   `org-import.core.ts::runImport` (D61, standing in a named school),
+   `scripts/bootstrap-admin.ts::bootstrapAdmin` (D19, possession of the
+   database), and `scripts/seed-problem.ts` at top level (the locked `system`
+   row, `passwordHash: '!'`, which is not a person). A removed mint fails as a
+   stale entry, and a floor of four hits with at least one routed keeps a
+   rename from making the scan vacuously green.
+2. **One switch, read in one place.** `config.registration` may be branched on
+   in exactly one module. The dashboard *reports* the rung through
+   `registrationOf`, so it never names the field and never appears here.
+
+**`scripts/` is in the walk, and that is load-bearing rather than thorough.**
+Two of the four mints are CLIs. A census that could not see them would be a
+census of half the seam claiming to be all of it — and it is the CLIs, not the
+routes, that a reader is most likely to forget exist.
+
+**This is why `AuthService.register` asserts the policy a second time.** The
+controller has to refuse first — before the meter and before the address is
+looked at, or the ordering leaks — and the second call is what lets the guard
+establish the property by *reading the source* rather than by trusting that
+some caller did the right thing. Two calls to one pure predicate are one
+policy; a mint that asks nobody is what this exists to catch.
+
+**The scan machinery moved to `apps/api/test/source-scan.ts`**, and extracting
+it found two bugs both hand copies shared:
+
+- **A one-line call statement matches the declaration regex.** So the very
+  predicate a guard scans *for* became the "enclosing function" of every hit
+  below it — the first run of this guard reported
+  `auth.service.ts::assertRegistrationOpen` as the thing that mints an
+  account. A declaration header never ends in a semicolon; a statement always
+  does, and that is now the test.
+- **The upward search walked past the end of a function.** A one-file CLI is
+  mostly module-level statements (`seed-problem.ts` does its whole job inside
+  a top-level `try {`), so its work was attributed to the last function it
+  happened to define. A closing brace in column 1 now ends the search.
+
+Both fixes apply to D198 as well, which is the point of there being one copy.
+`team-participation-invariant.spec.ts` (D113) is deliberately **not** migrated:
+its scan has no notion of a routed body — a participation read is sanctioned
+by *where* it lives — so moving it would mean widening the module for one
+caller and re-proving a guard this slot is not otherwise touching.
+
+*Ruled by the implementer during the F-56 slot, no human available to consult.
+Cost if wrong: one spec file and one test helper. Red before the change:
+removing the service's own assertion reds it **3 of 5**, naming the file and
+the function; adding a plausible new `insert(schema.users)` to
+`admin-users.controller.ts` — an admin "create user" route, the most likely
+next mint anyone writes — reds it **1 of 5** with the two legal moves in the
+message.*
+
+## D202 — A scoped authorisation needs a scoped run: `--only` narrows the cleaner, and can never widen it
+
+F-56 was authorised to remove **two named accounts** from the live judge:
+`f56probe1` (which the controller created proving registration was open) and
+`b35-probe-1788313721` with its 22 `rate_events`. `scripts/cleanup-test-data.ts`
+had no way to express that. Its patterns legitimately claim **467 accounts and
+15,047 rows** on this instance — the unscoped dry run says so — so "run the
+cleaner for these two" and "run the cleaner" were the same command, and the
+only honest way to obey the first was to not run it at all.
+
+- **`--only <names>` intersects an explicit list of natural keys with the
+  allow-list, AFTER the deny-list.** It narrows and can never widen: a named
+  row matching no pattern is still invisible, a denied name is still denied
+  (`--only duckadmin` deletes nothing), and the blockers still run unchanged
+  over the narrowed set, refusing anything a kept row depends on. One list
+  restricts users, contests, problems and organizations at once, so naming two
+  accounts empties the other three sets — which is what "only these two
+  accounts" means.
+- **The dry run's suggested apply command repeats the flag.** An operator who
+  narrowed a plan and then pasted an unnarrowed apply would delete four
+  hundred rows having just read a plan for twenty-five. A hint that is not the
+  command whose plan is on screen is a trap, not a convenience.
+- **It has a test, and that is not decoration.** Reverting `onlyPredicate` to
+  return `true` unconditionally — precisely the bug that turns an authorised
+  two-row run into a 467-account one — left the whole cleanup spec green,
+  because every assertion in it read a plan built *without* the flag. The
+  spec now builds the plan both ways.
+
+**Two amendments to D153's patterns come with it**, both driven by a row
+rather than by a guess:
+
+- **`^f[0-9]+probe`.** F-55 recorded that no F slot had ever minted a live row
+  under its own name, and that when one did the pattern should be added with
+  the row in its `why` — guessing `^f[0-9]+-`. The row is `f56probe1`, with no
+  separator, written the way `probe1` was rather than the way `b35-probe-…`
+  was, so `^f[0-9]+-` would still match nothing. The pattern is `f`, digits,
+  then the literal word `probe`: it claims what exists, and not `^f[0-9]+`,
+  which would claim every future name beginning with a letter and a digit.
+- **`rate_events` is now modelled, narrowly.** F-55 left the table alone
+  because the classification "cannot actually prove" a `user:<id>` row belongs
+  to the account being deleted. Measured, that is true of **exactly one
+  purpose**: `login` keys on the SUBMITTED identifier so that an unknown
+  username still has a window (D16), and a username may be three digits, so
+  `user:487` could in principle be a failed sign-in by somebody who typed
+  `487`. Every other purpose in this codebase builds a `user:` key from
+  `users.id` (`walk.meter.ts`, `problem.comments.ts`,
+  `submission.access.ts`). So the step deletes `user:<id>` rows with
+  `purpose <> 'login'`, and that exclusion is the whole correctness argument
+  and has its own assertion. The 22 rows B-35 left under `user:487` were 20
+  `user_walk` and 2 `refused:user_walk`, with no `login` row among them.
+
+  It remains **tidiness rather than a fix**, and F-55's other reasons stand:
+  `rate_events` has no foreign key to `users`, a leftover row joins to nothing
+  and discloses nothing, and `expired-rows.sweeper.ts` removes the table by
+  `created_at` at a 24-hour retention regardless (D78) — those 22 rows were
+  written between 01:48 and 01:55 on 2026-09-02 and would have gone by 02:55
+  on 2026-09-03 without anybody doing anything.
+
+*Ruled by the implementer during the F-56 slot, no human available to consult.
+Cost if wrong: one flag on one script; omitting it leaves the previous
+all-or-nothing behaviour, which is what every earlier run used. The applied
+run is recorded in `docs/superpowers/briefs/f56-report.md` with its dry-run
+inventory beside it: 25 rows in 3 tables (2 users, 1 session, 22
+`rate_events`), zero refusals, zero disclosures, and
+`scripts/integrity-check.ts --live` clean afterwards.*

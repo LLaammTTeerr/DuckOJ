@@ -528,6 +528,14 @@ Use `scripts/bootstrap-admin.ts`, against `DATABASE_URL`:
     # generated password: 3Qk1r_9xW2vJ8pLc0aTnZbYs
     # This is printed once. Store it now — nothing can recover it later.
 
+**Since D200 this is the only way onto a default stack at all**, not merely
+the tidy one: `REGISTRATION` is unset in a fresh `.env`, which means `closed`,
+and `POST /auth/register` refuses everybody who is not already a global admin.
+This command has always been a CLI against `DATABASE_URL` rather than a route
+— an HTTP endpoint that mints admins only has to be reachable once to be a
+breach (D19) — and that is exactly why the closed rung has no bootstrapping
+problem.
+
 It creates the account if it does not exist — hashing the password through
 `apps/api/src/authn/password.hash.ts`, the same argon2id parameters
 `POST /auth/register` uses, and marking the address verified so a fresh
@@ -820,6 +828,10 @@ down`. Observed directly:
 - `POST https://localhost:8443/api/v1/auth/register` through Caddy returned
   `201` with the created user profile (`id`, `username`, `email`, etc.), proving
   the reverse proxy, the API, and a migrated database all work together.
+  *(Transcribed before D200. On a stack that leaves `REGISTRATION` unset this
+  now answers `403 registration_closed`, which is the correct result — a 403
+  through Caddy proves the same three things a 201 did. Use
+  `GET /api/v1/auth/registration` for a 200 that needs no account at all.)*
 - The static SPA (`GET https://localhost:8443/`) served the built
   `apps/web/dist/index.html` through Caddy's `file_server`.
 - `podman-compose down` removed all four containers and the project network.
@@ -1961,6 +1973,15 @@ the role-refusal and visibility checks this walkthrough skips for brevity.
 
     BASE=https://localhost:8443/api/v1
     PROJECT=duckoj   # your podman-compose project name; `podman-compose ps` if unsure
+
+> **On the default rung this walkthrough's step 1 answers 403** (D200). Since
+> F-56 `REGISTRATION` decides who may create an account, and an unset variable
+> means `closed`: only a global admin may register anybody. So on a default
+> stack, do steps **2 and 1 in that order** — `corepack pnpm bootstrap:admin
+> admin1` first, then run step 1's `curl` with the admin's cookie jar
+> (`-b admin.cookies`) instead of anonymously. Setting `REGISTRATION=open` in
+> `.env` restores the sequence exactly as transcribed below, which is what it
+> was run under.
 
 **1. Register the setter's account** (whoever will actually author the
 problem — see step 3 for why this is a separate account from the admin):
