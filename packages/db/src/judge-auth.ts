@@ -1,15 +1,19 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { and, eq, inArray, notLike } from 'drizzle-orm';
+import { and, eq, or } from 'drizzle-orm';
 import { judgeNodes } from './schema/judging.js';
 import type { Db } from './client.js';
 
 /**
  * What `scripts/judge-node.ts revoke` writes over `token_hash` (D68).
  *
- * It lives here rather than in the script because two things now read it: the
- * script that writes it, and `admittedJudgeNames` below, which `judged` polls
- * to drop a revoked judge's live socket (D81). A second copy of the string is
- * how a revoked judge would go on being admitted by one of them.
+ * It lives here rather than in the script because two things read it: the
+ * script that writes it, and `isRevokedTokenHash`, which the script's `list`
+ * and `rotate` both report from. A second copy of the string is how a revoked
+ * judge would go on being called live by one of them.
+ *
+ * Note that `admittedJudgeCredentials` below does NOT need it: since D204
+ * that poll compares the stored hash against the one a connection actually
+ * authenticated with, and `revoked:<old hash>` equals no such digest.
  */
 export const REVOKED_TOKEN_PREFIX = 'revoked:';
 
@@ -69,15 +73,40 @@ export async function verifyJudgeCredential(db: Db, name: string, token: string)
 }
 
 /**
- * Which of these judge names are still admitted — the row exists AND its
- * token has not been burned (D81).
+ * One connected judge, as the bridge knows it: the name it handshook AS, and
+ * the digest of the key it handshook WITH.
+ */
+export interface JudgeCredentialRef {
+  name: string;
+  /** `hashJudgeToken(key)` of the key that got this connection admitted. */
+  tokenHash: string;
+}
+
+/**
+ * Which of these connections are still holding the credential the database
+ * says they should be (D81, widened by D204).
  *
- * `verifyJudgeCredential` answers the same question for a judge that is
- * PRESENTING a credential, which happens exactly once, at the handshake.
- * This is the question for a judge that is already connected: `judge:node
- * revoke` changes the answer with nothing on the wire to announce it, so
+ * `verifyJudgeCredential` answers this for a judge that is PRESENTING a
+ * credential, which happens exactly once, at the handshake. This is the
+ * question for a judge that is already connected: a credential can change
+ * underneath a live socket with nothing on the wire to announce it, so
  * `judged` polls this for its connected set and drops whatever is missing
  * from the reply.
+ *
+ * **It matches on the pair, not on the name** — that is D204's whole
+ * addition. D81's version asked only "does this name still have an unburned
+ * token", which is the right question for `revoke` and the wrong one for
+ * `rotate`: a rotated node's row is neither gone nor burned, so a name-only
+ * check would leave the old judge connected on a credential that no longer
+ * exists — dispatched to by `judged` and 401'd by the API on every package
+ * fetch, which is precisely the half-working judge D81 was written to kill.
+ * Comparing the hash the connection authenticated with against the hash now
+ * stored answers `revoke`, `rotate` and a hand-deleted row with one rule:
+ * **a connection whose credential is no longer the stored credential goes.**
+ *
+ * A revoked row therefore needs no special case: `revoke` writes
+ * `revoked:<old hash>` over `token_hash`, which is equal to no digest any
+ * connection could be holding.
  *
  * Two properties the caller depends on:
  *
@@ -89,23 +118,28 @@ export async function verifyJudgeCredential(db: Db, name: string, token: string)
  *   fail-closed catch, because the two failures are not the same failure: one
  *   would admit an unauthenticated judge, this one would evict authenticated
  *   ones.
- * - A name it does not return is either revoked or **gone from the table** —
- *   both mean "do not keep this connection". The script never deletes a row,
- *   but nothing stops an operator from doing it by hand, and a judge whose
- *   registration has vanished is not one to keep dispatching to.
+ * - A name it does not return is revoked, rotated, or **gone from the
+ *   table** — all three mean "do not keep this connection". The script never
+ *   deletes a row, but nothing stops an operator from doing it by hand, and a
+ *   judge whose registration has vanished is not one to keep dispatching to.
+ *
+ * The comparison stays in the database rather than reading every hash back:
+ * a token-hash digest is a credential and has no business crossing the wire
+ * on a five-second timer just so a `===` can run in Node.
  */
-export async function admittedJudgeNames(db: Db, names: string[]): Promise<string[]> {
-  if (names.length === 0) return [];
+export async function admittedJudgeCredentials(
+  db: Db,
+  credentials: readonly JudgeCredentialRef[],
+): Promise<string[]> {
+  if (credentials.length === 0) return [];
   const rows = await db
     .select({ name: judgeNodes.name })
     .from(judgeNodes)
     .where(
-      and(
-        inArray(judgeNodes.name, names),
-        // `not like 'revoked:%'` rather than reading every hash back: the
-        // predicate belongs in the database, and a token hash is a credential
-        // digest that has no business crossing the wire on a timer.
-        notLike(judgeNodes.tokenHash, `${REVOKED_TOKEN_PREFIX}%`),
+      or(
+        ...credentials.map((credential) =>
+          and(eq(judgeNodes.name, credential.name), eq(judgeNodes.tokenHash, credential.tokenHash)),
+        ),
       ),
     );
   return rows.map((row) => row.name);

@@ -1,6 +1,7 @@
 import { connect, type Socket } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPacketDecoder, encodePacket } from '@duckoj/judge-protocol';
+import { hashJudgeToken, type JudgeCredentialRef } from '@duckoj/db';
 import { BridgeServer } from '../src/drivers/dmoj/bridge-server.js';
 
 /**
@@ -345,14 +346,68 @@ describe('BridgeServer revalidates connected judges', () => {
     expect(server!.supportedLanguages()).toEqual([]);
   }, 30_000);
 
-  it('keeps a judge the poll still admits', async () => {
-    const admittedJudges = vi.fn(async (ids: string[]) => ids);
+  it('keeps a judge the poll still admits, and asks by (name, credential)', async () => {
+    const admittedJudges = vi.fn(async (creds: readonly JudgeCredentialRef[]) =>
+      creds.map((c) => c.name),
+    );
     await connectedJudge({ admittedJudges });
 
     await vi.waitFor(() => expect(admittedJudges.mock.calls.length).toBeGreaterThan(2), 10_000);
     expect(server!.judgeCount()).toBe(1);
     expect(judge!.isClosed()).toBe(false);
-    expect(admittedJudges).toHaveBeenCalledWith(['judge-1']);
+    // D204: the poll asks about the CREDENTIAL this connection authenticated
+    // with, not merely the name it authenticated as. The bridge never keeps
+    // the key — only its digest, the same one `judge_nodes.token_hash` holds.
+    expect(admittedJudges).toHaveBeenCalledWith([
+      { name: 'judge-1', tokenHash: hashJudgeToken('a-key') },
+    ]);
+  }, 30_000);
+
+  it('drops a judge whose token was ROTATED, though its row is neither gone nor revoked (D204)', async () => {
+    // The real predicate, not a list: `admittedJudgeCredentials` matches the
+    // pair against `judge_nodes`, so the honest double is a stored hash that
+    // an out-of-band `judge:node rotate` changes.
+    let storedHash = hashJudgeToken('a-key');
+    const disconnected: string[] = [];
+    await connectedJudge({
+      admittedJudges: async (creds: readonly JudgeCredentialRef[]) =>
+        creds.filter((c) => c.tokenHash === storedHash).map((c) => c.name),
+    });
+    server!.onDisconnect((id) => disconnected.push(id));
+
+    // `judge:node rotate judge-1` — the name is still registered and its
+    // token is not burned, so D81's name-only poll would have kept this
+    // connection alive on a credential that no longer exists: dispatched to
+    // by `judged`, and 401'd by the API on every package fetch.
+    storedHash = hashJudgeToken('the-rotated-key');
+
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(0), 10_000);
+    await vi.waitFor(() => expect(judge!.isClosed()).toBe(true), 10_000);
+    // Through `retire`, so whatever it was grading is abandoned and requeued
+    // rather than left parked until the grading ceiling fires.
+    expect(disconnected).toEqual(['judge-1']);
+  }, 30_000);
+
+  it('re-admits the judge once it reconnects holding the rotated token', async () => {
+    const storedHash = hashJudgeToken('the-rotated-key');
+    server = new BridgeServer({
+      languageToExecutor: () => 'CPP17',
+      executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),
+      verifyJudge: async () => true,
+      revalidateIntervalMs: 50,
+      admittedJudges: async (creds: readonly JudgeCredentialRef[]) =>
+        creds.filter((c) => c.tokenHash === storedHash).map((c) => c.name),
+    });
+    const port = await server.listen(0);
+    // The container recreated with the new JUDGE_TOKEN — the same name, a
+    // different key. Nothing else has to happen for it to stay connected.
+    judge = fakeJudge(port, 'judge-1', 'the-rotated-key');
+    await judge.ready;
+    await vi.waitFor(() => expect(server!.judgeCount()).toBe(1), 10_000);
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(server!.judgeCount()).toBe(1);
+    expect(judge.isClosed()).toBe(false);
   }, 30_000);
 
   it('fails OPEN: a poll that throws never empties the fleet', async () => {
@@ -369,7 +424,9 @@ describe('BridgeServer revalidates connected judges', () => {
   }, 30_000);
 
   it('polls nothing when no judge is connected', async () => {
-    const admittedJudges = vi.fn(async (ids: string[]) => ids);
+    const admittedJudges = vi.fn(async (creds: readonly JudgeCredentialRef[]) =>
+      creds.map((c) => c.name),
+    );
     server = new BridgeServer({
       languageToExecutor: () => 'CPP17',
       executorToLanguage: (executor) => (executor === 'CPP17' ? 'cpp17' : undefined),

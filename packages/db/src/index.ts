@@ -11,7 +11,8 @@ export { runMigrations } from './migrate.js';
 export {
   hashJudgeToken,
   verifyJudgeCredential,
-  admittedJudgeNames,
+  admittedJudgeCredentials,
+  type JudgeCredentialRef,
   isRevokedTokenHash,
   REVOKED_TOKEN_PREFIX,
   touchJudgeLastSeen,

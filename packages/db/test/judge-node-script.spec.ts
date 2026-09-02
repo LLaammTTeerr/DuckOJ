@@ -17,8 +17,9 @@ import { eq } from 'drizzle-orm';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import {
-  admittedJudgeNames,
+  admittedJudgeCredentials,
   createDb,
+  hashJudgeToken,
   runMigrations,
   schema,
   verifyJudgeCredential,
@@ -126,6 +127,9 @@ describe('judge-node.ts', () => {
 
     expect(second.code).not.toBe(0);
     expect(second.stderr).toContain('already exists');
+    // And it names the command that DOES rotate it, rather than leaving an
+    // operator to conclude they mistyped the name (D204).
+    expect(second.stderr).toContain('rotate');
   }, 180_000);
 
   it('lists nodes with their revoked state, and never a token', async () => {
@@ -167,14 +171,22 @@ describe('judge-node.ts', () => {
     expect(again.stdout).toContain('already revoked');
   }, 180_000);
 
-  it('admittedJudgeNames drops a revoked judge, which is how a live socket is closed (D81)', async () => {
-    await run(['add', 'judge-live']);
-    await run(['add', 'judge-burned']);
+  it('admittedJudgeCredentials drops a revoked judge, which is how a live socket is closed (D81)', async () => {
+    const live = printedToken((await run(['add', 'judge-live'])).stdout);
+    const burned = printedToken((await run(['add', 'judge-burned'])).stdout);
 
     const { db, close } = createDb(await dbUrl());
     try {
-      // Before: both are admitted, so `judged` keeps both connections.
-      expect((await admittedJudgeNames(db, ['judge-live', 'judge-burned'])).sort()).toEqual([
+      // What `BridgeServer` holds per connection: the name the judge
+      // handshook as, and the digest of the key it handshook WITH.
+      const connected = [
+        { name: 'judge-live', tokenHash: hashJudgeToken(live) },
+        { name: 'judge-burned', tokenHash: hashJudgeToken(burned) },
+      ];
+
+      // Before: both credentials are still the stored ones, so `judged`
+      // keeps both connections.
+      expect((await admittedJudgeCredentials(db, connected)).sort()).toEqual([
         'judge-burned',
         'judge-live',
       ]);
@@ -184,16 +196,114 @@ describe('judge-node.ts', () => {
       // After: the revoked one is absent from the answer, which is the whole
       // signal `BridgeServer.revalidate` acts on. Nothing on the wire says so
       // — that is why this is polled rather than pushed.
-      expect(await admittedJudgeNames(db, ['judge-live', 'judge-burned'])).toEqual(['judge-live']);
+      expect(await admittedJudgeCredentials(db, connected)).toEqual(['judge-live']);
       // A name that was never registered is absent too: a judge whose row an
       // operator deleted by hand is not one to keep dispatching to.
-      expect(await admittedJudgeNames(db, ['never-registered'])).toEqual([]);
-      // No names, no query — the caller uses this to keep an idle bridge from
-      // polling for nothing.
-      expect(await admittedJudgeNames(db, [])).toEqual([]);
+      expect(
+        await admittedJudgeCredentials(db, [
+          { name: 'never-registered', tokenHash: hashJudgeToken('whatever') },
+        ]),
+      ).toEqual([]);
+      // Nothing connected, no query — the caller uses this to keep an idle
+      // bridge from polling for nothing.
+      expect(await admittedJudgeCredentials(db, [])).toEqual([]);
     } finally {
       await close();
     }
+  }, 180_000);
+
+  it('rotate mints a new token and the OLD one stops being accepted (D204)', async () => {
+    const added = await run(['add', 'judge-rot']);
+    const oldToken = printedToken(added.stdout);
+
+    const rotated = await run(['rotate', 'judge-rot']);
+    expect(rotated.code).toBe(0);
+    const newToken = printedToken(rotated.stdout);
+    expect(newToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(newToken).not.toBe(oldToken);
+
+    const { db, close } = createDb(await dbUrl());
+    try {
+      // The case that matters: the credential in this repository's history
+      // is refused from the moment the command returns.
+      expect(await verifyJudgeCredential(db, 'judge-rot', oldToken)).toBe(false);
+      expect(await verifyJudgeCredential(db, 'judge-rot', newToken)).toBe(true);
+
+      // The row — and therefore every `grading_jobs.judge_node_id` pointing
+      // at it — survives, exactly as it does across a `revoke` (D68).
+      const rows = await db
+        .select()
+        .from(schema.judgeNodes)
+        .where(eq(schema.judgeNodes.name, 'judge-rot'));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.tokenHash).not.toBe(newToken);
+
+      // And the live-socket poll: a connection that handshook with the old
+      // token is no longer admitted, while one holding the new token is.
+      // This is what disconnects the judge that has not been recreated yet.
+      expect(
+        await admittedJudgeCredentials(db, [
+          { name: 'judge-rot', tokenHash: hashJudgeToken(oldToken) },
+        ]),
+      ).toEqual([]);
+      expect(
+        await admittedJudgeCredentials(db, [
+          { name: 'judge-rot', tokenHash: hashJudgeToken(newToken) },
+        ]),
+      ).toEqual(['judge-rot']);
+    } finally {
+      await close();
+    }
+  }, 180_000);
+
+  it('rotate re-admits a REVOKED node, which is the only way out of the struck runbook sequence', async () => {
+    const added = await run(['add', 'judge-stuck']);
+    const oldToken = printedToken(added.stdout);
+    await run(['revoke', 'judge-stuck']);
+    // The dead end a province following `truoc-khi-trien-khai.md` §1 lands
+    // in: the name is burned, `add` refuses it, and there is no way forward
+    // except SQL.
+    const readd = await run(['add', 'judge-stuck']);
+    expect(readd.code).not.toBe(0);
+
+    const rotated = await run(['rotate', 'judge-stuck']);
+
+    expect(rotated.code).toBe(0);
+    // It says so rather than silently un-burning a credential somebody
+    // deliberately refused.
+    expect(rotated.stdout).toContain('was revoked');
+    const token = printedToken(rotated.stdout);
+    const { db, close } = createDb(await dbUrl());
+    try {
+      expect(await verifyJudgeCredential(db, 'judge-stuck', token)).toBe(true);
+      expect(await verifyJudgeCredential(db, 'judge-stuck', oldToken)).toBe(false);
+      expect(
+        await admittedJudgeCredentials(db, [
+          { name: 'judge-stuck', tokenHash: hashJudgeToken(token) },
+        ]),
+      ).toEqual(['judge-stuck']);
+    } finally {
+      await close();
+    }
+  }, 180_000);
+
+  it('rotate refuses a name that was never registered', async () => {
+    const result = await run(['rotate', 'judge-never']);
+
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain('no judge node');
+    // Never silently `add`s it: a typo on a rotation must not mint a
+    // credential for a machine that does not exist.
+    const listed = await run(['list']);
+    expect(listed.stdout).not.toContain('judge-never');
+  }, 180_000);
+
+  it('rotate needs a node name, and says so with the usage line', async () => {
+    const result = await run(['rotate']);
+
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain('rotate needs a node name');
+    expect(result.stderr).toContain('usage:');
   }, 180_000);
 
   it('refuses an unknown name and an unknown command, with a usage line', async () => {

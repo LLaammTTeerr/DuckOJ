@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis';
 import {
-  admittedJudgeNames,
+  admittedJudgeCredentials,
   createDb,
   loadDriverLanguageMap,
   recordJudgeCapabilities,
@@ -74,9 +74,11 @@ async function main(): Promise<void> {
     verifyJudge: (id, key) => verifyJudgeCredential(db, id, key),
     // `verifyJudge` answers once, at the handshake. This answers again every
     // five seconds for the judges already connected, so `judge:node revoke`
-    // reaches a judge that is holding a socket open rather than only the ones
-    // that have yet to dial (D81).
-    admittedJudges: (ids) => admittedJudgeNames(db, ids),
+    // and `judge:node rotate` reach a judge that is holding a socket open
+    // rather than only the ones that have yet to dial (D81, D204). It asks by
+    // (name, token hash), because a rotated node's row is neither gone nor
+    // burned and a name-only question would answer "still admitted".
+    admittedJudges: (credentials) => admittedJudgeCredentials(db, credentials),
     // Design §8: "`lastSeen` gets written on handshake and heartbeat" — see
     // `touchJudgeLastSeen`'s and `BridgeOptions.recordLastSeen`'s doc
     // comments for exactly which two signals that means.

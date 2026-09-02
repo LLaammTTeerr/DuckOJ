@@ -1,4 +1,5 @@
 import { createServer, type Server, type Socket } from 'node:net';
+import { hashJudgeToken, type JudgeCredentialRef } from '@duckoj/db';
 import { describeError } from '@duckoj/observability';
 import { createPacketDecoder, encodePacket } from '@duckoj/judge-protocol';
 import type { BridgeToJudgePacket, JudgeToBridgePacket } from '@duckoj/judge-protocol';
@@ -123,15 +124,25 @@ export interface BridgeOptions {
    */
   recordLastSeen?(id: string): Promise<void>;
   /**
-   * Given the ids currently connected, answers which of them are STILL
-   * registered and un-revoked — production wires this to `@duckoj/db`'s
-   * `admittedJudgeNames` (D81).
+   * Given the connections currently open — each as the name it handshook AS
+   * and the digest of the key it handshook WITH — answers which of them are
+   * STILL holding the credential the database says they should be.
+   * Production wires this to `@duckoj/db`'s `admittedJudgeCredentials`
+   * (D81, widened by D204).
    *
    * This exists because `verifyJudge` answers only once, at the handshake:
    * `judge:node revoke` burns a token hash in the database with nothing on
    * this socket to announce it, so a judge revoked while connected kept its
    * connection, and dispatch kept choosing it. Anything connected but missing
    * from this callback's answer is closed and retired.
+   *
+   * **It asks by credential, not by name** (D204). `judge:node rotate` leaves
+   * the row present and un-revoked while changing its hash, so a name-only
+   * question answers "still admitted" for a judge whose key no longer exists
+   * — connected, dispatched to, and 401'd by the API on every package fetch,
+   * which is the half-working judge D81 was written to kill, reached from the
+   * other direction. The digest is the connection's own, taken at handshake;
+   * the raw key is never retained.
    *
    * **A rejection is fail-OPEN** — every judge keeps its connection. The
    * query runs against the same database everything else depends on, and
@@ -144,7 +155,7 @@ export interface BridgeOptions {
    * keep compiling; absent, nothing is revalidated and the pre-D81 behaviour
    * stands.
    */
-  admittedJudges?(ids: string[]): Promise<string[]>;
+  admittedJudges?(credentials: readonly JudgeCredentialRef[]): Promise<string[]>;
   /** Overrides `PING_INTERVAL_MS`. Tests inject a short value; production uses the default. */
   pingIntervalMs?: number;
   /** Overrides `LAST_SEEN_THROTTLE_MS`. Tests inject 0 to observe every write. */
@@ -227,6 +238,19 @@ export class BridgeServer {
   private readonly executorSets = new Map<string, Set<string>>();
   /** When `recordLastSeen` last fired for each judge — the throttle's clock. */
   private readonly lastRecordedAt = new Map<string, number>();
+  /**
+   * `hashJudgeToken(key)` for the key each connection actually handshook
+   * with — what `revalidate` re-checks against the database (D204).
+   *
+   * The DIGEST, never the key: the raw credential lives no longer than the
+   * handshake packet that carried it, and this is the same value
+   * `judge_nodes.token_hash` holds, so the poll's comparison is an equality
+   * in SQL rather than a credential travelling back over the wire on a timer.
+   * Hashed through `@duckoj/db`'s own `hashJudgeToken` rather than a second
+   * `createHash` here — a private copy of that function is how a rotated
+   * judge would go on being admitted by one side and refused by the other.
+   */
+  private readonly credentialHashes = new Map<string, string>();
   private handler: PacketHandler = () => {};
   private disconnectHandler: DisconnectHandler = () => {};
   private pingTimer: ReturnType<typeof setInterval> | undefined;
@@ -296,6 +320,7 @@ export class BridgeServer {
   private retire(id: string): void {
     this.connections.delete(id);
     this.lastSeenAt.delete(id);
+    this.credentialHashes.delete(id);
     this.problemSets.delete(id);
     this.executorSets.delete(id);
     // Not carried across a reconnect: the fresh handshake must be free to
@@ -579,10 +604,19 @@ export class BridgeServer {
     if (this.revalidating) return;
     const ids = [...this.connections.keys()];
     if (ids.length === 0) return;
+    // A connection with no recorded digest cannot be asked about, and
+    // dropping it on that ground would evict a judge for our own bookkeeping
+    // gap. Every admitted connection records one at handshake, so this is
+    // empty in practice; it is a guard, not a branch with a use case.
+    const credentials = ids.flatMap((id) => {
+      const tokenHash = this.credentialHashes.get(id);
+      return tokenHash === undefined ? [] : [{ name: id, tokenHash }];
+    });
+    if (credentials.length === 0) return;
     this.revalidating = true;
     try {
-      const admitted = new Set(await check(ids));
-      for (const id of ids) {
+      const admitted = new Set(await check(credentials));
+      for (const { name: id } of credentials) {
         if (admitted.has(id)) continue;
         // Re-read from the map: the answer is about the connection that was
         // there when the query was issued, and a judge that redialled while
@@ -591,8 +625,12 @@ export class BridgeServer {
         // judge on the strength of a stale reply.
         const connection = this.connections.get(id);
         if (!connection) continue;
+        // "no longer admitted", not "revoked": since D204 this fires for a
+        // ROTATED judge too, whose row is neither gone nor burned. An
+        // operator reading `dropping revoked judge` seconds after running
+        // `judge:node rotate` would go looking for a revocation nobody made.
         console.warn(
-          JSON.stringify({ msg: 'dropping revoked judge', id }),
+          JSON.stringify({ msg: 'dropping judge no longer admitted', id }),
         );
         connection.close();
         // `retire`, not a bare delete — whoever is grading on that socket
@@ -682,6 +720,13 @@ export class BridgeServer {
               return;
             }
             id = handshake.id;
+            // D204: the digest of the key that got this connection in, so
+            // `revalidate` can ask whether it is still the stored one.
+            // Computed here but RECORDED below, with the problem and executor
+            // sets — `retire` clears this map too, so writing it before the
+            // displacement handling would have a redialling judge wipe its
+            // own freshly-recorded digest and become unaskable-about.
+            const credentialHash = hashJudgeToken(handshake.key);
             // A judge reconnecting with an id already in the map (e.g. it
             // dropped the old socket and redialed before we noticed) must not
             // silently evict the live connection: `set()` alone leaves the old
@@ -716,6 +761,7 @@ export class BridgeServer {
             // which is what wakes parked dispatches: one of them may pick
             // this connection the moment it is woken, and must not observe it
             // as having no executors.
+            this.credentialHashes.set(id, credentialHash);
             this.problemSets.set(id, new Set(handshake.problems.map(([problemId]) => problemId)));
             this.executorSets.set(id, new Set(Object.keys(handshake.executors)));
             connection.send({ name: 'handshake-success' });
