@@ -843,6 +843,10 @@ export const vi = {
   'admin.depUp': 'hoạt động',
   'admin.depDown': 'không kết nối được',
   'admin.apiWorkers': 'Tiến trình API',
+  'admin.nameDisclosure': 'Công bố tên thật',
+  'admin.nameDisclosureHint': 'NAME_DISCLOSURE — ai được xem tên hiển thị thật. Để trống trong .env nghĩa là mức bảo vệ, affiliated.',
+  'admin.registration': 'Đăng ký tài khoản',
+  'admin.registrationHint': 'REGISTRATION — ai được tạo tài khoản. Để trống trong .env nghĩa là closed: chỉ quản trị viên toàn hệ thống và lệnh nhập danh sách lớp.',
   'admin.judgedConcurrency': 'Số luồng chấm',
   'admin.notReported': 'judged chưa báo JUDGED_CONCURRENCY cho API',
   // F-40 — bảng thư điện tử.

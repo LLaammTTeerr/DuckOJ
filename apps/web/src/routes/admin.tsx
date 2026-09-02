@@ -667,6 +667,25 @@ function Operations() {
               }
               title={data.runtime.judgedConcurrency === null ? t('admin.notReported') : undefined}
             />
+            {/* D197 and D200, on screen rather than only in the JSON.
+                Both are switches whose whole point is that an operator who
+                set NOTHING is on the protective rung, and F-40's lesson is
+                that "I set it and I believe it took" is not good enough:
+                until this panel showed them, reading which rung a container
+                is actually on meant a curl against `/admin/dashboard`. The
+                value is the rung's own identifier, untranslated on purpose —
+                it is the string an operator types into `.env` (D18's rule for
+                API enum values). */}
+            <Stat
+              label={t('admin.nameDisclosure')}
+              value={data.runtime.nameDisclosure}
+              title={t('admin.nameDisclosureHint')}
+            />
+            <Stat
+              label={t('admin.registration')}
+              value={data.runtime.registration}
+              title={t('admin.registrationHint')}
+            />
           </div>
 
           <MailPanel mail={data.mail} />

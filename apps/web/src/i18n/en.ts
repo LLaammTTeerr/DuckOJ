@@ -901,6 +901,10 @@ export const en = {
   'admin.depUp': 'up',
   'admin.depDown': 'down',
   'admin.apiWorkers': 'API workers',
+  'admin.nameDisclosure': 'Name disclosure',
+  'admin.nameDisclosureHint': 'NAME_DISCLOSURE — who may see a real display name. Empty in .env means the protective rung, affiliated.',
+  'admin.registration': 'Registration',
+  'admin.registrationHint': 'REGISTRATION — who may create an account. Empty in .env means closed: only a global admin, and the roster import.',
   'admin.judgedConcurrency': 'Judge concurrency',
   'admin.notReported': 'judged did not report JUDGED_CONCURRENCY to the API',
   // F-40 — the mail panel. The first thing a province is asked to supply and

@@ -58,7 +58,7 @@ const DASHBOARD = {
   recentFailures: [],
   refusalsLastHour: [],
   dependencies: { database: 'up', redis: 'up' },
-  runtime: { apiWorkers: 4, judgedConcurrency: 1 },
+  runtime: { apiWorkers: 4, judgedConcurrency: 1, nameDisclosure: 'affiliated', registration: 'closed' },
   // F-40. "Healthy" includes mail: a fixture that left this unconfigured
   // would put a `role="alert"` on every case in this file, which is exactly
   // the point — an unconfigured mailer is an alarm, not a blank.
@@ -359,6 +359,21 @@ describe('AdminPage operations dashboard (D47)', () => {
     expect(screen.getByRole('heading', { name: 'Cấu hình đang chạy' })).toBeInTheDocument();
   });
 
+  it('shows which rung the two disclosure switches are actually on (D197, D200)', () => {
+    // F-40's lesson, on screen rather than only in the dashboard JSON: an
+    // operator set a variable and had no way to see whether it reached the
+    // process. Both of these default to the PROTECTIVE rung when `.env` says
+    // nothing, so being able to read the live value off this page is the
+    // difference between a policy and a belief. The rung is printed
+    // untranslated — it is the string an operator types into `.env` (D18).
+    serve('admin');
+    wrap(<AdminPage />);
+    return screen.findByTitle(/REGISTRATION/).then((cell) => {
+      expect(cell).toHaveTextContent('closed');
+      expect(screen.getByTitle(/NAME_DISCLOSURE/)).toHaveTextContent('affiliated');
+    });
+  });
+
   it('says an empty queue has no oldest wait rather than showing a zero', async () => {
     serve('admin');
     wrap(<AdminPage />);
@@ -369,7 +384,7 @@ describe('AdminPage operations dashboard (D47)', () => {
   it("admits it was not told judged's concurrency instead of printing a guess", async () => {
     serve('admin', [CONTEST], {
       ...DASHBOARD,
-      runtime: { apiWorkers: 4, judgedConcurrency: null },
+      runtime: { apiWorkers: 4, judgedConcurrency: null, nameDisclosure: 'public', registration: 'open' },
     });
     wrap(<AdminPage />);
     // An em dash, not a blank and not a word in the number column: a cell
