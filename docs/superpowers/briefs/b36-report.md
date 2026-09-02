@@ -96,9 +96,9 @@ or to invent an attempt they do not have.
 
 ## Red first
 
-`multi-judge.spec.ts` needs no database, so none of the runs below were
-affected by the container-runtime outage that was in progress while they were
-taken. Every failure quoted is an assertion or a timeout, not an
+The red runs below were taken before the host's rootless podman socket came
+back up, but `multi-judge.spec.ts` needs no database and so was never touched
+by that: every failure quoted here is an assertion or a timeout, not an
 infrastructure error.
 
 ### Run 1 — the two-judge specs against the unmodified driver
@@ -373,4 +373,11 @@ pre-existing test changed state.
 57aeaf2 docs(decisions): D205 closes D29's "Left open" — routing on (connection, attempt)
 abde8bc docs(b36): the report — red twice, green, and the suite this sandbox cannot run
 5aba7e5 test(judged): pin the one-judge park/wake, and correct D205's D100 reference
+22ea951 docs(b36): the report's commit list names the sha it was missing
 ```
+
+`abde8bc` is the draft written while the host had no container runtime, and
+its title describes a report that no longer exists: it claimed
+DONE_WITH_CONCERNS over 64 tests that could not start a Postgres container.
+`5aba7e5` and everything after it supersede it — the suite was re-run against
+a live socket, the concern evaporated, and the fourth spec was added.
