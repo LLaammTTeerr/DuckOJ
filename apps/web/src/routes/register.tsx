@@ -47,15 +47,24 @@ import { LoadError } from '../states.js';
  * replaced, and re-asking on every focus would be a request per visit to a
  * page that is already the quietest in the app.
  */
-export const registrationQueryOptions = {
-  queryKey: ['registration'],
-  staleTime: Number.POSITIVE_INFINITY,
-  queryFn: async (): Promise<'open' | 'closed'> => {
-    const result = await api.GET('/auth/registration', {});
-    if (result.error) throw apiError(result, 'registration');
-    return result.data.registration;
-  },
-};
+export const REGISTRATION_KEY = ['registration'] as const;
+
+export function registrationQueryOptions(t: TFunction) {
+  return {
+    queryKey: REGISTRATION_KEY,
+    staleTime: Number.POSITIVE_INFINITY,
+    queryFn: async (): Promise<'open' | 'closed'> => {
+      const result = await api.GET('/auth/registration', {});
+      // A function of `t` for this one argument: `apiError`'s fallback is what
+      // `LoadError` prints when the server sent no `detail` of its own, and a
+      // bare identifier there would put an English word under a Vietnamese
+      // headline (D18, D145 — this app's own invention is translated, the
+      // server's wording is not).
+      if (result.error) throw apiError(result, t('auth.registrationStateFailed'));
+      return result.data.registration;
+    },
+  };
+}
 
 /** The five inputs, keyed the way `fieldErrors` and the DOM ids are. */
 type Field = 'username' | 'email' | 'displayName' | 'password' | 'confirm';
@@ -242,7 +251,7 @@ export function RegisterPage() {
    * fills in five fields against a dead API deserves better than a silent
    * failure at the end of it (B-8's swallow, D145's rule).
    */
-  const registration = useQuery(registrationQueryOptions);
+  const registration = useQuery(registrationQueryOptions(t));
 
   function set(field: Field): (value: string) => void {
     return (value: string) => {
@@ -283,7 +292,7 @@ export function RegisterPage() {
           // — and it is also what a redeploy to `closed` looks like to
           // somebody who had the form open.
           if (created.error.code === 'registration_closed') {
-            client.setQueryData(registrationQueryOptions.queryKey, 'closed');
+            client.setQueryData(REGISTRATION_KEY, 'closed');
             return;
           }
           // D146 first: a 422 names the fields itself, and the server's own
