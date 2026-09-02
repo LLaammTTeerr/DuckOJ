@@ -9976,4 +9976,198 @@ demonstrated: reverting the predicate; narrowing the widened index back to
 `(participation_id)`; giving the trigger's `CASE` a wrong branch; dropping the
 row trigger; dropping the contest-side trigger.*
 
-**D195 and D196 are not used.**
+## D195 — What the walk meter actually bounds is the CURSOR: the whole directory in 576 requests and 1.5 seconds, and the third list of people nobody metered
+
+D188 and D191 gated two bulk reads of people and metered the walk through
+them; D192 measured `GET /contests` and `GET /orgs`, found no pupil in either,
+and left them alone. B-35 attacked all of it from outside, anonymously and
+then as an account thirty seconds old, against the live edge at `eef05c1`.
+
+**The gates hold exactly where they were aimed, and the meter is sound.**
+Measured, not reasoned about:
+
+```
+anonymous  GET /users?limit=3                       401 authentication_required
+anonymous  GET /orgs/{slug}/members?cursor=…        401   (before the cursor is parsed)
+anonymous  GET /orgs/{slug}/members?q=…             401
+anonymous  GET /orgs/{private}/members              404   (D56 still 404s a private school)
+anonymous  GET /contests/{org-restricted}/…         404   (scoreboard included)
+signed in  20 cursor pages of a school they do not belong to     → 200 ×20
+signed in  the 21st                        429 user_walk_rate_limited, Retry-After: 3211
+signed in  a malformed cursor AT THE WALL           422 invalid_cursor   (D191's ordering)
+signed in  GET /users?cursor=<valid> AT THE WALL    429   (ONE budget, both routes)
+rate_events for that account:  user_walk ×20, refused:user_walk ×2 (D47)
+```
+
+The `rate_events` rows are the cross-worker proof the design claims: the
+budget is a table, not process memory, so four `API_WORKERS` share one window,
+and a budget spent on the roster is a budget the directory does not have.
+`walkKey` never sees an address, so thirty pupils behind one NAT address are
+thirty windows — D188's classroom case, still true.
+
+### The number the brief asked for, and it is not the number D192 assumed
+
+D192 left one residual open **on purpose**: a signed-in account can take up to
+`limit` rows per distinct `q` without spending walk budget, on the reasoning
+that the line is *attribution, not volume*. That ruling stands and is not
+touched here. What was missing was the size of it. Measured on this host, one
+ordinary account, one session, no cursor ever sent:
+
+| | requests | distinct accounts | elapsed | walk budget spent |
+| --- | --- | --- | --- | --- |
+| `q` = each of `a–z0–9` | 36 | 320 of 482 | 0.12 s | **0** |
+| the same, refined while a page came back full | **576** | **482 of 482** | **1.5 s** | **0** |
+| the metered path, for comparison | 20 pages/hour | ≤2 000 rows/hour | one hour | 20 |
+
+**So the meter bounds the expensive path and the cheap path is unbounded.** A
+walk is 2 000 rows an hour; a prefix sweep is the entire province in under two
+seconds, and `?q=` at the wall still answers 200 with pupil rows while `?cursor=`
+answers 429. That is not an argument to close it — D192's reasoning is
+unchanged and correct, and D188 said the same of its own gate ("the gate's real
+yield is attribution and revocability, not impossibility"). It is the
+correction to how the meter should be *described*: **the walk meter is an
+attribution and forensics instrument, not a volume bound.** Anyone who reads
+"20 pages per hour" as "2 000 rows per hour per account" is reading it wrong,
+and the number above is what a human needs in front of them before deciding
+whether a search meter is worth the admin box D188 refused to pay.
+
+### The third list of people, and why it is left as it is
+
+D192's argument for leaving `GET /contests` open is that "the rows are events,
+not people". That is true of `ContestSummary` and stops one dereference short:
+**`GET /contests/{key}/scoreboard` is `@Public()`, uncursored, uncapped and
+unmetered, and every row of `ranking` carries a `participant` — a username.**
+
+```
+anonymous  GET /contests?limit=100          → 159 contests in 2 requests
+anonymous  a scoreboard for each of them    → 159 requests, 249 ranking rows,
+                                              142 DISTINCT usernames
+of those 142, reachable through no other anonymous route:      108
+anonymous  GET /users/{username} for each   → 263 of 264 resolved, displayName on all
+```
+
+Adding the roster page D191 left public (86), the problem statistics'
+`firstSolver`/`fastest` (46) and the clarification feed's askers (28), the
+whole anonymous harvest on this host today is **264 of 481 accounts — 54.9% —
+with username, display name, rating and join date, and no account required.**
+Before D188 it was 461 in five requests; it is now 264 in about 450. The gates
+moved the cost by two orders of magnitude and did not close the class.
+
+**It is left as it is, and the argument is D46's and D192's own.** A scoreboard
+naming its competitors is what a scoreboard is for; a judge whose standings a
+visitor must sign in to read is a judge nobody enters, and the same
+`@Public()` that serves the front page serves this. The visibility predicate
+was checked rather than assumed and it holds: an `org`-visibility contest
+answers **404 to the scoreboard as well as to the detail**, so the 46 restricted
+rounds on this host disclose nobody.
+
+**The sharp edge, recorded because it is the one a person would feel.** A
+pupil who *joined* a public contest published themselves. A pupil **seeded**
+into one by an organiser (`POST /contests/{key}/participants`, D101/D104's
+seat) did not, and their name is on an anonymous, uncapped scoreboard from that
+moment — one response for a two-thousand-pupil round. That is the case a
+future slot should weigh, and it is a question about seeding, not about
+scoreboards.
+
+*Ruled by the implementer during the B-35 slot, no human available to consult.
+Nothing was changed, so the cost if wrong is a later slot doing the work this
+one argued against — and the numbers above are what it should start from. No
+test: two endpoints deliberately left alone are pinned by the absence of a
+diff, and `contest-visibility.spec.ts` already asserts the 404 that matters.
+The measurements are reproduced in `docs/superpowers/briefs/b35-report.md`.*
+
+## D196 — U+0000 is not a character any DuckOJ string accepts, and the rule is stated once above every handler
+
+Measured against the live edge at `eef05c1`, with **no cookie and no token**:
+
+```
+GET /api/v1/users/%00           500 internal_error
+GET /api/v1/orgs/%00            500
+GET /api/v1/problems/%00        500
+GET /api/v1/contests/%00        500
+GET /api/v1/problems?q=%00      500
+GET /api/v1/contests?org=%00    500
+POST /api/v1/auth/login   {"usernameOrEmail":"a\u0000b"}   500
+```
+
+and signed in as an account thirty seconds old, `GET /users?q=%00`,
+`/submissions?user=%00`, `/submissions?problem=%00`, `/submissions?contest=%00`,
+`/users/me/teams?contest=%00`, `/orgs/{slug}/members?q=%00` and
+`/orgs/{slug}/members?cursor=%00` join them.
+
+**The mechanism.** Postgres `text` cannot hold a NUL byte. The driver binds the
+parameter, the server answers `22021 invalid byte sequence for encoding
+"UTF8": 0x00`, and it reaches `ProblemFilter` as a `DrizzleQueryError` with no
+mapping — so it becomes `500 internal_error`, **logged at ERROR with a full
+stack and the whole request object**, on an input any stranger can choose. It
+is not a disclosure and no row is written; it is an unauthenticated 500 on the
+most public routes in the product, which is an operator's alert budget and a
+correctness claim (`route-fuzz.spec.ts`'s first property: "a 500 on bad input
+is a bug every time") both spent for nothing.
+
+**Why `route-fuzz` was green over it, which is the interesting half.** That
+spec has sent `cursor: '\u0000'` since it was written. It never reached a bind:
+`BAD_PARAMS.slug` is `'../..'`, so `findVisibleOrgRow` 404s the roster before
+its cursor is parsed; the `/users` cursor is parsed as a number and 422s; and
+`q` — the parameter that goes straight into `nameSearchWhere` on four routes —
+**was never fuzzed at all**, nor was any path parameter. The vector is not "a
+NUL somewhere", it is a NUL in a place that survives to a statement.
+
+### The ruling
+
+**One rule, once, above every handler**: `NulByteInterceptor`, global, in
+`configureApp` beside `ProblemFilter`. A request whose raw URL contains `%00`,
+or whose parsed body holds a string containing U+0000 at any depth — **in a
+key as well as in a value**, because several columns here are `jsonb` and
+Postgres refuses a NUL inside one with `22P05` exactly as `text` refuses it
+with `22021` — is refused `422 validation_failed` — the same status, code and `fields` shape
+`ZodValidationPipe` produces, so a client handles one thing.
+
+- **Not a `.refine` per field.** `packages/contracts` builds every string from
+  a bare `z.string()` and there is no shared primitive to patch; **87
+  `@Param()` bindings across the controllers take a raw string with no pipe at
+  all**, which is why four *path* parameters are in the 500 list above. A rule
+  spread over a hundred schemas is a rule that drifts the first time a field is
+  added — the failure class this project records once per phase — and it would
+  still not cover the params.
+- **An interceptor, not middleware, and this is the load-bearing choice.** Nest
+  runs middleware **before** the guards. A rejection there would answer 422 to
+  an anonymous caller on `GET /users`, where D188 ruled the answer is `401
+  authentication_required` and where "your request is malformed" implies a
+  well-formed one would have been served. Interceptors run **after** `AuthGuard`
+  and `ScopeGuard` and before the handler, so every ruled refusal that comes
+  from a guard still comes first and no NUL reaches a statement.
+- **What does move, named rather than left to be discovered.** On a `@Public()`
+  route whose own 401 lives in a service — `GET /orgs/{slug}/members`, D191 —
+  an anonymous `?cursor=%00` now answers **422 where it answered 401**. That is
+  already the answer `?limit=1000` gives there (the DTO pipe has always
+  preceded that 401), it creates no oracle — an anonymous caller sending a
+  *well-formed* cursor still gets 401, which is the fact D191 protects — and it
+  is the price of one rule in one place instead of eighty-eight.
+- **The needle is `%00` in the RAW url**, before express decodes it, because a
+  literal NUL cannot travel in a request line. That covers path segments and
+  the query string at once. `%2500` is the five-character TEXT `%00` and does
+  **not** match; it stays an ordinary search term, and the spec pins that.
+- **`Buffer` is excluded before the object branch**, not inside it: a raw
+  package upload arrives as one, and `Object.values` on a Buffer iterates every
+  byte. The walk carries a 100 000-node budget for the same reason D61 gives
+  the roster import its own 2 MB parser.
+
+**Why 422 and not 400.** The request is syntactically a valid HTTP request
+carrying a value no field accepts, which is what 422 means everywhere else in
+this API; `route-fuzz`'s `AMBIENT` set already allows it on every route, so no
+contract in `packages/contracts` had to grow a status.
+
+*Ruled by the implementer during the B-35 slot, no human available to consult.
+Cost if wrong: one file and one line in `configureApp` (reverting is a two-line
+diff). Tests: `apps/api/test/nul-byte.spec.ts` (the 422, the preserved 401 on a
+guarded route, a path parameter, an unauthenticated body, a NUL one level down
+inside an array, a NUL in an object KEY, and `%2500` still served) and a seventh pass in
+`apps/api/test/route-fuzz.spec.ts` (its eighth pass) carrying the breadth.
+**The live edge is NOT fixed by this slot**: the brief forbids restarting a
+container, so `duckoj_api_1` keeps serving the old code and every 500 above is
+still reproducible against it until the next deploy. Red before the change:
+`nul-byte.spec.ts` fails on the first assertion (`expected 500 to be 422`), and
+the fuzzer reports **228** route/mode combinations answering 5xx.*
+
+**D197 is not used.**
