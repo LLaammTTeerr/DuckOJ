@@ -48,13 +48,15 @@ describe('compose project resolution across scripts', () => {
     // because it builds images in a `git archive` export directory, where
     // podman-compose would otherwise name them after a temp directory — the
     // same M4 disagreement this file exists for, arriving by a new door.
-    expect(names).toEqual([
-      'backup.sh',
-      'deploy.sh',
-      'e2e-contest.ts',
-      'e2e-problem.ts',
-      'restore.sh',
-    ]);
+    // F-59 removed `e2e-contest.ts` and `e2e-problem.ts` from this set, and
+    // that is a fix rather than a regression: both used to `podman exec` into
+    // postgres to promote an account they had registered anonymously, which
+    // is why they needed a project name at all. That step is gone — they mint
+    // pupils through the API using the operator's own admin — so neither
+    // script shells into compose any more and neither can disagree with it.
+    // The two names survive in those files only inside comments explaining
+    // what was removed, which is why this pin reads the set and not a grep.
+    expect(names).toEqual(['backup.sh', 'deploy.sh', 'restore.sh']);
   });
 
   it('reads COMPOSE_PROJECT_NAME first, everywhere', () => {
