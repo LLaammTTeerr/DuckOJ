@@ -11032,8 +11032,11 @@ old socket and queued the stale packet onto the new attempt's translation
 chain. A `grading-end` from attempt N finalises attempt N+1 while it is still
 compiling, with a verdict computed from the previous run's cases; a
 `test-case-status` builds a subtask summary out of two runs mixed together.
-Both write a permanent result, and both are D100's "the monitor's numbers and
-the queue's numbers disagree" seen from the inside.
+Both write a permanent result, and both reach further than the submission
+itself: D100's `contest_problem_stats` is a counter maintained on write from
+exactly these events, so a verdict assembled out of two runs moves
+`accepted`/`solvers` for a contest problem and the only repair is the
+organiser noticing and reaching for `?recompute=1`.
 
 D29's mitigation — terminate attempt N on its own connection, and do not hand
 that connection out again until the judge answers — is a real narrowing and

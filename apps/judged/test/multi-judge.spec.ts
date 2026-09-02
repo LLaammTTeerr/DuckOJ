@@ -406,7 +406,8 @@ describe('a fleet of two judges', () => {
       );
       expect(attemptTwo.filter((e) => e.type === 'caseResult')).toHaveLength(1);
       // 51/51 would be a score summed across two different runs of the same
-      // submission — D100's "the numbers disagree" seen from the inside.
+      // submission, and it does not stop at the submission: D100's
+      // `contest_problem_stats` is maintained on write from these events.
       expect(attemptTwo.find((e) => e.type === 'finished')).toMatchObject({
         points: 1,
         maxPoints: 1,
@@ -441,6 +442,39 @@ describe('a fleet of two judges', () => {
       await driver.dispatch(makeJob('99'), async () => {});
       await vi.waitFor(() => expect(first.requests()).toHaveLength(2), 10_000);
       expect(first.requests().map((r) => r['submission-id'])).toContain(99);
+    }, 30_000);
+
+    /**
+     * Deliberately a fleet of ONE, in the suite about two: that is the
+     * topology this repository ships (D29's `JUDGED_CONCURRENCY=1`, one loop
+     * per judge), and it is the only one in which the release above is load
+     * bearing rather than tidy. With two judges the retry has somewhere else
+     * to go; with one it is PARKED in `acquireConnection`, and the stale
+     * packet's release is the only thing that ever wakes it.
+     */
+    it('wakes the parked retry when the superseded attempt frees the only judge', async () => {
+      const { driver } = await bridge([['judge-1', ['CPP17']]]);
+      const [only] = judges as [ReturnType<typeof fakeJudge>];
+
+      await driver.dispatch(makeJob('7', 'cpp17', 1), async () => {});
+      await vi.waitFor(() => expect(only.requests()).toHaveLength(1), 10_000);
+      await driver.cancel('7', 1);
+      await vi.waitFor(() => expect(only.terminates()).toHaveLength(1), 10_000);
+
+      // NOT awaited: with the one judge still marked busy, this parks inside
+      // `acquireConnection` and resolves only once something frees it.
+      const attemptTwo: GradingEvent[] = [];
+      const retry = driver.dispatch(makeJob('7', 'cpp17', 2), async (e) => void attemptTwo.push(e));
+
+      // The judge answers the terminate. Attempt 1 is over; attempt 2 has not
+      // begun, and must not be told anything about attempt 1's ending.
+      only.send({ name: 'submission-terminated', 'submission-id': 7 });
+
+      await retry;
+      await vi.waitFor(() => expect(only.requests()).toHaveLength(2), 10_000);
+      // Exactly one event, and it is the retry's own start — not a
+      // `terminated` for a run that had not started when it was written.
+      expect(attemptTwo.map((e) => e.type)).toEqual(['dispatched']);
     }, 30_000);
   });
 });
