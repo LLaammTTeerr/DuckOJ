@@ -10170,4 +10170,300 @@ still reproducible against it until the next deploy. Red before the change:
 `nul-byte.spec.ts` fails on the first assertion (`expected 500 to be 422`), and
 the fuzzer reports **228** route/mode combinations answering 5xx.*
 
-**D197 is not used.**
+
+## D197 — A username is an identifier and a display name is a child: the disclosure level is a deployment policy, and its default is the protective one
+
+D188 gated the pupil directory, D191 gated the school rosters, D192 measured
+`GET /contests` and found no person in it. B-35 then measured what was left,
+and the number is the point:
+
+```
+anonymous  GET /contests?limit=100          → 159 contests in 2 requests
+anonymous  a scoreboard for each            → 159 requests, 249 ranking rows,
+                                              142 DISTINCT usernames
+of those 142, reachable by no other anonymous route:            108
+anonymous  GET /users/{username} for each   → 263 of 264 resolved,
+                                              displayName on ALL of them
+whole anonymous harvest, this host:   264 of 481 accounts — 54.9%
+```
+
+Re-measured against the live edge at `fe4ec8d` while this slot ran, the
+anonymous profile carries more than a name:
+
+```
+GET /api/v1/users/hocsinh1        (no cookie, no token)
+about, country, createdAt, displayName, globalRole, id, maxRating, rating,
+stats, username          displayName: "Hoc Sinh 1"
+```
+
+**Neither end of that chain is a bug, and this ruling does not treat either as
+one.** A scoreboard that names its competitors is what a scoreboard is *for*
+(D46, D192, D195); a profile linked from one has to open for a stranger, which
+is exactly what D188 protected when it gated the *list* and left the
+*lookup* public. B-35 was right to refuse to gate them on its own authority.
+
+What was missing is a question this system has never asked: **an adult on a
+public judge and a twelve-year-old in a provincial school are not the same
+population, and the software treated them identically.** On this product's
+target host the roster was imported from a school's spreadsheet (D61), so
+`display_name` is overwhelmingly a child's real, full, legal name, and `about`
+is free text that same child typed about themselves.
+
+### The ruling
+
+**`NAME_DISCLOSURE` — one switch, three rungs, read in exactly one place
+(`apps/api/src/authz/name-disclosure.ts`), with the PROTECTIVE rung as the
+default.**
+
+| rung | anonymous | signed-in, no organization | holds any org role | authority: admin, setter, contest staff on this round, org staff on this grid, or yourself |
+| --- | --- | --- | --- | --- |
+| `public` | full | full | full | full |
+| `authenticated` | **handle** | full | full | full |
+| **`affiliated` (default)** | **handle** | **handle** | full | full |
+
+- **Substitute, never omit.** A redacted `displayName` carries **the
+  username**. The field never becomes null, optional or empty. No contract
+  forks, no renderer grows a branch, and **D122's initial avatars — which are
+  computed from the display name and therefore leak one too — degrade to the
+  handle's initials in the same step.** It is also what makes this ruling's
+  central claim literally true: *a public scoreboard that shows only handles is
+  still a usable scoreboard*, because every column still holds something you
+  can read, sort and click.
+- **`about` is withheld, not substituted** — `null`, a value every client
+  already renders as the empty About section most profiles have. It is the one
+  field on a profile that can say *anything*: a class, a school, a birthday,
+  another handle. A name has an obvious stand-in; free text has none.
+- **`country`, `rating`, `maxRating`, `globalRole`, `createdAt` and `stats`
+  stay, and that is argued rather than overlooked.** A self-declared country is
+  one of two hundred coarse values that identifies nobody on a host where every
+  account is in one province; the rest are the numbers a judge exists to
+  publish and D46's rank ramp hangs off exactly them. D188 made the same call
+  on the same fields for the same reason.
+- **You always see yourself, at every rung.** Without it a pupil at a province
+  whose school has not been created yet opens their own settings page, is told
+  their display name is their username, and saves it.
+
+### Why `affiliated` is the default and not `authenticated`
+
+Because the softer rung is defeated by a fact this campaign measured itself.
+Registration is open — D26 **meters** it, it does not **gate** it — and B-35
+took **482 of 482 accounts in 576 requests and 1.5 seconds** from one ordinary
+session, spending zero walk budget. A default whose protection ends at "make an
+account" is attribution, not protection, and attribution is a fair yield for a
+bound on *bulk* (D188's own claim about itself) but not for the payload being
+children's real names.
+
+`affiliated` asks for standing instead: a role in **some** organization. That
+is not obtainable in thirty seconds — a teacher adds you, or you ask to join
+and someone decides (D179/D181) — and where an organization is `open` and you
+can add yourself, **appearing on its roster is attribution of the strongest
+kind available and removal revokes it**, which is precisely the residual D191
+named and accepted for its own meter.
+
+The brief's other candidate — **real names only within the pupil's OWN
+organization** — was considered and lost, on two counts:
+
+1. **It breaks the reader a province actually has.** A provincial round's
+   organiser belongs to none of the thirty schools whose pupils are in it. Their
+   results sheet would print thirty columns of handles, and the certificates
+   would be unusable. The same is true of a teacher reading a provincial
+   scoreboard their own class is on.
+2. **It is the shape in which a surface gets forgotten.** Per-subject
+   disclosure needs the viewer's organizations intersected with the subject's on
+   every row of every board, roster, grid and export — an extra join on eight
+   surfaces. B-35's finding is that exact failure one level up: two rulings, two
+   surfaces gated, and a third nobody had looked at.
+
+### What a legitimate reader loses, stated plainly
+
+- **A signed-out visitor** loses real names and About text everywhere. They keep
+  every scoreboard, every rank and rating, every contest, every school page and
+  its first roster page, and every profile — with the handle in the name's
+  place, and a sentence in both languages saying so (D18, D145, D187).
+- **A parent** is the sharpest loss and it is a real one. Under `affiliated` a
+  parent sees handles even with an account. Three answers, in order: the child
+  knows their own handle; the certificate and the results sheet an organiser
+  produces carry the real name (below); and a province that judges the trade
+  differently sets `NAME_DISCLOSURE=authenticated` in one line — which is why
+  that rung exists rather than being argued away.
+- **An unaffiliated researcher or scripted consumer** loses real names and keeps
+  every identifier and every number. Nothing in this product breaks: every
+  screen that renders a person is reached by a reader with standing.
+- **Nobody with standing loses anything at all.**
+
+### The export paths, which are the ones that matter most
+
+A CSV or a PDF is the artefact that leaves the building, and D62 is this
+project's own precedent for an export path with its own idea of what it might
+print (a booklet that leaked a private statement).
+
+**Every export prints real names at every rung — and reaches that answer by
+ASKING the predicate, not by skipping it.** `authority` is an *input* to
+`nameAudience`, passed by a surface that has already authorized this caller over
+exactly these people: `canRunContest` for the results CSV, the results PDF, the
+certificates and D129's seat slips; owner-or-admin-of-this-organization for the
+problem-set progress grid and its CSV. A certificate bearing a handle is not a
+certificate, and a seat slip bearing a handle defeats the reason D129 prints
+one — an invigilator handing a named child a seat.
+
+The value of wiring them anyway is that they are now honest by construction: a
+later rung, or a later widening of who may pull the file, is honoured in the
+export for free, and `name-disclosure-guard.spec.ts` fails if a new export
+grows its own answer.
+
+### The scoreboard needs no code, and that is the finding that made this tractable
+
+`ranking[].participant` is a **username** and always was; the board carries no
+display name at all. So **the scoreboard leaks identifiers and the profile
+leaks identity, and they get different treatment on purpose**: the board is
+left exactly as D46 and D192 leave it, and the switch lives at the dereference
+on the end of it. D25's 2 s scoreboard cache is safe for the same reason — the
+payload does not vary by reader — and `name-disclosure.spec.ts` pins that a
+future ranking row carrying a name fails there rather than on a province's host.
+The same is true of the monitor feed, the clarification feed, the submissions
+list, problem comments and `firstSolver`/`fastest`: all of them were already
+handle-only, verified by source scan rather than assumed.
+
+### The one property this ruling deliberately reverses
+
+`user-search-diacritics.spec.ts` asserted, in D188's words, that *"D188 gated
+WHO may ask; it did not make the answer depend on who asked, and a list that
+differed per caller would be a new oracle rather than a closed one."*
+
+**D197 makes the answer depend on the reader, on purpose, and that is not a new
+oracle.** The distinction is what the difference discloses. A row set that
+varied per *subject* — "you see this pupil and not that one" — would leak the
+relationship between reader and subject, which is the oracle that sentence
+warns about. What varies here is one coarse, two-valued property of the
+**reader**: whether they hold standing. A reader learns from it only whether
+they themselves have standing, which they already know, and which the
+organization pages tell them anyway.
+
+That spec's fixture is called `teacher()`, and a teacher is precisely a reader
+with standing. It now creates one — an account with a role in a school — rather
+than a bare registration, with the reason in the diff. The case where the
+searcher has no standing did not disappear; it moved to
+`name-disclosure.spec.ts`, which asserts the search finds nothing by name and
+still finds everything by handle.
+
+### The search box, which would otherwise make the whole rung theatre
+
+D185's `q` matches a word prefix of `users.search_fold` — the stored generated
+column `username || ' ' || display_name`, folded (migration 0047). A reader who
+is shown handles but may still search the display names has a **name-recovery
+oracle**: `q=ng`, `q=ngu`, `q=nguye`, each answer confirming another letter of
+the name the projection just took away. D191 closed exactly this
+prefix-iteration hole for an anonymous roster reader; leaving it open for a
+signed-in one with no standing would have been the same mistake with a cookie
+on it.
+
+So the policy has **one predicate in two forms**, the discipline this project
+already applies to visibility: `presentName`/`presentAbout` is the projection,
+and `nameSearchColumn` is the **haystack** — a redacted reader searches the
+folded **username alone**. That is deliberately the un-indexed path (0047
+measured 172 ms against 4.2 ms on a 25 000-account copy) and it is the right
+trade twice: the only caller who takes it has no standing in the province and no
+screen in this product that needs it, and buying a second stored column would be
+paying to make an oracle fast.
+
+### Configuration, and F-40's lesson said again
+
+`NAME_DISCLOSURE` is wrapped in `unsetWhenBlank`, documented in `.env.example`
+with the default named, and passed through `docker-compose.yml` to the `api`
+service as `${NAME_DISCLOSURE:-}`. Compose cannot omit a variable
+conditionally, so an unconfigured stack hands the process `NAME_DISCLOSURE=` —
+and a bare `z.enum([...]).default('affiliated')` would read the empty string as
+a value outside the enum and refuse to boot. **A policy whose safe default
+cannot survive being left unset is not a safe default.** The rung in effect is
+reported on the admin operations dashboard beside the mail block, for the
+reason the mail block is there at all: an operator set a variable and had no
+way to see whether it reached the process.
+
+**No column, and no name is edited or rewritten** — the switch changes only
+what is *disclosed*, and setting it back restores the previous behaviour on the
+next boot.
+
+**One migration, 0049, and it is an index rather than a schema change.**
+`org_members`' primary key leads on `org_id`, so "does this person belong to
+any school?" — the question the `affiliated` rung asks — is a **sequential scan
+of the whole table**. Measured on the live host: 122 rows, 0.034 ms, harmless;
+on a province's it is one row per pupil per school and it grows with every
+import, and `nameAudience` asks it once per read for a signed-in caller who is
+not already authority, which on a contest day is every profile a pupil opens.
+`0049_f55_org_members_user_id` is a plain b-tree on `user_id`. It pays for a
+path that **predates** this ruling too: `org.access.ts`'s `roleIn` has always
+had the same shape. The live database is one migration behind until the next
+deploy, which this slot may not perform.
+
+*Ruled by the implementer during the F-55 slot, no human available to consult.
+Cost if wrong: one environment variable (the migration is an index and is
+correct either way). `NAME_DISCLOSURE=public` restores the
+pre-D197 behaviour byte for byte and is asserted to (`'public' is the pre-D197
+behaviour, byte for byte`). Tests: `apps/api/test/name-disclosure.spec.ts` (16)
+and `apps/api/test/name-disclosure-guard.spec.ts` (5, D198). Red before the
+change: **8 of 16** with the default at `public` (the true pre-D197 shape);
+**6 of 16** with no substitution; **5 of 16** with `affiliated` collapsed into
+`authenticated`; **2 of 16** with the search haystack left on `search_fold` —
+the oracle, exactly; **1 of 16** each for `authority` ignored (the export path
+redacted with everything else), `about` substituted rather than withheld, and
+self not exempt.*
+
+## D198 — A source-scan guard over the disclosure policy, because the finding that created it was a surface nobody had looked at
+
+D188 gated `GET /users`. D191 gated the org roster. B-35 then measured a
+**third** bulk list of people — the scoreboard — that neither ruling had
+considered, and the chain that turned its 142 usernames into 264 real names.
+The brief's own words: *a policy honoured by six surfaces and forgotten by the
+seventh is not a policy, and B-35's finding is exactly that shape one level up.*
+
+So D197 ships with a guard in the shape of D113's
+`team-participation-invariant.spec.ts` and `route-marker-coverage.spec.ts`:
+`apps/api/test/name-disclosure-guard.spec.ts` scans every non-spec source file
+in `apps/api/src` and `packages/` for three things.
+
+1. **The projection.** A read of `users.display_name` or `users.about` outside
+   the sanctioned module must either call `presentName` / `presentAbout` /
+   `seesIdentity` in the same function, or hold an audited allow-list entry.
+   Six surfaces read the column today — the directory, the profile, the org
+   roster, team rosters (twice), the progress grid and the results export — and
+   all six route. The allow-list holds **one** entry, `user.access.ts`'s
+   top-level `PUBLIC_COLUMNS` select list, whose two consumers both project.
+2. **The haystack.** `users.searchFold` may be named only in the policy module.
+   Anywhere else it is a search that can confirm a withheld name one prefix at
+   a time, and the failure message names the one legal move
+   (`nameSearchWhere(nameSearchColumn(audience), q)`).
+3. **One switch, read in one place.** `config.nameDisclosure` may be branched on
+   in one module. The single exception is the admin dashboard, which *reports*
+   the rung through the same fail-closed `policyOf` the access services use — so
+   it cannot report a rung the services are not on. `packages/contracts` and the
+   generated SDK are out of scope of this check: declaring the reported field's
+   enum is the contract for reporting it, not a second reader of it.
+
+Two properties make it a census rather than a rubber stamp. A **removed** site
+fails as a stale allow-list entry, so the list stays honest. And the scan
+asserts a **floor** — at least six hits, at least four of them routed — so a
+rename that made the regex match nothing is a red test rather than a
+vacuously green one, which is the way a guard of this shape usually dies.
+
+**What the guard deliberately does not catch, named so the next reader does not
+assume it does.** It scans for drizzle *column references*, so it says nothing
+about a `displayName` that arrives in a request body (a write, or the import
+echoing back the file a staff member just uploaded) and nothing about a pure
+renderer printing `row.displayName` off a DTO its caller already projected
+(`statements/results.ts`, `statements/seats.ts`, `results-csv.ts`,
+`progressCsv`). Those are safe for a *structural* reason rather than a checked
+one: they never touch the column, so they have nothing of their own to disagree
+with. A renderer that grew a database read would appear here immediately.
+
+**The fail-closed default is part of the same discipline.** The access services
+take `AppConfig` as an optional constructor parameter on D80's precedent, so a
+spec that builds one by hand keeps working — and `policyOf(undefined)` returns
+`affiliated`, not `public`. A service assembled without a config gets the
+protective rung, which is the same direction the deployment default leans.
+
+*Ruled by the implementer during the F-55 slot, no human available to consult.
+Cost if wrong: one spec file. Red before the change: adding a
+`schema.users.displayName` read to `contest.monitor.ts::feed` — a plausible new
+surface — reds it 1 of 5, naming the file, the function and the line.*
+
+**D199 is not used.**
