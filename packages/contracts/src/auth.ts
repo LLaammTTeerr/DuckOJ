@@ -109,16 +109,52 @@ export type MeResponseDto = z.infer<typeof MeResponse>;
 
 export const LoginResponse = z.object({ user: MeResponse });
 
+/**
+ * Whether this deployment takes sign-ups (D200).
+ *
+ * A rung name rather than a boolean, and deliberately so: `REGISTRATION`
+ * grows a third value the day an invitation mechanism exists, and a client
+ * that switched on `open: true/false` would have to be changed to notice.
+ * Every client that only wants "is there a form" asks `=== 'open'`.
+ */
+export const RegistrationStateResponse = z.object({
+  registration: z.enum(['open', 'closed']),
+});
+export type RegistrationStateResponseDto = z.infer<typeof RegistrationStateResponse>;
+
+registry.registerPath({
+  method: 'get',
+  path: '/auth/registration',
+  tags: ['Auth'],
+  summary: 'Whether this deployment takes sign-ups',
+  description:
+    'Public, and it has to be: the reader is a visitor with no account (D200). It carries the rung and ' +
+    'nothing else — no account count, no roster, no address — so a register screen can say "this site ' +
+    'does not take sign-ups" instead of 403-ing a form after five fields (D145). `closed` is the ' +
+    'default: a school district\u2019s pupils arrive by D61\u2019s roster import, not by signing up.',
+  responses: {
+    200: {
+      description: 'The registration rung in effect for this deployment',
+      content: { 'application/json': { schema: RegistrationStateResponse } },
+    },
+  },
+});
+
 registry.registerPath({
   method: 'post',
   path: '/auth/register',
   tags: ['Auth'],
   summary: 'Create an account',
   description:
-    'A taken EMAIL is answered with 201 and a body of the same shape, and no account is created (D26) — ' +
-    'an address is not public, and a distinguishable refusal made this endpoint an email-enumeration ' +
-    'oracle. A taken USERNAME is still a 409: a username is public, and refusing it is the only way a ' +
-    'caller can pick another one.',
+    'Refused 403 `registration_closed` unless this deployment is on the `open` rung or the caller is a ' +
+    'global admin (D200) — ask `GET /auth/registration` first. The default rung is `closed`.\n\n' +
+    'On the `open` rung a taken EMAIL is answered with 201 and a body of the same shape, and no account ' +
+    'is created (D26) — an address is not public, and a distinguishable refusal made this endpoint an ' +
+    'email-enumeration oracle. A taken USERNAME is still a 409: a username is public, and refusing it ' +
+    'is the only way a caller can pick another one. A GLOBAL ADMIN is told the truth about both — a ' +
+    '409 `email_taken` (D200, on D61\u2019s argument): they are session-authenticated and authorized, ' +
+    'so they are not the anonymous caller D26 closed the oracle against, and a phantom account they ' +
+    'cannot find out about is the worse outcome.',
   request: { body: { content: { 'application/json': { schema: RegisterRequest } } } },
   responses: {
     201: {
@@ -127,8 +163,19 @@ registry.registerPath({
         'created and this response is deliberately indistinguishable from the one above (D26)',
       content: { 'application/json': { schema: MeResponse } },
     },
+    403: {
+      description:
+        'This deployment does not take sign-ups (`registration_closed`) — D200. The refusal is a ' +
+        'function of the rung and of who is asking, and of NOTHING about the request body: every ' +
+        'anonymous caller gets it for every address, including addresses that have never existed, and ' +
+        'gets it before the address is looked at. That is what closes D26\u2019s residual oracle on ' +
+        'this rung rather than merely narrowing it.',
+      content: { 'application/problem+json': { schema: ProblemDetails } },
+    },
     409: {
-      description: 'That username is already registered (`username_taken`)',
+      description:
+        'That username is already registered (`username_taken`) — or, for a global admin only, that ' +
+        'email is (`email_taken`, D200)',
       content: { 'application/problem+json': { schema: ProblemDetails } },
     },
     422: {

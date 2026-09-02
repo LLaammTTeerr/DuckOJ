@@ -348,6 +348,18 @@ export const AdminDashboardResponse = z.object({
      * config, so a 15-second dashboard refresh costs nothing.
      */
     nameDisclosure: z.enum(['public', 'authenticated', 'affiliated']),
+    /**
+     * `REGISTRATION`, as it is in effect for the process answering (D200).
+     *
+     * Here for the reason `nameDisclosure` is, which is F-40's: an operator
+     * set a variable and had no way to see whether it reached the process.
+     * This one decides whether a stranger on the internet can hold an account
+     * on a province's school judge, and the whole point of its default is
+     * that an operator who set NOTHING is on the protective rung — so being
+     * able to READ that off the dashboard rather than infer it is the
+     * difference between a policy and a belief.
+     */
+    registration: z.enum(['open', 'closed']),
   }),
   /**
    * Whether this deployment can send mail (F-40, D156).

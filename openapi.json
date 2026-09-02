@@ -8656,12 +8656,20 @@
                             "authenticated",
                             "affiliated"
                           ]
+                        },
+                        "registration": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "closed"
+                          ]
                         }
                       },
                       "required": [
                         "apiWorkers",
                         "judgedConcurrency",
-                        "nameDisclosure"
+                        "nameDisclosure",
+                        "registration"
                       ]
                     },
                     "mail": {
@@ -9137,13 +9145,46 @@
         }
       }
     },
+    "/auth/registration": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Whether this deployment takes sign-ups",
+        "description": "Public, and it has to be: the reader is a visitor with no account (D200). It carries the rung and nothing else — no account count, no roster, no address — so a register screen can say \"this site does not take sign-ups\" instead of 403-ing a form after five fields (D145). `closed` is the default: a school district’s pupils arrive by D61’s roster import, not by signing up.",
+        "responses": {
+          "200": {
+            "description": "The registration rung in effect for this deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "registration": {
+                      "type": "string",
+                      "enum": [
+                        "open",
+                        "closed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "registration"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/register": {
       "post": {
         "tags": [
           "Auth"
         ],
         "summary": "Create an account",
-        "description": "A taken EMAIL is answered with 201 and a body of the same shape, and no account is created (D26) — an address is not public, and a distinguishable refusal made this endpoint an email-enumeration oracle. A taken USERNAME is still a 409: a username is public, and refusing it is the only way a caller can pick another one.",
+        "description": "Refused 403 `registration_closed` unless this deployment is on the `open` rung or the caller is a global admin (D200) — ask `GET /auth/registration` first. The default rung is `closed`.\n\nOn the `open` rung a taken EMAIL is answered with 201 and a body of the same shape, and no account is created (D26) — an address is not public, and a distinguishable refusal made this endpoint an email-enumeration oracle. A taken USERNAME is still a 409: a username is public, and refusing it is the only way a caller can pick another one. A GLOBAL ADMIN is told the truth about both — a 409 `email_taken` (D200, on D61’s argument): they are session-authenticated and authorized, so they are not the anonymous caller D26 closed the oracle against, and a phantom account they cannot find out about is the worse outcome.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -9256,8 +9297,53 @@
               }
             }
           },
+          "403": {
+            "description": "This deployment does not take sign-ups (`registration_closed`) — D200. The refusal is a function of the rung and of who is asking, and of NOTHING about the request body: every anonymous caller gets it for every address, including addresses that have never existed, and gets it before the address is looked at. That is what closes D26’s residual oracle on this rung rather than merely narrowing it.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "default": "about:blank"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "integer"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "fields": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "status",
+                    "code"
+                  ]
+                }
+              }
+            }
+          },
           "409": {
-            "description": "That username is already registered (`username_taken`)",
+            "description": "That username is already registered (`username_taken`) — or, for a global admin only, that email is (`email_taken`, D200)",
             "content": {
               "application/problem+json": {
                 "schema": {

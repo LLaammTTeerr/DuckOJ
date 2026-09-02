@@ -12,6 +12,7 @@ import {
   type LoginRequestDto,
   type MeResponseDto,
   type RegisterRequestDto,
+  type RegistrationStateResponseDto,
   type ResetPasswordRequestDto,
   type VerifyEmailRequestDto,
 } from '@duckoj/contracts';
@@ -21,12 +22,17 @@ import { ZodValidationPipe } from '../common/zod.pipe.js';
 import { APP_CONFIG } from '../config/config.module.js';
 import type { AppConfig } from '../config/config.schema.js';
 import type { Actor } from '../authz/actor.js';
+import {
+  assertRegistrationOpen,
+  isTrustedRegistrar,
+  registrationOf,
+} from '../authz/registration.policy.js';
 import { AuthService, toMe } from './auth.service.js';
 import { AccountRecoveryService } from './account-recovery.service.js';
 import { SessionService } from './session.service.js';
 import { TotpService } from './totp.service.js';
 import { TotpRecoveryService } from './totp-recovery.service.js';
-import { CurrentActor, Public } from './auth.guard.js';
+import { CurrentActor, MaybeActor, Public } from './auth.guard.js';
 import { SessionOnly } from './session-only.guard.js';
 import { NoScopeRequired } from './require-scope.decorator.js';
 
@@ -124,6 +130,23 @@ export class AuthController {
     @Inject(TotpRecoveryService) private readonly recoveryCodes: TotpRecoveryService,
   ) {}
 
+  /**
+   * D200 — whether this deployment takes sign-ups at all.
+   *
+   * `@Public()`, and it has to be: the reader is a visitor with no account,
+   * which is the entire population the answer is for. It discloses the rung
+   * and nothing else — no count, no roster, no address — and the rung is the
+   * message the register screen has to print anyway. A judge that refuses
+   * sign-ups without saying so is a form that 403s after five fields, which
+   * D145 calls the worse failure.
+   */
+  @Get('registration')
+  @Public()
+  @NoScopeRequired()
+  registrationState(): RegistrationStateResponseDto {
+    return { registration: registrationOf(this.config) };
+  }
+
   // Neither this route nor `login`/`logout` below carries `@RequireScope` or
   // `@NoScopeRequired()`: none of the three is something a token should ever
   // call (registering, logging in, and logging out are all session-cookie
@@ -137,31 +160,53 @@ export class AuthController {
   async register(
     @Body(new ZodValidationPipe(RegisterRequest)) body: RegisterRequestDto,
     @Req() req: Request,
+    @MaybeActor() actor: Actor | null,
   ): Promise<MeResponseDto> {
+    // D200, and it is FIRST — before the meter and before any address is
+    // looked at. Both halves matter. A caller this deployment does not admit
+    // must not consume the register window (D26 already rules that a refusal
+    // records nothing, so the window drains rather than a shared school
+    // address staying locked out), and a refusal raised after the lookup
+    // would be uniform in content and non-uniform in timing, which is still
+    // an oracle. `mail-unavailable.spec.ts` pins D155's identical ordering
+    // with a database and a limiter that throw on any access at all, and
+    // `registration-policy.spec.ts` pins this one the same way.
+    const policy = registrationOf(this.config);
+    assertRegistrationOpen(policy, actor);
+    const trusted = isTrustedRegistrar(actor);
+
     // Checked BEFORE anything expensive: the whole point is that a refused
     // caller does not pay for — or make this process pay for — an argon2id
     // hash. `allow` rather than the split read/record pair login uses,
     // because here every attempt counts, so "count" and "record" are the same
     // moment (see REGISTER_PURPOSE above).
+    //
+    // Skipped for a trusted registrar (D200): what this meter bounds is the
+    // cost of an ANONYMOUS hash, and a global admin seating a late arrival
+    // one account at a time is not that caller — they already hold
+    // `org:import` and its two thousand rows. Keying it on the admin's IP
+    // would instead make a classroom's own NAT address refuse the operator.
     const ipKey = `ip:${clientIp(req)}`;
-    const retryAfter = await this.limiter.retryAfterSeconds(
-      REGISTER_PURPOSE,
-      ipKey,
-      REGISTER_LIMIT_PER_IP,
-      REGISTER_WINDOW_MS,
-    );
-    if (retryAfter !== null) {
-      throw new AppError(
-        429,
-        'register_rate_limited',
-        'Too many accounts have been created from this address. Try again later.',
-        undefined,
-        { 'Retry-After': String(retryAfter) },
+    if (!trusted) {
+      const retryAfter = await this.limiter.retryAfterSeconds(
+        REGISTER_PURPOSE,
+        ipKey,
+        REGISTER_LIMIT_PER_IP,
+        REGISTER_WINDOW_MS,
       );
+      if (retryAfter !== null) {
+        throw new AppError(
+          429,
+          'register_rate_limited',
+          'Too many accounts have been created from this address. Try again later.',
+          undefined,
+          { 'Retry-After': String(retryAfter) },
+        );
+      }
+      await this.limiter.record(REGISTER_PURPOSE, ipKey, REGISTER_WINDOW_MS);
     }
-    await this.limiter.record(REGISTER_PURPOSE, ipKey, REGISTER_WINDOW_MS);
 
-    const { created, user } = await this.auth.register(body);
+    const { created, user } = await this.auth.register(body, { policy, actor });
     if (!created) {
       // D26: the address is already registered. The response above is
       // indistinguishable from a success and nothing was written, so this log

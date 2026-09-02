@@ -97,6 +97,14 @@ services:
       # in the schema and NOT in a `${VAR:-affiliated}` here, so the
       # deployment cannot disagree with the code about what unset means.
       NAME_DISCLOSURE: ${NAME_DISCLOSURE:-}
+      # D200 — who may create an account here. Same shape and same reason as
+      # the line above: passed unconditionally, empty by default, and the
+      # default (`closed`) lives in the schema so the deployment cannot
+      # disagree with the code about what unset means. `closed` refuses
+      # `POST /auth/register` to everyone but a global admin; a province's
+      # pupils arrive by the roster import (D61), not by signing up. Set
+      # `REGISTRATION=open` for a public practice judge.
+      REGISTRATION: ${REGISTRATION:-}
       # Mail (D1, D57, F-40). Until F-40 this block did not exist: the
       # config module had read a full SMTP_* set since 3f and NONE of it
       # reached the container, so an operator could fill in every line of

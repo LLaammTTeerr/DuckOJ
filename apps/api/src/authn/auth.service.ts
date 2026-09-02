@@ -4,6 +4,9 @@ import { eq, sql } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import type { MeResponseDto, RegisterRequestDto } from '@duckoj/contracts';
 import { DB } from '../config/config.module.js';
+import type { Registration } from '../config/config.schema.js';
+import type { Actor } from '../authz/actor.js';
+import { assertRegistrationOpen, isTrustedRegistrar } from '../authz/registration.policy.js';
 import { AppError } from '../common/app.error.js';
 import { RateLimiter } from '../common/rate-limiter.js';
 import { PasswordService } from './password.service.js';
@@ -54,9 +57,46 @@ export class AuthService {
    * roster of minors, which is exactly the posture `sendPasswordReset`
    * already refuses to take two files over.
    */
-  async register(input: RegisterRequestDto): Promise<RegistrationOutcome> {
+  async register(
+    input: RegisterRequestDto,
+    caller: { policy: Registration; actor: Actor | null },
+  ): Promise<RegistrationOutcome> {
+    // D200/D201 — asserted AGAIN, immediately in front of the INSERT.
+    //
+    // `AuthController.register` already refused a caller this deployment does
+    // not admit, and it had to: the refusal has to happen before the meter and
+    // before the address is looked at, or the ordering leaks. This second call
+    // is not that check repeated for want of confidence — it is what makes the
+    // one function in this product that mints a self-service account consult
+    // the policy in its own body, so `registration-guard.spec.ts` can assert
+    // the property by reading the source rather than by trusting a caller.
+    // Two calls to one pure predicate are one policy; a mint that asks nobody
+    // is what the guard exists to catch.
+    assertRegistrationOpen(caller.policy, caller.actor);
+    const trusted = isTrustedRegistrar(caller.actor);
+
     await this.assertAvailable('username', input.username);
     const emailTaken = await this.isTaken('email', input.email);
+
+    // D200 — a TRUSTED registrar is told the truth. The fake 201 exists
+    // because the caller might be a stranger sweeping addresses; a global
+    // admin creating one account for a teacher who arrived after the
+    // spreadsheet is not that caller, and handing them a phantom account with
+    // no way to find out is a worse outcome than the disclosure. This narrows
+    // D26 in exactly one place and for exactly D61's reason — the roster
+    // import names a taken address in its 422 on the same argument: the
+    // caller is session-authenticated and authorized, so this is not the
+    // anonymous oracle D26 closed.
+    //
+    // The hash is skipped on this path deliberately: the only reason it runs
+    // below is to keep the fake 201's TIMING indistinguishable from a real
+    // one, and there is no longer anything to be indistinguishable from.
+    if (trusted && emailTaken) {
+      // Byte-identical to what `assertAvailable('email', …)` and the racing
+      // INSERT below produce, so the three paths cannot disagree about what a
+      // taken address looks like to a trusted caller.
+      throw new AppError(409, 'email_taken', 'That email is already registered.');
+    }
 
     // Hashed unconditionally, BEFORE the branch. Skipping the 19 MiB argon2id
     // on the taken-email path would make the fake 201 come back in a fraction
@@ -84,7 +124,14 @@ export class AuthService {
       // which is a condition an attacker can simply create. `unknown` in,
       // `unknown` out: `toRegistrationConflict` passes anything it does not
       // recognise straight through, so this narrows rather than casts.
+      //
+      // "The same way the pre-check does" is now two answers rather than one,
+      // and this branch follows it in both directions: a trusted registrar
+      // gets the 409 the pre-check would have thrown, everyone else gets the
+      // fake 201. Letting the race answer differently from the pre-check is
+      // exactly the hole D26 closed here in the first place.
       if (conflict instanceof AppError && conflict.code === 'email_taken') {
+        if (trusted) throw conflict;
         return { created: false, user: syntheticMe(input) };
       }
       throw conflict;

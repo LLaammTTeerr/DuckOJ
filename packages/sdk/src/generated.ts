@@ -3991,6 +3991,8 @@ export interface paths {
                                 judgedConcurrency: number | null;
                                 /** @enum {string} */
                                 nameDisclosure: "public" | "authenticated" | "affiliated";
+                                /** @enum {string} */
+                                registration: "open" | "closed";
                             };
                             mail: {
                                 /** @enum {string} */
@@ -4247,6 +4249,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this deployment takes sign-ups
+         * @description Public, and it has to be: the reader is a visitor with no account (D200). It carries the rung and nothing else — no account count, no roster, no address — so a register screen can say "this site does not take sign-ups" instead of 403-ing a form after five fields (D145). `closed` is the default: a school district’s pupils arrive by D61’s roster import, not by signing up.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The registration rung in effect for this deployment */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            registration: "open" | "closed";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/register": {
         parameters: {
             query?: never;
@@ -4258,7 +4302,9 @@ export interface paths {
         put?: never;
         /**
          * Create an account
-         * @description A taken EMAIL is answered with 201 and a body of the same shape, and no account is created (D26) — an address is not public, and a distinguishable refusal made this endpoint an email-enumeration oracle. A taken USERNAME is still a 409: a username is public, and refusing it is the only way a caller can pick another one.
+         * @description Refused 403 `registration_closed` unless this deployment is on the `open` rung or the caller is a global admin (D200) — ask `GET /auth/registration` first. The default rung is `closed`.
+         *
+         *     On the `open` rung a taken EMAIL is answered with 201 and a body of the same shape, and no account is created (D26) — an address is not public, and a distinguishable refusal made this endpoint an email-enumeration oracle. A taken USERNAME is still a 409: a username is public, and refusing it is the only way a caller can pick another one. A GLOBAL ADMIN is told the truth about both — a 409 `email_taken` (D200, on D61’s argument): they are session-authenticated and authorized, so they are not the anonymous caller D26 closed the oracle against, and a phantom account they cannot find out about is the worse outcome.
          */
         post: {
             parameters: {
@@ -4303,7 +4349,27 @@ export interface paths {
                         };
                     };
                 };
-                /** @description That username is already registered (`username_taken`) */
+                /** @description This deployment does not take sign-ups (`registration_closed`) — D200. The refusal is a function of the rung and of who is asking, and of NOTHING about the request body: every anonymous caller gets it for every address, including addresses that have never existed, and gets it before the address is looked at. That is what closes D26’s residual oracle on this rung rather than merely narrowing it. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": {
+                            /** @default about:blank */
+                            type: string;
+                            title: string;
+                            status: number;
+                            detail?: string;
+                            instance?: string;
+                            code: string;
+                            fields?: {
+                                [key: string]: string[];
+                            };
+                        };
+                    };
+                };
+                /** @description That username is already registered (`username_taken`) — or, for a global admin only, that email is (`email_taken`, D200) */
                 409: {
                     headers: {
                         [name: string]: unknown;

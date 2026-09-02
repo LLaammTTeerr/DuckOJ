@@ -54,6 +54,7 @@ import type {
 } from '@duckoj/contracts';
 import { APP_CONFIG, DB } from '../config/config.module.js';
 import { policyOf } from './name-disclosure.js';
+import { registrationOf } from './registration.policy.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import { MAILER, type Mailer } from '../mail/mailer.js';
@@ -229,6 +230,10 @@ export class DashboardService {
         // every access service uses, so the dashboard cannot report a rung
         // the services are not on.
         nameDisclosure: policyOf(this.config),
+        // D200, and reported through the same fail-closed `registrationOf`
+        // the register route itself calls, so the dashboard cannot report a
+        // rung the endpoint is not on.
+        registration: registrationOf(this.config),
       },
       mail: this.mail(),
       generatedAt: new Date().toISOString(),

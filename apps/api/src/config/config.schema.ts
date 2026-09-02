@@ -10,6 +10,19 @@ import { z } from 'zod';
 export type NameDisclosure = 'public' | 'authenticated' | 'affiliated';
 
 /**
+ * The two rungs of D200's registration policy.
+ *
+ * Not a ladder of three like `NAME_DISCLOSURE`, and that is argued rather
+ * than economised: an `invite` rung is not a rung, it is a feature (a code to
+ * store, a route to mint and rotate it, a redemption path, a revocation
+ * story), and a half-built invitation mechanism is worse for a province than
+ * none at all. It stays additive — one more enum member here and one
+ * migration — precisely because this switch is a closed enum rather than a
+ * boolean.
+ */
+export type Registration = 'open' | 'closed';
+
+/**
  * Treats the empty string as "not set".
  *
  * This is what makes the mail variables safe to wire through
@@ -111,6 +124,37 @@ const EnvSchema = z.object({
   ),
 
   /**
+   * Who may create an account on this deployment (D200).
+   *
+   * D197 chose its default because registration is *open*: D26 meters the
+   * endpoint, it does not gate it, and B-35 took 482 of 482 accounts in 576
+   * requests and 1.5 seconds from one ordinary session. That reasoning points
+   * at the thing underneath it — until this variable existed there was **no
+   * registration policy in this system at all**. Anyone on the internet could
+   * hold an account on a province's school judge, submit, consume judge time
+   * on a fleet sized for a province, and appear wherever accounts appear.
+   *
+   *   `closed` (default) `POST /auth/register` answers 403
+   *                      `registration_closed` to everyone except a global
+   *                      admin. Accounts exist because an operator made them:
+   *                      D61's roster import, `org:import`, and D19's
+   *                      `bootstrap:admin` CLI. This is the rung a school
+   *                      district wants, and it is what an operator who reads
+   *                      nothing gets.
+   *   `open`             today's behaviour, byte for byte — anyone may sign
+   *                      up, metered 30/IP/hour by D26. The right setting for
+   *                      a public practice judge whose competitors are
+   *                      adults, and a real deployment.
+   *
+   * The default is the protective one for the reason `NAME_DISCLOSURE`'s is:
+   * a province that never opens this file must not be running the permissive
+   * rung by accident. `unsetWhenBlank` is what lets compose pass it through
+   * unconditionally and empty (F-40), so "sets nothing" is a configuration
+   * the parser survives rather than a boot crash.
+   */
+  REGISTRATION: unsetWhenBlank(z.enum(['open', 'closed']).default('closed')),
+
+  /**
    * SMTP. Absent means mail is logged rather than sent (3f §2) — a developer
    * must not need a mail server to register a user, and neither must a test.
    * Resend is configured here like any other host (`smtp.resend.com`), which
@@ -189,6 +233,13 @@ export interface AppConfig {
    * `apps/api/test/name-disclosure-guard.spec.ts` enforces (D198).
    */
   nameDisclosure: NameDisclosure;
+  /**
+   * D200's one switch, read in one place. Its only consumer is
+   * `apps/api/src/authz/registration.policy.ts`; nothing else in the API may
+   * branch on it, which is what
+   * `apps/api/test/registration-guard.spec.ts` enforces (D201).
+   */
+  registration: Registration;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -229,5 +280,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     mailFrom: e.MAIL_FROM,
     typstBin: e.TYPST_BIN ?? null,
     nameDisclosure: e.NAME_DISCLOSURE,
+    registration: e.REGISTRATION,
   };
 }
