@@ -66,6 +66,15 @@ function fakeJudge(port: number, id: string, executors: string[] = ['CPP17']) {
     ready,
     received,
     send: (p: unknown) => socket!.write(encodePacket(p)),
+    /**
+     * One `socket.write`, so several packets land in a single TCP chunk and
+     * are therefore decoded — and queued — inside one synchronous `handle`
+     * pass. A test that needs two packets to reach the SAME live entry cannot
+     * use two `send` calls: the second may arrive after the entry under that
+     * job id has been replaced, which is the very race being set up.
+     */
+    sendBatch: (packets: unknown[]) =>
+      socket!.write(Buffer.concat(packets.map((p) => encodePacket(p)))),
     requests: () => received.filter((p) => p.name === 'submission-request'),
     terminates: () => received.filter((p) => p.name === 'terminate-submission'),
     close: () => socket?.destroy(),
@@ -475,6 +484,177 @@ describe('a fleet of two judges', () => {
       // Exactly one event, and it is the retry's own start — not a
       // `terminated` for a run that had not started when it was written.
       expect(attemptTwo.map((e) => e.type)).toEqual(['dispatched']);
+    }, 30_000);
+
+    /**
+     * Fix round 1, F1. The three specs above all deliver the stale packet
+     * AFTER the successor has replaced the live entry, so the discard guard
+     * sees it. This one is the other order, and it is the one that actually
+     * happens: `Worker.heartbeatOnce` cancels only once it has learned its
+     * lease was claimed away, so another worker dispatches attempt 2 while
+     * attempt 1's packets are still arriving and still perfectly legitimate.
+     *
+     * Those packets are queued onto attempt 1's own `queue`, which awaits an
+     * `emit` per test case. By the time the queue drains, `live[7]` is attempt
+     * 2's entry — and `finish` deleted by job id, evicting a live grade that
+     * had nothing to do with it. Everything after that fell into
+     * `if (!entry) return`: no terminal event for attempt 2, ever, and its
+     * judge never handed back.
+     */
+    it("does not let attempt 1's queued finish evict attempt 2's live entry", async () => {
+      const { driver } = await bridge([
+        ['judge-1', ['CPP17']],
+        ['judge-2', ['CPP17']],
+      ]);
+      const [first, second] = judges as [
+        ReturnType<typeof fakeJudge>,
+        ReturnType<typeof fakeJudge>,
+      ];
+
+      // Attempt 1's translation blocks inside the case emit, holding its
+      // queued `grading-end` behind it. Only `caseResult` blocks: `dispatch`
+      // itself awaits the `dispatched` emit and would never return.
+      let releaseCase!: () => void;
+      const caseHandled = new Promise<void>((resolve) => {
+        releaseCase = resolve;
+      });
+      const attemptOne: GradingEvent[] = [];
+      const attemptTwo: GradingEvent[] = [];
+
+      await driver.dispatch(makeJob('7', 'cpp17', 1), async (e) => {
+        attemptOne.push(e);
+        if (e.type === 'caseResult') await caseHandled;
+      });
+      await vi.waitFor(() => expect(first.requests()).toHaveLength(1), 10_000);
+
+      // ONE chunk, so both are queued while `live[7]` is still attempt 1's
+      // entry — which it is, and they are legitimately attempt 1's.
+      first.sendBatch([
+        {
+          name: 'test-case-status',
+          'submission-id': 7,
+          cases: [
+            {
+              position: 1,
+              status: 0,
+              time: 0.004,
+              points: 1,
+              'total-points': 1,
+              memory: 900,
+              output: '',
+              feedback: '',
+              'extended-feedback': '',
+            },
+          ],
+        },
+        { name: 'grading-end', 'submission-id': 7 },
+      ]);
+      // The queue is now parked inside the case emit with `grading-end`
+      // behind it.
+      await vi.waitFor(
+        () => expect(attemptOne.some((e) => e.type === 'caseResult')).toBe(true),
+        10_000,
+      );
+
+      // The lease lapsed and another worker claimed it. `live[7]` becomes
+      // attempt 2's entry while attempt 1's queue is still suspended.
+      await driver.dispatch(makeJob('7', 'cpp17', 2), async (e) => void attemptTwo.push(e));
+      await vi.waitFor(() => expect(second.requests()).toHaveLength(1), 10_000);
+
+      releaseCase();
+      // Attempt 1 still finishes on its own terms — the identity guard must
+      // fence the eviction, not suppress a legitimate finish.
+      await vi.waitFor(
+        () => expect(attemptOne.some((e) => e.type === 'finished')).toBe(true),
+        10_000,
+      );
+
+      // And attempt 2's entry survived it, so its own grading-end still lands.
+      second.send({ name: 'grading-end', 'submission-id': 7 });
+      await vi.waitFor(
+        () => expect(attemptTwo.some((e) => e.type === 'finished')).toBe(true),
+        10_000,
+      );
+
+      // Both judges were handed back: attempt 1's finish released judge-1,
+      // attempt 2's released judge-2.
+      await driver.dispatch(makeJob('99'), async () => {});
+      await vi.waitFor(() => expect(first.requests()).toHaveLength(2), 10_000);
+    }, 30_000);
+
+    /**
+     * Fix round 1, F5. Once the discard branch has released a connection, the
+     * NEXT stale packet on it finds no assignment at all — and an unassigned
+     * connection used to fall straight through to the wire-authority branch
+     * and take the live entry over. A judge that answers our terminate after
+     * it had already finished sends exactly this pair.
+     */
+    it('does not let an unassigned connection take over an entry placed elsewhere', async () => {
+      const { driver } = await bridge([
+        ['judge-1', ['CPP17']],
+        ['judge-2', ['CPP17']],
+      ]);
+      const { first, second, attemptTwo } = await supersede(driver);
+
+      // Attempt 1's run ended on judge-1 anyway; discarded, and judge-1 is
+      // released on the way out.
+      first.send({ name: 'grading-end', 'submission-id': 7 });
+      await settle();
+      // Then it answers the terminate that had crossed it. judge-1 now holds
+      // no assignment, so nothing about the packet says whose it is except
+      // that attempt 2 is placed on judge-2.
+      first.send({ name: 'submission-terminated', 'submission-id': 7 });
+      await settle();
+
+      expect(attemptTwo.map((e) => e.type)).toEqual(['dispatched']);
+      // Attempt 2 is still on judge-2 and still finishes there.
+      second.send({ name: 'grading-end', 'submission-id': 7 });
+      await vi.waitFor(
+        () => expect(attemptTwo.some((e) => e.type === 'finished')).toBe(true),
+        10_000,
+      );
+    }, 30_000);
+
+    /**
+     * Fix round 1, F2. A judge that redials mid-grade announces its in-flight
+     * work with `current-submission-id`. When the retry has meanwhile been
+     * dispatched elsewhere, the announcement contradicts what we know — but
+     * the judge IS busy, and the one thing we must never do is put it back in
+     * the free pool and hand it a second `submission-request`, which
+     * judge-server would either drop or queue behind the first with no way for
+     * us to tell which.
+     */
+    it('keeps a redialling judge busy when its announcement cannot be attributed', async () => {
+      const { driver, port } = await bridge([
+        ['judge-1', ['CPP17']],
+        ['judge-2', ['CPP17']],
+      ]);
+      const { second } = await supersede(driver);
+
+      // judge-1 drops and redials under the same name. BridgeServer closes
+      // the old socket and `retire`s the id, so the driver hears
+      // `onJudgeGone` — which releases judge-1's assignment and, being
+      // attempt-fenced, leaves attempt 2 on judge-2 alone.
+      judges[0]!.close();
+      const redialled = fakeJudge(port, 'judge-1', ['CPP17']);
+      judges.push(redialled);
+      await redialled.ready;
+      await vi.waitFor(
+        () => expect(redialled.received.some((p) => p.name === 'handshake-success')).toBe(true),
+        10_000,
+      );
+
+      // It is still grading attempt 1 and says so.
+      redialled.send({ name: 'current-submission-id', 'submission-id': 7 });
+      await settle();
+
+      // Not awaited: with both judges busy this parks, which is the correct
+      // outcome. What must not happen is judge-1 being handed the job.
+      void driver.dispatch(makeJob('99'), async () => {}).catch(() => {});
+      await settle();
+
+      expect(redialled.requests()).toHaveLength(0);
+      expect(second.requests()).toHaveLength(1);
     }, 30_000);
   });
 });
