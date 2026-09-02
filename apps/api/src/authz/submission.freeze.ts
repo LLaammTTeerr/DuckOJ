@@ -134,10 +134,15 @@ export function isSubmissionFrozen(
  * contest's *duration* from their own start — which is how a virtual attempt
  * legitimately outlives the contest.
  *
- * ONE function, called by both predicates below. A second transcription of
- * this CASE in a second file is the split-predicate bug this project has
- * found once per phase, and the D49 statistics need exactly the same instant
- * the freeze does.
+ * Called by `frozenSubmissionsWhere` below, by `upcomingContests`, and — this
+ * is the part that matters since D194 — it is the DEFINITION that
+ * `contest_participations.ends_at` materialises. Migration 0048's trigger
+ * carries a transcription of this `CASE`, and `participation-ends-at.spec.ts`
+ * asserts the stored column equals what this function emits over every
+ * participation shape and after a contest edit moves any of the three inputs.
+ * A second transcription of this rule left unpinned is the split-predicate bug
+ * this project has found once per phase, and the D49 statistics need exactly
+ * the same instant the freeze does.
  */
 export function participationEndsAtSql(): SQL {
   return sql`case
@@ -175,22 +180,52 @@ export function participationEndsAtSql(): SQL {
  * `isContestSourceHidden` and `participationEndMs` everywhere else: at
  * `now === end` the window is over and the submission joins the statistics,
  * the same instant its source is released and its board unfreezes.
+ *
+ * ## Why it reads a column and not the `CASE` (D194)
+ *
+ * The rule is unchanged; only the way the planner is told about it is. Until
+ * migration 0048 this `EXISTS` joined `contest_submissions ⋈
+ * contest_participations ⋈ contests` and applied `now < <CASE>` after the
+ * join. Postgres has no selectivity estimate for that `CASE` — it falls back
+ * to a third of the table — so on five hot statements it either hashed **all
+ * of** `contest_submissions` (O(every contest submission the deployment has
+ * ever taken)) or, once the table was a season deep, walked three index
+ * probes per row of the page instead. Neither is bounded by how much contest
+ * activity is happening NOW, which is the only thing this predicate is about.
+ *
+ * `contest_participations.ends_at` is the same instant, materialised, with a
+ * btree index over it, so "whose window is open at `now`" is a range scan
+ * returning the participations actually running — a couple of thousand during
+ * a province round and none the rest of the year — and the anti-join is driven
+ * from that. Measured at 496 240 contest submissions with nothing running:
+ * one problem's statistics went from 19 201 buffers to 480.
+ *
+ * The `IN (subquery)` form rather than a join is deliberate, and it is what
+ * makes the shape stable: written as a join, the planner is free to scan
+ * `contest_submissions` and hash the small side onto it (measured — it does),
+ * because it prices a sequential read of a narrow table below two thousand
+ * index descents. Written as a semi-join into a set it drives from the set.
+ * `contest_submissions.participation_id` is `NOT NULL` with a foreign key, so
+ * the two forms select exactly the same rows.
+ *
+ * It mentions `contest_participations.id` and no `user_id`, so D113's
+ * source-scan guard has nothing to say about it.
  */
 export function contestWindowOpenWhere(now: Date): SQL<boolean> {
-  const endsAt = participationEndsAtSql();
   const at = sql`${now.toISOString()}::timestamptz`;
   const predicate = sql`exists (
     select 1
     from ${contestSubmissions}
-    join ${contestParticipations}
-      on ${contestParticipations.id} = ${contestSubmissions.participationId}
-    join ${contests} on ${contests.id} = ${contestParticipations.contestId}
     where ${contestSubmissions.submissionId} = ${submissions.id}
-      and ${at} < (${endsAt})
+      and ${contestSubmissions.participationId} in (
+        select ${contestParticipations.id}
+        from ${contestParticipations}
+        where ${contestParticipations.endsAt} > ${at}
+      )
   )`;
   // Wrapped a second time for the reason `frozenSubmissionsWhere` documents
   // at length: drizzle rewrites a top-level `Column` in a single-table
-  // select into a bare identifier, and four tables are in scope inside this
+  // select into a bare identifier, and three tables are in scope inside this
   // `EXISTS`.
   return sql<boolean>`${predicate}`;
 }
