@@ -7,9 +7,13 @@ review: `docs/superpowers/briefs/final-review.md`; decisions D16–D105 in
 
 ## What works today (all proven on the live stack)
 
-- **Accounts**: register page (vi/en), login with optional TOTP, password
-  reset by mail, admin TOTP reset for a lost authenticator, login and
-  registration rate limits (D16, D26).
+- **Accounts**: register page (vi/en) — a refusal, not a form, on
+  `REGISTRATION`'s default rung (D200) — login with optional TOTP and eight
+  recovery codes (D39), password reset by mail, admin TOTP reset for a lost
+  authenticator, login and registration rate limits (D16, D26). The mail paths
+  are the one line here **not** proven on this stack: it has never had an
+  `SMTP_HOST`, so a reset is refused `503 mail_unavailable` here (D155) and
+  the delivery itself is proven only in the suites.
 - **Problems**: Polygon import → package → publish; statements in
   Vietnamese + English; PDF statements (typst); source-access policy per
   problem; rejudge one submission or a whole problem (D21).
@@ -30,9 +34,10 @@ review: `docs/superpowers/briefs/final-review.md`; decisions D16–D105 in
 
 The load-test numbers — the 2000-VU contest-day profile, per-route p95, the
 soak run and CPU by container — live in **`load/RESULTS.md`** (latest tables
-dated 2026-08-30); read them there rather than a figure copied here that can go
-stale. Contest-day reality (~2000 students, one refresh per 5 s ≈ 400 req/s)
-sits well inside the measured throughput. Grading throughput is one DMOJ judge
+dated 2026-08-31, the c1 consolidation re-baseline); read them there rather
+than a figure copied here that can go stale. Contest-day reality (~2000
+students, one refresh per 5 s ≈ 400 req/s) sits well inside the measured
+throughput. Grading throughput is one DMOJ judge
 container (≈35 submissions/min); add judges with `corepack pnpm judge:node add`
 and compose's `scale` profile before a province-wide contest (runbook, "Judging
 throughput").
@@ -40,7 +45,13 @@ throughput").
 ## What the province must supply
 
 1. **SMTP** (`SMTP_*` in `.env`, D1) — without it, verification and
-   password-reset mails silently no-op.
+   password-reset mails go to the log instead of being sent, and **the server
+   says so**: it warns at boot, `GET /readyz` answers `"mail": "log"`, the
+   `/admin` Mail panel reads *not configured*, and under `NODE_ENV=production`
+   a password reset is refused `503 mail_unavailable` rather than reported as
+   sent (D155). Since F-40 `docker-compose.yml` passes all six `SMTP_*`
+   variables plus `MAIL_FROM` through to `api`, so this is a `.env` edit and
+   nothing more.
 2. **A public hostname + TLS** (`SITE_ADDRESS`, `PUBLIC_ORIGIN`; Caddy
    issues certificates itself).
 3. **Off-host backup copies** — the timer keeps 14 nightly dumps on this
@@ -67,9 +78,10 @@ corepack pnpm bootstrap:admin <you>   # first admin (D19)
 
 **Turning THIS host over to a province is a different list.** It has been the
 rehearsal ground since 22 Aug: every secret on it has been seen, and it carries
-393 generated accounts, 132 generated contests and 52 generated problems
-alongside the demo content. `docs/guide/truoc-khi-trien-khai.md` is the
-one-time checklist — rotate the seeded secrets, point SMTP at a real relay,
+507 generated accounts, 234 generated contests and 89 generated problems
+alongside the demo content (counted 2026-09-02 with D153's own prefix list;
+the figures rise with every rehearsal run, so re-count rather than quote).
+`docs/guide/truoc-khi-trien-khai.md` is the one-time checklist — rotate the seeded secrets, point SMTP at a real relay,
 clear `localhost` out of `WS_EXTRA_ORIGINS`, run `scripts/cleanup-test-data.ts`
 (D153), prove a restore (D130), mint the real admin, import real problems, and
 the "you are live" smoke checks.
@@ -105,7 +117,7 @@ IE'ing (D40), a double-join bricking scoreboards (D36), a booklet statement
 leak (D62), CSV injection in three exports, CSP/HSTS at the edge (D69).
 
 Measured: the current load and soak figures — read profile, judging, memory —
-are in `load/RESULTS.md` (latest tables 2026-08-30). One judge grades ≈35
+are in `load/RESULTS.md` (latest tables 2026-08-31). One judge grades ≈35
 submissions/min; add judges with `corepack pnpm judge:node add` and the `scale`
 compose profile before a province-wide contest.
 
@@ -123,8 +135,10 @@ compose profile before a province-wide contest.
    open is scoped to one rung**: a deployment that sets `REGISTRATION=open`
    is back on D26's fake 201 and its one-extra-request residual, and full
    closure there still needs verify-before-create. The live `.env` sets
-   nothing, so this province is on `closed` — **from the next deploy**; the
-   edge at `2c8617e` still answers 201 to an anonymous registration.
+   nothing, and **the deploy has happened**: the edge at `01e59f2` answers
+   `GET /api/v1/auth/registration` with `{"registration":"closed"}` and
+   anonymous `POST /api/v1/auth/register` with `403 registration_closed`
+   (verified 2026-09-02).
 3. ~~`/users/me/progress` … unmeasured at province size~~ — **measured**
    (F-44, `docs/superpowers/briefs/f44-report.md`). Seven aggregates, ≈16 ms of
    database time per cold miss at province scale; 2 000 pupils opening the page
@@ -143,10 +157,13 @@ compose profile before a province-wide contest.
    own index (F-54, migration 0048, D194), so its cost tracks the contests that
    are open rather than the ones there have ever been — 19 201 buffers to 480
    for one problem's statistics on a scratch copy holding 496 240 contest
-   submissions. **Neither migration is applied to production**: 0045's backfill
-   is a full pass over `submission_cases` and 0048's is a full pass over
-   `contest_participations` plus two index builds (measured together at 0.5 s
-   on that scratch copy), and both should run outside a contest window.
+   submissions. **Both migrations are now applied**: the journal in
+   `drizzle.__drizzle_migrations` holds 44 rows against 44 files, and
+   `submissions.subtask_summary` (0045) and `contest_participations.ends_at`
+   (0048) are both present on the live database (verified 2026-09-02). The
+   backfills — a full pass over `submission_cases` and one over
+   `contest_participations` plus two index builds, measured together at 0.5 s
+   on that scratch copy — have run.
 4. ~~Two web fixes from F-42 are committed and **not deployed** — the teams
    panel goes on showing the roster it just replaced (and prefills the next
    edit from it, which drops a pupil), and the submit editor loses a draft
