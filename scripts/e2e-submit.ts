@@ -140,7 +140,7 @@ const signedIn = await adminJar.call('/auth/login', {
 });
 if (signedIn.status !== 200 && signedIn.status !== 201) {
   throw new Error(
-    `admin login (${admin.username}) failed: ${String(signedIn.status)}${registrationHint(401, admin.username)}`,
+    `admin login (${admin.username}) failed: ${String(signedIn.status)}${registrationHint(signedIn.status, admin.username)}`,
   );
 }
 console.log(`base=${BASE} admin=${admin.username} pupil=${username}\n`);
