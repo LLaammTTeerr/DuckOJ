@@ -298,6 +298,13 @@ người khác không thấy.
   giờ**. Ngôn ngữ chọn ở đây đi theo tài khoản trên mọi thiết bị và cũng là
   ngôn ngữ của email hệ thống gửi cho bạn. Chọn *Theo trình duyệt* để trả về
   mặc định.
+- **Ai nhìn thấy tên thật của bạn.** Trên máy chủ của trường, thường quản trị
+  viên đặt `NAME_DISCLOSURE` ở nấc mặc định `affiliated` (D197): **người lạ
+  chưa đăng nhập và tài khoản vừa lập chỉ thấy tên đăng nhập của bạn** ở chỗ
+  tên hiển thị — trên bảng điểm, trong hồ sơ, ở mọi nơi. Thầy cô, người ra đề,
+  quản trị viên và bất cứ ai đang giữ vai trò trong một tổ chức thì thấy tên
+  thật, và bạn thì luôn thấy tên của chính mình. Nếu hồ sơ của bạn hiện tên
+  đăng nhập thay vì họ tên, đó là đúng thiết kế chứ không phải cài đặt bị mất.
 - **VI | EN** trên thanh điều hướng (trên điện thoại: trong bảng **Thêm**)
   chỉ đổi ngôn ngữ cho trình duyệt này.
 - Trang **hồ sơ** của bạn (bấm vào tên mình) có số bài đã giải, điểm, số bài
@@ -518,6 +525,14 @@ cluster on a computer, inside the **More** sheet on a phone.
 Your public **profile** (click your own name) shows only the heatmap and the two
 topic/difficulty tables — the streak, your live contests and your homework are
 yours alone.
+
+**Who sees your real name.** On a school judge the administrator usually leaves
+`NAME_DISCLOSURE` on its default rung, `affiliated` (D197), and then **a
+signed-out stranger and a brand-new account see your username** where your
+display name would be — on the scoreboard, on your profile, everywhere. Your
+teachers, setters, admins and anyone holding a role in an organization see the
+real name, and you always see your own. A profile showing a username instead of
+a name is the design, not a lost setting.
 
 ### 13. Settings, and the rest
 
