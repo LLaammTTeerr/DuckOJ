@@ -147,11 +147,19 @@ compose profile before a province-wide contest.
    is a full pass over `submission_cases` and 0048's is a full pass over
    `contest_participations` plus two index builds (measured together at 0.5 s
    on that scratch copy), and both should run outside a contest window.
-4. Two web fixes from F-42 are committed and **not deployed** — the teams
+4. ~~Two web fixes from F-42 are committed and **not deployed** — the teams
    panel goes on showing the roster it just replaced (and prefills the next
    edit from it, which drops a pupil), and the submit editor loses a draft
-   across the mount that corrects an unofferable default. Until the edge
-   ships them, `e2e/organiser.spec.ts` journey 2b is red on purpose.
+   across the mount that corrects an unofferable default.~~ **Both are on the
+   edge and both walks pass** (F-57, edge at `01e59f2`): `organiser.spec.ts`
+   journey 2b — whose final assertion *is* the stale-roster bug — is green,
+   and so is `editor.spec.ts`'s "a draft left behind announces itself above
+   the buffer it filled". The sentence that used to end this item, "until the
+   edge ships them, journey 2b is red on purpose", is struck rather than
+   left: a readiness doc that tells the next reader a green walk is an
+   expected failure is how a false green gets waved through, and this suite is
+   the campaign's verification instrument. `organiser.spec.ts`'s own docstring
+   had already recorded the fix reaching the edge; this item had not caught up.
    The coverage half of this gap is closed: the live monitor's numbers are
    asserted against the API and the teams form is driven end to end in
    `e2e/organiser.spec.ts`, the language picker and F-41's limits form in
