@@ -81,7 +81,8 @@ if its `Origin` (or `Referer`) is not on the list, or if it sends neither. So:
   itself** — Node's `fetch` and Playwright's `context.request` send none. The
   three `scripts/e2e-*.ts` do this, naming `E2E_BASE_URL`'s origin, so
   `E2E_BASE_URL` has to be a value on this list (on this host,
-  `http://localhost:8080`, which is what `WS_EXTRA_ORIGINS` is set to).
+  `http://localhost:8080` — one of the two entries `WS_EXTRA_ORIGINS` carries;
+  see the `vite preview` note below for the other).
 - Anything using a **bearer token** — `oj`, the judge agent, CI — is
   unaffected and needs no origin.
 - **Vetting a candidate bundle before you deploy it** (D150). Caddy serves
@@ -103,14 +104,22 @@ if its `Origin` (or `Referer`) is not on the list, or if it sends neither. So:
   ```
 
   Changing `.env` needs the API to pick it up: `podman-compose up -d --no-deps
-  api`, then wait for `podman ps` to say `healthy`. Production leaves
-  `WS_EXTRA_ORIGINS` empty and none of this applies.
+  api`, then wait for `podman ps` to say `healthy`. A province's production
+  host should leave `WS_EXTRA_ORIGINS` empty, and
+  `docs/guide/truoc-khi-trien-khai.md` §3 makes that a done-condition — but
+  **this rehearsal host is not that host**: it runs
+  `WS_EXTRA_ORIGINS=http://localhost:8080,http://localhost:4321`, which is
+  precisely the origin hole that checklist step exists to close.
 
 This exact sequence (container run, `migrate`, `api dev`, `curl /healthz`) was run
 end-to-end while writing this runbook: the container started, `migrate` printed
 `migrations applied`, the API mapped all routes and logged
 `Nest application successfully started`, and `curl -fsS http://localhost:3000/healthz`
-returned `{"status":"ok"}`.
+returned `{"status":"ok"}`. *(Transcribed before D86 and D155. The body today
+is `{"status":"ok","workers":4}`, and `/readyz` answers
+`{"status":"ok","database":"ok","mail":"log"}` — `workers` is the live worker
+count the compose healthcheck asserts on, and `mail` is `"log"` on a stack
+with no `SMTP_HOST`.)*
 
 ## Running the full gate
 
@@ -133,8 +142,12 @@ A submission's journey, `POST /submissions` to a verdict in the browser:
    `JobStore.claim`, which atomically claims one queued-or-lease-expired job
    and stamps a `lease_until` ~60s out. It renews (`heartbeat`s) that lease
    every 20s (`HEARTBEAT_MS`) while the job is in flight, and bounds its own
-   dispatch with a 300s ceiling (`MAX_GRADING_MS`) so a hung collaborator
-   can't wedge the whole worker loop silently.
+   dispatch with a per-job ceiling so a hung collaborator can't wedge the whole
+   worker loop silently. `MAX_GRADING_MS` (300 s) is that ceiling's **floor**,
+   not its value: `gradingCeilingMs` gives a job
+   `max(300 s, testCount × timeMs × 3 + 60 s)`, capped at
+   `ABSOLUTE_MAX_GRADING_MS` (30 min), because a 350-test problem legitimately
+   needs longer than 300 s and a fixed cap starved the queue behind it.
 3. The claimed job is handed to `DmojDriver.dispatch`, which talks to the
    real DMOJ `judge` container over `BridgeServer`
    (`apps/judged/src/drivers/dmoj/bridge-server.ts`) — a raw TCP server
@@ -407,6 +420,10 @@ it were the OpenAPI document, verified directly against the running stack:
     200
     $ curl -sk https://localhost:8443/openapi.json | head -c 60
     <!doctype html><html lang="vi"><head><meta charset="utf-8"
+
+*(This host has since moved to `SITE_ADDRESS=:80` and the `8443` URL no longer
+answers; re-run the pair over `http://localhost:8080`. The catch-all behaviour
+the transcript is evidence for is unchanged.)*
 
 That is a worse failure than the `/ws` bug this project already paid for once
 (see "The live-update path (`/ws`) was broken through Caddy" below): a `200`
@@ -793,6 +810,21 @@ JSON body. Use (note the remapped port, per above):
 `-L` follows the redirect, `-k` trusts Caddy's self-signed internal-CA
 certificate for local testing.
 
+**That is the `SITE_ADDRESS=localhost` case, and it is not what this host
+runs.** This deployment sets `SITE_ADDRESS=:80`, which is a port-only site
+address: Caddy binds `:80` inside the container and provisions no certificate
+at all, so nothing listens behind the published `8443`, and every
+`https://localhost:8443` line in this document — including the transcripts
+below — answers `000`, "Recv failure: Connection reset by peer". **On this
+host the entry point is plain `http://localhost:8080`**:
+
+    curl -s http://localhost:8080/healthz
+    {"status":"ok","workers":4}
+
+`scripts/deploy.sh` already says so in its own comments, and its `PROBE_URL`
+defaults to `http://localhost:8080/api/v1/languages` for exactly this reason.
+Check `SITE_ADDRESS` in `.env` before copying any `8443` line from this page.
+
 ### What was actually verified
 
 The full stack was brought up end-to-end under `podman-compose` 1.5 on this
@@ -825,6 +857,11 @@ down`. Observed directly:
   `localhost`, and both `curl -fsS -L -k https://localhost:8443/healthz` and
   `.../readyz` returned `{"status":"ok"}` / `{"status":"ok","database":"ok"}`
   through the reverse proxy — not hitting `api` directly.
+  *(Transcribed under `SITE_ADDRESS=localhost`, and before D86 and D155. This
+  host now runs `SITE_ADDRESS=:80`, so the `8443` URL resets the connection;
+  the same two probes over `http://localhost:8080` answer
+  `{"status":"ok","workers":4}` and
+  `{"status":"ok","database":"ok","mail":"log"}`.)*
 - `POST https://localhost:8443/api/v1/auth/register` through Caddy returned
   `201` with the created user profile (`id`, `username`, `email`, etc.), proving
   the reverse proxy, the API, and a migrated database all work together.
@@ -1153,8 +1190,11 @@ aborted attempt is not a no-op unless it aborted at step 2.
 **Check the migrations after a restore; do not assume them.** `migrate` brings
 the restored database to the schema *production* had, not to head: drizzle
 applies only journal entries newer than the newest already applied, so a
-migration production skipped stays skipped in the copy (D131 is a live example
-— this database is missing `0025_dashboard_bounds` and always will be).
+migration production skipped stays skipped in the copy (D131 was a live
+example — this database skipped `0025_dashboard_bounds`; migration
+`0041_dashboard_bounds_repair` has since put its four indexes back
+idempotently, so the journal is complete at 44 and all four
+`grading_jobs_*_idx` / `submissions_*_idx` are present).
 Compare `select count(*) from drizzle.__drizzle_migrations` against
 `ls packages/db/migrations/*.sql | wc -l`; if they differ, the difference is
 real and predates the restore.
@@ -1312,17 +1352,24 @@ Before/after numbers for the 2000-VU profile are in `load/RESULTS.md`.
 
 ### A student lost their authenticator
 
-Two-factor authentication on DuckOJ has **no recovery codes**. `DELETE
-/auth/totp` — the self-service switch on `/security` — requires an
-interactive session, which requires the code the student no longer has, and a
-password reset does not clear TOTP. Without an admin there is no way back into
-the account at all, and "contest morning" is exactly when this gets reported.
+**Ask about recovery codes first.** D39 gave two-factor authentication eight
+single-use recovery codes, issued once at enrolment and regenerable from
+`/account/security` with a working authenticator code
+(`POST /auth/totp/recovery/regenerate`). A student who kept theirs presses
+**Use a recovery code** at the sign-in box and needs no admin at all; the
+Security page shows how many are left.
+
+Only when the codes are gone too is this an admin job. `DELETE /auth/totp` —
+the self-service switch on `/account/security` — requires an interactive
+session, which requires the code the student no longer has, and a password
+reset does not clear TOTP. "Contest morning" is exactly when this gets
+reported.
 
 **The fix, from the admin panel:** sign in as an admin, open `/admin`, type the
 student's username under "Reset two-factor authentication", press the button
 and confirm. Their second factor is off immediately, they sign in with username
-and password alone, and they can re-enrol from `/security` afterwards. They get
-an in-app notification saying it happened.
+and password alone, and they can re-enrol from `/account/security` afterwards.
+They get an in-app notification saying it happened.
 
 **Verify who you are talking to first.** This route hands an account to whoever
 asks for it, and the API cannot tell a student from someone claiming to be one.
@@ -1545,7 +1592,8 @@ without the psql — reason and count, present only when something is blocked.
 
 `no connected judge supports language <key>` means exactly that: bring up a
 judge configured with that executor (the compose `judge` services pass
-`--only-executors CPP17`), and the reason clears within about five seconds.
+`--only-executors CPP14,CPP17,CPP20,C11,PY3,PAS,JAVA`, the seven live
+languages), and the reason clears within about five seconds.
 `NULL` on every queued row means the queue is waiting on capacity, not on
 capability.
 
@@ -1636,6 +1684,16 @@ migrating (already-at-`0003` case) or discarding and recreating the volume
 ### Running the script
 
     corepack pnpm exec tsx scripts/e2e-submit.ts
+
+> **Neither default works on this host** (checked 2026-09-02). The script's
+> `E2E_BASE_URL` default is `https://localhost:8443`, which resets the
+> connection under `SITE_ADDRESS=:80` — pass
+> `E2E_BASE_URL=http://localhost:8080`, which is also the only value D82's
+> origin list accepts. And its first act is an anonymous `POST /auth/register`,
+> which D200's default rung answers `403 registration_closed`: the script has
+> no admin-cookie path, so on a `closed` stack it cannot run at all. Set
+> `REGISTRATION=open`, or use the Playwright suite, whose walks mint their
+> pupils as the admin.
 
 It registers a throwaway user, submits three fixed C++ sources against
 `aplusb` (correct, wrong, and uncompilable) plus a correct solution against
@@ -1820,10 +1878,15 @@ reclaim. Check, in order:
 
    `lease_until` still advancing on repeated queries means a worker is
    actively heartbeating it — it hasn't been abandoned, whatever the
-   submission's own `state` says. `apps/judged/src/worker.ts`'s
-   `MAX_GRADING_MS` (300s) watchdog eventually rejects a job that never
-   reaches a terminal driver event, logs `job failed`, and lets it re-lease
-   on the next `attempt`.
+   submission's own `state` says. `apps/judged/src/worker.ts`'s watchdog
+   eventually rejects a job that never reaches a terminal driver event, logs
+   `job failed`, and lets it re-lease on the next `attempt`. Its deadline is
+   `gradingCeilingMs`, not a flat 300 s: `MAX_GRADING_MS` (300 s) is the floor
+   and a large dataset gets up to `ABSOLUTE_MAX_GRADING_MS` (30 min), so do not
+   read a job still running at 400 s as stuck.
+   **A job nothing has claimed has no deadline at all** — there is no sweeper
+   over `queued`, so with no judge connected submissions sit queued
+   indefinitely rather than turning `IE`.
 2. **`judged` logs** (`podman logs <project>_judged_1`): look for a `job
    failed` line (which attempt, which error) and, in normal operation, the
    state transitions `EventWriter` writes as events arrive.
@@ -2100,6 +2163,13 @@ before the run. Same shape as its sibling — real HTTP against
 `https://localhost:8443`, `E2E_BASE_URL` to override, non-zero exit and a
 `FAILED at step N:` line on the first thing that does not hold.
 
+> **Same two blockers as `e2e-submit.ts`** (checked 2026-09-02): pass
+> `E2E_BASE_URL=http://localhost:8080`, because nothing listens on `8443` under
+> `SITE_ADDRESS=:80`; and step 1 below registers three users through the public
+> route, which `REGISTRATION=closed` — the default since D200 — refuses `403`,
+> a status this script calls `fail()` on. It needs `REGISTRATION=open` as it
+> stands.
+
     corepack pnpm exec tsx scripts/e2e-problem.ts
 
 **It needs the stack up and `podman` on `PATH`.** `postgres` publishes no
@@ -2288,6 +2358,15 @@ redundant.
 
 ### No router library is adopted, and the cost of that is now measured
 
+> **Closed — this section is Phase 2b history and its instruction is now
+> wrong.** `401682f` adopted `@tanstack/react-router` and deleted `parseRoute`
+> in Phase 2b itself. `apps/web/src/main.tsx` mounts `RouterProvider`,
+> `apps/web/src/router.tsx` declares the routes, `apps/web/src/routes/` holds
+> **thirty** modules, and `grep -rn 'function parseRoute' apps/web/src` finds
+> nothing. **Do not "extend `parseRoute`"** — add a `createRoute` in
+> `router.tsx`. The paragraphs below are kept because the cost they measure is
+> the argument that won; nothing in them describes the code today.
+
 `apps/web`'s five routes (`/`, `/problems`, `/problems/:code`,
 `/problems/new`, `/problems/:code/edit`, `/problems/:code/revisions`) are
 matched by a hand-rolled `parseRoute` against `window.location.pathname`, with
@@ -2361,14 +2440,15 @@ that has not been tried.
 ## Statement PDFs (optional)
 
 `GET /problems/:code/statement.pdf` renders the statement with
-[typst](https://typst.app). It is **off by default** — the route answers
-501 until the `api` process has `TYPST_BIN` pointing at a typst binary
-(v0.15 verified). To enable under compose, add the binary to
-`apps/api/Dockerfile` (a ~15 MB musl download from typst's GitHub
-releases) and set `TYPST_BIN` in the `api` service environment.
+[typst](https://typst.app). **It is on, and has been since the images were
+built for it.** `apps/api/Dockerfile` downloads typst 0.15.1 (a ~15 MB musl
+tarball), compiles a probe statement at build time so the `mitex` cache is
+already seeded in the image, and `docker-compose.yml` sets
+`TYPST_BIN: /usr/local/bin/typst`. `GET /api/v1/problems/aplusb/statement.pdf`
+answers 200 with a `%PDF-1.7` body on the live edge.
 
-Statements containing math additionally fetch the `mitex` package from
-`packages.typst.org` on the machine's **first** math compile (cached in
-`~/.cache/typst` afterwards); a mathless statement never touches the
-network. If the deployment is fully offline, pre-seed that cache or
-accept a 500 on math statements.
+The route falls back to **501** only if `TYPST_BIN` is unset — unset it to turn
+PDFs off deliberately. Because the cache is baked in, a fully offline
+deployment needs nothing further: the `packages.typst.org` fetch a math
+statement used to make on its first compile has already happened, at build
+time, on this image.
