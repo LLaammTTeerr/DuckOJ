@@ -31,7 +31,7 @@ Vào **Đăng ký** (`/register`) và điền:
 - **Tên đăng nhập** — từ 3 đến 32 ký tự, chỉ gồm chữ cái, chữ số, dấu chấm,
   gạch dưới và gạch nối. Tên đăng nhập là vĩnh viễn, không đổi được.
 - **Email** — địa chỉ thật của bạn.
-- **Tên hiển thị** — từ 1 đến 64 ký tự.
+- **Tên hiển thị** — từ 1 đến 100 ký tự.
 - **Mật khẩu** — ít nhất 10 ký tự, và **Nhập lại** cho khớp.
 
 Đăng ký xong là bạn đã đăng nhập ngay, không phải chờ email. Một liên kết xác
@@ -117,8 +117,15 @@ Bài nộp được chấm theo **phiên bản đề đang công bố lúc bạn
 của người ra đề, trong môi trường cách ly.
 
 Trang sẽ tự cập nhật trạng thái: *Đang xếp hàng* → *Đang biên dịch* → *Đang
-chấm* → *Xong*. Nếu hiện dòng "Không nhận được cập nhật trực tiếp", chỉ cần
-tải lại trang — bài nộp vẫn đang được chấm bình thường.
+chấm* → *Xong*. Hai dòng có thể hiện ra, và chúng bảo bạn làm hai việc khác
+nhau:
+
+- *"Đang cập nhật chậm… trang này tự hỏi kết quả vài giây một lần. Không cần
+  tải lại."* — kênh trực tiếp không mở được, trang tự hỏi lại **bốn giây một
+  lần** (D152). Cứ ngồi yên.
+- *"Không nhận được cập nhật trực tiếp"* — lúc này thì tải lại trang.
+
+Cả hai trường hợp, bài nộp vẫn đang được chấm bình thường.
 
 Kết quả là một mã ngắn, giữ nguyên trong mọi ngôn ngữ:
 
@@ -324,9 +331,16 @@ Close it with `Esc`, with **Close**, or by tapping outside it.
 
 ### 1. Registering
 
+> **Many schools take no sign-ups.** Since D200 an administrator decides who
+> may create an account, and **the default is nobody** — the school makes them.
+> If `/register` tells you *"This site does not take sign-ups"*, that is the
+> design and not a fault: ask a teacher for an account, or use **Forgot your
+> password?** if you already have one you cannot get into. What follows applies
+> where sign-ups are open.
+
 Go to **Register** (`/register`): a **username** (3–32 characters; letters,
 digits, dot, underscore, hyphen — permanent, it cannot be changed later), an
-**email**, a **display name** (1–64 characters) and a **password** of at least
+**email**, a **display name** (1–100 characters) and a **password** of at least
 10 characters, typed twice.
 
 You are signed in the moment you register; a verification link is emailed and
@@ -385,7 +399,11 @@ switching language does **not** wipe what you are writing. It lives in this
 browser alone, so another machine will not see it.
 
 The page follows the job live — *Queued* → *Compiling* → *Grading* → *Done*.
-If it says live updates are unavailable, just reload; grading is unaffected.
+Two different lines can appear. *"Updating slowly… this page is asking for the
+result every few seconds. No need to refresh"* means the live channel would not
+open and the page is polling every four seconds instead (D152) — sit tight.
+*"Live updates unavailable"* is the one to reload on. Either way grading is
+unaffected.
 
 Verdicts are short codes, the same in every language: `AC` accepted, `WA`
 wrong answer, `TLE` time limit, `MLE` memory limit, `OLE` output limit, `RTE`
