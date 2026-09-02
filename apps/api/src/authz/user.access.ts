@@ -10,10 +10,20 @@ import type {
   UserStatsDto,
   UserSummaryDto,
 } from '@duckoj/contracts';
-import { DB } from '../config/config.module.js';
+import { APP_CONFIG, DB } from '../config/config.module.js';
+import type { AppConfig, NameDisclosure } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import { RateLimiter } from '../common/rate-limiter.js';
 import { nameSearchWhere } from './name-search.js';
+import {
+  nameAudience,
+  nameSearchColumn,
+  policyOf,
+  presentAbout,
+  presentName,
+  seesIdentity,
+  type NameAudience,
+} from './name-disclosure.js';
 import { recordWalk, walkRefused, walkRetryAfter } from './walk.meter.js';
 import type { Actor } from './actor.js';
 import { frozenSubmissionsWhere } from './submission.freeze.js';
@@ -75,15 +85,21 @@ const PUBLIC_COLUMNS = {
 @Injectable()
 export class UserAccessService {
   private readonly limiter: RateLimiter;
+  /** D197's one switch. Read here, decided in `name-disclosure.ts`. */
+  private readonly policy: NameDisclosure;
 
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(RateLimiter) limiter?: RateLimiter,
+    @Inject(APP_CONFIG) config?: AppConfig,
   ) {
     // Defaulted on D80's precedent, and for D80's reason: the specs that
     // construct this service by hand keep working, and they get the REAL
     // limiter rather than a bypass.
     this.limiter = limiter ?? new RateLimiter(db);
+    // `policyOf` fails CLOSED — a service built without a config gets the
+    // protective rung, never the open one.
+    this.policy = policyOf(config);
   }
 
   /**
@@ -137,7 +153,15 @@ export class UserAccessService {
     // out anyway. `EXPLAIN` on the live database says `Seq Scan on users`
     // for both `username ILIKE 'ng%'` and `lower(username) LIKE 'ng%'`.
     // The plan never changed; only the comment was wrong.
-    const search = query.q === undefined ? undefined : nameSearchWhere(users.searchFold, query.q);
+    //
+    // D197 chooses the HAYSTACK, not just the column that comes back. A
+    // reader who is shown handles searches the folded username alone: leaving
+    // `search_fold` (which carries the display name) open to them would turn
+    // this box into a name-recovery oracle, one prefix at a time, over the
+    // very names the projection below just withheld.
+    const audience = await nameAudience(this.db, this.policy, actor);
+    const search =
+      query.q === undefined ? undefined : nameSearchWhere(nameSearchColumn(audience), query.q);
 
     const rows = await this.db
       .select(PUBLIC_COLUMNS)
@@ -153,7 +177,7 @@ export class UserAccessService {
       await recordWalk(this.limiter, actor.userId);
     }
 
-    const items = rows.slice(0, query.limit).map(toSummary);
+    const items = rows.slice(0, query.limit).map((row) => toSummary(row, audience));
     return {
       items,
       nextCursor: rows.length > query.limit ? String(items.at(-1)!.id) : null,
@@ -179,7 +203,22 @@ export class UserAccessService {
     // private is meant to prevent.
     if (!row) throw new AppError(404, 'user_not_found', 'No such user.');
 
-    return { ...toSummary(row), about: row.about, stats: await this.statsFor(row.id, actor) };
+    // The dereference B-35 measured: a stranger who took 142 usernames off
+    // 159 scoreboards turned every one of them into a real name here — and
+    // into a free-text `about` the pupil typed themselves. D197 is what that
+    // stranger now meets, and `identityRedacted` is what says so on the page,
+    // because a name silently replaced by a handle is D187's sin (a reader who
+    // cannot see that they are being shown less).
+    const audience = await nameAudience(this.db, this.policy, actor);
+    const person = { userId: row.id, ...row };
+    return {
+      ...toSummary(row, audience),
+      identityRedacted: !seesIdentity(audience, person),
+      // Withheld rather than substituted — there is no shorter true version of
+      // free text. See `presentAbout`.
+      about: presentAbout(audience, person),
+      stats: await this.statsFor(row.id, actor),
+    };
   }
 
   async updateMe(actor: Actor, body: UpdateMeRequestDto): Promise<UserProfileDto> {
@@ -275,20 +314,25 @@ export class UserAccessService {
   }
 }
 
-function toSummary(row: {
-  id: number;
-  username: string;
-  displayName: string;
-  globalRole: 'user' | 'setter' | 'admin';
-  country: string | null;
-  rating: number | null;
-  maxRating: number | null;
-  createdAt: Date;
-}): UserSummaryDto {
+function toSummary(
+  row: {
+    id: number;
+    username: string;
+    displayName: string;
+    globalRole: 'user' | 'setter' | 'admin';
+    country: string | null;
+    rating: number | null;
+    maxRating: number | null;
+    createdAt: Date;
+  },
+  audience: NameAudience,
+): UserSummaryDto {
   return {
     id: row.id,
     username: row.username,
-    displayName: row.displayName,
+    // D197. Substituted, never omitted: the field keeps its shape, and a
+    // redacted row reads as the handle a scoreboard already published.
+    displayName: presentName(audience, { userId: row.id, ...row }),
     globalRole: row.globalRole,
     country: row.country,
     rating: row.rating,

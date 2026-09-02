@@ -3989,6 +3989,8 @@ export interface paths {
                             runtime: {
                                 apiWorkers: number;
                                 judgedConcurrency: number | null;
+                                /** @enum {string} */
+                                nameDisclosure: "public" | "authenticated" | "affiliated";
                             };
                             mail: {
                                 /** @enum {string} */
@@ -10572,6 +10574,7 @@ export interface paths {
                                 points: number;
                                 submissionCount: number;
                             };
+                            identityRedacted: boolean;
                         };
                     };
                 };
@@ -10661,6 +10664,7 @@ export interface paths {
                                 points: number;
                                 submissionCount: number;
                             };
+                            identityRedacted: boolean;
                         };
                     };
                 };

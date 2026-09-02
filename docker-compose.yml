@@ -86,6 +86,17 @@ services:
       # Statement PDFs (Phase 7b): the binary is baked into the image with
       # the mitex cache pre-seeded; unset this to turn the route back to 501.
       TYPST_BIN: /usr/local/bin/typst
+      # D197 — how much of a person this deployment publishes. Passed through
+      # UNCONDITIONALLY and EMPTY by default, exactly like the mail block
+      # below and for exactly F-40's reason: a variable the operator can set
+      # in `.env` and that never reaches the process is worse than no
+      # variable at all. Empty means the schema's default, `affiliated`,
+      # which is the protective rung — `unsetWhenBlank` in
+      # apps/api/src/config/config.schema.ts is what makes `NAME_DISCLOSURE=`
+      # mean "not set" instead of a boot crash on an enum. The default lives
+      # in the schema and NOT in a `${VAR:-affiliated}` here, so the
+      # deployment cannot disagree with the code about what unset means.
+      NAME_DISCLOSURE: ${NAME_DISCLOSURE:-}
       # Mail (D1, D57, F-40). Until F-40 this block did not exist: the
       # config module had read a full SMTP_* set since 3f and NONE of it
       # reached the container, so an operator could fill in every line of

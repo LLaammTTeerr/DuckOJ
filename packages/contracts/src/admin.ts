@@ -333,6 +333,21 @@ export const AdminDashboardResponse = z.object({
   runtime: z.object({
     apiWorkers: z.number().int(),
     judgedConcurrency: z.number().int().nullable(),
+    /**
+     * `NAME_DISCLOSURE`, as it is in effect for the process answering (D197).
+     *
+     * Reported for the reason the `mail` block below is reported at all
+     * (F-40): an operator set a variable, and had no way to see whether it
+     * reached the process. This is the one setting whose whole job is to
+     * decide what a stranger may learn about a child, so "I set it and I
+     * believe it took" is not good enough — and a deployment that upgraded
+     * from before D197 and left the variable unset should be able to READ the
+     * protective default off the dashboard rather than infer it.
+     *
+     * Configuration state, never a probe: it is one field off the parsed
+     * config, so a 15-second dashboard refresh costs nothing.
+     */
+    nameDisclosure: z.enum(['public', 'authenticated', 'affiliated']),
   }),
   /**
    * Whether this deployment can send mail (F-40, D156).

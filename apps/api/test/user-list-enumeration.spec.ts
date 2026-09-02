@@ -25,6 +25,7 @@
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import request from 'supertest';
+import { orgMembers, organizations } from '@duckoj/db/guarded';
 import { schema, type Db } from '@duckoj/db';
 import { USER_WALK_LIMIT, USER_WALK_PURPOSE } from '../src/authz/user.access.js';
 import { REFUSAL_PREFIX } from '../src/common/rate-limiter.js';
@@ -42,6 +43,24 @@ async function seedRoster(db: Db, n: number): Promise<void> {
       displayName: `Học Sinh ${String(i)}`,
     })),
   );
+}
+
+/**
+ * A role in a school — what D197's default rung asks for before a display name
+ * is in the reader's haystack. A bare organization, not one of the pupils'
+ * own: standing is "a role in ANY organization", never "one shared with the
+ * person you are looking at" (D197 argues that alternative and why it lost).
+ */
+async function giveStanding(db: Db, username: string): Promise<void> {
+  const [org] = await db
+    .insert(organizations)
+    .values({ slug: `phong-gd-${username}`, name: 'Phòng Giáo dục', visibility: 'private' })
+    .returning({ id: organizations.id });
+  const [user] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.username, username));
+  await db.insert(orgMembers).values({ orgId: org!.id, userId: user!.id, role: 'member' });
 }
 
 /** Every metered walk event this user has. */
@@ -118,10 +137,22 @@ describe('GET /users is not an anonymous download (D188)', () => {
         await seedRoster(db, 30);
         const agent = request.agent(app.getHttpServer());
         await registerAndLogin(agent, 'giao-vien');
+        // A teacher, which since **D197** means a reader with STANDING — a
+        // role in some school. D188's property is unchanged and is what this
+        // test is about ("a signed-in caller may still ask"); what D197 added
+        // is which haystack the answer comes from. The seeded pupils are
+        // `hs000000` with display names `Học Sinh N`, so `q=hoc` matches the
+        // NAME and nothing else — which is exactly the search a reader with no
+        // standing is refused, and `name-disclosure.spec.ts` owns that case.
+        await giveStanding(db, 'giao-vien');
 
         const found = await agent.get('/api/v1/users?limit=50&q=hoc');
         expect(found.status).toBe(200);
         expect(found.body.items.length).toBeGreaterThan(0);
+
+        // The paging half needs no standing at all, and still does not: D188
+        // gated WHO may walk, and the walk is over rows this endpoint serves
+        // to every signed-in caller alike.
 
         const page = await agent.get('/api/v1/users?limit=10');
         expect(page.status).toBe(200);

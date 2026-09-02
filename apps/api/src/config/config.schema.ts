@@ -1,6 +1,15 @@
 import { z } from 'zod';
 
 /**
+ * The three rungs of D197's ladder, most protective first in argument and
+ * last in this union so the enum below reads in the order an operator loosens
+ * it. Declared here rather than in `authz/` because the config schema is what
+ * parses it, and a type that lived beside its consumer would make the parser
+ * import from the module it configures.
+ */
+export type NameDisclosure = 'public' | 'authenticated' | 'affiliated';
+
+/**
  * Treats the empty string as "not set".
  *
  * This is what makes the mail variables safe to wire through
@@ -17,9 +26,17 @@ import { z } from 'zod';
  * So the rule is stated once, here, rather than being worked around with a
  * defaulting incantation per variable in a YAML file: an environment variable
  * that is present and empty means exactly what an absent one means. It wraps
- * only the mail variables, because they are the only optional set compose
- * passes — extending it to a required variable would turn "you forgot
- * DATABASE_URL" into a confusing default rather than the refusal it should be.
+ * the mail variables and `NAME_DISCLOSURE` — every OPTIONAL variable compose
+ * passes through unconditionally, and nothing else. Extending it to a
+ * required variable would turn "you forgot DATABASE_URL" into a confusing
+ * default rather than the refusal it should be.
+ *
+ * `NAME_DISCLOSURE` is here for exactly the reason the mail block is (F-40):
+ * compose renders an unset variable as the empty string, and a bare
+ * `z.enum([...]).default('affiliated')` reads `''` as a value outside the
+ * enum and refuses to boot a stack whose `.env` simply says nothing about
+ * name disclosure. A policy whose safe default cannot survive being left
+ * unset is not a safe default.
  */
 function unsetWhenBlank<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess(
@@ -59,6 +76,39 @@ const EnvSchema = z.object({
   PACKAGE_UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(268_435_456),
 
   TYPST_BIN: z.string().min(1).optional(),
+
+  /**
+   * How much of a person this deployment publishes (D197).
+   *
+   * A `username` is an identifier a pupil chose or was issued; a
+   * `display_name` on a provincial host is very often a twelve-year-old's
+   * real, full name. This is the one switch that separates them, and every
+   * surface that renders a person consults the single predicate in
+   * `apps/api/src/authz/name-disclosure.ts` — never its own copy of the rule.
+   *
+   *   `affiliated`    (default) real names to a reader with standing: a
+   *                   global admin or setter, a holder of any organization
+   *                   role, a caller a surface has already authorized over
+   *                   exactly these people (contest staff on an export), and
+   *                   always to the account itself. Everyone else — an
+   *                   anonymous stranger, and an account that registered
+   *                   thirty seconds ago — is shown the USERNAME in the
+   *                   `displayName` field.
+   *   `authenticated` real names to any signed-in caller. The middle rung,
+   *                   for a deployment that wants a parent with an account to
+   *                   find their child by name.
+   *   `public`        real names to anyone. The behaviour before D197, and
+   *                   the right setting for an open public judge whose
+   *                   competitors are adults.
+   *
+   * The default is the PROTECTIVE one on purpose: an operator who reads
+   * nothing and sets nothing gets a host that does not hand a stranger 264
+   * children's names (B-35's measured figure). The open behaviour is the one
+   * you opt into.
+   */
+  NAME_DISCLOSURE: unsetWhenBlank(
+    z.enum(['public', 'authenticated', 'affiliated']).default('affiliated'),
+  ),
 
   /**
    * SMTP. Absent means mail is logged rather than sent (3f §2) — a developer
@@ -132,6 +182,13 @@ export interface AppConfig {
    * whether it renders PDFs the same way it states whether it sends mail.
    */
   typstBin: string | null;
+  /**
+   * D197's one switch, read in one place. Its only consumer is
+   * `apps/api/src/authz/name-disclosure.ts`; nothing else in the API is
+   * allowed to branch on it, which is what
+   * `apps/api/test/name-disclosure-guard.spec.ts` enforces (D198).
+   */
+  nameDisclosure: NameDisclosure;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -171,5 +228,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
           },
     mailFrom: e.MAIL_FROM,
     typstBin: e.TYPST_BIN ?? null,
+    nameDisclosure: e.NAME_DISCLOSURE,
   };
 }

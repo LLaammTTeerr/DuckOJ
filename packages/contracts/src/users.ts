@@ -46,6 +46,42 @@ export type UserStatsDto = z.infer<typeof UserStats>;
 export const UserProfile = UserSummary.extend({
   about: z.string().nullable(),
   stats: UserStats,
+  /**
+   * Whether this profile is showing the reader **less than it holds**,
+   * because this deployment's `NAME_DISCLOSURE` policy does not disclose a
+   * person's identity to them (D197).
+   *
+   * Two fields move together under it, and they move differently because they
+   * are different kinds of thing:
+   *
+   * - `displayName` carries the **username** instead of the real name. A
+   *   substitution, never an omission: the field keeps its shape, every
+   *   renderer keeps working, D122's initial avatar degrades to the handle's
+   *   initials, and a scoreboard of handles is still a scoreboard.
+   * - `about` is **`null`**. It is free text a child typed about themselves —
+   *   a class, a school, a birthday, another handle — and unlike a name it has
+   *   no substitute that keeps a page usable. An empty About section is what
+   *   most profiles have anyway.
+   *
+   * `country`, `rating`, `globalRole`, `createdAt` and `stats` are NOT
+   * withheld, and that is argued rather than overlooked (D197): a
+   * self-declared country is one of two hundred coarse values that identifies
+   * nobody on a host where every account is in one province, and the rest are
+   * the numbers a judge exists to publish — D46's rank ramp hangs off exactly
+   * them.
+   *
+   * It is on the PROFILE and on no list, deliberately. A list is a page of
+   * rows that are all redacted or all not — repeating one boolean per row
+   * would be noise, and every list that renders people already has a place to
+   * say so (the organization page's signed-out notice, D191). A profile is
+   * where a reader stops on ONE person and would otherwise conclude that a
+   * pupil's chosen display name is literally their account name — which is
+   * D187's sin exactly: a reader being shown less, with nothing on the page
+   * that says so.
+   *
+   * `false` for your own profile at every rung: you always see yourself.
+   */
+  identityRedacted: z.boolean(),
 });
 export type UserProfileDto = z.infer<typeof UserProfile>;
 

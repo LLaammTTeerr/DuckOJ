@@ -8648,11 +8648,20 @@
                             "integer",
                             "null"
                           ]
+                        },
+                        "nameDisclosure": {
+                          "type": "string",
+                          "enum": [
+                            "public",
+                            "authenticated",
+                            "affiliated"
+                          ]
                         }
                       },
                       "required": [
                         "apiWorkers",
-                        "judgedConcurrency"
+                        "judgedConcurrency",
+                        "nameDisclosure"
                       ]
                     },
                     "mail": {
@@ -22662,6 +22671,9 @@
                         "points",
                         "submissionCount"
                       ]
+                    },
+                    "identityRedacted": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -22674,7 +22686,8 @@
                     "maxRating",
                     "createdAt",
                     "about",
-                    "stats"
+                    "stats",
+                    "identityRedacted"
                   ]
                 }
               }
@@ -22853,6 +22866,9 @@
                         "points",
                         "submissionCount"
                       ]
+                    },
+                    "identityRedacted": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -22865,7 +22881,8 @@
                     "maxRating",
                     "createdAt",
                     "about",
-                    "stats"
+                    "stats",
+                    "identityRedacted"
                   ]
                 }
               }

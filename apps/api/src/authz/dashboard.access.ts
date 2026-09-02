@@ -53,6 +53,7 @@ import type {
   ReclaimLeasesResponseDto,
 } from '@duckoj/contracts';
 import { APP_CONFIG, DB } from '../config/config.module.js';
+import { policyOf } from './name-disclosure.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import { MAILER, type Mailer } from '../mail/mailer.js';
@@ -221,6 +222,13 @@ export class DashboardService {
       runtime: {
         apiWorkers: resolveWorkerCount(process.env, availableParallelism()),
         judgedConcurrency: this.judgedConcurrency(),
+        // D197, reported for F-40's reason: an operator who sets the switch
+        // needs to see that it reached the process, and one who set nothing
+        // needs to be able to read the protective default off the screen
+        // rather than infer it. `policyOf` is the same fail-closed reader
+        // every access service uses, so the dashboard cannot report a rung
+        // the services are not on.
+        nameDisclosure: policyOf(this.config),
       },
       mail: this.mail(),
       generatedAt: new Date().toISOString(),

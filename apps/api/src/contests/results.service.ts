@@ -26,6 +26,12 @@ import { inArray } from 'drizzle-orm';
 import { schema, type Db } from '@duckoj/db';
 import type { FormatData, IcpcFormatData } from '@duckoj/contest-formats';
 import { APP_CONFIG, DB } from '../config/config.module.js';
+import {
+  nameAudience,
+  policyOf,
+  presentName,
+  type NameAudience,
+} from '../authz/name-disclosure.js';
 import type { AppConfig } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import type { Actor } from '../authz/actor.js';
@@ -260,8 +266,19 @@ export class ContestResultsService {
     const teams = board.teams ?? {};
     const byTeam = contest.participationMode === 'team';
     const usernames = byTeam ? [] : board.ranking.map((row) => row.participant);
+    // D197. `canRunContest` above has already refused everybody who is not
+    // running this round, so this caller is `authority` over exactly these
+    // people and the sheet prints real names at every rung — a certificate
+    // bearing a handle is not a certificate, and D129's seat slip exists so
+    // an invigilator can hand a named child a seat.
+    //
+    // It ASKS rather than assuming, and that is the whole point of wiring the
+    // export paths at all: a CSV or a PDF is the artefact that leaves the
+    // building (D62), so the one place that decides what a name is has to be
+    // the one place this file reads too.
+    const audience = await nameAudience(this.db, policyOf(this.config), actor, { authority: true });
     const [displayNames, orgsByUsername] = await Promise.all([
-      this.loadDisplayNames(usernames),
+      this.loadDisplayNames(usernames, audience),
       byTeam
         ? Promise.resolve(new Map<string, { slug: string; name: string }[]>())
         : loadParticipantOrgs(this.db, contest.id),
@@ -317,13 +334,24 @@ export class ContestResultsService {
    * may read it directly; the organizations beside it are guarded and go
    * through `loadParticipantOrgs` instead.
    */
-  private async loadDisplayNames(usernames: string[]): Promise<Map<string, string>> {
+  private async loadDisplayNames(
+    usernames: string[],
+    audience: NameAudience,
+  ): Promise<Map<string, string>> {
     if (usernames.length === 0) return new Map();
     const rows = await this.db
-      .select({ username: schema.users.username, displayName: schema.users.displayName })
+      .select({
+        userId: schema.users.id,
+        username: schema.users.username,
+        displayName: schema.users.displayName,
+      })
       .from(schema.users)
       .where(inArray(schema.users.username, usernames));
-    return new Map(rows.map((row) => [row.username, row.displayName]));
+    // D197. `buildResults` already falls back to the username for a ranking
+    // row whose account is gone, so a redacted map and a missing row produce
+    // the same, already-tested column — the substitution needs no second
+    // shape anywhere downstream.
+    return new Map(rows.map((row) => [row.username, presentName(audience, row)]));
   }
 }
 

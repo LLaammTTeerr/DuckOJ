@@ -48,7 +48,9 @@ import {
   type TeamSummaryDto,
   type UpdateTeamRequestDto,
 } from '@duckoj/contracts';
-import { DB } from '../config/config.module.js';
+import { APP_CONFIG, DB } from '../config/config.module.js';
+import type { AppConfig, NameDisclosure } from '../config/config.schema.js';
+import { nameAudience, policyOf, presentName, type NameAudience } from './name-disclosure.js';
 import { AppError } from '../common/app.error.js';
 import { reseatTeam, toSeatConflict } from './contest.seats.js';
 import { isAdmin, type Actor } from './actor.js';
@@ -81,6 +83,9 @@ export interface TeamRow {
 
 @Injectable()
 export class TeamAccessService {
+  /** D197's one switch. Read here, decided in `name-disclosure.ts`. */
+  private readonly policy: NameDisclosure;
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(OrgAccessService) private readonly orgs: OrgAccessService,
@@ -90,7 +95,23 @@ export class TeamAccessService {
      * here — the whole arrangement this file's header describes.
      */
     @Inject(ContestAccessService) private readonly contests: ContestAccessService,
-  ) {}
+    @Inject(APP_CONFIG) config?: AppConfig,
+  ) {
+    // Fails CLOSED — see `policyOf`.
+    this.policy = policyOf(config);
+  }
+
+  /**
+   * D197's audience for this reader.
+   *
+   * No surface here passes `authority`: every caller of a team roster already
+   * holds a role in the team's organization (staff, or a member of the team
+   * itself), and an org role IS standing at the `affiliated` rung. Claiming
+   * authority on top of that would be claiming it for nothing.
+   */
+  private nameAudienceFor(actor: Actor | null): Promise<NameAudience> {
+    return nameAudience(this.db, this.policy, actor);
+  }
 
   /**
    * One page of an organization's teams.
@@ -150,7 +171,10 @@ export class TeamAccessService {
     // 0.175 ms. `memberCount` is now derived from what was fetched rather
     // than counted separately, so the widening costs no extra query at all —
     // it REPLACES `memberCounts` here.
-    const rosters = await this.membersByTeam(kept.map((row) => row.id));
+    const rosters = await this.membersByTeam(
+      kept.map((row) => row.id),
+      await this.nameAudienceFor(actor),
+    );
     const locked = await this.teamsInRunningContest(kept.map((row) => row.id));
     return {
       items: kept.map((row) =>
@@ -195,7 +219,7 @@ export class TeamAccessService {
     // `TeamSummary`, so it carries `members` too. Bounded by
     // `MY_TEAMS_LIMIT`, which is why this route was never the N+1 the org
     // panel was.
-    const rosters = await this.membersByTeam(ids);
+    const rosters = await this.membersByTeam(ids, await this.nameAudienceFor(actor));
     const counts = new Map([...rosters].map(([id, members]) => [id, members.length]));
     const locked = await this.teamsInRunningContest(ids);
     const eligibility = query.contest
@@ -232,7 +256,7 @@ export class TeamAccessService {
   async get(actor: Actor, slug: string, teamSlug: string): Promise<TeamDetailDto> {
     const { row: org, role } = await this.orgs.loadVisibleWithRole(actor, slug);
     const team = await this.findTeam(org.id, teamSlug);
-    const members = await this.membersOf(team.id);
+    const members = await this.membersOf(team.id, await this.nameAudienceFor(actor));
     const staff = isAdmin(actor) || role === 'owner' || role === 'admin';
     if (!staff && !members.some((member) => member.userId === actor.userId)) throw teamNotFound();
     const entered = await this.contestsOf(team.id);
@@ -273,7 +297,7 @@ export class TeamAccessService {
     // A team that was just assembled has entered nothing.
     return toDetail(
       await this.findTeamById(teamId),
-      await this.membersOf(teamId),
+      await this.membersOf(teamId, await this.nameAudienceFor(actor)),
       true,
       [],
       await teamEditVersion(this.db, teamId),
@@ -372,7 +396,7 @@ export class TeamAccessService {
     // just made itself.
     return toDetail(
       await this.findTeamById(team.id),
-      await this.membersOf(team.id),
+      await this.membersOf(team.id, await this.nameAudienceFor(actor)),
       true,
       await this.contestsOf(team.id),
       await teamEditVersion(this.db, team.id),
@@ -800,8 +824,8 @@ export class TeamAccessService {
       .innerJoin(organizations, eq(organizations.id, teams.orgId));
   }
 
-  private async membersOf(teamId: number): Promise<MemberRow[]> {
-    return this.db
+  private async membersOf(teamId: number, audience: NameAudience): Promise<MemberRow[]> {
+    const rows = await this.db
       .select({
         userId: teamMembers.userId,
         username: schema.users.username,
@@ -812,6 +836,9 @@ export class TeamAccessService {
       .innerJoin(schema.users, eq(schema.users.id, teamMembers.userId))
       .where(eq(teamMembers.teamId, teamId))
       .orderBy(asc(schema.users.username));
+    // D197, applied HERE rather than in `toDetail`, so every caller of this
+    // roster gets the presented name and none of them can forget to ask.
+    return rows.map((row) => ({ ...row, displayName: presentName(audience, row) }));
   }
 
   /**
@@ -827,11 +854,15 @@ export class TeamAccessService {
    * on a team's own page — `membersOf` sorts by username too, and two orders
    * for one list is how a teacher comes to believe a pupil moved.
    */
-  private async membersByTeam(teamIds: number[]): Promise<Map<number, TeamMemberDto[]>> {
+  private async membersByTeam(
+    teamIds: number[],
+    audience: NameAudience,
+  ): Promise<Map<number, TeamMemberDto[]>> {
     if (teamIds.length === 0) return new Map();
     const rows = await this.db
       .select({
         teamId: teamMembers.teamId,
+        userId: teamMembers.userId,
         username: schema.users.username,
         displayName: schema.users.displayName,
         joinedAt: teamMembers.joinedAt,
@@ -845,7 +876,8 @@ export class TeamAccessService {
       const list = byTeam.get(row.teamId) ?? [];
       list.push({
         username: row.username,
-        displayName: row.displayName,
+        // D197. Substituted, never omitted — see `name-disclosure.ts`.
+        displayName: presentName(audience, row),
         joinedAt: row.joinedAt.toISOString(),
       });
       byTeam.set(row.teamId, list);

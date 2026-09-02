@@ -89,10 +89,44 @@ async function search(agent: SupertestAgent, q: string): Promise<string[]> {
  * result it was created to read, and every expectation below would be one
  * longer for a reason that has nothing to do with the fold.
  */
-async function teacher(app: Awaited<ReturnType<typeof buildApp>>, username: string) {
+async function teacher(app: Awaited<ReturnType<typeof buildApp>>, db: Db, username: string) {
   const agent = request.agent(app.getHttpServer());
   await registerAndLogin(agent, username);
+  await giveStanding(db, username);
   return agent;
+}
+
+/**
+ * A role in a school — which is what the word "teacher" in this file has always
+ * meant, and what **D197** now requires before the display name is in the
+ * haystack at all.
+ *
+ * Under `NAME_DISCLOSURE`'s default rung a reader with no standing in any
+ * organization searches the folded USERNAME alone: D185's fold still applies to
+ * it (`nguyen` still finds `gv-nguyen-van-an`), but a `q` matched against a name
+ * that reader may not be SHOWN would confirm it one prefix at a time — the
+ * oracle D191 closed for an anonymous roster reader, reopened for a signed-in
+ * one. The case where the searcher has no standing is not lost; it moved to
+ * `name-disclosure.spec.ts`, which asserts both halves of it.
+ *
+ * The organization is a bare row, not one of the schools below: standing is
+ * "a role in ANY organization", never "an organization shared with the person
+ * you are looking at" (D197 argues that alternative and why it lost).
+ */
+async function giveStanding(db: Db, username: string): Promise<void> {
+  const [org] = await db
+    .insert(organizations)
+    .values({
+      slug: `phong-gd-${username}`,
+      name: 'Phòng Giáo dục',
+      visibility: 'private',
+    })
+    .returning({ id: organizations.id });
+  const [user] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.username, username));
+  await db.insert(orgMembers).values({ orgId: org!.id, userId: user!.id, role: 'member' });
 }
 
 describe('GET /users?q= — Vietnamese names, typed the way people type them (D185)', () => {
@@ -101,7 +135,7 @@ describe('GET /users?q= — Vietnamese names, typed the way people type them (D1
       const app = await buildApp(db);
       try {
         await seedPupils(db);
-        const gv = await teacher(app, 'kiemtramot');
+        const gv = await teacher(app, db, 'kiemtramot');
         // The ruling itself. Unaccented in, accented out. The third row is
         // the form teacher, matched on the `nguyen` inside the hyphenated
         // username `gv-nguyen-van-an` — the same word rule, applied to the
@@ -124,7 +158,7 @@ describe('GET /users?q= — Vietnamese names, typed the way people type them (D1
       const app = await buildApp(db);
       try {
         await seedPupils(db);
-        const gv = await teacher(app, 'kiemtrahai');
+        const gv = await teacher(app, db, 'kiemtrahai');
         // `An` is the LAST word of `Nguyễn Văn An`. A string prefix would
         // have answered nothing here, which is the failure this rules out.
         // The teacher's own account matches too, on the `an` at the end of
@@ -146,7 +180,7 @@ describe('GET /users?q= — Vietnamese names, typed the way people type them (D1
       const app = await buildApp(db);
       try {
         await seedPupils(db);
-        const gv = await teacher(app, 'kiemtraba');
+        const gv = await teacher(app, db, 'kiemtraba');
         // `đ` is a letter with a STROKE, not a letter with a mark: NFD leaves
         // it exactly as it was, so it is mapped by hand in `searchFold`. Miss
         // that and every Đỗ, Đặng, Đinh and Dũng in the province is unfindable
@@ -177,7 +211,7 @@ it('changes WHICH ROWS come back and never which fields — and the fold column 
         // deliberately no longer true: the anonymous half of that pair is now
         // a 401, which `user-list-enumeration.spec.ts` is what pins. The
         // disclosure property itself is unchanged and still checked here.
-        const gv = await teacher(app, 'kiemtranam');
+        const gv = await teacher(app, db, 'kiemtranam');
         const all = await gv.get('/api/v1/users?limit=50').send();
         const some = await gv.get('/api/v1/users?limit=50&q=nguyen').send();
         expect(all.status).toBe(200);
@@ -200,12 +234,19 @@ it('changes WHICH ROWS come back and never which fields — and the fold column 
           }
         }
 
-        // The search is not a privilege: it is a way of asking for rows this
-        // endpoint serves to every actor alike, so a second ordinary account
-        // sees exactly what the first did. D188 gated WHO may ask; it did not
-        // make the answer depend on who asked, and a list that differed per
-        // caller would be a new oracle rather than a closed one.
-        const other = await teacher(app, 'nguoi-dung-thuong');
+        // The search is not a privilege *among readers with standing*: a
+        // second such account sees exactly what the first did.
+        //
+        // **D197 narrowed this claim, deliberately, and the narrowing is the
+        // ruling.** D188 wrote that "a list that differed per caller would be a
+        // new oracle rather than a closed one" — true of a list that varied per
+        // SUBJECT, which would leak the relationship between reader and
+        // subject. What varies now is one coarse, two-valued property of the
+        // READER: whether they hold standing anywhere. A reader learns from it
+        // only whether they themselves have standing, which they already know.
+        // Two readers on the same side of that line still get byte-identical
+        // answers, which is what this pins.
+        const other = await teacher(app, db, 'nguoi-dung-thuong');
         const asUser = await other.get('/api/v1/users?limit=50&q=nguyen');
         expect(asUser.body.items).toEqual(some.body.items);
 
@@ -224,7 +265,7 @@ it('changes WHICH ROWS come back and never which fields — and the fold column 
       const app = await buildApp(db);
       try {
         await seedPupils(db);
-        const gv = await teacher(app, 'kiemtrabon');
+        const gv = await teacher(app, db, 'kiemtrabon');
         // The oldest bug in every LIKE-backed search: `%` matching the whole
         // table. The fold runs first and the escape second, which is the order
         // that matters — `_` is folded to a space before it can be a wildcard,

@@ -17,12 +17,20 @@ import type {
   PaginationQueryDto,
   UpdateOrgRequestDto,
 } from '@duckoj/contracts';
-import { DB } from '../config/config.module.js';
+import { APP_CONFIG, DB } from '../config/config.module.js';
+import type { AppConfig, NameDisclosure } from '../config/config.schema.js';
 import { AppError } from '../common/app.error.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { isAdmin, type Actor } from './actor.js';
 import { visibleOrgsWhere } from './org.visibility.js';
 import { nameSearchWhere } from './name-search.js';
+import {
+  nameAudience,
+  nameSearchColumn,
+  policyOf,
+  presentName,
+  type NameAudience,
+} from './name-disclosure.js';
 import { RateLimiter } from '../common/rate-limiter.js';
 import { recordWalk, walkRefused, walkRetryAfter } from './walk.meter.js';
 
@@ -95,15 +103,29 @@ type OrgRow = { id: number; slug: string; visibility: 'public' | 'private' };
 export class OrgAccessService {
   private readonly limiter: RateLimiter;
 
+  /** D197's one switch. Read here, decided in `name-disclosure.ts`. */
+  private readonly policy: NameDisclosure;
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(NotificationsService) private readonly notifications: NotificationsService,
     @Inject(RateLimiter) limiter?: RateLimiter,
+    @Inject(APP_CONFIG) config?: AppConfig,
   ) {
     // Optional and defaulted on D80's precedent, and for D80's reason: the
     // specs that construct this service by hand keep working, and they get
     // the REAL limiter rather than a bypass.
     this.limiter = limiter ?? new RateLimiter(db);
+    // `policyOf` fails CLOSED: a hand-built service gets the protective rung.
+    this.policy = policyOf(config);
+  }
+
+  /**
+   * D197's audience for this reader. One place, so the roster read and the
+   * four roster-returning WRITES cannot come to disagree about what a name is.
+   */
+  private nameAudienceFor(actor: Actor | null, authority = false): Promise<NameAudience> {
+    return nameAudience(this.db, this.policy, actor, { authority });
   }
 
   async listVisible(
@@ -231,7 +253,7 @@ export class OrgAccessService {
           'Sign in to search this roster or to read past its first page.',
         );
       }
-      const page = await this.rosterOf(row.id, query);
+      const page = await this.rosterOf(row.id, await this.nameAudienceFor(actor), query);
       // Handing out a cursor and then refusing it would be a contradiction,
       // so an anonymous page never carries one. The web hides "load more"
       // and the search box for a signed-out reader and says why, rather than
@@ -282,7 +304,7 @@ export class OrgAccessService {
       if (retryAfter !== null) throw walkRefused(retryAfter);
     }
 
-    const page = await this.rosterOf(row.id, query);
+    const page = await this.rosterOf(row.id, await this.nameAudienceFor(actor), query);
 
     // After the read, so a query that threw costs the caller nothing — and
     // only for a walk, so the roster search box (which never sends a cursor)
@@ -665,7 +687,7 @@ export class OrgAccessService {
         approved: approve,
       });
     });
-    return this.rosterOf(row.id);
+    return this.rosterOf(row.id, await this.nameAudienceFor(actor, true));
   }
 
   /** Adds a member directly. Owner or admin; only an owner may grant a rank. */
@@ -689,7 +711,7 @@ export class OrgAccessService {
     if (added.length === 0) {
       throw new AppError(409, 'organization_member_exists', 'They are already a member.');
     }
-    return this.rosterOf(row.id);
+    return this.rosterOf(row.id, await this.nameAudienceFor(actor, true));
   }
 
   /** Removes a member. Owner or admin, or yourself leaving. */
@@ -730,7 +752,10 @@ export class OrgAccessService {
         .delete(orgMembers)
         .where(and(eq(orgMembers.orgId, row.id), eq(orgMembers.userId, target)));
     });
-    return this.rosterOf(row.id);
+    // NOT `authority` — this path is also how a plain member LEAVES, and a
+    // member who has just left a school has no standing over its roster.
+    // Staff reach the same answer anyway: an org role is standing.
+    return this.rosterOf(row.id, await this.nameAudienceFor(actor));
   }
 
   /** Sets a member's role. Owner only. */
@@ -765,7 +790,7 @@ export class OrgAccessService {
         .set({ role })
         .where(and(eq(orgMembers.orgId, row.id), eq(orgMembers.userId, target)));
     });
-    return this.rosterOf(row.id);
+    return this.rosterOf(row.id, await this.nameAudienceFor(actor, true));
   }
 
   /**
@@ -843,6 +868,7 @@ export class OrgAccessService {
    */
   private async rosterOf(
     orgId: number,
+    audience: NameAudience,
     query: OrgMemberListQueryDto = ROSTER_FIRST_PAGE,
   ): Promise<OrgMemberPageDto> {
     const after = parseMemberCursor(query.cursor);
@@ -854,10 +880,17 @@ export class OrgAccessService {
     // walk is still `asc(users.username)` seeking on a unique column, so a
     // search can be paged exactly as the unfiltered roster is — and the same
     // `q` has to ride on every page, which is what the web query key pins.
+    //
+    // D197 picks the haystack: a reader shown handles searches the folded
+    // USERNAME alone. Left on `search_fold` — which carries the display name
+    // — the box would confirm a withheld name one prefix at a time, which is
+    // the same prefix-iteration hole D191 closed for an anonymous caller,
+    // reopened for a signed-in one with no standing.
     const search =
-      query.q === undefined ? undefined : nameSearchWhere(schema.users.searchFold, query.q);
+      query.q === undefined ? undefined : nameSearchWhere(nameSearchColumn(audience), query.q);
     const rows = await this.db
       .select({
+        userId: schema.users.id,
         username: schema.users.username,
         displayName: schema.users.displayName,
         role: orgMembers.role,
@@ -879,7 +912,8 @@ export class OrgAccessService {
 
     const items: OrgMemberDto[] = rows.slice(0, query.limit).map((r) => ({
       username: r.username,
-      displayName: r.displayName,
+      // D197. Substituted, never omitted — see `name-disclosure.ts`.
+      displayName: presentName(audience, r),
       role: r.role as OrgRoleDto,
       joinedAt: r.joinedAt.toISOString(),
     }));

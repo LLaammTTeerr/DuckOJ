@@ -22,7 +22,9 @@ import type {
   ProblemSetProgressQueryDto,
   UpdateProblemSetRequestDto,
 } from '@duckoj/contracts';
-import { DB } from '../config/config.module.js';
+import { APP_CONFIG, DB } from '../config/config.module.js';
+import type { AppConfig, NameDisclosure } from '../config/config.schema.js';
+import { nameAudience, policyOf, presentName, type NameAudience } from './name-disclosure.js';
 import { AppError } from '../common/app.error.js';
 import { isAdmin, type Actor } from './actor.js';
 import { problemSetEditVersion, versionConflict } from './edit-version.js';
@@ -117,11 +119,34 @@ export const DEFAULT_PROGRESS_EXPORT_BOUNDS: ProgressExportBounds = {
  */
 @Injectable()
 export class ProblemSetAccessService {
+  /** D197's one switch. Read here, decided in `name-disclosure.ts`. */
+  private readonly policy: NameDisclosure;
+
   constructor(
     @Inject(DB) private readonly db: Db,
     @Inject(OrgAccessService) private readonly orgs: OrgAccessService,
     @Inject(PROGRESS_EXPORT_BOUNDS) private readonly exportBounds: ProgressExportBounds,
-  ) {}
+    @Inject(APP_CONFIG) config?: AppConfig,
+  ) {
+    // Fails CLOSED — see `policyOf`.
+    this.policy = policyOf(config);
+  }
+
+  /**
+   * D197's audience for the grid and its CSV.
+   *
+   * `authority: true`, and this is the shape the export paths take everywhere
+   * (D197): `loadForEdit` has just refused everybody who is not the owner or
+   * an admin of THIS organization, so the caller is the teacher whose class
+   * this is. The point is not that the export is exempt — it is that the
+   * export reaches "full names" by ASKING the predicate, so a later rung, or
+   * a later widening of who may pull the file, is honoured here for free.
+   * D62's booklet leaked a private statement precisely because an export path
+   * had its own idea of what it might print.
+   */
+  private gridAudience(actor: Actor): Promise<NameAudience> {
+    return nameAudience(this.db, this.policy, actor, { authority: true });
+  }
 
   /**
    * The sets of one organization, with the caller's own progress on each.
@@ -192,7 +217,7 @@ export class ProblemSetAccessService {
     const { row: org } = await this.orgs.loadForEdit(actor, slug);
     const set = await this.findSet(org.id, setSlug);
     const items = await this.itemsOf(set.id);
-    return this.gridPage(org.id, set, items, query.cursor, query.limit);
+    return this.gridPage(org.id, set, items, query.cursor, query.limit, await this.gridAudience(actor));
   }
 
   /**
@@ -219,7 +244,8 @@ export class ProblemSetAccessService {
     const { pageSize, rowCap } = this.exportBounds;
     const rows: ProblemSetProgressDto['rows'] = [];
     let cursor: string | undefined;
-    let grid = await this.gridPage(org.id, set, items, cursor, pageSize);
+    const audience = await this.gridAudience(actor);
+    let grid = await this.gridPage(org.id, set, items, cursor, pageSize, audience);
     for (;;) {
       // A page may overshoot the cap by up to `pageSize - 1` rows, so it is
       // cut here rather than trusted: the cap is a promise about the FILE.
@@ -227,7 +253,7 @@ export class ProblemSetAccessService {
       if (rows.length >= rowCap) return { grid: { ...grid, rows, nextCursor: null }, truncated: true };
       if (grid.nextCursor === null) break;
       cursor = grid.nextCursor;
-      grid = await this.gridPage(org.id, set, items, cursor, pageSize);
+      grid = await this.gridPage(org.id, set, items, cursor, pageSize, audience);
     }
     return { grid: { ...grid, rows, nextCursor: null }, truncated: false };
   }
@@ -246,6 +272,7 @@ export class ProblemSetAccessService {
     items: Awaited<ReturnType<ProblemSetAccessService['itemsOf']>>,
     cursor: string | undefined,
     limit: number,
+    audience: NameAudience,
   ): Promise<ProblemSetProgressDto> {
     const after = parseMemberCursor(cursor);
     const members = await this.db
@@ -284,7 +311,10 @@ export class ProblemSetAccessService {
       columns: items.map((item) => ({ code: item.code, name: item.name, points: item.points })),
       rows: kept.map((member) => ({
         username: member.username,
-        displayName: member.displayName,
+        // D197. `progressCsv` renders from this DTO, so the JSON grid and the
+        // spreadsheet cannot come to disagree about what a name is — the same
+        // property `gridPage` exists to hold for the cells.
+        displayName: presentName(audience, member),
         role: member.role,
         cells: items.map((item) => toCell(best.get(cellKey(member.userId, item.problemId)))),
       })),
