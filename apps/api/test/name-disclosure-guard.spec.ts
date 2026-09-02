@@ -32,14 +32,8 @@
  * site fails as a stale entry, so the allowlist stays an honest census of
  * every place in this product that can print a child's name.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
-
-const testDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = join(testDir, '..', '..', '..');
-const scanRoots = [join(testDir, '..', 'src'), join(repoRoot, 'packages')];
+import { scanSources, type Hit } from './source-scan.js';
 
 /**
  * The module that DEFINES the policy. Every reference to the columns, to the
@@ -99,93 +93,7 @@ const SWITCH = /\bnameDisclosure\b/;
 /** Routed through the predicate. */
 const ROUTED = /\bpresent(?:Name|About)\s*\(|\bseesIdentity\s*\(|\bnameSearchColumn\s*\(/;
 
-const DECL =
-  /^\s*(?:export\s+)?(?:private\s+|public\s+|protected\s+)?(?:static\s+)?(?:async\s+)?(?:function\s+)?([A-Za-z_]\w*)\s*(?:<[^>]*>)?\s*\(/;
-const NOT_A_DECL = new Set([
-  'if', 'for', 'while', 'switch', 'catch', 'return', 'and', 'or', 'eq', 'ne', 'sql', 'select',
-  'from', 'where', 'inArray', 'isNull', 'not', 'count', 'values', 'set', 'map', 'filter', 'get',
-  'some', 'find', 'insert', 'update', 'delete', 'join', 'innerJoin', 'leftJoin', 'forEach', 'new',
-  'notInArray', 'expect', 'push', 'slice',
-]);
-
-function walk(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    const p = join(dir, entry);
-    const s = statSync(p);
-    if (s.isDirectory()) {
-      if (entry === 'node_modules' || entry === 'dist') continue;
-      walk(p, out);
-    } else if (p.endsWith('.ts') && !p.endsWith('.spec.ts')) {
-      out.push(p);
-    }
-  }
-  return out;
-}
-
-function isComment(line: string): boolean {
-  const t = line.trimStart();
-  return t.startsWith('*') || t.startsWith('//') || t.startsWith('--') || t.startsWith('/*');
-}
-
-function enclosingFunction(lines: string[], index: number): string {
-  for (let j = index; j >= 0; j--) {
-    const decl = lines[j];
-    if (decl === undefined) continue;
-    const m = decl.match(DECL);
-    if (m && m[1] !== undefined && !NOT_A_DECL.has(m[1])) return m[1];
-  }
-  return '(top-level)';
-}
-
-interface Hit {
-  key: string;
-  file: string;
-  fn: string;
-  line: string;
-  routed: boolean;
-}
-
-/**
- * `routed` is decided over the enclosing function's whole body, not over the
- * matched line: a `.select({ displayName: schema.users.displayName })` and the
- * `presentName(...)` that projects it are necessarily different lines.
- */
-function scan(pattern: RegExp): Hit[] {
-  const hits: Hit[] = [];
-  for (const file of scanRoots.flatMap((r) => walk(r))) {
-    const rel = relative(repoRoot, file).split('\\').join('/');
-    const lines = readFileSync(file, 'utf8').split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line === undefined || isComment(line) || !pattern.test(line)) continue;
-      const fn = enclosingFunction(lines, i);
-      const body = bodyOf(lines, i, fn);
-      hits.push({ key: `${rel}::${fn}`, file: rel, fn, line: line.trim(), routed: ROUTED.test(body) });
-    }
-  }
-  return hits;
-}
-
-/** The lines from the enclosing declaration to the next one at the same depth. */
-function bodyOf(lines: string[], index: number, fn: string): string {
-  let start = 0;
-  for (let j = index; j >= 0; j--) {
-    const m = lines[j]?.match(DECL);
-    if (m && m[1] === fn && !NOT_A_DECL.has(m[1])) {
-      start = j;
-      break;
-    }
-  }
-  let end = lines.length;
-  for (let j = index + 1; j < lines.length; j++) {
-    const m = lines[j]?.match(DECL);
-    if (m && m[1] !== undefined && !NOT_A_DECL.has(m[1])) {
-      end = j;
-      break;
-    }
-  }
-  return lines.slice(start, end).join('\n');
-}
+const scan = (pattern: RegExp): Hit[] => scanSources(pattern, ROUTED);
 
 describe('the disclosure policy has ONE implementation (D197/D198)', () => {
   const identity = scan(IDENTITY);

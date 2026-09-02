@@ -63,6 +63,24 @@ export const TEST_ENV: NodeJS.ProcessEnv = {
   // harness builds, so this is what keeps the suite silent. `silent` is a
   // pino level; `LOG_LEVEL` accepts it (see `config.schema.ts`).
   LOG_LEVEL: 'silent',
+  /**
+   * D200's `open` rung, set EXPLICITLY and not by omission.
+   *
+   * The deployment default is `closed` — an operator who reads nothing gets a
+   * judge that does not take sign-ups — and roughly forty specs across this
+   * suite reach `POST /auth/register` to get themselves an account. Making
+   * each of them acquire an admin cookie first would test the harness rather
+   * than the product, and would quietly delete the coverage of the register
+   * endpoint's own behaviour (D26's fake 201, D16's meter, the verification
+   * mail) that those forty specs are actually about.
+   *
+   * So the suite runs a judge that takes sign-ups, the way a public practice
+   * host does, and `registration-policy.spec.ts` is where the OTHER rung — the
+   * one production is on — is exercised, through `configOverrides`. Written
+   * here rather than left unset precisely so a reader of this file can see
+   * that the suite is on the permissive rung on purpose.
+   */
+  REGISTRATION: 'open',
   MAIL_FROM: 'DuckOJ <test@duckoj.local>',
   // No `SMTP_HOST`: tests use `LogMailer`, and a test that wants to read what
   // was sent injects the mailer and reads `sent`. A suite must never need a
